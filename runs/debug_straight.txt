@@ -1,0 +1,6 @@
+# Debug: accelerate straight for 60 in-game seconds.
+# Place the car just before the finish line, then run debug_straight.py.
+# The InstructionClient will brake to a stop, pause 2 s, then hold accelerate.
+
+0.0  press up
+60.0 release

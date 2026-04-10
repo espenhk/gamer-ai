@@ -1,0 +1,48 @@
+track: a03_centerline    # stem of the .npy file in tracks/ (e.g. "a03_centerline" → tracks/a03_centerline.npy)
+speed: 10.0              # game speed multiplier (TMInterface max is 10.0)
+in_game_episode_s: 30.0  # in-game seconds per episode (braking phase + driving)
+n_sims: 100              # greedy simulations / generations after cold-start
+mutation_scale: 0.05      # std-dev of Gaussian noise applied to each perturbed weight
+mutation_share: 1.0       # fraction of weights perturbed per mutation (1.0 = all, 0.2 = ~6/30)
+probe_s: 15.0             # in-game seconds for each of the 9 single-action probe runs
+cold_restarts: 20         # max random restarts during cold-start search (hill_climbing only)
+cold_sims: 5            # hill-climb sims per cold-start restart (hill_climbing only)
+n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 = disabled)
+
+
+# Policy algorithm for the greedy training phase.
+# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic
+policy_type: genetic
+
+# Type-specific hyperparams.  Only the block matching policy_type is used.
+# Uncomment and edit the relevant section when switching policy_type.
+#
+policy_params:
+
+  # hill_climbing — ES gradient estimation with antithetic pairs (+ε / −ε).
+  # Each sim runs two episodes and updates weights via:
+  #   θ += learning_rate * (R⁺ − R⁻) * ε
+  # mutation_scale controls the probe radius; learning_rate controls the step size.
+  #learning_rate: 0.01
+
+  # neural_net — MLP policy, hill-climbing on network weights
+  #hidden_sizes: [16, 16]   # hidden layer sizes
+
+  # epsilon_greedy — tabular Q-learning with epsilon-greedy exploration
+  #n_bins: 3                # discretization buckets per obs feature
+  #epsilon: 1.0             # initial exploration rate
+  #epsilon_decay: 0.995     # per-episode epsilon multiplier
+  #epsilon_min: 0.05        # minimum epsilon
+  #alpha: 0.1               # Q-learning rate
+  #gamma: 0.99              # reward discount factor
+
+  # mcts — UCT-style online Q-learner (UCB1 action selection)
+  #n_bins: 3                # discretization buckets per obs feature
+  #c: 1.41                  # UCB1 exploration constant (sqrt(2) default)
+  #alpha: 0.1               # Q-learning rate
+  #gamma: 0.99              # reward discount factor
+
+  # genetic — population of linear policies, evolutionary training
+  population_size: 20      # individuals per generation
+  elite_k: 3               # top survivors kept unchanged each generation
+  # mutation_scale is inherited from the top-level value above

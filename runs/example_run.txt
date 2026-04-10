@@ -1,0 +1,15 @@
+# Example run
+# Format: <time_seconds> <action>
+# The client automatically brakes to a stop before and after these instructions.
+
+0   press up
+3   steer right
+4   steer left
+5.5   steer straight
+7.8   steer right
+8   steer straight
+11   steer right
+11.1   steer straight
+12.5 steer left
+18 steer straight
+21 steer straight

@@ -15,7 +15,8 @@ Observation space  (BASE_OBS_DIM + n_lidar_rays floats, dtype float32)
     [7]  turning_rate      — current steering angle reported by the game
     [8–11] wheel_N_contact — 1.0 if wheel has ground contact, else 0.0
     [12–14] angular_vel_N  — angular velocity components (rad/s)
-    [15+] lidar_i          — LIDAR wall distances ~[0,1] (only if n_lidar_rays > 0)
+    [15–20] lookahead_N    — (lateral_offset_m, heading_change_rad) × 3 waypoints
+    [21+] lidar_i          — LIDAR wall distances ~[0,1] (only if n_lidar_rays > 0)
 
 Action space
 ------------
@@ -58,6 +59,7 @@ from gymnasium import spaces
 from tminterface.interface import TMInterface
 
 from clients.rl_client import RLClient, StepState
+from obs_spec import BASE_OBS_DIM
 from rl.reward import RewardConfig, RewardCalculator
 from lidar import LidarSensor
 
@@ -289,6 +291,8 @@ class TMNFEnv(gym.Env):
 
     def _make_obs(self, step: StepState) -> np.ndarray:
         d = step.state_data
+        # [15-20] interleaved lookahead: lat10, yaw10, lat25, yaw25, lat50, yaw50
+        lookahead_vals = [v for lat, yaw in d.lookahead for v in (lat, yaw)]
         state = np.array(
             [
                 d.velocity.magnitude(),                    # [0] speed m/s
@@ -306,6 +310,7 @@ class TMNFEnv(gym.Env):
                 d.angular_velocity.x,                      # [12-14] angular vel
                 d.angular_velocity.y,
                 d.angular_velocity.z,
+                *lookahead_vals,                           # [15-20] lookahead
             ],
             dtype=np.float32,
         )

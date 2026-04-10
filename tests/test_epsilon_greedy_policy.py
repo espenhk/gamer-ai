@@ -3,11 +3,12 @@ import unittest
 
 import numpy as np
 
+from obs_spec import BASE_OBS_DIM
 from policies import EpsilonGreedyPolicy, WeightedLinearPolicy, _action_to_idx, _discretize_obs
 
 
 def _zero_obs() -> np.ndarray:
-    return np.zeros(15, dtype=np.float32)
+    return np.zeros(BASE_OBS_DIM, dtype=np.float32)
 
 
 def _state_key(obs: np.ndarray) -> tuple:
@@ -45,7 +46,7 @@ class TestEpsilonGreedyPolicy(unittest.TestCase):
         alpha, gamma = 0.5, 0.9
         p = EpsilonGreedyPolicy(epsilon=0.0, alpha=alpha, gamma=gamma)
         obs      = _zero_obs()
-        next_obs = np.ones(15, dtype=np.float32)
+        next_obs = np.ones(BASE_OBS_DIM, dtype=np.float32)
         s  = _state_key(obs)
         s_ = _state_key(next_obs)
         # Seed Q(s', 2) = 5 → max_Q(s') = 5

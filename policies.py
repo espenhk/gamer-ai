@@ -232,7 +232,8 @@ class WeightedLinearPolicy(BasePolicy):
 
     def with_flat(self, flat: np.ndarray) -> "WeightedLinearPolicy":
         """Return a new policy with weights replaced by a flat vector."""
-        n = 15 + self._n_lidar_rays
+        from obs_spec import BASE_OBS_DIM
+        n = BASE_OBS_DIM + self._n_lidar_rays
         names = self.get_obs_names(self._n_lidar_rays)
         cfg = {
             "steer_weights": {names[i]: float(flat[i]) for i in range(n)},
@@ -283,6 +284,13 @@ class WeightedLinearPolicy(BasePolicy):
             with open(self._weights_file) as f:
                 cfg = yaml.safe_load(f)
 
+            loaded_dim = len(cfg.get("steer_weights", {}))
+            if loaded_dim != len(names):
+                logger.warning(
+                    "[WeightedLinearPolicy] loaded weights dim=%d doesn't match obs_dim=%d; "
+                    "new features initialised to 0.0 → %s",
+                    loaded_dim, len(names), self._weights_file,
+                )
             normalized = _normalize_weight_cfg(cfg, names)
             if normalized != cfg:
                 with open(self._weights_file, "w") as f:
@@ -323,7 +331,7 @@ class NeuralNetPolicy(BasePolicy):
         from obs_spec import BASE_OBS_DIM
         self._hidden = list(hidden_sizes or [16, 16])
         self._n_lidar_rays = n_lidar_rays
-        obs_dim = 15 + n_lidar_rays
+        obs_dim = BASE_OBS_DIM + n_lidar_rays
         layer_dims = [obs_dim] + self._hidden + [self._OUTPUT_DIM]
         rng = np.random.default_rng()
         self._weights: list[np.ndarray] = []

@@ -3,7 +3,10 @@ import unittest
 
 import numpy as np
 
+from obs_spec import BASE_OBS_DIM
 from policies import NeuralNetPolicy
+
+_N = BASE_OBS_DIM
 
 
 class TestNeuralNetPolicy(unittest.TestCase):
@@ -18,17 +21,17 @@ class TestNeuralNetPolicy(unittest.TestCase):
 
     def test_action_in_range(self):
         p = NeuralNetPolicy(hidden_sizes=[8])
-        obs = np.random.randn(15).astype(np.float32)
+        obs = np.random.randn(_N).astype(np.float32)
         self.assert_action_vector(p(obs))
 
     def test_deterministic(self):
         p = NeuralNetPolicy(hidden_sizes=[8])
-        obs = np.random.randn(15).astype(np.float32)
+        obs = np.random.randn(_N).astype(np.float32)
         np.testing.assert_array_equal(p(obs), p(obs))
 
     def test_from_cfg_roundtrip(self):
         p = NeuralNetPolicy(hidden_sizes=[8, 8])
-        obs = np.random.randn(15).astype(np.float32)
+        obs = np.random.randn(_N).astype(np.float32)
         p2 = NeuralNetPolicy.from_cfg(p.to_cfg())
         np.testing.assert_allclose(p(obs), p2(obs))
 
@@ -39,7 +42,7 @@ class TestNeuralNetPolicy(unittest.TestCase):
     def test_output_always_9_actions(self):
         p = NeuralNetPolicy(hidden_sizes=[4])
         for _ in range(20):
-            obs = np.random.randn(15).astype(np.float32) * 100
+            obs = np.random.randn(_N).astype(np.float32) * 100
             self.assert_action_vector(p(obs))
 
     def test_mutated_has_different_weights(self):
@@ -53,8 +56,8 @@ class TestNeuralNetPolicy(unittest.TestCase):
         p = NeuralNetPolicy(hidden_sizes=[16, 8])
         cfg = p.to_cfg()
         weights = cfg["weights"]
-        # Layer dims: [15, 16, 8, 3]
-        self.assertEqual(np.array(weights[0]).shape, (16, 15))
+        # Layer dims: [BASE_OBS_DIM, 16, 8, 3]
+        self.assertEqual(np.array(weights[0]).shape, (16, _N))
         self.assertEqual(np.array(weights[1]).shape, (8, 16))
         self.assertEqual(np.array(weights[2]).shape, (3, 8))
 

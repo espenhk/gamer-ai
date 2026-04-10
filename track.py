@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from scipy.spatial import KDTree
 
@@ -73,6 +75,49 @@ class Centerline:
         vertical_offset = float(offset[1])
 
         return float(progress), lateral_offset, vertical_offset, forward, idx
+
+    def project_ahead(self, pos: Vec3, nearest_idx: int, steps: int) -> tuple[float, float]:
+        """Return (lateral_offset, heading_change) for the waypoint *steps* ahead.
+
+        lateral_offset: metres from the car's current position to the target
+          waypoint, projected onto the right axis at *nearest_idx*.  Positive
+          means the waypoint is to the right of the car.
+        heading_change: signed angle (rad) between the track forward direction at
+          *nearest_idx* and at *target_idx*, i.e. how much the track turns between
+          here and the lookahead point.  Positive = right turn, negative = left turn.
+        """
+        n = len(self._points)
+        target_idx = min(nearest_idx + steps, n - 2)
+
+        # Forward and right vectors at the current nearest point
+        a0 = self._points[nearest_idx].astype(np.float64)
+        b0 = self._points[nearest_idx + 1].astype(np.float64)
+        fwd0 = b0 - a0
+        fwd0_len = float(np.linalg.norm(fwd0))
+        fwd0 = fwd0 / fwd0_len if fwd0_len > 1e-9 else np.array([1.0, 0.0, 0.0])
+
+        right0 = np.cross(fwd0, UP_VECTOR)
+        right0_len = float(np.linalg.norm(right0))
+        right0 = right0 / right0_len if right0_len > 1e-9 else np.array([1.0, 0.0, 0.0])
+
+        # Forward direction at the target point
+        a1 = self._points[target_idx].astype(np.float64)
+        b1 = self._points[target_idx + 1].astype(np.float64)
+        fwd1 = b1 - a1
+        fwd1_len = float(np.linalg.norm(fwd1))
+        fwd1 = fwd1 / fwd1_len if fwd1_len > 1e-9 else np.array([1.0, 0.0, 0.0])
+
+        # Lateral offset: how far the lookahead waypoint is to the right/left
+        p = np.array([pos.x, pos.y, pos.z], dtype=np.float64)
+        lateral_offset = float(np.dot(a1 - p, right0))
+
+        # Heading change: signed angle between fwd0 and fwd1 (Y-up cross product)
+        cos_a = float(np.clip(np.dot(fwd0, fwd1), -1.0, 1.0))
+        cross = np.cross(fwd0, fwd1)
+        sign = 1.0 if float(cross[1]) >= 0.0 else -1.0
+        heading_change = sign * math.acos(cos_a)
+
+        return lateral_offset, heading_change
 
     def project(self, pos: Vec3) -> tuple[float, float, float]:
         """Returns (progress, lateral_offset, vertical_offset). See project_with_forward()."""

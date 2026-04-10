@@ -23,6 +23,11 @@ class ObsDim:
     description: str
 
 
+# Lookahead configuration — how many waypoints ahead to observe, and at which
+# centerline indices relative to the current nearest point.
+N_LOOKAHEAD: int = 3
+LOOKAHEAD_STEPS: list[int] = [10, 25, 50]
+
 OBS_SPEC: list[ObsDim] = [
     ObsDim("speed_ms",          50.0,    "Vehicle speed in m/s"),
     ObsDim("lateral_offset_m",   5.0,    "Metres from centreline (neg=left, pos=right)"),
@@ -39,6 +44,13 @@ OBS_SPEC: list[ObsDim] = [
     ObsDim("angular_vel_x",      5.0,    "Roll rate (rad/s)"),
     ObsDim("angular_vel_y",      5.0,    "Yaw rate (rad/s)"),
     ObsDim("angular_vel_z",      5.0,    "Pitch rate (rad/s)"),
+    # Lookahead: (lateral offset m, heading change rad) at each upcoming waypoint.
+    ObsDim("lookahead_10_lat",   5.0,    "Lateral offset 10 pts ahead (m)"),
+    ObsDim("lookahead_10_yaw",   3.14,   "Heading change 10 pts ahead (rad)"),
+    ObsDim("lookahead_25_lat",   5.0,    "Lateral offset 25 pts ahead (m)"),
+    ObsDim("lookahead_25_yaw",   3.14,   "Heading change 25 pts ahead (rad)"),
+    ObsDim("lookahead_50_lat",   5.0,    "Lateral offset 50 pts ahead (m)"),
+    ObsDim("lookahead_50_yaw",   3.14,   "Heading change 50 pts ahead (rad)"),
 ]
 
 # Derived constants — import these instead of hardcoding 15 / list-literals elsewhere.

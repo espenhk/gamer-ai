@@ -93,11 +93,17 @@ class StateData:
         self.vertical_offset = None
         self.track_forward = None   # unit np.ndarray of track direction at car position
         self._centerline_idx = None  # nearest centerline point index (for windowed search)
+        self.lookahead: list[tuple[float, float]] = [(0.0, 0.0)] * 3
         if centerline is not None:
             (self.track_progress, self.lateral_offset, self.vertical_offset,
              self.track_forward, self._centerline_idx) = centerline.project_with_forward(
                 self.position, hint_idx=hint_idx
             )
+            from obs_spec import LOOKAHEAD_STEPS
+            self.lookahead = [
+                centerline.project_ahead(self.position, self._centerline_idx, s)
+                for s in LOOKAHEAD_STEPS
+            ]
 
     def __str__(self) -> str:
         contact_str = " ".join(str(int(w.contact)) for w in self.wheels)

@@ -3,11 +3,12 @@ import unittest
 
 import numpy as np
 
+from obs_spec import BASE_OBS_DIM
 from policies import MCTSPolicy, WeightedLinearPolicy, _action_to_idx, _discretize_obs
 
 
 def _zero_obs() -> np.ndarray:
-    return np.zeros(15, dtype=np.float32)
+    return np.zeros(BASE_OBS_DIM, dtype=np.float32)
 
 
 def _state_key(obs: np.ndarray) -> tuple:
@@ -24,7 +25,7 @@ class TestMCTSPolicy(unittest.TestCase):
         # With an empty table every call is random — expect multiple distinct actions over many calls.
         # Probability of all 30 calls picking the same action: 9^{-29} ≈ 0.
         p = MCTSPolicy()
-        actions = {_action_to_idx(p(np.random.randn(15).astype(np.float32))) for _ in range(30)}
+        actions = {_action_to_idx(p(np.random.randn(BASE_OBS_DIM).astype(np.float32))) for _ in range(30)}
         self.assertGreater(len(actions), 1)
 
     def test_update_increments_visit_count(self):

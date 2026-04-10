@@ -3,7 +3,10 @@ import unittest
 
 import numpy as np
 
+from obs_spec import BASE_OBS_DIM
 from policies import WeightedLinearPolicy, _discretize_obs
+
+_N = BASE_OBS_DIM
 
 
 class TestDiscretizeObs(unittest.TestCase):
@@ -13,15 +16,15 @@ class TestDiscretizeObs(unittest.TestCase):
 
     def test_zero_obs_maps_to_middle_bin(self):
         # Zero normalised → middle of [-3, 3] range → bin 1 with n_bins=3
-        bins = _discretize_obs(np.zeros(15, dtype=np.float32), self._scales(), n_bins=3)
+        bins = _discretize_obs(np.zeros(_N, dtype=np.float32), self._scales(), n_bins=3)
         self.assertTrue(all(b == 1 for b in bins))
 
     def test_clipped_high_obs_maps_to_max_bin(self):
-        bins = _discretize_obs(np.full(15, 1e9, dtype=np.float32), self._scales(), n_bins=3)
+        bins = _discretize_obs(np.full(_N, 1e9, dtype=np.float32), self._scales(), n_bins=3)
         self.assertTrue(all(b == 2 for b in bins))
 
     def test_clipped_low_obs_maps_to_min_bin(self):
-        bins = _discretize_obs(np.full(15, -1e9, dtype=np.float32), self._scales(), n_bins=3)
+        bins = _discretize_obs(np.full(_N, -1e9, dtype=np.float32), self._scales(), n_bins=3)
         self.assertTrue(all(b == 0 for b in bins))
 
     def test_symmetry(self):
@@ -34,14 +37,14 @@ class TestDiscretizeObs(unittest.TestCase):
             self.assertEqual(p + n, 2 * mid)
 
     def test_returns_tuple_of_ints(self):
-        bins = _discretize_obs(np.zeros(15, dtype=np.float32), self._scales(), n_bins=3)
+        bins = _discretize_obs(np.zeros(_N, dtype=np.float32), self._scales(), n_bins=3)
         self.assertIsInstance(bins, tuple)
         self.assertTrue(all(isinstance(b, int) for b in bins))
 
     def test_length_matches_obs_dim(self):
-        obs = np.zeros(15, dtype=np.float32)
+        obs = np.zeros(_N, dtype=np.float32)
         bins = _discretize_obs(obs, self._scales(), n_bins=3)
-        self.assertEqual(len(bins), 15)
+        self.assertEqual(len(bins), _N)
 
 
 if __name__ == "__main__":

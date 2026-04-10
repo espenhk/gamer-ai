@@ -77,6 +77,26 @@ class TestStateData(unittest.TestCase):
         finally:
             os.unlink(f.name)
 
+    def test_lookahead_has_three_entries_when_centerline_present(self):
+        points = np.array([[0, 0, i * 10.0] for i in range(11)], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as f:
+            np.save(f.name, points)
+            cl = Centerline(f.name)
+        try:
+            gs = make_game_state(position=(0.0, 0.0, 10.0))
+            sd = StateData(gs, centerline=cl)
+            self.assertEqual(len(sd.lookahead), 3)
+            for lat, heading in sd.lookahead:
+                self.assertTrue(math.isfinite(lat))
+                self.assertTrue(math.isfinite(heading))
+        finally:
+            os.unlink(f.name)
+
+    def test_lookahead_defaults_to_zeros_without_centerline(self):
+        gs = make_game_state(position=(0.0, 0.0, 0.0))
+        sd = StateData(gs)
+        self.assertEqual(sd.lookahead, [(0.0, 0.0)] * 3)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 _UP = np.array([0.0, 1.0, 0.0])
 VELOCITY_ZERO_THRESHOLD = 0.5  # m/s — wait for car to stop before starting episode
 
+# Default action: coast straight — no steer, no accel, no brake.
+_DEFAULT_ACTION = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
 # Hard-limit lateral offset before the client itself declares the episode done.
 # This is a safety net — the env's crash_threshold_m (default 10 m) triggers first.
 _HARD_CRASH_THRESHOLD_M = 50.0
@@ -274,16 +277,16 @@ class RLClient(PhaseAwareClient):
                 self._running = False
                 return
 
-                with self._action_lock:
-                    action = self._action
-                steer_norm = float(np.clip(action[0], -1.0, 1.0))
-                accel = bool(float(action[1]) >= 0.5)
-                brake = bool(float(action[2]) >= 0.5)
-                iface.set_input_state(
-                    accelerate=accel,
-                    brake=brake,
-                    steer=int(steer_norm * 65536),
-                )
+            with self._action_lock:
+                action = self._action
+            steer_norm = float(np.clip(action[0], -1.0, 1.0))
+            accel = bool(float(action[1]) >= 0.5)
+            brake = bool(float(action[2]) >= 0.5)
+            iface.set_input_state(
+                accelerate=accel,
+                brake=brake,
+                steer=int(steer_norm * 65536),
+            )
 
 
             finished  = data.track_progress is not None and data.track_progress >= _FINISH_THRESHOLD

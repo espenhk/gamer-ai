@@ -1057,7 +1057,7 @@ class CMAESPolicy(BasePolicy):
         return {
             "policy_type":     "cmaes",
             "population_size": self._lam,
-            "initial_sigma":   self._sigma,
+            "sigma":          self._sigma,
             "n_lidar_rays":    self._n_lidar_rays,
             "champion_reward": float(self._champion_reward),
         }

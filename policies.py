@@ -903,11 +903,30 @@ class CMAESPolicy(BasePolicy):
 
     def initialize_from_champion(self, champion: WeightedLinearPolicy) -> None:
         """Seed the search mean from an existing champion's flat weight vector."""
-        self._champion        = champion
-        self._champion_reward = float("-inf")   # re-evaluated in first generation
-        self._mean            = champion.to_flat().astype(np.float64)
-        logger.info("[CMAESPolicy] seeded mean from champion")
+        self._champion = champion
 
+        seeded_reward = None
+        for attr_name in ("champion_reward", "reward"):
+            reward_value = getattr(champion, attr_name, None)
+            if reward_value is not None:
+                try:
+                    seeded_reward = float(reward_value)
+                except (TypeError, ValueError):
+                    seeded_reward = None
+                else:
+                    if math.isfinite(seeded_reward):
+                        break
+                    seeded_reward = None
+
+        if seeded_reward is None and math.isfinite(self._champion_reward):
+            seeded_reward = float(self._champion_reward)
+
+        self._champion_reward = seeded_reward if seeded_reward is not None else float("-inf")
+        self._mean = champion.to_flat().astype(np.float64)
+        logger.info(
+            "[CMAESPolicy] seeded mean from champion%s",
+            "" if seeded_reward is None else f" (baseline reward={self._champion_reward:.6f})",
+        )
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

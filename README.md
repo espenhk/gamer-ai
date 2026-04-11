@@ -14,7 +14,7 @@ python main.py <experiment_name> [--no-interrupt] [--re-initialize]
 python grid_search.py config/my_grid.yaml [--no-interrupt]
 ```
 
-Results land in `experiments/<name>/results/`.
+Results land in `experiments/<track>/<name>/results/`.
 
 `--re-initialize` ignores any existing weights file and reruns probe + cold-start from scratch.
 
@@ -22,19 +22,21 @@ Results land in `experiments/<name>/results/`.
 
 ## Configuring a run
 
-On first run, `config/training_params.yaml` is copied into `experiments/<name>/training_params.yaml`. Edit the experiment copy to tune without affecting other experiments.
+On first run, `config/training_params.yaml` is copied into `experiments/<track>/<name>/training_params.yaml`. Edit the experiment copy to tune without affecting other experiments.
 
 ```yaml
+track: a03_centerline
 speed: 10.0
-in_game_episode_s: 13.0
-n_sims: 10
+in_game_episode_s: 30.0
+n_sims: 100
 mutation_scale: 0.05
-probe_s: 8.0
+mutation_share: 1.0      # fraction of weights perturbed per mutation
+probe_s: 15.0
 cold_restarts: 20
 cold_sims: 5
 n_lidar_rays: 8          # 0 = disabled
 
-policy_type: hill_climbing   # see Policy types below
+policy_type: genetic     # see Policy types below
 
 policy_params:
   # type-specific hyperparams (see below)
@@ -79,14 +81,14 @@ policy_params:
 
 # genetic
 policy_params:
-  population_size: 10
+  population_size: 20
   elite_k: 3
   # mutation_scale inherited from top-level
 ```
 
 ### Training phases (hill_climbing only)
 
-1. **Probe** — runs each of the 9 actions for `probe_s` seconds to establish a reward floor.
+1. **Probe** — runs 6 fixed-action episodes (brake/accel × left/straight/right; coast skipped) for `probe_s` seconds each to establish a reward floor.
 2. **Cold-start search** — up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` sims each. Stops early if the floor is beaten.
 3. **Greedy** — `n_sims` iterations of mutate-and-keep.
 
@@ -94,7 +96,7 @@ All other policy types skip probe and cold-start and go straight to greedy.
 
 ### Episode warmup
 
-The first 150 steps of every episode force full-throttle straight (`accel + straight`) regardless of the policy. This covers the braking-start phase so the policy's Q-table / weights are not poisoned by forced behaviour.
+The first 100 steps of every episode force full-throttle straight (`accel + straight, no brake`) regardless of the policy. This covers the braking-start phase so the policy's Q-table / weights are not poisoned by forced behaviour.
 
 ---
 

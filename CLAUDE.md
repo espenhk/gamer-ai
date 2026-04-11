@@ -1,189 +1,248 @@
 # CLAUDE.md
 
-This repo contains two independent hobby projects sharing a single Python virtual environment managed by Poetry.
+Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / evolutionary / Q-learning algorithms trained against a live TMInterface session.
 
 ---
 
 ## Repository Structure
 
 ```
-espenhk-hobby-projects/
-├── .venv/                  # Shared virtual environment (created by Poetry)
-├── skate/                  # Ice skating race predictor
-├── tmnf/                   # Trackmania Nations Forever AI
-├── pyproject.toml          # Shared dependencies for both projects
-├── poetry.lock             # Locked dependency versions
-├── README.md
-└── CLAUDE.md
-```
-
----
-
-## Project: `skate`
-
-### Purpose
-Terminal app for live ice skating race tracking. Operator inputs lap splits as they happen; the app predicts finish times and tracks inter-skater gaps.
-
-### Structure
-```
-skate/
-├── race_predictor.py       # Entry point — run this
-├── start.py                # Shortcut launcher
-├── demo.py                 # Demo with fake data
-├── models/
-│   ├── skater.py           # Skater state + speed-based prediction
-│   ├── race.py             # Race state management
-│   ├── competition.py      # Competition + leaderboard
-│   ├── person.py           # Skater profile entity
-│   └── race_preset.py      # Distance configs (1500m, 3000m, 5000m, 10000m)
-├── engine/
-│   └── predictor.py        # Algorithms: simple / weighted / fatigue-adjusted
-├── ui/
-│   ├── cli.py              # Interactive CLI
-│   └── base_ui.py          # Base display components
-├── presets/                # JSON race distance configs
-├── data/
-│   ├── competitions/       # Competition fixture JSON files
-│   └── people/             # Individual skater profiles (JSON)
-├── scripts/
-│   ├── parse_pdf.py        # Extract skater lists from PDF start lists
-│   ├── manage_persons.py   # CRUD for skater database
-│   └── populate_people_from_competition.py
-└── tests/
-    └── test_race_predictor.py  # Unit tests
-```
-
-### State
-Complete and functional. All core features work. Skater profiles include historical PB/SB data. PDF parsing script exists for loading real competition start lists.
-
-### Key design decisions
-- Predictions use average speed (m/s) rather than raw lap times, which handles variable-distance first laps correctly.
-- Time input is flexible: `MM:SS.mmm`, `SS.mmm`, or bare `SS`.
-- Data is JSON-based, no database needed.
-
-### Running tests
-```bash
-python -m pytest skate/tests/
-```
-
----
-
-## Project: `tmnf`
-
-### Purpose
-Drive in Trackmania Nations Forever autonomously — first with a hand-coded PD controller, then with a trained linear policy using hill-climbing.
-
-### Structure
-```
-tmnf/
-├── main.py                 # Entry point — run with: python main.py <experiment_name>
-├── policies.py             # SimplePolicy (PD baseline) + WeightedLinearPolicy (trainable)
+tmnf-ai/
+├── main.py                 # Entry point — python main.py <experiment_name>
+├── grid_search.py          # Grid search over param combinations
+├── analytics.py            # Experiment result plots and summary tables
+├── policies.py             # All policy implementations (6 trainable + 1 baseline)
+├── obs_spec.py             # Observation space definition (single source of truth)
 ├── utils.py                # StateData, Vec3, Quat, WheelState data classes
+├── constants.py            # N_ACTIONS, STEER_SCALE, UP_VECTOR
 ├── track.py                # Centerline class: load .npy, project position
-├── build_centerline.py     # Script to build centerline from a replay
-├── instructions.py         # Predefined input instruction sequences
+├── steering.py             # PDHeadingController — shared PD+heading steering
+├── lidar.py                # LidarSensor — screenshot-based wall-distance rays
+├── build_centerline.py     # Script to build centerline .npy from a replay
+├── instructions.py         # Instruction parsing for fixed input sequences
+├── debug_straight.py       # Debugging utility
 ├── clients/
-│   ├── phase.py            # Phase enum (BRAKING_START, RUNNING)
-│   ├── instruction_client.py  # Replays a fixed instruction sequence
-│   ├── adaptive_client.py  # PD controller following centerline (works on A03)
-│   └── rl_client.py        # Thread-safe bridge for RL training
+│   ├── base.py             # PhaseAwareClient base + Phase enum
+│   ├── instruction_client.py  # InstructionClient — replays a fixed sequence
+│   └── rl_client.py        # RLClient — thread-safe bridge for RL training
 ├── rl/
-│   ├── env.py              # TMNFEnv — Gymnasium Env wrapping the game
+│   ├── env.py              # TMNFEnv — Gymnasium Env wrapping TMInterface
 │   ├── reward.py           # RewardCalculator + RewardConfig
-│   ├── reward_config.yaml  # Master reward weights — copied into each new experiment
-│   ├── train.py            # PPO training script (not primary path)
-│   └── __init__.py
-├── experiments/            # Per-experiment weights and reward configs (git-ignored)
-│   └── <name>/
-│       ├── policy_weights.yaml   # Saved best weights for this experiment
-│       └── reward_config.yaml    # Reward config copy for this experiment
-├── replays/
-│   └── a03_centerline.Replay.Gbx
-└── tracks/
-    └── a03_centerline.npy
+│   └── train.py            # PPO training script (not primary path)
+├── config/                 # Master config templates
+│   ├── training_params.yaml      # Training hyperparams (copied into each experiment)
+│   ├── reward_config.yaml        # Reward weights (copied into each experiment)
+│   ├── policy_weights.yaml       # Example/template weights
+│   ├── grid_search_template.yaml # Grid search template
+│   └── gs_*.yaml                 # Pre-made grid search configs
+├── tests/                  # Unit tests
+├── experiments/            # Per-experiment results (git-ignored)
+│   └── <track>/<name>/
+│       ├── policy_weights.yaml
+│       ├── reward_config.yaml
+│       ├── training_params.yaml
+│       └── results/
+├── tracks/
+│   └── a03_centerline.npy
+└── replays/
+    └── a03_centerline.Replay.Gbx
 ```
 
-### Running
+---
+
+## Running
+
 ```bash
-# From tmnf/
-python main.py <experiment_name>
+# Single experiment
+python main.py <experiment_name> [--no-interrupt] [--re-initialize]
+
+# Grid search over param combinations
+python grid_search.py config/my_grid.yaml [--no-interrupt]
+
+# Tests
+python -m pytest tests/
 ```
 
-On first run with a new name, `experiments/<name>/` is created and the master `rl/reward_config.yaml` is copied in. Edit the experiment's copy to tune rewards without affecting other experiments. If no `policy_weights.yaml` exists, the cold-start phase runs automatically.
+On first run with a new name, `experiments/<track>/<name>/` is created and both master configs are copied in. Edit the experiment copies to tune without affecting other experiments. `--re-initialize` ignores any existing weights file and re-runs probe + cold-start.
 
-### Training phases
+---
 
-**1. Probe phase** (cold-start only — no weights file present)
-Runs each of the 9 discrete actions as a constant policy for a short episode. Establishes a reward floor as a baseline for the search phase.
+## Policies
 
-**2. Cold-start search**
-Up to `COLD_RESTARTS` rounds of randomly-initialised hill-climbing, each running `COLD_SIMS` simulations. Stops early if any restart beats the probe floor. The best policy found across all restarts is saved and used as the starting point for the greedy phase.
+All policies live in `policies.py` and inherit `BasePolicy`. The active policy is set via `policy_type` in `training_params.yaml`.
 
-**3. Greedy optimisation phase**
-`N_SIMS` iterations of hill-climbing: mutate the current best weights, simulate, keep if improved. Best weights are saved to `experiments/<name>/policy_weights.yaml` after each improvement.
-
-Subsequent runs (weights file already present) skip phases 1 and 2 and go straight to greedy.
-
-### Configuring a run
-All tunable parameters are at the top of `main()`:
-
-| Variable | Default | Description |
+| `policy_type` | Class | Algorithm |
 |---|---|---|
-| `SPEED` | 10.0 | Game speed multiplier (TMInterface max is 10×) |
-| `IN_GAME_EPISODE_S` | 13.0 | In-game seconds per episode (braking + driving) |
-| `N_SIMS` | 100 | Greedy phase simulations |
-| `MUTATION_SCALE` | 0.1 | Std-dev of Gaussian noise per mutation (applied to normalised weights) |
-| `PROBE_S` | 8.0 | In-game seconds for each probe run |
-| `COLD_RESTARTS` | 5 | Max random restarts in cold-start search |
-| `COLD_SIMS` | 10 | Hill-climb sims per cold-start restart |
+| `hill_climbing` | `WeightedLinearPolicy` | Mutate-and-keep. Includes probe + cold-start phases. |
+| `neural_net` | `NeuralNetPolicy` | MLP (pure numpy). Mutate-and-keep on network weights. |
+| `epsilon_greedy` | `EpsilonGreedyPolicy` | Tabular Q-learning, ε-greedy exploration, ε decays per episode. |
+| `mcts` | `MCTSPolicy` | UCT-style online Q-learner (UCB1). No env cloning — builds value table over real episodes. |
+| `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
 
-### RL environment details
-
-**Observation (15 floats):**
-| Index | Name | Description |
-|-------|------|-------------|
-| 0 | speed_ms | Speed in m/s |
-| 1 | lateral_offset_m | Metres from centreline (positive = right) |
-| 2 | vertical_offset_m | Height above/below centreline |
-| 3 | yaw_error_rad | track_yaw − car_yaw, wrapped to [−π, π] |
-| 4–5 | pitch_rad, roll_rad | Car body angles |
-| 6 | track_progress | [0, 1] along track |
-| 7 | turning_rate | |
-| 8–11 | wheel contacts | 4 wheels (bool as float) |
-| 12–14 | angular_velocity | x, y, z |
-
-**Action space:** Discrete(9) — {brake, coast, accel} × {left, straight, right}
-
-**Termination:**
-- Finished: `track_progress >= 1.0`
-- Crashed: `|lateral_offset| > crash_threshold_m` (default 25 m)
-- Truncated: episode time exceeded or hard crash `> 50 m`
-
-**Reward components** (weights in `experiments/<name>/reward_config.yaml`):
-- Progress reward (primary signal — proportional to track progress delta)
-- Centerline penalty (quadratic in lateral offset)
-- Speed bonus (small, breaks ties)
-- Acceleration bonus (flat per step when throttle is pressed — discourages coasting)
-- Per-step time penalty (encourages finishing fast)
-- Finish bonus + finish time bonus/penalty relative to par time
-- Airborne penalty (only when below/beside centreline)
+`SimplePolicy` is a non-trainable hand-coded PD baseline (see `steering.py`).
 
 ### WeightedLinearPolicy
-The trainable policy computes a score for each of the 9 actions using a learned weight vector dotted against a normalised observation vector. The action with the highest score is taken. Weights are stored in YAML and mutated by adding Gaussian noise scaled per-feature (normalised so all features contribute equally to each mutation step).
 
-### Threading model
-TMInterface is callback-driven (`on_run_step`); the RL loop is step-driven (`env.step()`). `RLClient` bridges these with a thread-safe action queue + state queue. The interface runs on a dedicated keepalive thread; `on_registered` sets an event that `TMNFEnv.__init__` waits on before returning.
+Three independent linear heads (steer, accel, brake), each `dot(weights, normalised_obs)`. Weights stored in YAML. `mutated(scale, share)` adds Gaussian noise to a random `share` fraction of weights; features are pre-normalised so all features contribute equally per mutation step. Auto-migrates existing weight files when new observation features are added.
 
-### Key design decisions
-- Reward weights live in per-experiment YAML so they can be tuned without touching code, and different experiments can have different reward shaping.
-- Game speed can be set up to 10× during training for faster data collection.
-- Adaptive client uses three steering terms (lateral P, lateral-velocity D, heading feedforward) — a strong hand-tuned baseline.
-- `WeightedLinearPolicy.mutated()` normalises weights before adding noise so a mutation of `scale=0.1` means the same thing regardless of which feature's weight is being perturbed.
+### GeneticPolicy
+
+Maintains a population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (1 episode each), keep top `elite_k` unchanged, breed the rest via uniform crossover between two random elites + mutation. The best individual ever seen is the champion and is saved to YAML for inference.
+
+---
+
+## Training Phases
+
+Only `hill_climbing` runs probe and cold-start. All other policy types go straight to greedy.
+
+**1. Probe** (no weights file, or `--re-initialize`)
+Runs 6 fixed-action episodes (brake/accel × left/straight/right, `probe_s` seconds each). Establishes a reward floor for cold-start comparison.
+
+**2. Cold-start search**
+Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulations each. Stops early if any restart beats the probe floor. The best policy found is saved and used as the greedy starting point.
+
+**3. Greedy optimisation**
+`n_sims` iterations (or generations for `genetic`). Best weights saved after each improvement.
+
+---
+
+## Configuration
+
+### `config/training_params.yaml`
+
+| Parameter | Default | Description |
+|---|---|---|
+| `track` | `a03_centerline` | Stem of the `.npy` file in `tracks/` |
+| `speed` | `10.0` | Game speed multiplier (TMInterface max 10×) |
+| `in_game_episode_s` | `30.0` | In-game seconds per episode |
+| `n_sims` | `100` | Greedy simulations / generations |
+| `mutation_scale` | `0.05` | Std-dev of Gaussian noise per mutation |
+| `mutation_share` | `1.0` | Fraction of weights perturbed per mutation (1.0 = all) |
+| `probe_s` | `15.0` | In-game seconds per probe action run |
+| `cold_restarts` | `20` | Max random restarts in cold-start search |
+| `cold_sims` | `5` | Hill-climb sims per cold-start restart |
+| `n_lidar_rays` | `8` | LIDAR rays appended to observation (0 = disabled) |
+| `policy_type` | `genetic` | Algorithm (see Policies table above) |
+| `policy_params` | `{}` | Type-specific hyperparams |
+
+### `config/reward_config.yaml`
+
+| Parameter | Default | Description |
+|---|---|---|
+| `progress_weight` | `10000.0` | Primary signal — proportional to track progress delta |
+| `centerline_weight` | `-0.1` | Lateral offset penalty coefficient |
+| `centerline_exp` | `2.0` | Exponent for centerline penalty (2 = quadratic) |
+| `speed_weight` | `0.05` | Bonus per m/s (tie-breaker) |
+| `step_penalty` | `-0.05` | Per-tick time cost |
+| `finish_bonus` | `5000.0` | One-time bonus at `track_progress >= 1.0` |
+| `finish_time_weight` | `-5.0` | Penalty/bonus relative to `par_time_s` |
+| `par_time_s` | `60.0` | Reference lap time in seconds |
+| `accel_bonus` | `0.5` | Flat reward per step when throttle pressed |
+| `airborne_penalty` | `-1.0` | Applied when ≤1 wheel contact AND `vertical_offset <= 0` |
+| `lidar_wall_weight` | `-5.0` | Wall proximity: `weight * (1 - min_ray)^2` |
+| `crash_threshold_m` | `25.0` | Terminates episode when `|lateral_offset| > threshold` |
+
+---
+
+## RL Environment (`rl/env.py`)
+
+### Observation (15 + n_lidar_rays floats, float32)
+
+Defined in `obs_spec.py` — the single source of truth for feature names, scales, and descriptions.
+
+| Index | Name | Scale | Description |
+|-------|------|-------|-------------|
+| 0 | `speed_ms` | 50.0 | Vehicle speed in m/s |
+| 1 | `lateral_offset_m` | 5.0 | Metres from centreline (neg=left, pos=right) |
+| 2 | `vertical_offset_m` | 2.0 | Metres above (+) / below (-) centreline |
+| 3 | `yaw_error_rad` | π | Track heading minus car heading, [−π, π] |
+| 4 | `pitch_rad` | 0.3 | Nose-up/down rotation |
+| 5 | `roll_rad` | 0.3 | Tilt left/right |
+| 6 | `track_progress` | 1.0 | Fraction of track completed, [0, 1] |
+| 7 | `turning_rate` | 65536.0 | Raw TMInterface steer value, ±65536 |
+| 8–11 | `wheel_N_contact` | 1.0 | Ground contact per wheel (0 or 1) |
+| 12–14 | `angular_vel_N` | 5.0 | Angular velocity x/y/z (rad/s) |
+| 15+ | `lidar_i` | 1.0 | Wall distance rays ~[0, 1] (if `n_lidar_rays > 0`) |
+
+### Action Space
+
+`Box([-1, 0, 0], [1, 1, 1], shape=(3,), dtype=float32)`
+
+| Index | Name | Range | Notes |
+|-------|------|-------|-------|
+| 0 | steer | [−1, 1] | Maps to [−65536, 65536] in-game |
+| 1 | accel | [0, 1] | Thresholded at 0.5 → bool |
+| 2 | brake | [0, 1] | Thresholded at 0.5 → bool; can fire simultaneously with accel |
+
+Policies using the Discrete(9) abstraction ({brake, coast, accel} × {left, straight, right}) convert internally via `ACTIONS` in `clients/rl_client.py`.
+
+### Termination
+
+- **Finished:** `track_progress >= 1.0`
+- **Crashed:** `|lateral_offset| > crash_threshold_m`
+- **Truncated:** elapsed time exceeded
+
+### Episode Warmup
+
+The first 100 steps of every episode force full-throttle straight (`accel + straight, no brake`) regardless of policy. This covers the braking-start phase so policy weights/Q-tables are not updated during forced behaviour.
+
+---
+
+## LIDAR (`lidar.py`)
+
+Set `n_lidar_rays > 0` to append wall-distance observations. `LidarSensor`:
+1. Captures the game window via MSS
+2. Converts to a 128×32 binary edge image (grayscale → threshold → Canny → dilate → blur)
+3. Raycasts `n_lidar_rays` evenly spaced angles from 0 to π, returning normalised distances ~[0, 1]
+
+LIDAR rays are appended to the observation. All policies handle variable-length observations; `WeightedLinearPolicy` auto-migrates weight files to add new keys (initialised to 0.0).
+
+Requires `mss`, `opencv-python`, `pywin32`.
+
+---
+
+## Grid Search (`grid_search.py`)
+
+```bash
+python grid_search.py config/my_grid.yaml
+```
+
+Set any param to a list to sweep it:
+
+```yaml
+base_name: "gs_v1"
+training_params:
+  mutation_scale: [0.05, 0.1, 0.2]   # 3-way sweep
+  n_sims: 50
+reward_params:
+  centerline_weight: [-0.1, -0.5]    # 2-way sweep
+```
+
+Creates one experiment per Cartesian-product combination (3 × 2 = 6 here). Experiment names encode only the varied params: `gs_v1__ms0.05__cw_n0.1`.
+
+---
+
+## Analytics (`analytics.py`)
+
+Called automatically at the end of each experiment/grid-search run. Writes plots and summary JSON to `experiments/<track>/<name>/results/`. Phases that were skipped (e.g. probe/cold-start on a resumed run) produce no output files.
+
+---
+
+## Threading Model
+
+TMInterface is callback-driven (`on_run_step`); the RL loop is step-driven (`env.step()`). `RLClient` bridges these with:
+- `_action` queue (RL thread → game thread)
+- `_state_queue` (game thread → RL thread, maxsize=1; drain before put)
+- `_episode_ready` event (signals env reset complete)
+
+A daemon keepalive thread keeps `iface.running` alive. `on_registered` sets an event that `TMNFEnv.__init__` waits on before returning.
 
 ---
 
 ## Dependencies
 
-Managed by Poetry. Run `poetry install` to create `.venv/` and install all dependencies.
+Managed by Poetry. Run `poetry install` from the repo root.
 
 `tminterface` and `pygbx` are not on PyPI — install from source before running `poetry install`.
+
+Core runtime deps: `numpy`, `scipy`, `gymnasium`, `pyyaml`, `matplotlib`, `opencv-python`, `mss`, `pywin32`, `tminterface`, `pygbx`.

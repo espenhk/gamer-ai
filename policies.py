@@ -1027,8 +1027,8 @@ class NeuralDQNPolicy(BasePolicy):
         grad_params: list[tuple[np.ndarray, np.ndarray]] = []
         for i in range(len(self._online["weights"]) - 1, -1, -1):
             a_in = layer_inputs[i]                 # (B, in_dim) — post-ReLU input
-            dW   = g.T @ a_in / B                  # (out_dim, in_dim)
-            db   = g.mean(axis=0)                  # (out_dim,)
+            dW   = g.T @ a_in                      # (out_dim, in_dim)
+            db   = g.sum(axis=0)                   # (out_dim,)
             grad_params.append((dW, db))
             if i > 0:
                 # Propagate gradient through weights and apply ReLU mask

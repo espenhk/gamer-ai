@@ -202,7 +202,7 @@ def _run_episode(
     turning_steps = 0
     pos_x: list[float] = []
     pos_z: list[float] = []
-    throttle_state: list[int] = []
+    throttle_state: list[tuple[float, float]] = []
     prev_obs = obs
 
     while True:
@@ -227,7 +227,7 @@ def _run_episode(
         else:
             t = 1   # coast
         throttle_counts[t] += 1
-        throttle_state.append(t)
+        throttle_state.append((float(action[1]), float(action[2])))
         if abs(float(action[0])) > 0.05:
             turning_steps += 1
 

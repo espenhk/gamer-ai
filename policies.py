@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from collections import deque
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -811,6 +812,49 @@ class GeneticPolicy(BasePolicy):
 
 
 # ---------------------------------------------------------------------------
+# ReplayBuffer
+# ---------------------------------------------------------------------------
+
+class ReplayBuffer:
+    """Fixed-size circular buffer of (obs, action_idx, reward, next_obs, done) tuples."""
+
+    def __init__(self, maxlen: int) -> None:
+        self._buf: deque = deque(maxlen=maxlen)
+
+    def push(self, obs: np.ndarray, action_idx: int, reward: float,
+             next_obs: np.ndarray, done: bool) -> None:
+        self._buf.append((obs.copy(), int(action_idx), float(reward), next_obs.copy(), bool(done)))
+
+    def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        replace = batch_size > len(self._buf)
+        idxs  = np.random.choice(len(self._buf), size=batch_size, replace=replace)
+        batch = [self._buf[i] for i in idxs]
+        obs_b  = np.stack([t[0] for t in batch]).astype(np.float32)
+        act_b  = np.array([t[1] for t in batch], dtype=np.int32)
+        rew_b  = np.array([t[2] for t in batch], dtype=np.float32)
+        next_b = np.stack([t[3] for t in batch]).astype(np.float32)
+        done_b = np.array([t[4] for t in batch], dtype=np.float32)
+        return obs_b, act_b, rew_b, next_b, done_b
+
+    def __len__(self) -> int:
+        return len(self._buf)
+
+
+# ---------------------------------------------------------------------------
+# NeuralDQNPolicy
+# ---------------------------------------------------------------------------
+
+class NeuralDQNPolicy(BasePolicy):
+    """
+    DQN over the 9-action discrete action set.
+
+    Online network:  Q(s, a; θ_online)
+    Target network:  Q(s, a; θ_target)  — synced every target_update_freq gradient steps
+    Replay buffer:   circular buffer of (s, a_idx, r, s', done)
+
+    Architecture: obs → Linear → ReLU → ... → Linear(9)
+    Pure numpy with Adam optimiser — no external ML framework required.
+    Epsilon decays linearly from epsilon_start → epsilon_end over epsilon_decay_steps steps.
 # CMAESPolicy
 # ---------------------------------------------------------------------------
 
@@ -831,6 +875,221 @@ class CMAESPolicy(BasePolicy):
 
     def __init__(
         self,
+        hidden_sizes: list[int] | None = None,
+        replay_buffer_size: int = 10000,
+        batch_size: int = 64,
+        min_replay_size: int = 500,
+        target_update_freq: int = 200,
+        learning_rate: float = 0.001,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.05,
+        epsilon_decay_steps: int = 5000,
+        gamma: float = 0.99,
+        n_lidar_rays: int = 0,
+    ) -> None:
+        from obs_spec import BASE_OBS_DIM
+        self._hidden       = list(hidden_sizes or [64, 64])
+        self._buf_maxlen   = int(replay_buffer_size)
+        self._batch_size   = int(batch_size)
+        self._min_replay   = int(min_replay_size)
+        self._target_freq  = int(target_update_freq)
+        self._lr           = float(learning_rate)
+        self._eps_start    = float(epsilon_start)
+        self._eps          = float(epsilon_start)
+        self._eps_end      = float(epsilon_end)
+        self._eps_steps    = int(epsilon_decay_steps)
+        self._eps_delta    = (float(epsilon_start) - float(epsilon_end)) / max(1, int(epsilon_decay_steps))
+        self._gamma        = float(gamma)
+        self._n_lidar_rays = n_lidar_rays
+        self._obs_dim      = BASE_OBS_DIM + n_lidar_rays
+        self._scales       = obs_scales_with_lidar(n_lidar_rays)
+
+        self._replay      = ReplayBuffer(replay_buffer_size)
+        self._total_steps = 0   # transitions pushed (drives epsilon schedule)
+        self._grad_steps  = 0   # gradient updates (drives target sync)
+
+        self._online = self._build_net()
+        self._target = self._build_net()
+        self._sync_target()
+
+        # Adam first/second moments — one entry per layer
+        self._m_w = [np.zeros_like(w) for w in self._online["weights"]]
+        self._m_b = [np.zeros_like(b) for b in self._online["biases"]]
+        self._v_w = [np.zeros_like(w) for w in self._online["weights"]]
+        self._v_b = [np.zeros_like(b) for b in self._online["biases"]]
+        self._adam_t = 0
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, n_lidar_rays: int = 0) -> NeuralDQNPolicy:
+        obj = cls(
+            hidden_sizes        = cfg.get("hidden_sizes",        [64, 64]),
+            replay_buffer_size  = cfg.get("replay_buffer_size",  10000),
+            batch_size          = cfg.get("batch_size",          64),
+            min_replay_size     = cfg.get("min_replay_size",     500),
+            target_update_freq  = cfg.get("target_update_freq",  200),
+            learning_rate       = cfg.get("learning_rate",       0.001),
+            epsilon_start       = cfg.get("epsilon_start",       1.0),
+            epsilon_end         = cfg.get("epsilon_end",         0.05),
+            epsilon_decay_steps = cfg.get("epsilon_decay_steps", 5000),
+            gamma               = cfg.get("gamma",               0.99),
+            n_lidar_rays        = n_lidar_rays,
+        )
+        if "online_weights" in cfg:
+            required = ["online_weights", "online_biases", "target_weights", "target_biases"]
+            missing  = [k for k in required if k not in cfg]
+            if missing:
+                raise KeyError(f"NeuralDQNPolicy.from_cfg: missing keys {missing}")
+
+            loaded_w = [np.array(w, dtype=np.float32) for w in cfg["online_weights"]]
+            # Validate that the first layer's input dim matches obs_dim
+            if loaded_w[0].shape[1] != obj._obs_dim:
+                raise ValueError(
+                    f"NeuralDQNPolicy.from_cfg: weight shape mismatch — "
+                    f"first layer expects input dim {loaded_w[0].shape[1]} "
+                    f"but obs_dim is {obj._obs_dim} (n_lidar_rays={n_lidar_rays})"
+                )
+
+            obj._online["weights"] = loaded_w
+            obj._online["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["online_biases"]]
+            obj._target["weights"] = [np.array(w, dtype=np.float32) for w in cfg["target_weights"]]
+            obj._target["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["target_biases"]]
+            obj._eps         = float(cfg.get("epsilon",      obj._eps_end))
+            obj._total_steps = int(cfg.get("total_steps",   0))
+            obj._grad_steps  = int(cfg.get("grad_steps",    0))
+            # Re-init Adam moments for the restored weights
+            obj._m_w = [np.zeros_like(w) for w in obj._online["weights"]]
+            obj._m_b = [np.zeros_like(b) for b in obj._online["biases"]]
+            obj._v_w = [np.zeros_like(w) for w in obj._online["weights"]]
+            obj._v_b = [np.zeros_like(b) for b in obj._online["biases"]]
+            logger.info("[NeuralDQNPolicy] loaded weights from cfg (eps=%.4f, steps=%d)",
+                        obj._eps, obj._total_steps)
+        return obj
+
+    # ------------------------------------------------------------------
+    # Network construction and sync
+    # ------------------------------------------------------------------
+
+    def _build_net(self) -> dict:
+        """He-initialised MLP: weights and biases as lists of float32 arrays."""
+        rng  = np.random.default_rng()
+        dims = [self._obs_dim] + self._hidden + [_N_DISCRETE_ACTIONS]
+        weights, biases = [], []
+        for i in range(len(dims) - 1):
+            fan_in = dims[i]
+            w = rng.standard_normal((dims[i + 1], fan_in)).astype(np.float32)
+            w *= np.sqrt(2.0 / fan_in)
+            b = np.zeros(dims[i + 1], dtype=np.float32)
+            weights.append(w)
+            biases.append(b)
+        return {"weights": weights, "biases": biases}
+
+    def _sync_target(self) -> None:
+        """Copy online network weights → target network (hard update)."""
+        self._target["weights"] = [w.copy() for w in self._online["weights"]]
+        self._target["biases"]  = [b.copy() for b in self._online["biases"]]
+
+    # ------------------------------------------------------------------
+    # Forward pass
+    # ------------------------------------------------------------------
+
+    def _forward(
+        self, net: dict, x: np.ndarray
+    ) -> tuple[np.ndarray, list[np.ndarray], list[np.ndarray]]:
+        """Forward pass through *net*.
+
+        x: (B, obs_dim) or (obs_dim,)
+        Returns:
+          q        — (B, n_actions) or (n_actions,) Q-values
+          inputs   — layer_inputs[i] is the (post-ReLU) input fed into layer i
+          pre_relu — pre_relu[i] is the linear output of hidden layer i (before ReLU)
+        """
+        single = x.ndim == 1
+        if single:
+            x = x[np.newaxis, :]
+
+        h: np.ndarray = x.astype(np.float32)
+        layer_inputs: list[np.ndarray] = []
+        pre_relu:     list[np.ndarray] = []
+
+        for i, (w, b) in enumerate(zip(net["weights"], net["biases"])):
+            layer_inputs.append(h)
+            z = h @ w.T + b
+            if i < len(net["weights"]) - 1:   # hidden layer
+                pre_relu.append(z)
+                h = np.maximum(0.0, z)
+            else:                              # output layer — linear
+                h = z
+
+        return (h[0] if single else h), layer_inputs, pre_relu
+
+    def _q_values(self, net: dict, obs_norm: np.ndarray) -> np.ndarray:
+        """Normalised obs → Q-value array (no bookkeeping)."""
+        q, _, _ = self._forward(net, obs_norm)
+        return q
+
+    # ------------------------------------------------------------------
+    # Gradient update
+    # ------------------------------------------------------------------
+
+    def _gradient_step(
+        self,
+        obs_b: np.ndarray, act_b: np.ndarray,
+        rew_b: np.ndarray, next_b: np.ndarray, done_b: np.ndarray,
+    ) -> None:
+        """One Adam step on the online network using a sampled minibatch."""
+        obs_norm  = obs_b  / self._scales
+        next_norm = next_b / self._scales
+        B = len(act_b)
+
+        # DQN targets: y = r + γ * max_a Q_target(s') * (1 - done)
+        q_next   = self._q_values(self._target, next_norm)        # (B, 9)
+        targets  = rew_b + self._gamma * np.max(q_next, axis=1) * (1.0 - done_b)  # (B,)
+
+        # Online forward (save intermediate values for backprop)
+        q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)  # (B, 9)
+
+        # Loss gradient: 2*(Q(s,a) - y) / B, only for the taken action
+        grad_out = np.zeros_like(q_all)                           # (B, 9)
+        grad_out[np.arange(B), act_b] = (
+            2.0 * (q_all[np.arange(B), act_b] - targets) / B
+        )
+
+        # Backprop through layers (reverse order)
+        g = grad_out
+        grad_params: list[tuple[np.ndarray, np.ndarray]] = []
+        for i in range(len(self._online["weights"]) - 1, -1, -1):
+            a_in = layer_inputs[i]                 # (B, in_dim) — post-ReLU input
+            dW   = g.T @ a_in                      # (out_dim, in_dim)
+            db   = g.sum(axis=0)                   # (out_dim,)
+            grad_params.append((dW, db))
+            if i > 0:
+                # Propagate gradient through weights and apply ReLU mask
+                g = (g @ self._online["weights"][i]) * (pre_relu[i - 1] > 0)
+        grad_params.reverse()
+
+        # Adam update
+        self._adam_t += 1
+        t          = self._adam_t
+        b1, b2     = 0.9, 0.999
+        eps_adam   = 1e-8
+
+        for i, (dW, db) in enumerate(grad_params):
+            self._m_w[i] = b1 * self._m_w[i] + (1.0 - b1) * dW
+            self._v_w[i] = b2 * self._v_w[i] + (1.0 - b2) * dW ** 2
+            mw_hat = self._m_w[i] / (1.0 - b1 ** t)
+            vw_hat = self._v_w[i] / (1.0 - b2 ** t)
+            self._online["weights"][i] -= self._lr * mw_hat / (np.sqrt(vw_hat) + eps_adam)
+
+            self._m_b[i] = b1 * self._m_b[i] + (1.0 - b1) * db
+            self._v_b[i] = b2 * self._v_b[i] + (1.0 - b2) * db ** 2
+            mb_hat = self._m_b[i] / (1.0 - b1 ** t)
+            vb_hat = self._v_b[i] / (1.0 - b2 ** t)
+            self._online["biases"][i] -= self._lr * mb_hat / (np.sqrt(vb_hat) + eps_adam)
+
+        self._grad_steps += 1
+        if self._grad_steps % self._target_freq == 0:
+            self._sync_target()
+            logger.debug("[NeuralDQNPolicy] target network synced at grad_step %d", self._grad_steps)
         population_size: int = 20,
         initial_sigma: float = 0.3,
         n_lidar_rays: int = 0,
@@ -1065,21 +1324,55 @@ class CMAESPolicy(BasePolicy):
     # ------------------------------------------------------------------
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if np.random.random() < self._eps:
+            return _DISCRETE_ACTIONS[np.random.randint(_N_DISCRETE_ACTIONS)].copy()
+        obs_norm = (obs / self._scales).astype(np.float32)
+        q        = self._q_values(self._online, obs_norm)
+        return _DISCRETE_ACTIONS[int(np.argmax(q))].copy()
+
+    def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
+               next_obs: np.ndarray, done: bool) -> None:
+        action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
+        self._replay.push(obs, action_idx, reward, next_obs, done)
+        self._total_steps += 1
+        # Linear epsilon decay per step
+        self._eps = max(self._eps_end, self._eps - self._eps_delta)
+
+        if len(self._replay) >= self._min_replay:
+            obs_b, act_b, rew_b, next_b, done_b = self._replay.sample(self._batch_size)
+            self._gradient_step(obs_b, act_b, rew_b, next_b, done_b)
+
+    def on_episode_end(self) -> None:
+        pass   # Epsilon decays per step, not per episode
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":        "neural_dqn",
+            "hidden_sizes":       self._hidden,
+            "replay_buffer_size": self._buf_maxlen,
+            "batch_size":         self._batch_size,
+            "min_replay_size":    self._min_replay,
+            "target_update_freq": self._target_freq,
+            "learning_rate":      float(self._lr),
+            "epsilon_start":      float(self._eps_start),
+            "epsilon_end":        float(self._eps_end),
+            "epsilon_decay_steps": self._eps_steps,
+            "gamma":              float(self._gamma),
+            "n_lidar_rays":       self._n_lidar_rays,
+            "epsilon":            float(self._eps),
+            "total_steps":        self._total_steps,
+            "grad_steps":         self._grad_steps,
+            "online_weights":     [w.tolist() for w in self._online["weights"]],
+            "online_biases":      [b.tolist() for b in self._online["biases"]],
+            "target_weights":     [w.tolist() for w in self._target["weights"]],
+            "target_biases":      [b.tolist() for b in self._target["biases"]],
+        }
         if self._champion is None:
             raise RuntimeError(
                 "CMAESPolicy: no champion yet — call sample_population() "
                 "and update_distribution() for at least one generation first."
             )
         return self._champion(obs)
-
-    def to_cfg(self) -> dict:
-        return {
-            "policy_type":     "cmaes",
-            "population_size": self._lam,
-            "sigma":          self._sigma,
-            "n_lidar_rays":    self._n_lidar_rays,
-            "champion_reward": float(self._champion_reward),
-        }
 
     def save(self, path: str) -> None:
         """Save champion in WeightedLinearPolicy YAML format for analytics compatibility."""

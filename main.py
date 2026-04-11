@@ -23,6 +23,7 @@ from policies import (
     EpsilonGreedyPolicy,
     MCTSPolicy,
     GeneticPolicy,
+    NeuralDQNPolicy,
     CMAESPolicy,
 )
 from rl.env import TMNFEnv, make_env
@@ -130,6 +131,32 @@ def _make_policy(
             logger.info("[GeneticPolicy] random population of %d", pop_size)
         return policy
 
+    elif policy_type == "neural_dqn":
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as f:
+                cfg = yaml.safe_load(f)
+            if cfg.get("policy_type") == "neural_dqn":
+                logger.info("[NeuralDQNPolicy] loaded from %s", weights_file)
+                return NeuralDQNPolicy.from_cfg(cfg, n_lidar_rays)
+        hidden = policy_params.get("hidden_sizes", [64, 64])
+        logger.info("[NeuralDQNPolicy] initialised new network (hidden=%s)", hidden)
+        return NeuralDQNPolicy(
+            hidden_sizes        = hidden,
+            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
+            batch_size          = policy_params.get("batch_size",          64),
+            min_replay_size     = policy_params.get("min_replay_size",     500),
+            target_update_freq  = policy_params.get("target_update_freq",  200),
+            learning_rate       = policy_params.get("learning_rate",       0.001),
+            epsilon_start       = policy_params.get("epsilon_start",       1.0),
+            epsilon_end         = policy_params.get("epsilon_end",         0.05),
+            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
+            gamma               = policy_params.get("gamma",               0.99),
+            n_lidar_rays        = n_lidar_rays,
+        )
+
+    else:
+        raise ValueError(f"Unknown policy_type: {policy_type!r}. "
+                         f"Choose from: hill_climbing, neural_net, epsilon_greedy, mcts, genetic, neural_dqn")
     elif policy_type == "cmaes":
         pop_size = policy_params.get("population_size", 20)
         sigma    = policy_params.get("initial_sigma", 0.3)

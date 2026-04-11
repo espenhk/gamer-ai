@@ -12,7 +12,7 @@ n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 =
 
 
 # Policy algorithm for the greedy training phase.
-# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | cmaes
+# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | neural_dqn
 policy_type: genetic
 
 # Type-specific hyperparams.  Only the block matching policy_type is used.
@@ -48,6 +48,18 @@ policy_params:
   elite_k: 3               # top survivors kept unchanged each generation
   # mutation_scale is inherited from the top-level value above
 
+  # neural_dqn — DQN with experience replay and frozen target network
+  #hidden_sizes: [64, 64]       # MLP hidden layer sizes
+  #replay_buffer_size: 10000    # max transitions stored in replay buffer
+  #batch_size: 64               # minibatch size for each gradient step
+  #min_replay_size: 500         # steps before first gradient update
+  #target_update_freq: 200      # gradient steps between target network syncs
+  #learning_rate: 0.001         # Adam learning rate
+  #epsilon_start: 1.0           # initial exploration rate
+  #epsilon_end: 0.05            # minimum exploration rate
+  #epsilon_decay_steps: 5000    # steps over which epsilon decays linearly
+  #gamma: 0.99                  # discount factor
+  
   # cmaes — CMA-ES over flat WeightedLinearPolicy weight vector (Hansen 2016)
   #population_size: 20     # λ — offspring sampled each generation
   #initial_sigma: 0.3      # initial step size (adapted automatically)

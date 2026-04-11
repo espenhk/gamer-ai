@@ -180,10 +180,11 @@ class TestNTicksScaling(unittest.TestCase):
         curr = make_state_data(track_progress=1.0, speed=(0.0, 0.0, 0.0))
         r1 = self._r(prev, curr, n_ticks=1, finished=True, elapsed_s=self.cfg.par_time_s)
         r3 = self._r(prev, curr, n_ticks=3, finished=True, elapsed_s=self.cfg.par_time_s)
-        # finish_bonus is one-time, so the difference should NOT include finish_bonus*2
-        # The difference is only from per-tick components scaled by n_ticks
+        # finish_bonus and progress are one-time in this setup; with zero speed,
+        # no lateral offset, and no acceleration, only the per-tick step penalty scales.
         per_tick_diff = r3 - r1
-        self.assertLess(abs(per_tick_diff), self.cfg.finish_bonus)
+        expected_diff = 2.0 * self.cfg.step_penalty
+        self.assertAlmostEqual(per_tick_diff, expected_diff, places=5)
 
     def test_progress_reward_does_not_scale_with_n_ticks(self):
         # progress delta is inherently multi-tick; doubling n_ticks should not double it

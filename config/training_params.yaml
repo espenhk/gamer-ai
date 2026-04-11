@@ -12,7 +12,7 @@ n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 =
 
 
 # Policy algorithm for the greedy training phase.
-# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic
+# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | cmaes
 policy_type: genetic
 
 # Type-specific hyperparams.  Only the block matching policy_type is used.
@@ -47,3 +47,8 @@ policy_params:
   population_size: 20      # individuals per generation
   elite_k: 3               # top survivors kept unchanged each generation
   # mutation_scale is inherited from the top-level value above
+
+  # cmaes — CMA-ES over flat WeightedLinearPolicy weight vector (Hansen 2016)
+  #population_size: 20     # λ — offspring sampled each generation
+  #initial_sigma: 0.3      # initial step size (adapted automatically)
+  #elite_fraction: 0.5     # μ/λ ratio (μ = population_size // 2)

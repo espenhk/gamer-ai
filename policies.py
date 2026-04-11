@@ -13,6 +13,7 @@ QTablePolicy         — shared base for tabular Q-learning policies
 EpsilonGreedyPolicy  — Q-table with epsilon-greedy exploration
 MCTSPolicy           — Q-table with UCB1 (UCT-style) action selection
 GeneticPolicy        — population of WeightedLinearPolicy, evolutionary training
+CMAESPolicy          — CMA-ES over flat WeightedLinearPolicy weights (Hansen 2016)
 """
 
 from __future__ import annotations
@@ -801,6 +802,245 @@ class GeneticPolicy(BasePolicy):
             "mutation_share":   float(self._mutation_share),
             "champion_reward":  float(self._champion_reward),
             "champion_weights": self._champion.to_cfg() if self._champion else {},
+        }
+
+    def save(self, path: str) -> None:
+        """Save champion in WeightedLinearPolicy YAML format for analytics compatibility."""
+        if self._champion is not None:
+            self._champion.save(path)
+
+
+# ---------------------------------------------------------------------------
+# CMAESPolicy
+# ---------------------------------------------------------------------------
+
+class CMAESPolicy(BasePolicy):
+    """
+    CMA-ES over the flat weight vector of a WeightedLinearPolicy.
+    Uses the (μ/μ_w, λ)-CMA-ES algorithm (Hansen 2016).
+
+    Each generation:
+      1. sample_population() — draw λ offspring from N(mean, σ²·C)
+      2. Evaluate each offspring for one episode
+      3. update_distribution(rewards) — update mean, σ, C, and evolution paths
+
+    Inference always uses the champion (best individual seen so far).
+    save() writes the champion in WeightedLinearPolicy YAML format so
+    existing analytics (weight heatmaps, etc.) work without changes.
+    """
+
+    def __init__(
+        self,
+        population_size: int = 20,
+        initial_sigma: float = 0.3,
+        n_lidar_rays: int = 0,
+    ) -> None:
+        from obs_spec import BASE_OBS_DIM
+        self._lam          = population_size
+        self._n_lidar_rays = n_lidar_rays
+        n                  = (BASE_OBS_DIM + n_lidar_rays) * 3   # steer + accel + brake heads
+        self._n            = n
+
+        # Recombination weights (elite half, log-based, normalised)
+        mu            = self._lam // 2
+        self._mu      = mu
+        raw_w         = np.array([np.log(mu + 0.5) - np.log(i + 1) for i in range(mu)],
+                                 dtype=np.float64)
+        self._weights = raw_w / raw_w.sum()
+        self._mu_eff  = 1.0 / float(np.sum(self._weights ** 2))
+
+        # Step-size adaptation constants (Hansen 2016, §3)
+        self._cs   = (self._mu_eff + 2) / (n + self._mu_eff + 5)
+        self._ds   = (1 + 2 * max(0.0, float(np.sqrt((self._mu_eff - 1) / (n + 1))) - 1)
+                      + self._cs)
+        self._chin = float(np.sqrt(n) * (1 - 1.0 / (4 * n) + 1.0 / (21 * n ** 2)))
+
+        # Covariance adaptation constants (Hansen 2016, §3)
+        self._cc  = (4 + self._mu_eff / n) / (n + 4 + 2 * self._mu_eff / n)
+        self._c1  = 2.0 / ((n + 1.3) ** 2 + self._mu_eff)
+        self._cmu = min(
+            1.0 - self._c1,
+            2.0 * (self._mu_eff - 2 + 1.0 / self._mu_eff) / ((n + 2) ** 2 + self._mu_eff),
+        )
+
+        # Distribution state (float64 for numerical stability)
+        rng             = np.random.default_rng()
+        self._mean      = rng.standard_normal(n).astype(np.float64)
+        self._sigma     = float(initial_sigma)
+        self._ps        = np.zeros(n, dtype=np.float64)   # step-size evolution path
+        self._pc        = np.zeros(n, dtype=np.float64)   # covariance evolution path
+        self._C         = np.eye(n, dtype=np.float64)     # covariance matrix
+        self._B         = np.eye(n, dtype=np.float64)     # eigenvectors of C
+        self._D         = np.ones(n, dtype=np.float64)    # sqrt(eigenvalues) of C
+        self._invsqrtC  = np.eye(n, dtype=np.float64)     # C^{-1/2}
+        self._eigengen  = 0    # generation of last eigendecomposition
+        self._gen       = 0    # current generation counter
+
+        # Sampling buffer (filled by sample_population, consumed by update_distribution)
+        self._pop_xs: list[np.ndarray] = []
+        self._pop_ys: list[np.ndarray] = []
+
+        # Champion
+        self._champion: WeightedLinearPolicy | None = None
+        self._champion_reward: float = float("-inf")
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def champion_reward(self) -> float:
+        return self._champion_reward
+
+    # ------------------------------------------------------------------
+    # Initialisation
+    # ------------------------------------------------------------------
+
+    def initialize_random(self) -> None:
+        """Initialise the search mean at zero; CMA-ES adapts scale via σ."""
+        self._mean = np.zeros(self._n, dtype=np.float64)
+        logger.info("[CMAESPolicy] initialised with zero mean, σ=%.3f", self._sigma)
+
+    def initialize_from_champion(self, champion: WeightedLinearPolicy) -> None:
+        """Seed the search mean from an existing champion's flat weight vector."""
+        self._champion        = champion
+        self._champion_reward = float("-inf")   # re-evaluated in first generation
+        self._mean            = champion.to_flat().astype(np.float64)
+        logger.info("[CMAESPolicy] seeded mean from champion")
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _flat_to_policy(self, flat: np.ndarray) -> WeightedLinearPolicy:
+        """Build a WeightedLinearPolicy from a flat [steer|accel|brake] weight vector."""
+        names  = obs_names_with_lidar(self._n_lidar_rays)
+        obs_n  = len(names)
+        cfg = {
+            "steer_weights": {names[i]: float(flat[i])             for i in range(obs_n)},
+            "accel_weights": {names[i]: float(flat[obs_n + i])     for i in range(obs_n)},
+            "brake_weights": {names[i]: float(flat[2 * obs_n + i]) for i in range(obs_n)},
+        }
+        return WeightedLinearPolicy.from_cfg(cfg, n_lidar_rays=self._n_lidar_rays)
+
+    def _update_eigen(self) -> None:
+        """Eigendecompose C and refresh B, D, invsqrtC."""
+        self._C = np.triu(self._C) + np.triu(self._C, 1).T     # enforce symmetry
+        eigvals, self._B = np.linalg.eigh(self._C)
+        eigvals          = np.maximum(eigvals, 1e-20)           # clamp negatives
+        self._D          = np.sqrt(eigvals)
+        self._invsqrtC   = self._B @ np.diag(1.0 / self._D) @ self._B.T
+        self._eigengen   = self._gen
+
+    # ------------------------------------------------------------------
+    # Training interface
+    # ------------------------------------------------------------------
+
+    def sample_population(self) -> list[WeightedLinearPolicy]:
+        """Sample λ offspring from N(mean, σ²·C).
+
+        Returns a list of WeightedLinearPolicy instances ready for evaluation.
+        Must be followed by update_distribution(rewards) with the same ordering.
+        """
+        n   = self._n
+        rng = np.random.default_rng()
+
+        # Refresh eigendecomposition every generation (λ/(10n) < 1 for typical dims)
+        if self._gen - self._eigengen >= max(1, self._lam // max(1, 10 * n)):
+            self._update_eigen()
+
+        self._pop_xs = []
+        self._pop_ys = []
+        for _ in range(self._lam):
+            z = rng.standard_normal(n)
+            y = self._B @ (self._D * z)        # sample from N(0, C)
+            x = self._mean + self._sigma * y
+            self._pop_xs.append(x)
+            self._pop_ys.append(y)
+
+        return [self._flat_to_policy(x) for x in self._pop_xs]
+
+    def update_distribution(self, rewards: list[float]) -> bool:
+        """Apply (μ/μ_w, λ)-CMA-ES update given per-offspring episode rewards.
+
+        Updates mean, σ, p_σ, p_c, and C in place.
+
+        Returns:
+            True if the all-time champion was improved this generation.
+        """
+        if len(rewards) != self._lam:
+            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
+        n = self._n
+
+        # Rank offspring descending by reward
+        order = np.argsort(rewards)[::-1]
+
+        # Update champion
+        improved = False
+        best_r   = rewards[order[0]]
+        if best_r > self._champion_reward:
+            self._champion_reward = best_r
+            self._champion        = self._flat_to_policy(self._pop_xs[order[0]])
+            improved              = True
+
+        # Weighted average of elite steps y_i = (x_i − mean) / σ
+        elite_ys = np.stack([self._pop_ys[order[i]] for i in range(self._mu)])  # (mu, n)
+        step     = np.einsum("i,ij->j", self._weights, elite_ys)                # (n,)
+
+        # Mean update
+        self._mean = self._mean + self._sigma * step
+
+        # Step-size evolution path p_σ  (Hansen 2016, eq. 43)
+        ps_scale  = float(np.sqrt(self._cs * (2 - self._cs) * self._mu_eff))
+        self._ps  = (1 - self._cs) * self._ps + ps_scale * (self._invsqrtC @ step)
+
+        # Step-size update σ  (Hansen 2016, eq. 44)
+        ps_norm     = float(np.linalg.norm(self._ps))
+        self._sigma = float(np.clip(
+            self._sigma * np.exp((self._cs / self._ds) * (ps_norm / self._chin - 1)),
+            1e-10, 1e6,
+        ))
+
+        # h_σ stall indicator
+        ps_norm_normed = ps_norm / float(np.sqrt(1 - (1 - self._cs) ** (2 * (self._gen + 1))))
+        h_sigma = 1.0 if ps_norm_normed < (1.4 + 2.0 / (n + 1)) * self._chin else 0.0
+
+        # Covariance evolution path p_c  (Hansen 2016, eq. 45)
+        pc_scale  = float(np.sqrt(self._cc * (2 - self._cc) * self._mu_eff))
+        self._pc  = (1 - self._cc) * self._pc + h_sigma * pc_scale * step
+
+        # Covariance update  (Hansen 2016, eq. 47)
+        delta_h = (1 - h_sigma) * self._cc * (2 - self._cc)
+        rank1   = np.outer(self._pc, self._pc)
+        rank_mu = np.einsum("i,ij,ik->jk", self._weights, elite_ys, elite_ys)
+        self._C = (
+            (1 - self._c1 - self._cmu) * self._C
+            + self._c1 * (rank1 + delta_h * self._C)
+            + self._cmu * rank_mu
+        )
+
+        self._gen += 1
+        return improved
+
+    # ------------------------------------------------------------------
+    # BasePolicy interface
+    # ------------------------------------------------------------------
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if self._champion is None:
+            raise RuntimeError(
+                "CMAESPolicy: no champion yet — call sample_population() "
+                "and update_distribution() for at least one generation first."
+            )
+        return self._champion(obs)
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":     "cmaes",
+            "population_size": self._lam,
+            "initial_sigma":   self._sigma,
+            "n_lidar_rays":    self._n_lidar_rays,
+            "champion_reward": float(self._champion_reward),
         }
 
     def save(self, path: str) -> None:

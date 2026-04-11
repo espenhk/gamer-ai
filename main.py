@@ -23,6 +23,7 @@ from policies import (
     EpsilonGreedyPolicy,
     MCTSPolicy,
     GeneticPolicy,
+    CMAESPolicy,
 )
 from rl.env import TMNFEnv, make_env
 from rl.reward import RewardConfig
@@ -129,9 +130,26 @@ def _make_policy(
             logger.info("[GeneticPolicy] random population of %d", pop_size)
         return policy
 
+    elif policy_type == "cmaes":
+        pop_size = policy_params.get("population_size", 20)
+        sigma    = policy_params.get("initial_sigma", 0.3)
+        policy   = CMAESPolicy(
+            population_size = pop_size,
+            initial_sigma   = sigma,
+            n_lidar_rays    = n_lidar_rays,
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            champion = WeightedLinearPolicy(weights_file, n_lidar_rays)
+            policy.initialize_from_champion(champion)
+            logger.info("[CMAESPolicy] seeded mean from champion at %s", weights_file)
+        else:
+            policy.initialize_random()
+            logger.info("[CMAESPolicy] initialised with zero mean, σ=%.3f", sigma)
+        return policy
+
     else:
         raise ValueError(f"Unknown policy_type: {policy_type!r}. "
-                         f"Choose from: hill_climbing, neural_net, epsilon_greedy, mcts, genetic")
+                         f"Choose from: hill_climbing, neural_net, epsilon_greedy, mcts, genetic, cmaes")
 
 
 # ---------------------------------------------------------------------------
@@ -703,6 +721,89 @@ def _greedy_loop_genetic(
 
 
 # ---------------------------------------------------------------------------
+# CMA-ES greedy loop (structurally similar to genetic: N_pop episodes per generation)
+# ---------------------------------------------------------------------------
+
+def _greedy_loop_cmaes(
+    env: TMNFEnv,
+    policy: CMAESPolicy,
+    n_generations: int,
+    weights_file: str,
+) -> tuple[CMAESPolicy, float, list[GreedySimResult]]:
+    """
+    CMA-ES training loop.
+
+    Each "sim" is one generation:
+      1. sample_population() → draw λ offspring from N(mean, σ²·C)
+      2. Evaluate each offspring for one episode
+      3. update_distribution(rewards) → update mean, σ, C, paths
+
+    Total episodes = n_generations × population_size.
+    """
+    best_reward = policy.champion_reward
+    greedy_sims: list[GreedySimResult] = []
+    full_episode_time_s = env._max_episode_time_s
+
+    logger.info(
+        "[CMAES] population_size=%d, total episodes = %d × %d = %d",
+        policy._lam, n_generations, policy._lam, n_generations * policy._lam,
+    )
+
+    try:
+        for gen in range(1, n_generations + 1):
+            env._max_episode_time_s = _scaled_episode_time(gen, n_generations, full_episode_time_s)
+            population = policy.sample_population()
+            pop_size   = len(population)
+            logger.info(
+                "--- Generation %d/%d --- evaluating %d individuals (σ=%.4f, episode_time=%.1fs)",
+                gen, n_generations, pop_size, policy._sigma, env._max_episode_time_s,
+            )
+
+            rewards     = []
+            total_steps = 0
+            trace       = None
+            info: dict[str, Any] = {}
+
+            for idx, individual in enumerate(population):
+                logger.debug("Individual %d/%d (respawning)", idx + 1, pop_size)
+                obs, _ = env.reset()
+                reward, info, _, steps, trace = _run_episode(env, individual, obs)
+                rewards.append(reward)
+                total_steps += steps
+
+            improved = policy.update_distribution(rewards)
+            gen_best = max(rewards)
+            if gen_best > best_reward:
+                best_reward = gen_best
+
+            if improved:
+                policy.save(weights_file)
+                verdict = (
+                    f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
+                    f"  σ={policy._sigma:.4f}"
+                )
+            else:
+                verdict = (
+                    f"no improvement  gen_best={gen_best:+.1f}"
+                    f"  champion={policy.champion_reward:+.1f}  σ={policy._sigma:.4f}"
+                )
+
+            logger.info("  >> %s", verdict)
+            greedy_sims.append(GreedySimResult(
+                sim=gen, reward=gen_best, improved=improved,
+                throttle_counts=[0, 0, 0], total_steps=total_steps,
+                trace=trace,
+                weights=policy.to_cfg(),
+                final_track_progress=info.get("track_progress", 0.0),
+                laps_completed=info.get("laps_completed", 0),
+            ))
+    except KeyboardInterrupt:
+        logger.warning("Training interrupted.")
+
+    return policy, best_reward, greedy_sims
+
+
+# ---------------------------------------------------------------------------
 # Training orchestrator
 # ---------------------------------------------------------------------------
 
@@ -820,6 +921,13 @@ def train_rl(
             policy=best_policy, # type: ignore[arg-type]
             n_generations=n_sims,
             weights_file=weights_file
+        )
+    elif policy_type == "cmaes":
+        best_policy, best_reward, greedy_sims = _greedy_loop_cmaes(
+            env=env,
+            policy=best_policy,  # type: ignore[arg-type]
+            n_generations=n_sims,
+            weights_file=weights_file,
         )
     else:
         best_policy, best_reward, greedy_sims = _greedy_loop(

@@ -99,12 +99,39 @@ If `do_pretrain=True` and weights already exist, skip (same logic as cold-start)
 - The fitted policy may not be perfect (linear model can't represent the full PD
   controller), but it provides a much better starting point than random weights
 
+## Changes to `grid_search.py`
+
+Two additions are needed so grid search can enable pre-training:
+
+**1. Add `do_pretrain` to `_ABBREV`** (so it gets a short label in experiment directory names when used as a search axis):
+```python
+"do_pretrain": "pt",
+```
+
+**2. Forward `do_pretrain` in the `train_rl()` call** inside `main()`:
+```python
+data = train_rl(
+    ...
+    do_pretrain=t.get("do_pretrain", False),
+    ...
+)
+```
+
+Grid search configs can then either fix or sweep it:
+```yaml
+training_params:
+    do_pretrain: true        # fixed — always pretrain
+    # or:
+    do_pretrain: [true, false]  # search axis — compare pretrain vs cold-start
+```
+
 ## Files to Change
 
 | File | Change |
 |------|--------|
 | `rl/pretrain.py` | New file (~80 lines) |
 | `main.py` | Add `do_pretrain` param, call `pretrain.run()` before cold-start |
+| `grid_search.py` | Add `do_pretrain` to `_ABBREV`; forward param in `train_rl()` call |
 
 ## Testing
 

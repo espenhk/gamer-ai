@@ -35,7 +35,7 @@ class RunTrace:
     """Sampled position + per-step throttle state for one episode."""
     pos_x: list          # world X, sampled every TRACE_SAMPLE_EVERY steps
     pos_z: list          # world Z (horizontal plane in TMNF; Y is up)
-    throttle_state: list # per step: 0=brake, 1=coast, 2=accel
+    throttle_state: list # per step: (accel_val, brake_val) floats in [0, 1]
     total_reward: float
 
 
@@ -208,31 +208,31 @@ def plot_cold_start_rewards(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_cold_start_action_dist(data: ExperimentData, results_dir: str) -> None:
-    """Stacked bar: mean throttle distribution (brake/coast/accel) per restart."""
+    """Line graph: accel% and brake% per restart (thresholded at 0.5)."""
 
     restarts = data.cold_start_restarts
     xs = [r.restart for r in restarts]
 
-    pcts = []  # shape (n_restarts, 3)  — percent for brake/coast/accel
+    accel_pcts = []
+    brake_pcts = []
     for r in restarts:
         total_b = total_c = total_a = 0
         for s in r.sims:
             b, c, a = s.throttle_counts
             total_b += b; total_c += c; total_a += a
         total = total_b + total_c + total_a or 1
-        pcts.append([100 * total_b / total, 100 * total_c / total, 100 * total_a / total])
-    pcts = np.array(pcts)
+        accel_pcts.append(100 * total_a / total)
+        brake_pcts.append(100 * total_b / total)
 
     fig, ax = plt.subplots(figsize=(max(6, len(xs) * 0.8), 5))
-    bottoms = np.zeros(len(xs))
-    for i, (label, color) in enumerate(zip(_THROTTLE_LABELS, _THROTTLE_COLORS)):
-        ax.bar(xs, pcts[:, i], bottom=bottoms, color=color, label=label,
-               edgecolor="white", linewidth=0.4)
-        bottoms += pcts[:, i]
+    ax.plot(xs, accel_pcts, color=_THROTTLE_COLORS[2], linewidth=1.8,
+            marker="o", markersize=4, label="accel %")
+    ax.plot(xs, brake_pcts, color=_THROTTLE_COLORS[0], linewidth=1.8,
+            marker="o", markersize=4, label="brake %")
 
-    ax.set_title(f"{data.experiment_name} — Cold-Start: Throttle Distribution per Restart")
+    ax.set_title(f"{data.experiment_name} — Cold-Start: Accel / Brake % per Restart")
     ax.set_xlabel("Restart")
-    ax.set_ylabel("% Steps")
+    ax.set_ylabel("% Steps (threshold ≥ 0.5)")
     ax.set_xticks(xs)
     ax.set_ylim(0, 100)
     ax.legend(fontsize=9)
@@ -294,27 +294,27 @@ def plot_greedy_rewards(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> None:
-    """100% stacked bar: throttle mix per greedy sim — shows if policy shifts toward accel."""
+    """Line graph: accel% and brake% per greedy sim — shows if policy shifts toward accel."""
 
     sims = data.greedy_sims
     xs   = [s.sim for s in sims]
-    pcts = []
+    accel_pcts = []
+    brake_pcts = []
     for s in sims:
         b, c, a = s.throttle_counts
         total = (b + c + a) or 1
-        pcts.append([100 * b / total, 100 * c / total, 100 * a / total])
-    pcts = np.array(pcts)
+        accel_pcts.append(100 * a / total)
+        brake_pcts.append(100 * b / total)
 
     fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.15), 5))
-    bottoms = np.zeros(len(xs))
-    for i, (label, color) in enumerate(zip(_THROTTLE_LABELS, _THROTTLE_COLORS)):
-        ax.bar(xs, pcts[:, i], bottom=bottoms, color=color, label=label,
-               width=1.0, edgecolor="none")
-        bottoms += pcts[:, i]
+    ax.plot(xs, accel_pcts, color=_THROTTLE_COLORS[2], linewidth=1.2,
+            alpha=0.85, label="accel %")
+    ax.plot(xs, brake_pcts, color=_THROTTLE_COLORS[0], linewidth=1.2,
+            alpha=0.85, label="brake %")
 
-    ax.set_title(f"{data.experiment_name} — Greedy Phase: Throttle Mix per Sim")
+    ax.set_title(f"{data.experiment_name} — Greedy Phase: Accel / Brake % per Sim")
     ax.set_xlabel("Simulation")
-    ax.set_ylabel("% Steps")
+    ax.set_ylabel("% Steps (threshold ≥ 0.5)")
     ax.set_ylim(0, 100)
     ax.legend(fontsize=9)
     fig.tight_layout()
@@ -466,18 +466,21 @@ def plot_weight_evolution(data: ExperimentData, results_dir: str) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _plot_throttle_trace(ax: Axes, throttle_state: list[int], title: str) -> None:
-    """Draw a throttle/brake trace as two binary step lines on *ax*."""
+def _plot_throttle_trace(ax: Axes, throttle_state: list, title: str) -> None:
+    """Draw accel (green) and brake (red) as continuous line traces on *ax*.
+
+    throttle_state entries are (accel_val, brake_val) float tuples in [0, 1].
+    Both lines share a [0, 1] y-axis.
+    """
     steps = range(len(throttle_state))
-    accel = [1 if t == 2 else 0 for t in throttle_state]
-    brake = [1 if t == 0 else 0 for t in throttle_state]
-    ax.step(steps, accel, where="post", color=_THROTTLE_COLORS[2], linewidth=1.0, label="accel")
-    ax.step(steps, [-b for b in brake], where="post", color=_THROTTLE_COLORS[0], linewidth=1.0, label="brake")
-    ax.axhline(0, color="#aaa", linewidth=0.5, linestyle="--")
-    ax.set_ylim(-1.3, 1.3)
-    ax.set_yticks([-1, 0, 1])
-    ax.set_yticklabels(["brake", "", "accel"], fontsize=8)
+    accel = [t[0] for t in throttle_state]
+    brake = [t[1] for t in throttle_state]
+    ax.plot(steps, accel, color="#27ae60", linewidth=0.8, alpha=0.85, label="accel")
+    ax.plot(steps, brake, color="#c0392b", linewidth=0.8, alpha=0.85, label="brake")
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_yticks([0, 0.5, 1])
     ax.set_xlabel("Step")
+    ax.set_ylabel("Value")
     ax.set_title(title, fontsize=9)
     ax.legend(fontsize=8, loc="upper right")
 

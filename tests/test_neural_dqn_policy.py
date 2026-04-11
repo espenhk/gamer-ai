@@ -61,6 +61,15 @@ class TestReplayBuffer(unittest.TestCase):
         # rewards encode unique step indices — duplicates would repeat a reward
         self.assertEqual(len(set(rew_b.tolist())), 10)
 
+    def test_sample_with_replacement_when_small(self):
+        """sample() falls back to replace=True when batch_size > buffer length."""
+        buf = ReplayBuffer(maxlen=100)
+        for i in range(3):
+            buf.push(_rand_obs(), i % 9, float(i), _rand_obs(), False)
+        # Requesting more samples than buffer size should not raise
+        obs_b, act_b, rew_b, next_b, done_b = buf.sample(10)
+        self.assertEqual(obs_b.shape[0], 10)
+
 
 # ---------------------------------------------------------------------------
 # NeuralDQNPolicy structural tests
@@ -161,6 +170,20 @@ class TestNeuralDQNPolicyStructure(unittest.TestCase):
         p = self._make()
         p.on_episode_end()   # should not raise
 
+    def test_from_cfg_missing_keys_raises(self):
+        """from_cfg() should raise KeyError if weight keys are incomplete."""
+        cfg = {"online_weights": [[[1.0]]]}  # missing other required keys
+        with self.assertRaises(KeyError):
+            NeuralDQNPolicy.from_cfg(cfg)
+
+    def test_from_cfg_shape_mismatch_raises(self):
+        """from_cfg() should raise ValueError when obs_dim doesn't match weights."""
+        p   = self._make()
+        cfg = p.to_cfg()
+        # Pass a different n_lidar_rays to cause shape mismatch
+        with self.assertRaises(ValueError):
+            NeuralDQNPolicy.from_cfg(cfg, n_lidar_rays=5)
+
 
 # ---------------------------------------------------------------------------
 # NeuralDQNPolicy convergence test (2-state bandit MDP)
@@ -175,6 +198,7 @@ class TestNeuralDQNConvergence(unittest.TestCase):
     """
 
     def test_bandit_convergence(self):
+        np.random.seed(42)
         N = BASE_OBS_DIM
         state   = np.zeros(N, dtype=np.float32)
         BEST    = 7          # accel + straight

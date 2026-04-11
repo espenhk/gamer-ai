@@ -825,7 +825,8 @@ class ReplayBuffer:
         self._buf.append((obs.copy(), int(action_idx), float(reward), next_obs.copy(), bool(done)))
 
     def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        idxs  = np.random.choice(len(self._buf), size=batch_size, replace=False)
+        replace = batch_size > len(self._buf)
+        idxs  = np.random.choice(len(self._buf), size=batch_size, replace=replace)
         batch = [self._buf[i] for i in idxs]
         obs_b  = np.stack([t[0] for t in batch]).astype(np.float32)
         act_b  = np.array([t[1] for t in batch], dtype=np.int32)
@@ -917,7 +918,21 @@ class NeuralDQNPolicy(BasePolicy):
             n_lidar_rays        = n_lidar_rays,
         )
         if "online_weights" in cfg:
-            obj._online["weights"] = [np.array(w, dtype=np.float32) for w in cfg["online_weights"]]
+            required = ["online_weights", "online_biases", "target_weights", "target_biases"]
+            missing  = [k for k in required if k not in cfg]
+            if missing:
+                raise KeyError(f"NeuralDQNPolicy.from_cfg: missing keys {missing}")
+
+            loaded_w = [np.array(w, dtype=np.float32) for w in cfg["online_weights"]]
+            # Validate that the first layer's input dim matches obs_dim
+            if loaded_w[0].shape[1] != obj._obs_dim:
+                raise ValueError(
+                    f"NeuralDQNPolicy.from_cfg: weight shape mismatch — "
+                    f"first layer expects input dim {loaded_w[0].shape[1]} "
+                    f"but obs_dim is {obj._obs_dim} (n_lidar_rays={n_lidar_rays})"
+                )
+
+            obj._online["weights"] = loaded_w
             obj._online["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["online_biases"]]
             obj._target["weights"] = [np.array(w, dtype=np.float32) for w in cfg["target_weights"]]
             obj._target["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["target_biases"]]

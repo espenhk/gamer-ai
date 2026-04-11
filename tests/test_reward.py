@@ -25,8 +25,10 @@ class TestRewardCalculator(unittest.TestCase):
         self.cfg  = RewardConfig()
         self.calc = RewardCalculator(self.cfg)
 
-    def _r(self, prev, curr, finished=False, elapsed_s=0.0, accelerating=False):
-        return self.calc.compute(prev, curr, finished, elapsed_s, accelerating)
+    def _r(self, prev, curr, finished=False, elapsed_s=0.0, accelerating=False,
+           n_ticks=1):
+        return self.calc.compute(prev, curr, finished, elapsed_s, accelerating,
+                                 n_ticks=n_ticks)
 
     # --- Progress ---
 
@@ -118,6 +120,80 @@ class TestRewardCalculator(unittest.TestCase):
         reward = self._r(state, state)
         # Should NOT have airborne penalty — only step penalty (≈ -0.01)
         self.assertGreater(reward, self.cfg.airborne_penalty)
+
+
+class TestNTicksScaling(unittest.TestCase):
+    """Per-tick reward components must scale linearly with n_ticks."""
+
+    def setUp(self):
+        self.cfg  = RewardConfig()
+        self.calc = RewardCalculator(self.cfg)
+
+    def _r(self, prev, curr, n_ticks=1, finished=False, elapsed_s=0.0,
+           accelerating=False):
+        return self.calc.compute(prev, curr, finished, elapsed_s, accelerating,
+                                 n_ticks=n_ticks)
+
+    def test_centerline_scales_with_n_ticks(self):
+        # lateral_offset=2, progress=0, speed=0 → only centerline + step_penalty vary
+        prev = make_state_data(track_progress=0.5, lateral_offset=0.0, speed=(0.0, 0.0, 0.0))
+        curr = make_state_data(track_progress=0.5, lateral_offset=2.0, speed=(0.0, 0.0, 0.0))
+        r1 = self._r(prev, curr, n_ticks=1)
+        r3 = self._r(prev, curr, n_ticks=3)
+        # centerline contribution: cfg.centerline_weight * 2^2 = -2.0 per tick
+        # step_penalty also scales, so r3 - r1 == 2 * (centerline + step_penalty)
+        expected_diff = 2.0 * (self.cfg.centerline_weight * 2.0 ** self.cfg.centerline_exp
+                               + self.cfg.step_penalty)
+        self.assertAlmostEqual(r3 - r1, expected_diff, places=5)
+
+    def test_speed_scales_with_n_ticks(self):
+        # speed=(5,0,0) → velocity.magnitude()=5; no lateral offset, no progress change
+        state = make_state_data(track_progress=0.5, lateral_offset=0.0, speed=(5.0, 0.0, 0.0))
+        r1 = self._r(state, state, n_ticks=1)
+        r3 = self._r(state, state, n_ticks=3)
+        # (speed + step_penalty) scales; diff = 2 * (speed_weight*5 + step_penalty)
+        expected_diff = 2.0 * (self.cfg.speed_weight * 5.0 + self.cfg.step_penalty)
+        self.assertAlmostEqual(r3 - r1, expected_diff, places=5)
+
+    def test_airborne_penalty_scales_with_n_ticks(self):
+        prev = make_state_data(track_progress=0.5, vertical_offset=-1.0,
+                               speed=(0.0, 0.0, 0.0),
+                               wheel_contacts=(True, False, False, False))
+        curr = make_state_data(track_progress=0.5, vertical_offset=-1.0,
+                               speed=(0.0, 0.0, 0.0),
+                               wheel_contacts=(True, False, False, False))
+        r1 = self._r(prev, curr, n_ticks=1)
+        r3 = self._r(prev, curr, n_ticks=3)
+        # airborne + step_penalty scale; diff = 2 * (airborne_penalty + step_penalty)
+        expected_diff = 2.0 * (self.cfg.airborne_penalty + self.cfg.step_penalty)
+        self.assertAlmostEqual(r3 - r1, expected_diff, places=5)
+
+    def test_accel_bonus_scales_with_n_ticks(self):
+        state = make_state_data(track_progress=0.5, lateral_offset=0.0, speed=(0.0, 0.0, 0.0))
+        r1 = self._r(state, state, n_ticks=1, accelerating=True)
+        r3 = self._r(state, state, n_ticks=3, accelerating=True)
+        expected_diff = 2.0 * (self.cfg.accel_bonus + self.cfg.step_penalty)
+        self.assertAlmostEqual(r3 - r1, expected_diff, places=5)
+
+    def test_finish_bonus_does_not_scale_with_n_ticks(self):
+        prev = make_state_data(track_progress=0.9, speed=(0.0, 0.0, 0.0))
+        curr = make_state_data(track_progress=1.0, speed=(0.0, 0.0, 0.0))
+        r1 = self._r(prev, curr, n_ticks=1, finished=True, elapsed_s=self.cfg.par_time_s)
+        r3 = self._r(prev, curr, n_ticks=3, finished=True, elapsed_s=self.cfg.par_time_s)
+        # finish_bonus is one-time, so the difference should NOT include finish_bonus*2
+        # The difference is only from per-tick components scaled by n_ticks
+        per_tick_diff = r3 - r1
+        self.assertLess(abs(per_tick_diff), self.cfg.finish_bonus)
+
+    def test_progress_reward_does_not_scale_with_n_ticks(self):
+        # progress delta is inherently multi-tick; doubling n_ticks should not double it
+        prev = make_state_data(track_progress=0.0, speed=(0.0, 0.0, 0.0))
+        curr = make_state_data(track_progress=0.1, speed=(0.0, 0.0, 0.0))
+        r1 = self._r(prev, curr, n_ticks=1)
+        r3 = self._r(prev, curr, n_ticks=3)
+        # progress contribution is identical in both; difference is only per-tick terms
+        per_tick_diff = r3 - r1
+        self.assertLess(abs(per_tick_diff), self.cfg.progress_weight * 0.1)
 
 
 if __name__ == "__main__":

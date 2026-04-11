@@ -7,11 +7,14 @@ progress_weight: 10000.0
 
 # --- Centerline adherence ---
 # penalty = centerline_weight * |lateral_offset_m| ^ centerline_exp
-centerline_weight: -0.1
+# Divided by ~1.2 (expected avg ticks/step at 10x speed) because compute() now
+# scales this term by n_ticks, keeping reward magnitudes comparable to before.
+centerline_weight: -0.083
 centerline_exp: 2.0
 
 # --- Speed ---
-speed_weight: 0.05
+# Divided by ~1.2 for the same n_ticks scaling reason as centerline_weight above.
+speed_weight: 0.042
 
 # --- Time cost ---
 step_penalty: -0.05
@@ -26,7 +29,8 @@ par_time_s: 60.0
 accel_bonus: 0.5
 
 # --- Airborne penalty (below/beside centerline only) ---
-airborne_penalty: -1.0
+# Divided by ~1.2 for the same n_ticks scaling reason as centerline_weight above.
+airborne_penalty: -0.83
 
 # --- Lidar wall proximity ---
 # penalty = lidar_wall_weight * (1 - min_ray)^2  (negative weight → closer = worse)

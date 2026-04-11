@@ -231,7 +231,7 @@ def main() -> None:
 
     base_name, track, training_spec, reward_spec = _load_grid_config(args.config)
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
-    centerline_file = f"tracks/{track}.npy"
+    centerline_path = f"tracks/{track}.npy"
 
     n = len(combos)
     logger.info(f"  Grid search: {n} combination(s)")
@@ -272,6 +272,8 @@ def main() -> None:
         with open("config/reward_config.yaml") as f:
             reward_cfg = yaml.safe_load(f) or {}
         reward_cfg.update(r)
+        reward_cfg["track_name"] = track
+        reward_cfg["centerline_path"] = centerline_path
         with open(reward_cfg_file, "w") as f:
             yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
         with open(training_params_file, "w") as f:
@@ -295,7 +297,6 @@ def main() -> None:
             re_initialize=args.re_initialize,
             policy_type=t.get("policy_type", "hill_climbing"),
             policy_params=_build_policy_params(t),
-            centerline_file=centerline_file,
             track=track,
         )
 

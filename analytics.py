@@ -467,22 +467,20 @@ def plot_weight_evolution(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _plot_throttle_trace(ax: Axes, throttle_state: list, title: str) -> None:
-    """Draw accel and brake as continuous line traces on *ax*.
+    """Draw accel (green) and brake (red) as continuous line traces on *ax*.
 
     throttle_state entries are (accel_val, brake_val) float tuples in [0, 1].
-    accel is plotted above zero; brake is mirrored below zero so both lines
-    share an axis with a clear visual separation.
+    Both lines share a [0, 1] y-axis.
     """
     steps = range(len(throttle_state))
     accel = [t[0] for t in throttle_state]
     brake = [t[1] for t in throttle_state]
-    ax.plot(steps, accel, color=_THROTTLE_COLORS[2], linewidth=0.8, alpha=0.85, label="accel")
-    ax.plot(steps, [-b for b in brake], color=_THROTTLE_COLORS[0], linewidth=0.8, alpha=0.85, label="brake")
-    ax.axhline(0, color="#aaa", linewidth=0.5, linestyle="--")
-    ax.set_ylim(-1.15, 1.15)
-    ax.set_yticks([-1, 0, 1])
-    ax.set_yticklabels(["brake 1.0", "0", "accel 1.0"], fontsize=8)
+    ax.plot(steps, accel, color="#27ae60", linewidth=0.8, alpha=0.85, label="accel")
+    ax.plot(steps, brake, color="#c0392b", linewidth=0.8, alpha=0.85, label="brake")
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_yticks([0, 0.5, 1])
     ax.set_xlabel("Step")
+    ax.set_ylabel("Value")
     ax.set_title(title, fontsize=9)
     ax.legend(fontsize=8, loc="upper right")
 

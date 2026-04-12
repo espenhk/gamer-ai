@@ -1,18 +1,7 @@
-"""Shared constants for the TMNF project.
+"""Backward-compatibility shim.
 
-Centralising these prevents the same magic number appearing in multiple files
-and ensures that changing one value (e.g. STEER_SCALE) propagates everywhere.
+All symbols previously defined here have moved to games.tmnf.constants.
+Import from that module directly in new TMNF code.
 """
 
-import numpy as np
-
-# TMInterface encodes steering as a signed integer in [-65536, 65536].
-# Convert a [-100, 100] percentage: int(pct / 100 * STEER_SCALE).
-STEER_SCALE: int = 65536
-
-# World up-vector in TMNF's coordinate system (Y is up).
-UP_VECTOR: np.ndarray = np.array([0.0, 1.0, 0.0])
-
-# Number of discrete actions in the action space.
-# Must equal len(ACTIONS) in clients/rl_client.py — asserted there at import time.
-N_ACTIONS: int = 9
+from games.tmnf.constants import STEER_SCALE, UP_VECTOR, N_ACTIONS  # noqa: F401

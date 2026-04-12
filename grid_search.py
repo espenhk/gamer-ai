@@ -32,7 +32,10 @@ from typing import Any
 
 import yaml
 from analytics import save_experiment_results, save_grid_summary
-from main import train_rl
+from framework.training import train_rl
+from games.tmnf.obs_spec import TMNF_OBS_SPEC
+from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+from games.tmnf.env import make_env
 
 logger = logging.getLogger(__name__)
 
@@ -279,25 +282,39 @@ def main() -> None:
         with open(training_params_file, "w") as f:
             yaml.dump(t, f, default_flow_style=False, sort_keys=False)
 
+        n_lidar_rays = t.get("n_lidar_rays", 0)
+        obs_spec     = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+
         data = train_rl(
-            experiment_name=name,
-            speed=t["speed"],
-            n_sims=t["n_sims"],
-            in_game_episode_s=t["in_game_episode_s"],
-            weights_file=weights_file,
-            reward_config_file=reward_cfg_file,
-            mutation_scale=t["mutation_scale"],
-            mutation_share=t.get("mutation_share", 1.0),
-            probe_in_game_s=t.get("probe_s", 0),
-            cold_start_restarts=t.get("cold_restarts", 0),
-            cold_start_sims=t.get("cold_sims", 0),
-            training_params=t,
-            no_interrupt=args.no_interrupt or i > 1,
-            n_lidar_rays=t.get("n_lidar_rays", 0),
-            re_initialize=args.re_initialize,
-            policy_type=t.get("policy_type", "hill_climbing"),
-            policy_params=_build_policy_params(t),
-            track=track,
+            experiment_name     = name,
+            make_env_fn         = lambda _dir=experiment_dir, _sp=t["speed"], _ep=t["in_game_episode_s"], _lr=n_lidar_rays: make_env(
+                experiment_dir    = _dir,
+                speed             = _sp,
+                in_game_episode_s = _ep,
+                n_lidar_rays      = _lr,
+            ),
+            obs_spec            = obs_spec,
+            head_names          = ["steer", "accel", "brake"],
+            discrete_actions    = DISCRETE_ACTIONS,
+            speed               = t["speed"],
+            n_sims              = t["n_sims"],
+            in_game_episode_s   = t["in_game_episode_s"],
+            weights_file        = weights_file,
+            reward_config_file  = reward_cfg_file,
+            mutation_scale      = t["mutation_scale"],
+            mutation_share      = t.get("mutation_share", 1.0),
+            probe_actions       = PROBE_ACTIONS,
+            probe_in_game_s     = t.get("probe_s", 0),
+            cold_start_restarts = t.get("cold_restarts", 0),
+            cold_start_sims     = t.get("cold_sims", 0),
+            warmup_action       = WARMUP_ACTION,
+            warmup_steps        = 100,
+            training_params     = t,
+            no_interrupt        = args.no_interrupt or i > 1,
+            re_initialize       = args.re_initialize,
+            policy_type         = t.get("policy_type", "hill_climbing"),
+            policy_params       = _build_policy_params(t),
+            track               = track,
         )
 
         save_experiment_results(data, results_dir=f"{experiment_dir}/results")

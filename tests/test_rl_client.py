@@ -46,7 +46,7 @@ def _make_state_data(track_progress=0.5, lateral_offset=0.0, speed=10.0):
 
 def _make_client():
     """Instantiate RLClient with a mocked Centerline (no file I/O)."""
-    with patch("clients.rl_client.Centerline", return_value=MagicMock()):
+    with patch("games.tmnf.clients.rl_client.Centerline", return_value=MagicMock()):
         return RLClient(centerline_file="fake.npy", speed=1.0)
 
 
@@ -63,7 +63,7 @@ class TestSetInputStateCalled(unittest.TestCase):
     def _run_step(self, iface, action, time_ms=1000):
         """Execute one on_run_step with the given action, mocking away StateData and yaw."""
         self.client.set_action(action)
-        with patch("clients.rl_client.StateData", return_value=self.state_data), \
+        with patch("games.tmnf.clients.rl_client.StateData", return_value=self.state_data), \
              patch.object(self.client, "_compute_yaw_error", return_value=0.0):
             self.client.on_run_step(iface, time_ms)
 

@@ -6,8 +6,8 @@ module is imported, so the source imports below resolve correctly.
 """
 import numpy as np
 
-from policies import WeightedLinearPolicy
-from utils import StateData
+from policies import WeightedLinearPolicy  # backward-compat shim → framework.policies
+from games.tmnf.state import StateData
 
 
 def make_game_state(

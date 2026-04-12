@@ -14,5 +14,5 @@ STEER_SCALE: int = 65536
 UP_VECTOR: np.ndarray = np.array([0.0, 1.0, 0.0])
 
 # Number of discrete actions in the TMNF action space.
-# Must equal len(ACTIONS) in games/tmnf/clients/rl_client.py — asserted there at import time.
+# Must stay in sync with len(ACTIONS) in games/tmnf/clients/rl_client.py.
 N_ACTIONS: int = 9

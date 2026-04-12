@@ -64,3 +64,26 @@ class BaseGameEnv(gym.Env, ABC):
         about game-specific concepts.
         """
         return {}
+
+    # ------------------------------------------------------------------
+    # Episode time limit (optional capability)
+    # ------------------------------------------------------------------
+
+    def get_episode_time_limit(self) -> float | None:
+        """Return the current per-episode wall-clock time limit in seconds.
+
+        Returns None when the environment has no configurable time limit.
+        The framework training loop reads this once at the start of each
+        phase and uses it to scale episode lengths progressively.
+        """
+        return None
+
+    def set_episode_time_limit(self, seconds: float) -> None:
+        """Set the per-episode wall-clock time limit.
+
+        The framework calls this each simulation to implement the 4-step
+        progressive schedule (25% → 50% → 75% → 100% of the full limit).
+        Game environments that support variable episode length override this
+        method; the default is a no-op so environments without time limits
+        work unchanged.
+        """

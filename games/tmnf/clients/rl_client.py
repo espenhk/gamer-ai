@@ -31,7 +31,7 @@ import numpy as np
 from tminterface.interface import TMInterface
 
 from games.tmnf.clients.base import PhaseAwareClient
-from games.tmnf.constants import N_ACTIONS
+from games.tmnf.constants import N_ACTIONS, STEER_SCALE
 from games.tmnf.steering import angle_diff
 from games.tmnf.track import Centerline
 from games.tmnf.state import StateData
@@ -287,7 +287,7 @@ class RLClient(PhaseAwareClient):
             iface.set_input_state(
                 accelerate=accel,
                 brake=brake,
-                steer=int(steer_norm * 65536),
+                steer=int(steer_norm * STEER_SCALE),
             )
 
             finished  = data.track_progress is not None and data.track_progress >= _FINISH_THRESHOLD

@@ -274,8 +274,8 @@ def _run_probes(
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
 ) -> tuple[float, list[ProbeResult]]:
-    saved_limit = env._max_episode_time_s
-    env._max_episode_time_s = probe_in_game_s / speed
+    saved_limit = env.get_episode_time_limit()
+    env.set_episode_time_limit(probe_in_game_s / speed)
 
     logger.info(
         "No weights file — running %d probe episodes (%ss each) to establish baseline.",
@@ -297,7 +297,7 @@ def _run_probes(
             ProbeResult(action_idx=i, action_name=action_name, reward=reward, trace=trace)
         )
 
-    env._max_episode_time_s = saved_limit
+    env.set_episode_time_limit(saved_limit)
 
     best_idx = max(results, key=lambda i: results[i])
     logger.info("Probe results:")
@@ -468,7 +468,7 @@ def _greedy_loop(
     # ES mirrored-perturbation loop
     rng   = np.random.default_rng()
     theta = best_policy.to_flat()
-    full_episode_time_s = env._max_episode_time_s
+    full_episode_time_s = env.get_episode_time_limit()
 
     try:
         for sim in range(1, n_sims + 1):
@@ -476,7 +476,7 @@ def _greedy_loop(
             policy_plus  = best_policy.with_flat(theta + eps)
             policy_minus = best_policy.with_flat(theta - eps)
 
-            env._max_episode_time_s = _scaled_episode_time(sim, n_sims, full_episode_time_s)
+            env.set_episode_time_limit(_scaled_episode_time(sim, n_sims, full_episode_time_s))
 
             obs, _ = env.reset()
             r_plus, info_plus, tc_plus, steps_plus, trace_plus = _run_episode(
@@ -566,16 +566,16 @@ def _greedy_loop_cmaes(
     pop_size    = policy.population_size
     best_reward = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
-    full_episode_time_s = env._max_episode_time_s
+    full_episode_time_s = env.get_episode_time_limit()
 
     logger.info("[CMA-ES] population_size=%d, total episodes = %d × %d = %d",
                 pop_size, n_generations, pop_size, n_generations * pop_size)
 
     try:
         for gen in range(1, n_generations + 1):
-            env._max_episode_time_s = _scaled_episode_time(
+            env.set_episode_time_limit(_scaled_episode_time(
                 gen, n_generations, full_episode_time_s,
-            )
+            ))
             offspring    = policy.sample_population()
             rewards      = []
             total_steps  = 0
@@ -629,13 +629,13 @@ def _greedy_loop_q_learning(
     """Q-learning greedy loop for epsilon_greedy and mcts policy types."""
     best_reward = float("-inf")
     greedy_sims: list[GreedySimResult] = []
-    full_episode_time_s = env._max_episode_time_s
+    full_episode_time_s = env.get_episode_time_limit()
 
     try:
         for episode in range(1, n_episodes + 1):
-            env._max_episode_time_s = _scaled_episode_time(
+            env.set_episode_time_limit(_scaled_episode_time(
                 episode, n_episodes, full_episode_time_s,
-            )
+            ))
             obs, _ = env.reset()
             reward, info, tc, total_steps, trace = _run_episode(
                 env, policy, obs,
@@ -680,16 +680,16 @@ def _greedy_loop_genetic(
     pop_size    = len(policy.population)
     best_reward = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
-    full_episode_time_s = env._max_episode_time_s
+    full_episode_time_s = env.get_episode_time_limit()
 
     logger.info("[Genetic] population_size=%d, total episodes = %d × %d = %d",
                 pop_size, n_generations, pop_size, n_generations * pop_size)
 
     try:
         for gen in range(1, n_generations + 1):
-            env._max_episode_time_s = _scaled_episode_time(
+            env.set_episode_time_limit(_scaled_episode_time(
                 gen, n_generations, full_episode_time_s,
-            )
+            ))
             rewards      = []
             total_steps  = 0
             trace        = None

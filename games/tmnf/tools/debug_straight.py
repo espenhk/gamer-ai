@@ -42,7 +42,7 @@ def main():
     iface.register(client)
     try:
         while iface.running:
-            time.sleep(0)
+            time.sleep(0.002)  # 2 ms yield — avoids busy-spin while waiting for TMInterface
     except KeyboardInterrupt:
         pass
     iface.close()

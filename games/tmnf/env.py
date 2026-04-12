@@ -265,6 +265,16 @@ class TMNFEnv(BaseGameEnv):
         self._iface.close()
 
     # ------------------------------------------------------------------
+    # BaseGameEnv episode-time API
+    # ------------------------------------------------------------------
+
+    def get_episode_time_limit(self) -> float:
+        return self._max_episode_time_s
+
+    def set_episode_time_limit(self, seconds: float) -> None:
+        self._max_episode_time_s = seconds
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 

@@ -420,10 +420,7 @@ class CMAESPolicy(BasePolicy):
         """
         # Lazy import: avoids circular import at module level while returning
         # a TMNF-flavoured WLP so isinstance(result, policies.WeightedLinearPolicy) is True.
-        try:
-            from policies import WeightedLinearPolicy as _TMNF_WLP  # type: ignore[import]
-        except ImportError:
-            _TMNF_WLP = _FrameworkWLP  # type: ignore[assignment]
+        from policies import WeightedLinearPolicy as _TMNF_WLP  # type: ignore[import]
 
         names = obs_names_with_lidar(self._n_lidar_rays)
         obs_n = len(names)

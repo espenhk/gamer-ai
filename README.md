@@ -1,6 +1,6 @@
 # TMNF — Trackmania Nations Forever RL
 
-Hill-climbing / evolutionary / Q-learning agent for A03. See the root `CLAUDE.md` for full architecture documentation.
+Hill-climbing / evolutionary / CMA-ES / Q-learning agent for A03. See the root `CLAUDE.md` for full architecture documentation.
 
 ---
 
@@ -55,6 +55,7 @@ Set `policy_type` in `training_params.yaml`. Each type uses the same `n_sims` bu
 | `epsilon_greedy` | Tabular Q-learning, ε-greedy exploration | ε decays per episode. Q-table is in-memory only. |
 | `mcts` | UCT-style online Q-learner (UCB1) | Approximation — no env cloning, builds value table over real episodes. |
 | `genetic` | Population of `WeightedLinearPolicy`, evolutionary | `n_sims` = number of generations; total episodes = `n_sims × population_size`. |
+| `cmaes` | CMA-ES over flat `WeightedLinearPolicy` weights (Hansen 2016) | Adapts full covariance matrix; automatic step-size control via CSA. |
 
 ### Policy-specific params
 
@@ -84,7 +85,25 @@ policy_params:
   population_size: 20
   elite_k: 3
   # mutation_scale inherited from top-level
+
+# cmaes
+policy_params:
+  population_size: 20   # λ — offspring per generation
+  initial_sigma: 0.3    # starting step size (adapts automatically via CSA)
 ```
+
+#### CMA-ES details
+
+`CMAESPolicy` implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over the concatenated `[steer | accel | brake]` weight vector of a `WeightedLinearPolicy` (~63 dimensions for the base observation space).
+
+Each generation:
+1. **Sample** — draw λ offspring from `N(mean, σ²·C)` using the cached eigen-factorization `C = B D² Bᵀ`
+2. **Evaluate** — run one episode per offspring
+3. **Update** — weighted mean recombination, cumulative step-size adaptation (CSA) for σ, and rank-1 + rank-μ covariance update
+
+The champion (best individual seen across all generations) is saved in standard `WeightedLinearPolicy` YAML format so analytics, heatmaps, and inference work without modification. Step-size σ is reported per generation in logs and adapts automatically — no `mutation_scale` tuning needed.
+
+`n_sims` controls the number of generations; total episodes = `n_sims × population_size`.
 
 ### Training phases (hill_climbing only)
 

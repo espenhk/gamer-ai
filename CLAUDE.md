@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / evolutionary / Q-learning algorithms trained against a live TMInterface session.
+Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / evolutionary / CMA-ES / Q-learning algorithms trained against a live TMInterface session.
 
 ---
 
@@ -11,7 +11,7 @@ tmnf-ai/
 ├── main.py                 # Entry point — python main.py <experiment_name>
 ├── grid_search.py          # Grid search over param combinations
 ├── analytics.py            # Experiment result plots and summary tables
-├── policies.py             # All policy implementations (6 trainable + 1 baseline)
+├── policies.py             # All policy implementations (7 trainable + 1 baseline)
 ├── obs_spec.py             # Observation space definition (single source of truth)
 ├── utils.py                # StateData, Vec3, Quat, WheelState data classes
 ├── constants.py            # N_ACTIONS, STEER_SCALE, UP_VECTOR
@@ -78,6 +78,7 @@ All policies live in `policies.py` and inherit `BasePolicy`. The active policy i
 | `epsilon_greedy` | `EpsilonGreedyPolicy` | Tabular Q-learning, ε-greedy exploration, ε decays per episode. |
 | `mcts` | `MCTSPolicy` | UCT-style online Q-learner (UCB1). No env cloning — builds value table over real episodes. |
 | `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
+| `cmaes` | `CMAESPolicy` | `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over flat `WeightedLinearPolicy` weights. Automatic step-size + covariance adaptation. |
 
 `SimplePolicy` is a non-trainable hand-coded PD baseline (see `steering.py`).
 
@@ -88,6 +89,28 @@ Three independent linear heads (steer, accel, brake), each `dot(weights, normali
 ### GeneticPolicy
 
 Maintains a population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (1 episode each), keep top `elite_k` unchanged, breed the rest via uniform crossover between two random elites + mutation. The best individual ever seen is the champion and is saved to YAML for inference.
+
+### CMAESPolicy
+
+Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over the concatenated `[steer | accel | brake]` weight vector of a `WeightedLinearPolicy` (~63 dimensions for the base observation space).
+
+**Training loop** (called from `_greedy_loop_cmaes`):
+1. `sample_population()` — draws λ offspring from `N(mean, σ²·C)` using cached eigen-factorization `C = B D² Bᵀ`
+2. Evaluate each offspring for one episode → reward vector
+3. `update_distribution(rewards)` — weighted mean recombination (top μ = λ//2 elites), cumulative step-size adaptation (CSA) for σ, rank-1 + rank-μ covariance update
+
+**Key properties**: `population_size` (λ), `sigma` (current σ), `champion_reward`.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `population_size` | `20` | λ — offspring sampled per generation |
+| `initial_sigma` | `0.3` | Starting step size (adapts via CSA each generation) |
+
+`n_sims` controls the number of generations; total episodes = `n_sims × population_size`. No `mutation_scale` tuning required — σ adapts automatically.
+
+`save()` writes the champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, and inference work without changes.
 
 ---
 

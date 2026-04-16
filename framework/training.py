@@ -771,6 +771,7 @@ def train_rl(
     training_params: dict | None = None,
     no_interrupt: bool = False,
     re_initialize: bool = False,
+    do_pretrain: bool = False,
     policy_type: str = "hill_climbing",
     policy_params: dict | None = None,
     track: str = "",
@@ -810,18 +811,33 @@ def train_rl(
         and len(probe_actions) > 0
     )
 
-    if cold_start and not no_interrupt:
+    _will_pretrain = (
+        do_pretrain
+        and policy_type == "hill_climbing"
+        and not os.path.exists(weights_file)
+        and not re_initialize
+    )
+
+    if _will_pretrain and not no_interrupt:
+        input("\n  [PRE-TRAIN]  Press Enter to connect and start behavior cloning from SimplePolicy...")
+    elif cold_start and not no_interrupt:
         input("\n  [PROBE PHASE]  Press Enter to connect and start probe runs...")
 
     logger.info("Connecting to game...")
     env = make_env_fn()
+
+    pretrained = False
+    if _will_pretrain:
+        from rl.pretrain import run as _pretrain_run
+        _pretrain_run(env, experiment_dir=os.path.dirname(os.path.abspath(weights_file)), obs_spec=obs_spec)
+        pretrained = True
 
     probe_results: list[ProbeResult]             = []
     cold_start_data: list[ColdStartRestartResult] = []
     probe_best    = None
     t_after_probe = t_after_cold = None
 
-    if cold_start:
+    if cold_start and not pretrained:
         probe_best, probe_results = _run_probes(
             env, probe_actions, probe_in_game_s, speed,
             warmup_action=warmup_action, warmup_steps=warmup_steps,

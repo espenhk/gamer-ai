@@ -151,6 +151,7 @@ def main() -> None:
         training_params     = p,
         no_interrupt        = args.no_interrupt,
         re_initialize       = re_initialize,
+        do_pretrain         = p.get("do_pretrain", False),
         policy_type         = policy_type,
         policy_params       = policy_params,
         track               = track,

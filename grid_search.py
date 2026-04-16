@@ -55,6 +55,7 @@ _ABBREV = {
     "cold_restarts":   "cr",
     "cold_sims":       "cs",
     "policy_type":     "pt",
+    "do_pretrain":     "dpt",
     # neural_net policy params
     "hidden_sizes":    "hs",
     # genetic policy params
@@ -315,6 +316,7 @@ def main() -> None:
             policy_type         = t.get("policy_type", "hill_climbing"),
             policy_params       = _build_policy_params(t),
             track               = track,
+            do_pretrain         = t.get("do_pretrain", False),
         )
 
         save_experiment_results(data, results_dir=f"{experiment_dir}/results")

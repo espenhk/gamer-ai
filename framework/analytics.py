@@ -104,6 +104,8 @@ class ExperimentData:
     training_params: dict      # hyperparams dict
     timings: dict              # start, end, total_s, probe_s, cold_start_s, greedy_s
     track: str = ""
+    early_stopped: bool = False          # True if patience-based early stopping fired
+    early_stop_sim: int | None = None    # sim index where early stopping fired
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +197,9 @@ def plot_greedy_rewards(data: ExperimentData, results_dir: str) -> None:
             linewidth=2.0, zorder=3, label="best so far")
     ax.scatter(improvement_xs, improvement_ys, color="#27ae60",
                s=60, zorder=4, marker="^", label="improvement")
+    if getattr(data, "early_stopped", False) and data.early_stop_sim is not None:
+        ax.axvline(data.early_stop_sim, color="#e74c3c", linestyle="--",
+                   linewidth=1.5, label=f"early stop (sim {data.early_stop_sim})")
     ax.set_title(f"{data.experiment_name} — Greedy Phase: Reward per Simulation")
     ax.set_xlabel("Simulation")
     ax.set_ylabel("Total Episode Reward")

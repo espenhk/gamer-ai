@@ -56,6 +56,7 @@ _ABBREV = {
     "cold_sims":       "cs",
     "policy_type":     "pt",
     "do_pretrain":     "dpt",
+    "patience":        "pat",
     # neural_net policy params
     "hidden_sizes":    "hs",
     # genetic policy params
@@ -317,6 +318,7 @@ def main() -> None:
             policy_params       = _build_policy_params(t),
             track               = track,
             do_pretrain         = t.get("do_pretrain", False),
+            patience            = t.get("patience", 0),
         )
 
         save_experiment_results(data, results_dir=f"{experiment_dir}/results")

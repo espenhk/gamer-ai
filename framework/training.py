@@ -425,7 +425,8 @@ def _greedy_loop(
     adaptive_mutation: bool = True,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
-) -> tuple[BasePolicy, float, list[GreedySimResult]]:
+    patience: int = 0,
+) -> tuple[BasePolicy, float, list[GreedySimResult], bool, int | None]:
     """ES gradient-estimation loop for WeightedLinearPolicy / NeuralNetPolicy."""
     ADAPT_WINDOW = 20
     ADAPT_UP     = 1.2
@@ -440,6 +441,9 @@ def _greedy_loop(
 
     if isinstance(best_policy, NeuralNetPolicy):
         # Single-candidate hill-climbing for neural_net
+        no_improve_streak = 0
+        early_stopped     = False
+        early_stop_sim    = None
         try:
             for sim in range(1, n_sims + 1):
                 candidate = best_policy.mutated(scale=current_scale)
@@ -475,9 +479,19 @@ def _greedy_loop(
                     mutation_scale=current_scale,
                     termination_reason=info.get("termination_reason"),
                 ))
+                no_improve_streak = 0 if improved else no_improve_streak + 1
+                if patience > 0 and no_improve_streak >= patience:
+                    logger.info(
+                        "Early stopping: no improvement in last %d sims (best=%.1f). "
+                        "Stopping at sim %d/%d.",
+                        patience, best_reward, sim, n_sims,
+                    )
+                    early_stopped  = True
+                    early_stop_sim = sim
+                    break
         except KeyboardInterrupt:
             logger.warning("Training interrupted.")
-        return best_policy, best_reward, greedy_sims
+        return best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim
 
     if not isinstance(best_policy, WeightedLinearPolicy):
         raise TypeError(
@@ -489,6 +503,9 @@ def _greedy_loop(
     theta = best_policy.to_flat()
     full_episode_time_s = env.get_episode_time_limit()
     has_episode_time_limit = full_episode_time_s is not None
+    no_improve_streak = 0
+    early_stopped     = False
+    early_stop_sim    = None
 
     try:
         for sim in range(1, n_sims + 1):
@@ -556,10 +573,20 @@ def _greedy_loop(
                 mutation_scale=current_scale,
                 termination_reason=best_info.get("termination_reason"),
             ))
+            no_improve_streak = 0 if improved else no_improve_streak + 1
+            if patience > 0 and no_improve_streak >= patience:
+                logger.info(
+                    "Early stopping: no improvement in last %d sims (best=%.1f). "
+                    "Stopping at sim %d/%d.",
+                    patience, best_reward, sim, n_sims,
+                )
+                early_stopped  = True
+                early_stop_sim = sim
+                break
     except KeyboardInterrupt:
         logger.warning("Training interrupted.")
 
-    return best_policy, best_reward, greedy_sims
+    return best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim
 
 
 def _maybe_adapt_scale(history, current, sim, window, up, down, mn, mx, enabled, out):
@@ -585,12 +612,16 @@ def _greedy_loop_cmaes(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
-) -> tuple[Any, float, list[GreedySimResult]]:
+    patience: int = 0,
+) -> tuple[Any, float, list[GreedySimResult], bool, int | None]:
     """CMA-ES loop: sample λ offspring, evaluate each for one episode, update distribution."""
-    pop_size    = policy.population_size
-    best_reward = policy.champion_reward
+    pop_size          = policy.population_size
+    best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
+    no_improve_streak = 0
+    early_stopped     = False
+    early_stop_sim    = None
 
     logger.info("[CMA-ES] population_size=%d, total episodes = %d × %d = %d",
                 pop_size, n_generations, pop_size, n_generations * pop_size)
@@ -638,10 +669,20 @@ def _greedy_loop_cmaes(
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
             ))
+            no_improve_streak = 0 if improved else no_improve_streak + 1
+            if patience > 0 and no_improve_streak >= patience:
+                logger.info(
+                    "Early stopping: no improvement in last %d gens (best=%.1f). "
+                    "Stopping at gen %d/%d.",
+                    patience, best_reward, gen, n_generations,
+                )
+                early_stopped  = True
+                early_stop_sim = gen
+                break
     except KeyboardInterrupt:
         logger.warning("Training interrupted.")
 
-    return policy, best_reward, greedy_sims
+    return policy, best_reward, greedy_sims, early_stopped, early_stop_sim
 
 
 def _greedy_loop_q_learning(
@@ -651,11 +692,15 @@ def _greedy_loop_q_learning(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
-) -> tuple[BasePolicy, float, list[GreedySimResult]]:
+    patience: int = 0,
+) -> tuple[BasePolicy, float, list[GreedySimResult], bool, int | None]:
     """Q-learning greedy loop for epsilon_greedy and mcts policy types."""
-    best_reward = float("-inf")
+    best_reward       = float("-inf")
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
+    no_improve_streak = 0
+    early_stopped     = False
+    early_stop_sim    = None
 
     try:
         for episode in range(1, n_episodes + 1):
@@ -690,10 +735,20 @@ def _greedy_loop_q_learning(
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
             ))
+            no_improve_streak = 0 if improved else no_improve_streak + 1
+            if patience > 0 and no_improve_streak >= patience:
+                logger.info(
+                    "Early stopping: no improvement in last %d episodes (best=%.1f). "
+                    "Stopping at episode %d/%d.",
+                    patience, best_reward, episode, n_episodes,
+                )
+                early_stopped  = True
+                early_stop_sim = episode
+                break
     except KeyboardInterrupt:
         logger.warning("Training interrupted.")
 
-    return policy, best_reward, greedy_sims
+    return policy, best_reward, greedy_sims, early_stopped, early_stop_sim
 
 
 def _greedy_loop_genetic(
@@ -703,12 +758,16 @@ def _greedy_loop_genetic(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
-) -> tuple[GeneticPolicy, float, list[GreedySimResult]]:
+    patience: int = 0,
+) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
     """Genetic algorithm loop: N_pop episodes per generation."""
-    pop_size    = len(policy.population)
-    best_reward = policy.champion_reward
+    pop_size          = len(policy.population)
+    best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
+    no_improve_streak = 0
+    early_stopped     = False
+    early_stop_sim    = None
 
     logger.info("[Genetic] population_size=%d, total episodes = %d × %d = %d",
                 pop_size, n_generations, pop_size, n_generations * pop_size)
@@ -756,10 +815,20 @@ def _greedy_loop_genetic(
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
             ))
+            no_improve_streak = 0 if improved else no_improve_streak + 1
+            if patience > 0 and no_improve_streak >= patience:
+                logger.info(
+                    "Early stopping: no improvement in last %d gens (best=%.1f). "
+                    "Stopping at gen %d/%d.",
+                    patience, best_reward, gen, n_generations,
+                )
+                early_stopped  = True
+                early_stop_sim = gen
+                break
     except KeyboardInterrupt:
         logger.warning("Training interrupted.")
 
-    return policy, best_reward, greedy_sims
+    return policy, best_reward, greedy_sims, early_stopped, early_stop_sim
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +865,7 @@ def train_rl(
     save_results_fn: Callable[[ExperimentData, str], None] | None = None,
     extra_policy_types: dict[str, Callable[[], BasePolicy]] | None = None,
     extra_loop_dispatch: dict[str, str] | None = None,
+    patience: int = 0,
 ) -> ExperimentData:
     """
     Train a policy via the selected algorithm.
@@ -902,38 +972,38 @@ def train_rl(
     _extra_dispatch = extra_loop_dispatch or {}
 
     if policy_type in ("hill_climbing", "neural_net"):
-        best_policy, best_reward, greedy_sims = _greedy_loop(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
             env=env, policy=best_policy, n_sims=n_sims,
             mutation_scale=mutation_scale, mutation_share=mutation_share,
             best_reward=best_reward, weights_file=weights_file,
-            adaptive_mutation=adaptive_mutation, **kw,
+            adaptive_mutation=adaptive_mutation, patience=patience, **kw,
         )
     elif policy_type in ("epsilon_greedy", "mcts"):
-        best_policy, best_reward, greedy_sims = _greedy_loop_q_learning(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
             env=env, policy=best_policy, n_episodes=n_sims,
-            weights_file=weights_file, **kw,
+            weights_file=weights_file, patience=patience, **kw,
         )
     elif policy_type == "genetic":
-        best_policy, best_reward, greedy_sims = _greedy_loop_genetic(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
             env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file, **kw,
+            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
         )
     elif _extra_dispatch.get(policy_type) == "q_learning":
-        best_policy, best_reward, greedy_sims = _greedy_loop_q_learning(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
             env=env, policy=best_policy, n_episodes=n_sims,
-            weights_file=weights_file, **kw,
+            weights_file=weights_file, patience=patience, **kw,
         )
     elif _extra_dispatch.get(policy_type) == "cmaes":
-        best_policy, best_reward, greedy_sims = _greedy_loop_cmaes(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_cmaes(
             env=env, policy=best_policy,
-            n_generations=n_sims, weights_file=weights_file, **kw,
+            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
         )
     else:
-        best_policy, best_reward, greedy_sims = _greedy_loop(
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
             env=env, policy=best_policy, n_sims=n_sims,
             mutation_scale=mutation_scale, mutation_share=mutation_share,
             best_reward=best_reward, weights_file=weights_file,
-            adaptive_mutation=adaptive_mutation, **kw,
+            adaptive_mutation=adaptive_mutation, patience=patience, **kw,
         )
 
     env.close()
@@ -962,6 +1032,8 @@ def train_rl(
         training_params    = training_params or {},
         timings            = timings,
         track              = track,
+        early_stopped      = early_stopped,
+        early_stop_sim     = early_stop_sim,
     )
 
     if save_results_fn is not None:

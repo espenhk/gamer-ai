@@ -158,6 +158,7 @@ def main() -> None:
         adaptive_mutation   = p.get("adaptive_mutation", True),
         extra_policy_types  = extra_policy_types,
         extra_loop_dispatch = extra_loop_dispatch,
+        patience            = p.get("patience", 0),
     )
 
     save_experiment_results(data, results_dir=f"{experiment_dir}/results")

@@ -9,6 +9,7 @@ probe_s: 15.0             # in-game seconds for each of the 9 single-action prob
 cold_restarts: 20         # max random restarts during cold-start search (hill_climbing only)
 cold_sims: 5            # hill-climb sims per cold-start restart (hill_climbing only)
 n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 = disabled)
+patience: 0              # stop greedy loop if no improvement for this many sims (0 = run all)
 
 
 # Policy algorithm for the greedy training phase.

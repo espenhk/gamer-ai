@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 import numpy as np
 import yaml
@@ -78,6 +78,13 @@ class RewardConfig:
     def from_yaml(cls, path: str) -> RewardConfig:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
+        valid_keys = {f.name for f in fields(cls)}
+        unknown = set(data.keys()) - valid_keys
+        if unknown:
+            raise ValueError(
+                f"{path}: unknown reward config keys: {sorted(unknown)}\n"
+                f"Valid keys: {sorted(valid_keys)}"
+            )
         return cls(**data)
 
 

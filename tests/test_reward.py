@@ -1,8 +1,18 @@
 """Tests for RewardCalculator and RewardConfig in tmnf/rl/reward.py."""
+import tempfile
+import os
 import unittest
 
 from helpers import make_state_data
 from rl.reward import RewardCalculator, RewardConfig
+
+
+def _write_yaml(content: str) -> str:
+    """Write content to a temp YAML file and return the path."""
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+    f.write(content)
+    f.close()
+    return f.name
 
 
 class TestRewardConfig(unittest.TestCase):
@@ -17,6 +27,33 @@ class TestRewardConfig(unittest.TestCase):
         cfg = RewardConfig(finish_bonus=50.0, progress_weight=5.0)
         self.assertEqual(cfg.finish_bonus, 50.0)
         self.assertEqual(cfg.progress_weight, 5.0)
+
+    def test_from_yaml_unknown_key_raises(self):
+        path = _write_yaml("ceterline_weight: -1.0\n")
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                RewardConfig.from_yaml(path)
+            self.assertIn("ceterline_weight", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_from_yaml_valid_keys_no_exception(self):
+        path = _write_yaml("progress_weight: 5.0\nfinish_bonus: 200.0\n")
+        try:
+            cfg = RewardConfig.from_yaml(path)
+            self.assertEqual(cfg.progress_weight, 5.0)
+            self.assertEqual(cfg.finish_bonus, 200.0)
+        finally:
+            os.unlink(path)
+
+    def test_from_yaml_partial_keys_uses_defaults(self):
+        path = _write_yaml("finish_bonus: 42.0\n")
+        try:
+            cfg = RewardConfig.from_yaml(path)
+            self.assertEqual(cfg.finish_bonus, 42.0)
+            self.assertEqual(cfg.progress_weight, RewardConfig().progress_weight)
+        finally:
+            os.unlink(path)
 
 
 class TestRewardCalculator(unittest.TestCase):

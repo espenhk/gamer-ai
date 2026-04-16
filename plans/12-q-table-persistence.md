@@ -20,52 +20,95 @@ Pickle the three table dicts alongside the YAML config:
 
 On load, if the pickle exists, restore the tables automatically.
 
-## Changes to `policies.py`
+## Changes
 
-### `QTablePolicy` — add `save()` override and `_load_table()` classmethod
+> **Important:** `policies.py` is a TMNF backward-compatibility shim. The training
+> framework imports `EpsilonGreedyPolicy` / `MCTSPolicy` directly from
+> `framework/policies.py`, so all logic changes go there and in
+> `framework/training.py`. The `from_cfg()` methods in the shim are currently
+> unused by the training loop.
+
+### `framework/policies.py` — `QTablePolicy`: add `save()` + `_load_table()`
 
 ```python
+import pickle  # add at top of file
+
 MAX_QTABLE_ENTRIES = 500_000  # guard against saving enormous tables
 
-def save(self, path: Path) -> None:
+# Inside QTablePolicy:
+
+def save(self, path: str) -> None:
     """Save hyperparams to YAML and Q-table to sibling .pkl file."""
     super().save(path)  # writes YAML via to_cfg()
     if len(self._q_table) > MAX_QTABLE_ENTRIES:
-        print(f"WARNING: Q-table has {len(self._q_table)} entries (>{MAX_QTABLE_ENTRIES}), skipping pickle.")
+        logger.warning(
+            "Q-table has %d entries (>%d), skipping pickle.",
+            len(self._q_table), MAX_QTABLE_ENTRIES,
+        )
         return
-    pkl_path = path.with_name(path.stem + "_qtable.pkl")
+    pkl_path = _qtable_pkl_path(path)
     with open(pkl_path, "wb") as f:
         pickle.dump((self._q_table, self._n_sa, self._n_s), f)
-    print(f"Q-table saved: {len(self._q_table)} states → {pkl_path}")
+    logger.info("Q-table saved: %d states → %s", len(self._q_table), pkl_path)
 
-@classmethod
-def _load_table(cls, self_instance, path: Path) -> None:
+def _load_table(self, path: str) -> None:
     """Restore Q-table from sibling .pkl if it exists."""
-    pkl_path = path.with_name(path.stem + "_qtable.pkl")
-    if pkl_path.exists():
+    pkl_path = _qtable_pkl_path(path)
+    if os.path.exists(pkl_path):
         with open(pkl_path, "rb") as f:
             q_table, n_sa, n_s = pickle.load(f)
-        self_instance._q_table = q_table
-        self_instance._n_sa = n_sa
-        self_instance._n_s = n_s
-        print(f"Q-table loaded: {len(q_table)} states from {pkl_path}")
+        self._q_table = q_table
+        self._n_sa    = n_sa
+        self._n_s     = n_s
+        logger.info("Q-table loaded: %d states from %s", len(q_table), pkl_path)
 ```
 
-Add `import pickle` at the top of `policies.py`.
-
-### `EpsilonGreedyPolicy.from_cfg()` (lines 507–517)
-After the existing construction, call `_load_table()`:
+Add a small helper near the top of the file:
 ```python
-@classmethod
-def from_cfg(cls, cfg: dict, weights_file: Path | None = None) -> "EpsilonGreedyPolicy":
-    policy = cls(...)  # existing construction
-    if weights_file is not None:
-        cls._load_table(policy, weights_file)
+def _qtable_pkl_path(yaml_path: str) -> str:
+    base, _ = os.path.splitext(yaml_path)
+    return base + "_qtable.pkl"
+```
+
+### `framework/training.py` — `_make_policy()`: restore table on restart
+
+After constructing the `epsilon_greedy` and `mcts` policies, add a load call:
+
+```python
+elif policy_type == "epsilon_greedy":
+    policy = EpsilonGreedyPolicy(
+        obs_spec=obs_spec,
+        discrete_actions=discrete_actions,
+        n_bins=policy_params.get("n_bins", 3),
+        epsilon=policy_params.get("epsilon", 1.0),
+        epsilon_decay=policy_params.get("epsilon_decay", 0.995),
+        epsilon_min=policy_params.get("epsilon_min", 0.05),
+        alpha=policy_params.get("alpha", 0.1),
+        gamma=policy_params.get("gamma", 0.99),
+    )
+    if os.path.exists(weights_file) and not re_initialize:
+        with open(weights_file) as f:
+            saved_cfg = yaml.safe_load(f) or {}
+        policy._epsilon = float(saved_cfg.get("epsilon", policy._epsilon))
+        policy._load_table(weights_file)
+    return policy
+
+elif policy_type == "mcts":
+    policy = MCTSPolicy(
+        obs_spec=obs_spec,
+        discrete_actions=discrete_actions,
+        c=policy_params.get("c", 1.41),
+        alpha=policy_params.get("alpha", 0.1),
+        gamma=policy_params.get("gamma", 0.99),
+        n_bins=policy_params.get("n_bins", 3),
+    )
+    if os.path.exists(weights_file) and not re_initialize:
+        policy._load_table(weights_file)
     return policy
 ```
 
-### `MCTSPolicy.from_cfg()` (lines 596–604)
-Same pattern as `EpsilonGreedyPolicy.from_cfg()`.
+Note: restoring `epsilon` from the saved YAML is important so decay continues
+from where it left off rather than restarting from 1.0.
 
 ## File Naming
 
@@ -89,7 +132,8 @@ from producing huge pickle files.
 
 | File | Change |
 |------|--------|
-| `policies.py` | Add `save()` + `_load_table()` to `QTablePolicy`; update `from_cfg()` in `EpsilonGreedy` and `MCTS` |
+| `framework/policies.py` | Add `save()` + `_load_table()` to `QTablePolicy`; add `_qtable_pkl_path()` helper; add `import pickle` |
+| `framework/training.py` | Update `_make_policy()` for `epsilon_greedy` and `mcts`: restore epsilon + call `_load_table()` when weights file exists |
 
 ## Testing
 

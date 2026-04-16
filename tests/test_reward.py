@@ -237,5 +237,53 @@ class TestNTicksScaling(unittest.TestCase):
         self.assertAlmostEqual(per_tick_diff, expected_diff, places=5)
 
 
+class TestRewardConfigMultiTrack(unittest.TestCase):
+    """RewardConfig fields added for multi-track support (issue #14)."""
+
+    def test_default_track_name(self):
+        cfg = RewardConfig()
+        self.assertEqual(cfg.track_name, "a03")
+
+    def test_default_centerline_path(self):
+        cfg = RewardConfig()
+        self.assertEqual(cfg.centerline_path, "tracks/a03_centerline.npy")
+
+    def test_custom_track_fields(self):
+        cfg = RewardConfig(track_name="b05", centerline_path="tracks/b05_centerline.npy")
+        self.assertEqual(cfg.track_name, "b05")
+        self.assertEqual(cfg.centerline_path, "tracks/b05_centerline.npy")
+
+    def test_from_yaml_reads_track_fields(self):
+        import tempfile, os
+        yaml_content = (
+            "progress_weight: 10.0\n"
+            "track_name: b05\n"
+            "centerline_path: tracks/b05_centerline.npy\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            tmp = f.name
+        try:
+            cfg = RewardConfig.from_yaml(tmp)
+            self.assertEqual(cfg.track_name, "b05")
+            self.assertEqual(cfg.centerline_path, "tracks/b05_centerline.npy")
+        finally:
+            os.unlink(tmp)
+
+    def test_from_yaml_backward_compat_missing_fields(self):
+        """Old YAML files without track_name/centerline_path fall back to defaults."""
+        import tempfile, os
+        yaml_content = "progress_weight: 10.0\nfinish_bonus: 100.0\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            tmp = f.name
+        try:
+            cfg = RewardConfig.from_yaml(tmp)
+            self.assertEqual(cfg.track_name, "a03")
+            self.assertEqual(cfg.centerline_path, "tracks/a03_centerline.npy")
+        finally:
+            os.unlink(tmp)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

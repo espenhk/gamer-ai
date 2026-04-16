@@ -13,13 +13,13 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from scipy.interpolate import splev, splprep
 
 logger = logging.getLogger(__name__)
-from pygbx import Gbx, GbxType
-from scipy.interpolate import splev, splprep
 
 
 def extract_positions(gbx_path: str) -> np.ndarray:
+    from pygbx import Gbx, GbxType
     g = Gbx(gbx_path)
     ghost = g.get_class_by_id(GbxType.CTN_GHOST)
     if ghost is None:

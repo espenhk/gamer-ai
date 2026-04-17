@@ -966,6 +966,51 @@ class LSTMEvolutionPolicy(BasePolicy):
         return self._sigma
 
     def initialize_from_champion(self, champion: LSTMPolicy) -> None:
+        champion_flat_dim = champion.flat_dim
+        expected_hidden_size = getattr(self._template, "_hidden_size", None)
+        champion_hidden_size = getattr(champion, "_hidden_size", None)
+        expected_obs_dim = getattr(self._template, "obs_dim", None)
+        champion_obs_dim = getattr(champion, "obs_dim", None)
+        expected_lidar_rays = getattr(self, "_n_lidar_rays", None)
+        champion_lidar_rays = getattr(champion, "_n_lidar_rays", None)
+
+        mismatch_reasons: list[str] = []
+        if champion_flat_dim != self._flat_dim:
+            mismatch_reasons.append(
+                f"flat_dim mismatch (expected {self._flat_dim}, got {champion_flat_dim})"
+            )
+        if (
+            expected_hidden_size is not None
+            and champion_hidden_size is not None
+            and champion_hidden_size != expected_hidden_size
+        ):
+            mismatch_reasons.append(
+                "hidden_size mismatch "
+                f"(expected {expected_hidden_size}, got {champion_hidden_size})"
+            )
+        if (
+            expected_obs_dim is not None
+            and champion_obs_dim is not None
+            and champion_obs_dim != expected_obs_dim
+        ):
+            mismatch_reasons.append(
+                f"obs_dim mismatch (expected {expected_obs_dim}, got {champion_obs_dim})"
+            )
+        if (
+            expected_lidar_rays is not None
+            and champion_lidar_rays is not None
+            and champion_lidar_rays != expected_lidar_rays
+        ):
+            mismatch_reasons.append(
+                "n_lidar_rays mismatch "
+                f"(expected {expected_lidar_rays}, got {champion_lidar_rays})"
+            )
+
+        if mismatch_reasons:
+            raise ValueError(
+                "Cannot initialize LSTMEvolutionPolicy from an incompatible champion: "
+                + "; ".join(mismatch_reasons)
+            )
         self._champion = champion
         self._mean     = champion.to_flat().astype(np.float64)
         logger.info("[LSTMEvolutionPolicy] seeded mean from champion")

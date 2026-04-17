@@ -150,6 +150,18 @@ def main() -> None:
             with open(weights_file) as _f:
                 _cfg = yaml.safe_load(_f) or {}
             if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
+                saved_hidden_size = _cfg.get("hidden_size")
+                saved_n_lidar_rays = _cfg.get("n_lidar_rays")
+                if saved_hidden_size is not None and saved_hidden_size != hidden_size:
+                    raise ValueError(
+                        "Saved LSTM champion hidden_size does not match current run: "
+                        f"saved={saved_hidden_size}, current={hidden_size}"
+                    )
+                if saved_n_lidar_rays is not None and saved_n_lidar_rays != n_lidar_rays:
+                    raise ValueError(
+                        "Saved LSTM champion n_lidar_rays does not match current run: "
+                        f"saved={saved_n_lidar_rays}, current={n_lidar_rays}"
+                    )
                 champion = LSTMPolicy.from_cfg(_cfg)
                 policy.initialize_from_champion(champion)
         return policy

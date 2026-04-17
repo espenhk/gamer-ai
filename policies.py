@@ -42,6 +42,9 @@ from games.tmnf.policies import (  # noqa: F401
     ReplayBuffer,
     NeuralDQNPolicy,
     CMAESPolicy,
+    REINFORCEPolicy,
+    LSTMPolicy,
+    LSTMEvolutionPolicy,
 )
 
 logger = logging.getLogger(__name__)

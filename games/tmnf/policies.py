@@ -532,3 +532,564 @@ class CMAESPolicy(BasePolicy):
         """Save champion in WeightedLinearPolicy YAML format for analytics compatibility."""
         if self._champion is not None:
             self._champion.save(path)
+
+
+# ---------------------------------------------------------------------------
+# REINFORCEPolicy
+# ---------------------------------------------------------------------------
+
+class REINFORCEPolicy(BasePolicy):
+    """
+    REINFORCE (Monte Carlo Policy Gradient) with optional entropy regularisation.
+
+    Action head: softmax over the 9 discrete TMNF actions.
+    Each episode accumulates (log_prob, reward) pairs; gradient update fires
+    on episode end using discounted, normalised returns.
+
+    Training loop dispatch: "q_learning" (update() per step, on_episode_end() per episode).
+    """
+
+    def __init__(
+        self,
+        hidden_sizes: list[int] | None = None,
+        learning_rate: float = 0.001,
+        gamma: float = 0.99,
+        entropy_coeff: float = 0.01,
+        baseline: str = "running_mean",
+        n_lidar_rays: int = 0,
+        seed: int | None = None,
+    ) -> None:
+        self._hidden       = list(hidden_sizes or [64, 64])
+        self._lr           = float(learning_rate)
+        self._gamma        = float(gamma)
+        self._entropy_coeff = float(entropy_coeff)
+        self._baseline_type = baseline
+        self._n_lidar_rays = n_lidar_rays
+        self._obs_dim      = BASE_OBS_DIM + n_lidar_rays
+        self._scales       = obs_scales_with_lidar(n_lidar_rays)
+
+        self._weights, self._biases = self._build_net(seed)
+
+        # Episode buffers (aligned: one entry per non-warmup step)
+        self._ep_grads: list[tuple]   = []  # (layer_inputs, pre_relu, probs, action_idx)
+        self._ep_rewards: list[float] = []
+
+        # Running-mean baseline (EMA of total episode returns)
+        self._baseline_val   = 0.0
+        self._baseline_alpha = 0.05
+
+    def _build_net(self, seed: int | None) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        rng  = np.random.default_rng(seed)
+        dims = [self._obs_dim] + self._hidden + [_N_DISCRETE_ACTIONS]
+        weights, biases = [], []
+        for i in range(len(dims) - 1):
+            fan_in = dims[i]
+            w = rng.standard_normal((dims[i + 1], fan_in)).astype(np.float32)
+            w *= np.sqrt(2.0 / fan_in)
+            b = np.zeros(dims[i + 1], dtype=np.float32)
+            weights.append(w)
+            biases.append(b)
+        return weights, biases
+
+    @staticmethod
+    def _softmax(z: np.ndarray) -> np.ndarray:
+        z_s = z - z.max()
+        e   = np.exp(z_s)
+        return e / e.sum()
+
+    def _forward(self, obs_norm: np.ndarray):
+        """Forward pass; caches (layer_inputs, pre_relu) for backprop."""
+        x: np.ndarray         = obs_norm.astype(np.float32)
+        layer_inputs: list    = []
+        pre_relu: list        = []
+        for i, (w, b) in enumerate(zip(self._weights, self._biases)):
+            layer_inputs.append(x.copy())
+            z = w @ x + b
+            if i < len(self._weights) - 1:
+                pre_relu.append(z.copy())
+                x = np.maximum(0.0, z)
+            else:
+                logits = z
+        probs = self._softmax(logits)
+        return probs, layer_inputs, pre_relu
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        obs_norm               = obs / self._scales
+        probs, l_in, pre_r    = self._forward(obs_norm)
+        action_idx             = int(np.random.choice(_N_DISCRETE_ACTIONS, p=probs))
+        self._ep_grads.append((l_in, pre_r, probs.copy(), action_idx))
+        return _DISCRETE_ACTIONS[action_idx].copy()
+
+    def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
+               next_obs: np.ndarray, done: bool) -> None:
+        self._ep_rewards.append(float(reward))
+
+    def on_episode_end(self) -> None:
+        T = min(len(self._ep_grads), len(self._ep_rewards))
+        if T == 0:
+            self._ep_grads.clear()
+            self._ep_rewards.clear()
+            return
+
+        # Discounted returns
+        G = np.zeros(T, dtype=np.float64)
+        running = 0.0
+        for t in reversed(range(T)):
+            running = self._ep_rewards[t] + self._gamma * running
+            G[t]    = running
+
+        # Capture baseline before updating so this episode's returns don't bias
+        # the advantages computed below (avoids action-dependent baseline).
+        baseline_for_advantages = self._baseline_val
+
+        # Baseline update (EMA of total episode return)
+        if self._baseline_type == "running_mean":
+            self._baseline_val = ((1 - self._baseline_alpha) * self._baseline_val
+                                  + self._baseline_alpha * float(G[0]))
+
+        # Normalise returns: scale by std when there is within-episode variance;
+        # otherwise fall back to baseline-centred raw returns so single-step
+        # episodes still produce a non-zero gradient.
+        G_std = float(G.std())
+        if G_std > 1e-6:
+            G_norm = (G - G.mean()) / (G_std + 1e-8)
+        else:
+            G_norm = G - baseline_for_advantages
+
+        # Accumulate gradients
+        dW = [np.zeros_like(w, dtype=np.float64) for w in self._weights]
+        dB = [np.zeros_like(b, dtype=np.float64) for b in self._biases]
+
+        for t in range(T):
+            l_in, pre_r, probs, a_idx = self._ep_grads[t]
+            advantage = float(G_norm[t])
+
+            # Output-layer gradient: ∂J/∂z = advantage * (one_hot(a) - probs) + entropy term
+            delta                  = -probs.copy().astype(np.float64)
+            delta[a_idx]          += 1.0
+            delta                 *= advantage
+
+            if self._entropy_coeff > 0.0:
+                # ∂H/∂z_j = -p_j * (log(p_j) + H)  [gradient of entropy w.r.t. logits]
+                log_p        = np.log(probs.astype(np.float64) + 1e-8)
+                H            = -float(np.dot(probs, log_p))
+                entropy_grad = -probs.astype(np.float64) * (log_p + H)
+                delta       += self._entropy_coeff * entropy_grad
+
+            # Backprop through MLP (gradient ascent)
+            g = delta
+            for i in range(len(self._weights) - 1, -1, -1):
+                dW[i] += np.outer(g, l_in[i])
+                dB[i] += g
+                if i > 0:
+                    g = self._weights[i].T @ g * (pre_r[i - 1] > 0)
+
+        # Parameter update (gradient ascent: θ += lr * grad / T)
+        lr_t = self._lr / T
+        for i in range(len(self._weights)):
+            self._weights[i] += (lr_t * dW[i]).astype(np.float32)
+            self._biases[i]  += (lr_t * dB[i]).astype(np.float32)
+
+        self._ep_grads.clear()
+        self._ep_rewards.clear()
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":    "reinforce",
+            "hidden_sizes":   self._hidden,
+            "learning_rate":  float(self._lr),
+            "gamma":          float(self._gamma),
+            "entropy_coeff":  float(self._entropy_coeff),
+            "baseline":       self._baseline_type,
+            "n_lidar_rays":   self._n_lidar_rays,
+            "baseline_value": float(self._baseline_val),
+            "weights":        [w.tolist() for w in self._weights],
+            "biases":         [b.tolist() for b in self._biases],
+        }
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, n_lidar_rays: int = 0) -> "REINFORCEPolicy":
+        obj = cls(
+            hidden_sizes  = cfg.get("hidden_sizes",  [64, 64]),
+            learning_rate = cfg.get("learning_rate", 0.001),
+            gamma         = cfg.get("gamma",         0.99),
+            entropy_coeff = cfg.get("entropy_coeff", 0.01),
+            baseline      = cfg.get("baseline",      "running_mean"),
+            n_lidar_rays  = n_lidar_rays,
+        )
+        if "weights" in cfg:
+            obj._weights = [np.array(w, dtype=np.float32) for w in cfg["weights"]]
+            obj._biases  = [np.array(b, dtype=np.float32) for b in cfg["biases"]]
+        if "baseline_value" in cfg:
+            obj._baseline_val = float(cfg["baseline_value"])
+        return obj
+
+
+# ---------------------------------------------------------------------------
+# LSTMPolicy
+# ---------------------------------------------------------------------------
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -20.0, 20.0)))
+
+
+class LSTMPolicy(BasePolicy):
+    """
+    Single-layer LSTM policy (pure numpy).
+
+    Hidden state (h, c) persists across steps within an episode.
+    Trained via an outer evolutionary optimiser (LSTMEvolutionPolicy).
+    on_episode_end() resets (h, c) to zeros.
+
+    Output heads:
+      steer = tanh(W_steer · h)           → [-1, 1]
+      accel = sigmoid(W_accel · h) > 0.5  → {0, 1}
+      brake = sigmoid(W_brake · h) > 0.5  → {0, 1}
+    """
+
+    def __init__(
+        self,
+        hidden_size: int = 32,
+        n_lidar_rays: int = 0,
+        seed: int | None = None,
+    ) -> None:
+        self._hidden_size  = hidden_size
+        self._n_lidar_rays = n_lidar_rays
+        self._obs_dim      = BASE_OBS_DIM + n_lidar_rays
+        self._scales       = obs_scales_with_lidar(n_lidar_rays)
+
+        h    = hidden_size
+        c_in = h + self._obs_dim
+        rng  = np.random.default_rng(seed)
+        gain = np.sqrt(2.0 / c_in)
+
+        self._W_f = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_f = np.zeros(h, dtype=np.float32)
+        self._W_i = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_i = np.zeros(h, dtype=np.float32)
+        self._W_g = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_g = np.zeros(h, dtype=np.float32)
+        self._W_o = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_o = np.zeros(h, dtype=np.float32)
+
+        self._W_steer = rng.standard_normal(h).astype(np.float32) * np.sqrt(2.0 / h)
+        self._W_accel = rng.standard_normal(h).astype(np.float32) * np.sqrt(2.0 / h)
+        self._W_brake = rng.standard_normal(h).astype(np.float32) * np.sqrt(2.0 / h)
+
+        self._h = np.zeros(h, dtype=np.float32)
+        self._c = np.zeros(h, dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Flat parameter interface (used by LSTMEvolutionPolicy)
+    # ------------------------------------------------------------------
+
+    @property
+    def flat_dim(self) -> int:
+        h    = self._hidden_size
+        c_in = h + self._obs_dim
+        return 4 * (h * c_in + h) + 3 * h
+
+    def to_flat(self) -> np.ndarray:
+        return np.concatenate([
+            self._W_f.ravel(), self._b_f,
+            self._W_i.ravel(), self._b_i,
+            self._W_g.ravel(), self._b_g,
+            self._W_o.ravel(), self._b_o,
+            self._W_steer,
+            self._W_accel,
+            self._W_brake,
+        ]).astype(np.float32)
+
+    def with_flat(self, flat: np.ndarray) -> "LSTMPolicy":
+        """Return a new LSTMPolicy whose weights come from a flat parameter vector."""
+        flat = np.asarray(flat, dtype=np.float32)
+        if flat.shape[0] != self.flat_dim:
+            raise ValueError(
+                f"LSTMPolicy.with_flat: expected flat vector of size {self.flat_dim}, "
+                f"got {flat.shape[0]}"
+            )
+
+        obj = object.__new__(LSTMPolicy)
+        obj._hidden_size  = self._hidden_size
+        obj._n_lidar_rays = self._n_lidar_rays
+        obj._obs_dim      = self._obs_dim
+        obj._scales       = self._scales
+
+        h    = self._hidden_size
+        c_in = h + self._obs_dim
+
+        off = 0
+        def _take(shape: tuple) -> np.ndarray:
+            nonlocal off
+            n   = int(np.prod(shape))
+            out = flat[off: off + n].reshape(shape).copy()
+            off += n
+            return out
+
+        obj._W_f    = _take((h, c_in))
+        obj._b_f    = _take((h,))
+        obj._W_i    = _take((h, c_in))
+        obj._b_i    = _take((h,))
+        obj._W_g    = _take((h, c_in))
+        obj._b_g    = _take((h,))
+        obj._W_o    = _take((h, c_in))
+        obj._b_o    = _take((h,))
+        obj._W_steer = _take((h,))
+        obj._W_accel = _take((h,))
+        obj._W_brake = _take((h,))
+        obj._h      = np.zeros(h, dtype=np.float32)
+        obj._c      = np.zeros(h, dtype=np.float32)
+        return obj
+
+    def mutated(self, scale: float, **_) -> "LSTMPolicy":
+        """Return a new LSTMPolicy with Gaussian noise applied to all parameters."""
+        flat  = self.to_flat()
+        noise = np.random.default_rng().standard_normal(len(flat)).astype(np.float32)
+        return self.with_flat(flat + scale * noise)
+
+    # ------------------------------------------------------------------
+    # Policy interface
+    # ------------------------------------------------------------------
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        x  = (obs / self._scales).astype(np.float32)
+        hx = np.concatenate([self._h, x])
+
+        f = _sigmoid(self._W_f @ hx + self._b_f)
+        i = _sigmoid(self._W_i @ hx + self._b_i)
+        g = np.tanh(self._W_g   @ hx + self._b_g)
+        o = _sigmoid(self._W_o  @ hx + self._b_o)
+
+        self._c = f * self._c + i * g
+        self._h = o * np.tanh(self._c)
+
+        steer = float(np.tanh(np.dot(self._W_steer, self._h)))
+        accel = float(_sigmoid(np.dot(self._W_accel, self._h)) > 0.5)
+        brake = float(_sigmoid(np.dot(self._W_brake, self._h)) > 0.5)
+        return np.array([steer, accel, brake], dtype=np.float32)
+
+    def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
+               next_obs: np.ndarray, done: bool) -> None:
+        pass  # no online update; training via outer evolutionary optimiser
+
+    def on_episode_end(self) -> None:
+        self._h = np.zeros(self._hidden_size, dtype=np.float32)
+        self._c = np.zeros(self._hidden_size, dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type": "lstm",
+            "hidden_size": self._hidden_size,
+            "n_lidar_rays": self._n_lidar_rays,
+            "obs_dim":     self._obs_dim,
+            "W_f": self._W_f.tolist(), "b_f": self._b_f.tolist(),
+            "W_i": self._W_i.tolist(), "b_i": self._b_i.tolist(),
+            "W_g": self._W_g.tolist(), "b_g": self._b_g.tolist(),
+            "W_o": self._W_o.tolist(), "b_o": self._b_o.tolist(),
+            "W_steer": self._W_steer.tolist(),
+            "W_accel": self._W_accel.tolist(),
+            "W_brake": self._W_brake.tolist(),
+        }
+
+    @classmethod
+    def from_cfg(cls, cfg: dict) -> "LSTMPolicy":
+        obj = object.__new__(cls)
+        obj._hidden_size  = int(cfg["hidden_size"])
+        obj._n_lidar_rays = int(cfg.get("n_lidar_rays", 0))
+        obj._obs_dim      = int(cfg.get("obs_dim", BASE_OBS_DIM + obj._n_lidar_rays))
+        obj._scales       = obs_scales_with_lidar(obj._n_lidar_rays)
+        obj._W_f    = np.array(cfg["W_f"],    dtype=np.float32)
+        obj._b_f    = np.array(cfg["b_f"],    dtype=np.float32)
+        obj._W_i    = np.array(cfg["W_i"],    dtype=np.float32)
+        obj._b_i    = np.array(cfg["b_i"],    dtype=np.float32)
+        obj._W_g    = np.array(cfg["W_g"],    dtype=np.float32)
+        obj._b_g    = np.array(cfg["b_g"],    dtype=np.float32)
+        obj._W_o    = np.array(cfg["W_o"],    dtype=np.float32)
+        obj._b_o    = np.array(cfg["b_o"],    dtype=np.float32)
+        obj._W_steer = np.array(cfg["W_steer"], dtype=np.float32)
+        obj._W_accel = np.array(cfg["W_accel"], dtype=np.float32)
+        obj._W_brake = np.array(cfg["W_brake"], dtype=np.float32)
+        h = obj._hidden_size
+        obj._h = np.zeros(h, dtype=np.float32)
+        obj._c = np.zeros(h, dtype=np.float32)
+        return obj
+
+
+# ---------------------------------------------------------------------------
+# LSTMEvolutionPolicy
+# ---------------------------------------------------------------------------
+
+class LSTMEvolutionPolicy(BasePolicy):
+    """
+    (μ/μ_w, λ)-ES outer optimiser wrapping LSTMPolicy as the inner individual.
+
+    Uses the _greedy_loop_cmaes interface: sample_population() / update_distribution().
+    Maintains an isotropic Gaussian search distribution (no full covariance matrix —
+    infeasible for the ~7 K-dimensional LSTM parameter space).
+    Step size is adapted via the 1/5 success rule.
+
+    Inference delegates to the champion LSTMPolicy.
+    """
+
+    def __init__(
+        self,
+        hidden_size: int = 32,
+        population_size: int = 20,
+        initial_sigma: float = 0.05,
+        n_lidar_rays: int = 0,
+        seed: int | None = None,
+    ) -> None:
+        self._lam          = int(population_size)
+        self._sigma        = float(initial_sigma)
+        self._n_lidar_rays = n_lidar_rays
+        self._rng          = np.random.default_rng(seed)
+
+        self._template = LSTMPolicy(hidden_size=hidden_size, n_lidar_rays=n_lidar_rays)
+        self._flat_dim = self._template.flat_dim
+        self._mean     = self._template.to_flat().astype(np.float64)
+
+        # Weighted recombination (log-based, top-mu elites)
+        mu         = self._lam // 2
+        self._mu   = mu
+        raw_w      = np.array([np.log(mu + 0.5) - np.log(i + 1)
+                               for i in range(mu)], dtype=np.float64)
+        self._recomb_w = raw_w / raw_w.sum()
+
+        self._pop: list[np.ndarray] = []
+        self._champion: LSTMPolicy | None        = None
+        self._champion_reward: float             = float("-inf")
+
+    @property
+    def population_size(self) -> int:
+        return self._lam
+
+    @property
+    def champion_reward(self) -> float:
+        return self._champion_reward
+
+    @property
+    def sigma(self) -> float:
+        return self._sigma
+
+    def initialize_from_champion(self, champion: LSTMPolicy) -> None:
+        champion_flat_dim = champion.flat_dim
+        expected_hidden_size = getattr(self._template, "_hidden_size", None)
+        champion_hidden_size = getattr(champion, "_hidden_size", None)
+        expected_obs_dim = getattr(self._template, "obs_dim", None)
+        champion_obs_dim = getattr(champion, "obs_dim", None)
+        expected_lidar_rays = getattr(self, "_n_lidar_rays", None)
+        champion_lidar_rays = getattr(champion, "_n_lidar_rays", None)
+
+        mismatch_reasons: list[str] = []
+        if champion_flat_dim != self._flat_dim:
+            mismatch_reasons.append(
+                f"flat_dim mismatch (expected {self._flat_dim}, got {champion_flat_dim})"
+            )
+        if (
+            expected_hidden_size is not None
+            and champion_hidden_size is not None
+            and champion_hidden_size != expected_hidden_size
+        ):
+            mismatch_reasons.append(
+                "hidden_size mismatch "
+                f"(expected {expected_hidden_size}, got {champion_hidden_size})"
+            )
+        if (
+            expected_obs_dim is not None
+            and champion_obs_dim is not None
+            and champion_obs_dim != expected_obs_dim
+        ):
+            mismatch_reasons.append(
+                f"obs_dim mismatch (expected {expected_obs_dim}, got {champion_obs_dim})"
+            )
+        if (
+            expected_lidar_rays is not None
+            and champion_lidar_rays is not None
+            and champion_lidar_rays != expected_lidar_rays
+        ):
+            mismatch_reasons.append(
+                "n_lidar_rays mismatch "
+                f"(expected {expected_lidar_rays}, got {champion_lidar_rays})"
+            )
+
+        if mismatch_reasons:
+            raise ValueError(
+                "Cannot initialize LSTMEvolutionPolicy from an incompatible champion: "
+                + "; ".join(mismatch_reasons)
+            )
+        self._champion = champion
+        self._mean     = champion.to_flat().astype(np.float64)
+        logger.info("[LSTMEvolutionPolicy] seeded mean from champion")
+
+    def sample_population(self) -> list[LSTMPolicy]:
+        self._pop = []
+        for _ in range(self._lam):
+            z = self._rng.standard_normal(self._flat_dim)
+            self._pop.append(self._mean + self._sigma * z)
+        return [self._template.with_flat(x) for x in self._pop]
+
+    def update_distribution(self, rewards: list[float]) -> bool:
+        if len(rewards) != self._lam:
+            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
+        if len(self._pop) != self._lam:
+            raise RuntimeError(
+                "update_distribution() called before a matching sample_population(). "
+                f"Expected {self._lam} samples in _pop, got {len(self._pop)}. "
+                "Call sample_population() first."
+            )
+
+        order     = np.argsort(rewards)[::-1]
+        prev_best = self._champion_reward
+        improved  = False
+
+        best_r = rewards[order[0]]
+        if best_r > self._champion_reward:
+            self._champion_reward = best_r
+            self._champion        = self._template.with_flat(
+                np.array(self._pop[order[0]], dtype=np.float32)
+            )
+            improved = True
+
+        # Weighted mean recombination (top-mu elites)
+        elite_xs   = np.stack([self._pop[order[i]] for i in range(self._mu)])
+        self._mean = np.einsum("i,ij->j", self._recomb_w, elite_xs)
+
+        # 1/5 success rule for isotropic step-size adaptation
+        n_success    = sum(1 for r in rewards if r > prev_best)
+        success_rate = n_success / self._lam
+        self._sigma  = float(np.clip(
+            self._sigma * (1.2 if success_rate > 0.2 else 0.85),
+            1e-6, 1e2,
+        ))
+
+        return improved
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if self._champion is None:
+            raise RuntimeError(
+                "LSTMEvolutionPolicy: no champion yet — call sample_population() "
+                "and update_distribution() for at least one generation first."
+            )
+        return self._champion(obs)
+
+    def on_episode_end(self) -> None:
+        if self._champion is not None:
+            self._champion.on_episode_end()
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":    "lstm",
+            "hidden_size":    self._template._hidden_size,
+            "population_size": self._lam,
+            "sigma":          float(self._sigma),
+            "n_lidar_rays":   self._n_lidar_rays,
+            "champion_reward": float(self._champion_reward),
+        }
+
+    def save(self, path: str) -> None:
+        if self._champion is not None:
+            self._champion.save(path)

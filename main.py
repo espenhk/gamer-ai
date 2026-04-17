@@ -19,7 +19,7 @@ from framework.training import train_rl
 from games.tmnf.obs_spec import TMNF_OBS_SPEC
 from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
 from games.tmnf.env import make_env
-from games.tmnf.policies import NeuralDQNPolicy, CMAESPolicy
+from games.tmnf.policies import NeuralDQNPolicy, CMAESPolicy, REINFORCEPolicy, LSTMPolicy, LSTMEvolutionPolicy
 from analytics import save_experiment_results  # backward-compat shim
 
 logger = logging.getLogger(__name__)
@@ -121,8 +121,63 @@ def main() -> None:
             policy.initialize_random()
         return policy
 
-    extra_policy_types = {"neural_dqn": _make_neural_dqn, "cmaes": _make_cmaes}
-    extra_loop_dispatch = {"neural_dqn": "q_learning", "cmaes": "cmaes"}
+    def _make_reinforce() -> REINFORCEPolicy:
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
+                return REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+        return REINFORCEPolicy(
+            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
+            learning_rate = policy_params.get("learning_rate", 0.001),
+            gamma         = policy_params.get("gamma",         0.99),
+            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
+            baseline      = policy_params.get("baseline",      "running_mean"),
+            n_lidar_rays  = n_lidar_rays,
+        )
+
+    def _make_lstm() -> LSTMEvolutionPolicy:
+        hidden_size = policy_params.get("hidden_size",     32)
+        pop_size    = policy_params.get("population_size", 20)
+        sigma       = policy_params.get("initial_sigma",   0.05)
+        policy      = LSTMEvolutionPolicy(
+            hidden_size     = hidden_size,
+            population_size = pop_size,
+            initial_sigma   = sigma,
+            n_lidar_rays    = n_lidar_rays,
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
+                saved_hidden_size = _cfg.get("hidden_size")
+                saved_n_lidar_rays = _cfg.get("n_lidar_rays")
+                if saved_hidden_size is not None and saved_hidden_size != hidden_size:
+                    raise ValueError(
+                        "Saved LSTM champion hidden_size does not match current run: "
+                        f"saved={saved_hidden_size}, current={hidden_size}"
+                    )
+                if saved_n_lidar_rays is not None and saved_n_lidar_rays != n_lidar_rays:
+                    raise ValueError(
+                        "Saved LSTM champion n_lidar_rays does not match current run: "
+                        f"saved={saved_n_lidar_rays}, current={n_lidar_rays}"
+                    )
+                champion = LSTMPolicy.from_cfg(_cfg)
+                policy.initialize_from_champion(champion)
+        return policy
+
+    extra_policy_types = {
+        "neural_dqn": _make_neural_dqn,
+        "cmaes":      _make_cmaes,
+        "reinforce":  _make_reinforce,
+        "lstm":       _make_lstm,
+    }
+    extra_loop_dispatch = {
+        "neural_dqn": "q_learning",
+        "cmaes":      "cmaes",
+        "reinforce":  "q_learning",
+        "lstm":       "cmaes",
+    }
 
     data = train_rl(
         experiment_name     = args.experiment,

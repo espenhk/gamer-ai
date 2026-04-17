@@ -13,7 +13,7 @@ patience: 0              # stop greedy loop if no improvement for this many sims
 
 
 # Policy algorithm for the greedy training phase.
-# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | neural_dqn
+# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | neural_dqn | cmaes | reinforce | lstm
 policy_type: genetic
 
 # Type-specific hyperparams.  Only the block matching policy_type is used.
@@ -64,3 +64,15 @@ policy_params:
   # cmaes — CMA-ES over flat WeightedLinearPolicy weight vector (Hansen 2016)
   #population_size: 20     # λ — offspring sampled each generation
   #initial_sigma: 0.3      # initial step size (adapted automatically)
+
+  # reinforce — Monte Carlo policy gradient (pure numpy MLP, softmax over 9 discrete actions)
+  #hidden_sizes: [64, 64]  # MLP hidden layer sizes
+  #learning_rate: 0.001    # gradient ascent step size
+  #gamma: 0.99             # reward discount factor
+  #entropy_coeff: 0.01     # H(π) bonus coefficient (0 = disabled)
+  #baseline: running_mean  # variance reduction baseline ("running_mean" or "none")
+
+  # lstm — LSTM policy trained via isotropic (μ/μ_w, λ)-ES (1/5 success rule for σ)
+  #hidden_size: 32         # LSTM hidden units (flat param dim ≈ 4×(h+obs_dim)×h + 3h)
+  #population_size: 20     # λ — offspring sampled per generation
+  #initial_sigma: 0.05     # initial step size (adapted via 1/5 rule)

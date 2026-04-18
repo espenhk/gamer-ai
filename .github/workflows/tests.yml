@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium
+
+      - name: Run tests
+        # test_env_termination requires tminterface (Windows-only, not on PyPI)
+        run: python -m pytest tests/ --ignore=tests/test_env_termination.py

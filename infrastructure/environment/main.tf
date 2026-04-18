@@ -234,7 +234,6 @@ resource "azurerm_windows_virtual_machine" "coordinator" {
     name                 = "osdisk-vm-${var.project_name}-coordinator"
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
-    disk_size_gb         = 32
   }
 
   source_image_reference {
@@ -246,7 +245,7 @@ resource "azurerm_windows_virtual_machine" "coordinator" {
 }
 resource "azurerm_windows_virtual_machine" "worker" {
   count               = var.worker_vm_count
-  name                = "vm-worker-${var.project_name}-${count.index}"
+  name                = "vm-${var.project_name}-${count.index}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   size                = var.worker_vm_size
@@ -263,7 +262,6 @@ resource "azurerm_windows_virtual_machine" "worker" {
     name                 = "osdisk-vm-worker-${var.project_name}-${count.index}"
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
-    disk_size_gb         = 32
   }
 
   source_image_reference {

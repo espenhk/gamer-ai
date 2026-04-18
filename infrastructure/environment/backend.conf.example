@@ -1,0 +1,2 @@
+resource_group_name  = "rg-tfstate-tmnf-ai"
+storage_account_name = "xxxxxx"

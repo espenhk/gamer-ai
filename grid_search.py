@@ -29,9 +29,13 @@ import itertools
 import logging
 import os
 from typing import Any
+import uuid as _uuid
 
 import yaml
+
 from distributed.protocol import ComboSpec
+from distributed.coordinator import Coordinator
+from analytics import save_experiment_results
 
 # Game-specific and analytics imports are deferred to the functions that need them
 # so that importing grid_search for testing (utility functions only) doesn't require
@@ -46,41 +50,41 @@ logger = logging.getLogger(__name__)
 
 _ABBREV = {
     # training params
-    "speed":           "speed",
-    "n_sims":          "nsims",
+    "speed": "speed",
+    "n_sims": "nsims",
     "in_game_episode_s": "ep",
-    "mutation_scale":  "ms",
-    "mutation_share":  "mshare",
-    "probe_s":         "probe",
-    "cold_restarts":   "cr",
-    "cold_sims":       "cs",
-    "policy_type":     "pt",
-    "do_pretrain":     "dpt",
-    "patience":        "pat",
+    "mutation_scale": "ms",
+    "mutation_share": "mshare",
+    "probe_s": "probe",
+    "cold_restarts": "cr",
+    "cold_sims": "cs",
+    "policy_type": "pt",
+    "do_pretrain": "dpt",
+    "patience": "pat",
     # neural_net policy params
-    "hidden_sizes":    "hs",
+    "hidden_sizes": "hs",
     # genetic policy params
     "population_size": "pop",
-    "elite_k":         "ek",
+    "elite_k": "ek",
     # epsilon-greedy params
-    "epsilon":         "eps",
-    "epsilon_decay":   "ed",
-    "epsilon_min":     "emin",
-    "alpha":           "alpha",
-    "gamma":           "gamma",
-    "n_bins":          "bins",
+    "epsilon": "eps",
+    "epsilon_decay": "ed",
+    "epsilon_min": "emin",
+    "alpha": "alpha",
+    "gamma": "gamma",
+    "n_bins": "bins",
     # mcts params
-    "mcts_c":          "mc",
+    "mcts_c": "mc",
     # reward params
     "progress_weight": "pw",
     "centerline_weight": "cw",
-    "centerline_exp":  "ce",
-    "speed_weight":    "sw",
-    "step_penalty":    "sp",
-    "finish_bonus":    "fb",
+    "centerline_exp": "ce",
+    "speed_weight": "sw",
+    "step_penalty": "sp",
+    "finish_bonus": "fb",
     "finish_time_weight": "ftw",
-    "par_time_s":      "par",
-    "accel_bonus":     "ab",
+    "par_time_s": "par",
+    "accel_bonus": "ab",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
@@ -90,16 +94,16 @@ _ABBREV = {
 # Allows grid axes like `epsilon: [0.5, 1.0]` without nesting inside policy_params.
 # mcts_c is renamed to c because that's what MCTSPolicy.from_cfg expects.
 _POLICY_PARAM_MAP = {
-    "hidden_sizes":    "hidden_sizes",   # neural_net
-    "epsilon":         "epsilon",        # epsilon_greedy
-    "epsilon_decay":   "epsilon_decay",  # epsilon_greedy
-    "epsilon_min":     "epsilon_min",    # epsilon_greedy
-    "alpha":           "alpha",          # epsilon_greedy / mcts
-    "gamma":           "gamma",          # epsilon_greedy / mcts
-    "n_bins":          "n_bins",         # epsilon_greedy / mcts
-    "mcts_c":          "c",              # mcts (renamed)
-    "population_size": "population_size", # genetic
-    "elite_k":         "elite_k",        # genetic
+    "hidden_sizes": "hidden_sizes",  # neural_net
+    "epsilon": "epsilon",  # epsilon_greedy
+    "epsilon_decay": "epsilon_decay",  # epsilon_greedy
+    "epsilon_min": "epsilon_min",  # epsilon_greedy
+    "alpha": "alpha",  # epsilon_greedy / mcts
+    "gamma": "gamma",  # epsilon_greedy / mcts
+    "n_bins": "n_bins",  # epsilon_greedy / mcts
+    "mcts_c": "c",  # mcts (renamed)
+    "population_size": "population_size",  # genetic
+    "elite_k": "elite_k",  # genetic
 }
 
 
@@ -111,7 +115,7 @@ def _fmt_value(v: Any) -> str:
     - Others: str()
     """
     if isinstance(v, float):
-        s = f"{v:g}"          # e.g. '10', '-0.1', '0.05'
+        s = f"{v:g}"  # e.g. '10', '-0.1', '0.05'
         s = s.replace("-", "n")
         return s
     if isinstance(v, int):
@@ -119,7 +123,9 @@ def _fmt_value(v: Any) -> str:
     return str(v).replace("-", "n")
 
 
-def _make_experiment_name(base_name: str, combo: dict[str, Any], varied_keys: list[str]) -> str:
+def _make_experiment_name(
+    base_name: str, combo: dict[str, Any], varied_keys: list[str]
+) -> str:
     """Build experiment name from base + only the varied param values."""
     parts = [base_name]
     for key in varied_keys:
@@ -132,7 +138,10 @@ def _make_experiment_name(base_name: str, combo: dict[str, Any], varied_keys: li
 # Config loading and grid expansion
 # ---------------------------------------------------------------------------
 
-def _load_grid_config(path: str) -> tuple[str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
+
+def _load_grid_config(
+    path: str,
+) -> tuple[str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Load grid config YAML. Returns (base_name, track, training_spec, reward_spec, distribute_cfg)."""
     with open(path) as f:
         cfg = yaml.safe_load(f)
@@ -144,7 +153,9 @@ def _load_grid_config(path: str) -> tuple[str, str, dict[str, Any], dict[str, An
     return base_name, track, training_spec, reward_spec, distribute_cfg
 
 
-def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+def _expand_grid(
+    training_spec: dict[str, Any], reward_spec: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str]]:
     """
     Expand all list-valued params into a Cartesian product.
     Each element of the returned list is a flat dict:
@@ -162,11 +173,13 @@ def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> 
 
     if not axes:
         # No variation — single run with fixed values
-        return [{"training_params": dict(training_spec), "reward_params": dict(reward_spec)}], []
+        return [
+            {"training_params": dict(training_spec), "reward_params": dict(reward_spec)}
+        ], []
 
     varied_keys = [a[0] for a in axes]
     value_lists = [a[1] for a in axes]
-    sources     = [a[2] for a in axes]
+    sources = [a[2] for a in axes]
 
     combos = []
     for combo_values in itertools.product(*value_lists):
@@ -179,7 +192,9 @@ def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> 
                 t_params[key] = val
             else:
                 r_params[key] = val
-        combos.append({"training_params": t_params, "reward_params": r_params, "_flat": flat})
+        combos.append(
+            {"training_params": t_params, "reward_params": r_params, "_flat": flat}
+        )
 
     return combos, varied_keys
 
@@ -187,6 +202,7 @@ def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> 
 # ---------------------------------------------------------------------------
 # Policy param helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_policy_params(t: dict[str, Any]) -> dict[str, Any]:
     """
@@ -209,6 +225,7 @@ def _build_policy_params(t: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def _setup_experiment_dir(
     name: str, track: str, t: dict[str, Any], r: dict[str, Any]
@@ -256,13 +273,17 @@ def _run_local(
         r = combo["reward_params"]
         logger.info("=== Run %d/%d: %s ===", i, n, name)
 
-        experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(name, track, t, r)
+        experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(
+            name, track, t, r
+        )
         n_lidar_rays = t.get("n_lidar_rays", 0)
         obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
 
         data = train_rl(
             experiment_name=name,
-            make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t["in_game_episode_s"], _lr=n_lidar_rays: make_env(
+            make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t[
+                "in_game_episode_s"
+            ], _lr=n_lidar_rays: make_env(
                 experiment_dir=_dir,
                 speed=_sp,
                 in_game_episode_s=_ep,
@@ -311,8 +332,6 @@ def _run_distributed(
     heartbeat_timeout: float,
 ) -> list[tuple[str, Any]]:
     """Start coordinator, write local config files, block until all results arrive."""
-    from distributed.coordinator import Coordinator
-    from analytics import save_experiment_results
 
     # Build ComboSpec list and write local experiment dirs so reward_config_file
     # resolves on this machine when save_grid_summary reads it.
@@ -321,14 +340,19 @@ def _run_distributed(
         t = combo["training_params"]
         r = combo["reward_params"]
         _setup_experiment_dir(name, track, t, r)
-        combo_specs.append(ComboSpec(name=name, track=track, training_params=t, reward_params=r))
+        combo_specs.append(
+            ComboSpec(name=name, track=track, training_params=t, reward_params=r)
+        )
 
-    coord = Coordinator(combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout)
+    coord = Coordinator(
+        combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout
+    )
     coord.start()
     logger.info(
         "Coordinator ready on port %d — start workers with:\n"
         "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
-        port, port,
+        port,
+        port,
     )
 
     raw_runs = coord.wait_for_all()
@@ -347,28 +371,54 @@ def _run_distributed(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Grid search over TMNF training/reward params")
+    parser = argparse.ArgumentParser(
+        description="Grid search over TMNF training/reward params"
+    )
     parser.add_argument("config", help="Path to grid search YAML config")
-    parser.add_argument("--no-interrupt", action="store_true",
-                        help="Skip all 'Press Enter' prompts (run fully automated)")
-    parser.add_argument("--re-initialize", action="store_true",
-                        help="Start each run from fresh random small-positive weights, "
-                             "ignoring any existing weights file. Skips probe and cold-start.")
-    parser.add_argument("--distribute", action="store_true",
-                        help="Act as coordinator: serve work items over HTTP and wait for "
-                             "workers to post results instead of running locally")
-    parser.add_argument("--port", type=int, default=None,
-                        help="Coordinator HTTP port when --distribute is set (default: 5555, "
-                             "or value from config distribute.port)")
-    parser.add_argument("--token", default=None, metavar="SECRET",
-                        help="Shared secret for worker authentication; falls back to "
-                             "TMNF_GRID_TOKEN env var (auto-generated UUID if neither provided)")
-    parser.add_argument("--heartbeat-timeout", type=float, default=None,
-                        help="Seconds before a silent worker's item is re-queued "
-                             "(default: 60, or value from config distribute.heartbeat_timeout)")
-    parser.add_argument("--log-level", default="INFO",
-                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                        help="Logging verbosity (default: INFO)")
+    parser.add_argument(
+        "--no-interrupt",
+        action="store_true",
+        help="Skip all 'Press Enter' prompts (run fully automated)",
+    )
+    parser.add_argument(
+        "--re-initialize",
+        action="store_true",
+        help="Start each run from fresh random small-positive weights, "
+        "ignoring any existing weights file. Skips probe and cold-start.",
+    )
+    parser.add_argument(
+        "--distribute",
+        action="store_true",
+        help="Act as coordinator: serve work items over HTTP and wait for "
+        "workers to post results instead of running locally",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Coordinator HTTP port when --distribute is set (default: 5555, "
+        "or value from config distribute.port)",
+    )
+    parser.add_argument(
+        "--token",
+        default=None,
+        metavar="SECRET",
+        help="Shared secret for worker authentication; falls back to "
+        "TMNF_GRID_TOKEN env var (auto-generated UUID if neither provided)",
+    )
+    parser.add_argument(
+        "--heartbeat-timeout",
+        type=float,
+        default=None,
+        help="Seconds before a silent worker's item is re-queued "
+        "(default: 60, or value from config distribute.heartbeat_timeout)",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging verbosity (default: INFO)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -377,7 +427,9 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    base_name, track, training_spec, reward_spec, distribute_cfg = _load_grid_config(args.config)
+    base_name, track, training_spec, reward_spec, distribute_cfg = _load_grid_config(
+        args.config
+    )
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
 
     n = len(combos)
@@ -395,9 +447,10 @@ def main() -> None:
         logger.info("  %s", name)
 
     if args.distribute:
-        import uuid as _uuid
         port = args.port or distribute_cfg.get("port", 5555)
-        hb_timeout = args.heartbeat_timeout or distribute_cfg.get("heartbeat_timeout", 60.0)
+        hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
+            "heartbeat_timeout", 60.0
+        )
         token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())
         if not (args.token or os.environ.get("TMNF_GRID_TOKEN")):
             token_preview = f"{token[:8]}..." if len(token) > 8 else "[redacted]"
@@ -405,24 +458,31 @@ def main() -> None:
                 "Auto-generated token for distributed run (%s). Pass it to workers via --token or TMNF_GRID_TOKEN.",
                 token_preview,
             )
-        all_runs = _run_distributed(combos, names, track, token=token,
-                                    port=port, heartbeat_timeout=hb_timeout)
+        all_runs = _run_distributed(
+            combos, names, track, token=token, port=port, heartbeat_timeout=hb_timeout
+        )
     else:
-        all_runs = _run_local(combos, names, track,
-                              no_interrupt=args.no_interrupt,
-                              re_initialize=args.re_initialize)
+        all_runs = _run_local(
+            combos,
+            names,
+            track,
+            no_interrupt=args.no_interrupt,
+            re_initialize=args.re_initialize,
+        )
 
     # Final summary table
     logger.info("=== Grid search complete — %d run(s) ===", n)
     logger.info("  %-50s  %12s", "Experiment", "Best Reward")
     for exp_name, exp_data in sorted(
-        all_runs, key=lambda x: -max((s.reward for s in x[1].greedy_sims), default=float("-inf"))
+        all_runs,
+        key=lambda x: -max((s.reward for s in x[1].greedy_sims), default=float("-inf")),
     ):
         best = max((s.reward for s in exp_data.greedy_sims), default=float("-inf"))
         logger.info("  %-50s  %+12.1f", exp_name, best)
 
     # Cross-experiment summary report
     from analytics import save_grid_summary
+
     summary_dir = f"experiments/{track}/{base_name}__summary"
     save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     logger.info("Summary report: %s/summary.md", summary_dir)

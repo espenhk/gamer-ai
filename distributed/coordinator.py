@@ -136,10 +136,7 @@ class Coordinator:
         )
         self._monitor_thread.start()
 
-        logger.info(
-            "Coordinator listening on port %d (%d combo(s) queued)  token: %s…",
-            actual_port, self._total, self._token[:8],
-        )
+        logger.info("Coordinator listening on port %d (%d combo(s) queued)", actual_port, self._total)
 
     @property
     def port(self) -> int:
@@ -174,9 +171,15 @@ class Coordinator:
 
     def _check_auth(self, handler: Any) -> bool:
         """Check Bearer token. Sends 401 and returns False if invalid."""
+        import hmac
         auth = handler.headers.get("Authorization", "")
         parts = auth.split(" ", 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer" and parts[1] == self._token:
+        token_ok = (
+            len(parts) == 2
+            and parts[0].lower() == "bearer"
+            and hmac.compare_digest(parts[1].strip(), self._token.strip())
+        )
+        if token_ok:
             return True
         handler.send_response(401)
         handler.send_header("WWW-Authenticate", 'Bearer realm="tmnf-grid"')

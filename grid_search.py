@@ -400,7 +400,11 @@ def main() -> None:
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get("heartbeat_timeout", 60.0)
         token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())
         if not (args.token or os.environ.get("TMNF_GRID_TOKEN")):
-            logger.info("Auto-generated token: %s  (pass to workers via --token or TMNF_GRID_TOKEN)", token)
+            token_preview = f"{token[:8]}..." if len(token) > 8 else "[redacted]"
+            logger.info(
+                "Auto-generated token for distributed run (%s). Pass it to workers via --token or TMNF_GRID_TOKEN.",
+                token_preview,
+            )
         all_runs = _run_distributed(combos, names, track, token=token,
                                     port=port, heartbeat_timeout=hb_timeout)
     else:

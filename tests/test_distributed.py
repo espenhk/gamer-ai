@@ -172,10 +172,13 @@ class TestExperimentDataSerialization:
 # Coordinator — work queue and re-queue logic
 # ---------------------------------------------------------------------------
 
+_TEST_TOKEN = "test-secret"
+
+
 class TestCoordinator:
     def _start_coord(self, combos, hb_timeout=30.0):
         """Start a coordinator on an OS-assigned free port (port=0)."""
-        coord = Coordinator(combos, port=0, heartbeat_timeout=hb_timeout)
+        coord = Coordinator(combos, token=_TEST_TOKEN, port=0, heartbeat_timeout=hb_timeout)
         coord.start()
         time.sleep(0.05)  # give the server thread a moment to accept connections
         return coord
@@ -183,33 +186,51 @@ class TestCoordinator:
     def _url(self, coord, path: str) -> str:
         return f"http://localhost:{coord.port}{path}"
 
-    def test_work_queue_serves_all_combos(self):
-        import urllib.request
+    def _auth_headers(self, extra: dict | None = None) -> dict:
+        h = {"Authorization": f"Bearer {_TEST_TOKEN}"}
+        if extra:
+            h.update(extra)
+        return h
 
+    def _get(self, coord, path: str):
+        import urllib.request
+        req = urllib.request.Request(self._url(coord, path), headers=self._auth_headers())
+        return urllib.request.urlopen(req, timeout=5)
+
+    def _post(self, coord, path: str, body: bytes):
+        import urllib.request
+        req = urllib.request.Request(
+            self._url(coord, path), data=body, method="POST",
+            headers=self._auth_headers({
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            }),
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_work_queue_serves_all_combos(self):
         combos = [_make_combo(f"c{i}") for i in range(3)]
         coord = self._start_coord(combos)
 
         names_received = []
         for _ in range(3):
-            with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+            with self._get(coord, "/work") as r:
                 assert r.status == 200
                 spec = combo_from_dict(json.loads(r.read()))
                 names_received.append(spec.name)
 
         # Fourth request should be 204 (queue empty, items in-progress, hb_timeout=30 s)
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 204
 
         coord.stop()
         assert set(names_received) == {"c0", "c1", "c2"}
 
     def test_status_endpoint(self):
-        import urllib.request
-
         combos = [_make_combo("s1"), _make_combo("s2")]
         coord = self._start_coord(combos)
 
-        with urllib.request.urlopen(self._url(coord, "/status"), timeout=5) as r:
+        with self._get(coord, "/status") as r:
             status = json.loads(r.read())
 
         assert status["total"] == 2
@@ -218,25 +239,18 @@ class TestCoordinator:
         coord.stop()
 
     def test_result_accepted_and_done_event_fires(self):
-        import urllib.request
-
         combo = _make_combo("done_test")
         coord = self._start_coord([combo])
 
         # Fetch work
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 200
 
         # Post result
         data = _make_experiment_data_dict("done_test")
         payload = ResultPayload(name="done_test", data_json=experiment_to_json(data))
         body = json.dumps(result_to_dict(payload)).encode()
-        req = urllib.request.Request(
-            self._url(coord, "/result"), data=body,
-            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
+        with self._post(coord, "/result", body) as r:
             assert r.status == 200
 
         assert coord._done_event.is_set()
@@ -246,20 +260,15 @@ class TestCoordinator:
         coord.stop()
 
     def test_unknown_combo_name_rejected(self):
-        import urllib.request
+        import urllib.error
 
         coord = self._start_coord([_make_combo("known")])
 
         data = _make_experiment_data_dict("unknown")
         payload = ResultPayload(name="unknown", data_json=experiment_to_json(data))
         body = json.dumps(result_to_dict(payload)).encode()
-        req = urllib.request.Request(
-            self._url(coord, "/result"), data=body,
-            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-            method="POST",
-        )
         try:
-            urllib.request.urlopen(req, timeout=5)
+            self._post(coord, "/result", body)
             assert False, "expected 400"
         except urllib.error.HTTPError as e:
             assert e.code == 400
@@ -268,24 +277,17 @@ class TestCoordinator:
         coord.stop()
 
     def test_duplicate_result_ignored(self):
-        import urllib.request
-
         combo = _make_combo("dup_test")
         coord = self._start_coord([combo])
 
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 200
 
         def _post_result():
             data = _make_experiment_data_dict("dup_test")
             payload = ResultPayload(name="dup_test", data_json=experiment_to_json(data))
             body = json.dumps(result_to_dict(payload)).encode()
-            req = urllib.request.Request(
-                self._url(coord, "/result"), data=body,
-                headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=5) as r:
+            with self._post(coord, "/result", body) as r:
                 return json.loads(r.read())
 
         resp1 = _post_result()
@@ -294,27 +296,24 @@ class TestCoordinator:
 
         resp2 = _post_result()
         assert resp2.get("ignored") == "duplicate"
-        # Still only 1 result, total still 1
         assert len(coord._results) == 1
         coord.stop()
 
     def test_stale_worker_item_requeued(self):
         """An item not heartbeated within heartbeat_timeout should be re-queued."""
-        import urllib.request
-
         combo = _make_combo("requeue_test")
         # hb_timeout=0.5 → monitor fires every 0.25 s; item stale after 0.5 s
         coord = self._start_coord([combo], hb_timeout=0.5)
 
         # Fetch work (marks as in-progress) but send NO heartbeats
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 200
 
         # Wait long enough for the monitor to re-queue the stale item
         time.sleep(1.5)
 
         # Item should now be back in the queue
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 200
             spec = combo_from_dict(json.loads(r.read()))
             assert spec.name == "requeue_test"
@@ -323,25 +322,18 @@ class TestCoordinator:
 
     def test_heartbeat_prevents_requeue(self):
         """A worker sending heartbeats should NOT have its item re-queued."""
-        import urllib.request
-
         combo = _make_combo("hb_test")
         coord = self._start_coord([combo], hb_timeout=1.0)
 
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 200
 
         # Send heartbeats every 0.3 s for 1.5 s — should keep item alive
         def send_hbs():
             for _ in range(5):
                 body = json.dumps({"name": "hb_test", "worker_id": "tester"}).encode()
-                req = urllib.request.Request(
-                    self._url(coord, "/heartbeat"), data=body,
-                    headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-                    method="POST",
-                )
                 try:
-                    urllib.request.urlopen(req, timeout=5)
+                    self._post(coord, "/heartbeat", body)
                 except Exception:
                     pass
                 time.sleep(0.3)
@@ -351,7 +343,7 @@ class TestCoordinator:
         hb_thread.join()
 
         # Queue should still be empty (item is still in-progress, not re-queued)
-        with urllib.request.urlopen(self._url(coord, "/work"), timeout=5) as r:
+        with self._get(coord, "/work") as r:
             assert r.status == 204
 
         coord.stop()
@@ -360,4 +352,31 @@ class TestCoordinator:
         coord = self._start_coord([])
         runs = coord.wait_for_all()
         assert runs == []
+        coord.stop()
+
+    def test_unauthorized_request_rejected(self):
+        """Requests with wrong or missing token must receive 401."""
+        import urllib.request
+        import urllib.error
+
+        coord = self._start_coord([_make_combo("auth_test")])
+
+        # No token
+        try:
+            with urllib.request.urlopen(self._url(coord, "/work"), timeout=5):
+                assert False, "expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+        # Wrong token
+        req = urllib.request.Request(
+            self._url(coord, "/work"),
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
         coord.stop()

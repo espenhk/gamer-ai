@@ -1,0 +1,21 @@
+# terraform.tfvars
+
+project_name   = "tmnf-ai"
+location       = "centralindia"
+
+# Client VMs
+worker_vm_count       = 3
+worker_vm_size        = "Standard_D2as_v5"
+admin_username        = "adminuser"
+
+# Coordinator VM
+coordinator_vm_size = "Standard_B1ms"
+
+# az ad signed-in-user show --query id -o tsv
+my_object_id  = "xxxxxxx-xxxxxx-xx-xxxxxx"
+
+# curl ifconfig.me
+my_ip_address = "xxx.yyy.zzz.vvv"
+
+state_storage_resource_group = "rg-tfstate-tmnf-ai"
+state_storage_account        = "sttfstatexxxxxxxx"

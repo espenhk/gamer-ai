@@ -213,3 +213,13 @@ replays/
 tracks/*.npy
 
 docs/codestyle/
+
+# Terraform vars
+terraform.tfvars
+terraform.tfstate
+terraform.tfstate.backup
+.terraform.lock.hcl
+.out
+backend.conf
+
+.terraform/

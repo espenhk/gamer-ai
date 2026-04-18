@@ -306,6 +306,7 @@ def _run_distributed(
     combos: list[dict[str, Any]],
     names: list[str],
     track: str,
+    token: str,
     port: int,
     heartbeat_timeout: float,
 ) -> list[tuple[str, Any]]:
@@ -322,11 +323,11 @@ def _run_distributed(
         _setup_experiment_dir(name, track, t, r)
         combo_specs.append(ComboSpec(name=name, track=track, training_params=t, reward_params=r))
 
-    coord = Coordinator(combo_specs, port=port, heartbeat_timeout=heartbeat_timeout)
+    coord = Coordinator(combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout)
     coord.start()
     logger.info(
         "Coordinator ready on port %d — start workers with:\n"
-        "  python -m distributed.worker --coordinator http://<this-host>:%d",
+        "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
         port, port,
     )
 
@@ -359,6 +360,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=None,
                         help="Coordinator HTTP port when --distribute is set (default: 5555, "
                              "or value from config distribute.port)")
+    parser.add_argument("--token", default=None, metavar="SECRET",
+                        help="Shared secret for worker authentication; falls back to "
+                             "TMNF_GRID_TOKEN env var (auto-generated UUID if neither provided)")
     parser.add_argument("--heartbeat-timeout", type=float, default=None,
                         help="Seconds before a silent worker's item is re-queued "
                              "(default: 60, or value from config distribute.heartbeat_timeout)")
@@ -391,9 +395,14 @@ def main() -> None:
         logger.info("  %s", name)
 
     if args.distribute:
+        import uuid as _uuid
         port = args.port or distribute_cfg.get("port", 5555)
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get("heartbeat_timeout", 60.0)
-        all_runs = _run_distributed(combos, names, track, port=port, heartbeat_timeout=hb_timeout)
+        token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())
+        if not (args.token or os.environ.get("TMNF_GRID_TOKEN")):
+            logger.info("Auto-generated token: %s  (pass to workers via --token or TMNF_GRID_TOKEN)", token)
+        all_runs = _run_distributed(combos, names, track, token=token,
+                                    port=port, heartbeat_timeout=hb_timeout)
     else:
         all_runs = _run_local(combos, names, track,
                               no_interrupt=args.no_interrupt,

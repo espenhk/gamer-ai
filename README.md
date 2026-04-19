@@ -1,6 +1,46 @@
 # TMNF — Trackmania Nations Forever RL
 
-Hill-climbing / evolutionary / CMA-ES / Q-learning agent for A03. See the root `CLAUDE.md` for full architecture documentation.
+A reinforcement-learning agent that drives Trackmania Nations Forever autonomously. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES — all trained live against TMInterface against the reference track A03. See [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
+
+---
+
+## Prerequisites
+
+The training loop drives the live TMNF game via TMInterface, so this project only runs on Windows.
+
+- **Windows 10/11.** `pywin32`, the `mss` window-capture backend, and the `tminterface` Python bindings all attach to the running game process.
+- **Trackmania Nations Forever** installed (free from Ubisoft / Nadeo).
+- **TMInterface 1.4.x.** Later versions changed the Python API and are **not** compatible — see the note in `setup_and_run.ps1`. Official installer: https://donadigo.com/tminterface
+- **Python 3.11+** and **Poetry**.
+
+---
+
+## Installation
+
+### Automated (recommended)
+
+The repo ships with a PowerShell bootstrap script that installs Python, Git, Poetry, and TMInterface 1.4, runs `poetry install --with tmnf`, launches TMInterface, and invokes the command you pass it:
+
+```powershell
+.\setup_and_run.ps1 "python main.py my_experiment"
+```
+
+The script is idempotent — re-running it on an already-configured machine simply skips the install steps and goes straight to launching TMInterface + your command. Pass `-DryRun` to preview without executing.
+
+### Manual
+
+If you'd rather install the prerequisites yourself:
+
+1. Install Windows, TMNF, TMInterface 1.4.x, Python 3.11+, and Poetry (see Prerequisites above).
+2. From the repo root, install the Python dependencies:
+   ```bash
+   poetry install --with tmnf
+   ```
+3. Verify the install by running the unit tests:
+   ```bash
+   poetry run python -m pytest tests/
+   ```
+4. Launch TMInterface manually, then run the training commands below.
 
 ---
 

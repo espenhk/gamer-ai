@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from obs_spec import BASE_OBS_DIM
+from games.tmnf.obs_spec import BASE_OBS_DIM
 from policies import EpsilonGreedyPolicy, WeightedLinearPolicy, _action_to_idx, _discretize_obs
 
 

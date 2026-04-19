@@ -18,8 +18,7 @@ from framework.training import _greedy_loop, _greedy_loop_q_learning
 # in policies.py bakes in TMNF's obs_spec and a different from_cfg signature;
 # these tests exercise framework internals with a custom 3-dim obs_spec.
 from framework.policies import WeightedLinearPolicy
-# obs_spec shim re-exports ObsSpec/ObsDim unchanged — use it for consistency.
-from obs_spec import ObsSpec, ObsDim
+from framework.obs_spec import ObsSpec, ObsDim
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from obs_spec import BASE_OBS_DIM
+from games.tmnf.obs_spec import BASE_OBS_DIM
 from policies import WeightedLinearPolicy, _discretize_obs
 
 _N = BASE_OBS_DIM

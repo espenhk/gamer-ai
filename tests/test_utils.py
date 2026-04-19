@@ -7,8 +7,8 @@ import unittest
 import numpy as np
 
 from helpers import make_game_state
-from track import Centerline
-from utils import Vec3, Quat, StateData
+from games.tmnf.track import Centerline
+from games.tmnf.state import Vec3, Quat, StateData
 
 
 class TestVec3(unittest.TestCase):

@@ -5,8 +5,8 @@ import unittest
 
 import numpy as np
 
-from track import Centerline
-from utils import Vec3
+from games.tmnf.track import Centerline
+from games.tmnf.state import Vec3
 
 
 class TestCenterline(unittest.TestCase):

@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from helpers import make_wlp
-from obs_spec import BASE_OBS_DIM
+from games.tmnf.obs_spec import BASE_OBS_DIM
 from policies import WeightedLinearPolicy
 
 _N = BASE_OBS_DIM

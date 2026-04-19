@@ -156,7 +156,7 @@ class TestCMAESPolicyCallable(unittest.TestCase):
         policy.sample_population()
         policy.update_distribution([float(i) for i in range(6)])
 
-        from obs_spec import BASE_OBS_DIM
+        from games.tmnf.obs_spec import BASE_OBS_DIM
         obs    = np.zeros(BASE_OBS_DIM, dtype=np.float32)
         action = policy(obs)
         self.assertEqual(action.shape, (3,))
@@ -205,7 +205,7 @@ class TestCMAESConvergence(unittest.TestCase):
 
     def test_converges_toward_quadratic_maximum(self):
         """CMA-ES mean should move toward the maximizer of a quadratic in <=50 generations."""
-        from obs_spec import BASE_OBS_DIM
+        from games.tmnf.obs_spec import BASE_OBS_DIM
 
         policy  = CMAESPolicy(population_size=20, initial_sigma=1.0, n_lidar_rays=0, seed=42)
         policy.initialize_random()

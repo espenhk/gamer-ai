@@ -192,6 +192,76 @@ This creates one experiment per unique combination (3 × 2 = 6 here). Experiment
 
 ---
 
+## Distributed training
+
+Larger grid searches can saturate a single Windows box long before the sweep completes. When that happens, `grid_search.py --distribute` turns one machine into an HTTP coordinator that hands work items to any number of worker machines. Distribution is at the **experiment level** — each worker runs one full `train_rl()` at a time — so every worker still needs its own live TMInterface game session.
+
+### Coordinator
+
+Start the coordinator on the machine that owns the grid config:
+
+```bash
+python grid_search.py config/my_grid.yaml --distribute
+```
+
+This serves work items over HTTP on port `5555` and blocks until every combination has a result. Override the port with `--port 6000` on the CLI, or set `distribute.port` in the grid config YAML. The coordinator writes each returned run into the local `experiments/<track>/<name>/` tree and runs analytics exactly as a local grid search would.
+
+### Worker
+
+On each worker machine (one per TMInterface session), point at the coordinator:
+
+```bash
+python -m distributed.worker --coordinator http://<coordinator-host>:5555 --token <secret>
+```
+
+Useful flags:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--coordinator URL` | *required* | Coordinator base URL |
+| `--token SECRET` | env `TMNF_GRID_TOKEN` | Shared secret; see auth below |
+| `--worker-id ID` | hostname | Identifier shown in coordinator logs |
+| `--heartbeat-interval S` | `15` | Seconds between heartbeat POSTs |
+| `--no-interrupt` | off | Skip all "Press Enter" prompts |
+| `--re-initialize` | off | Ignore existing weights files |
+| `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
+
+The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
+
+### Auth model
+
+Every request carries `Authorization: Bearer <token>`; a mismatch returns `401 Unauthorized`. Token precedence:
+
+1. `--token` on the CLI
+2. `TMNF_GRID_TOKEN` environment variable
+3. Auto-generated UUID (coordinator only — logged on startup so you can copy it to workers)
+
+Workers have no auto-generated fallback: they must receive the token via `--token` or `TMNF_GRID_TOKEN`.
+
+### Heartbeats and re-queue
+
+While a worker is running an experiment, it POSTs `/heartbeat` every `--heartbeat-interval` seconds. The coordinator re-queues any item whose worker has been silent for `--heartbeat-timeout` seconds (default `60`, overridable via `distribute.heartbeat_timeout` in the config). A crashed or disconnected worker therefore loses at most one partial run before the combo is retried on another machine.
+
+### Status endpoint
+
+`GET /status` returns a JSON summary with queue depth, completed count, and active workers — handy for monitoring from `curl` or a dashboard without tailing logs.
+
+### Same-machine smoke test
+
+To verify the pipeline end-to-end on a single box, open two shells:
+
+```bash
+# shell 1 — coordinator
+python grid_search.py config/my_grid.yaml --distribute --token hunter2
+
+# shell 2 — worker (needs TMInterface running)
+python -m distributed.worker --coordinator http://localhost:5555 --token hunter2
+```
+
+When the worker finishes every combo, both processes exit on their own.
+
+---
+
 ## Reward & parameter tuning reference
 
 ### When a reward param needs changing

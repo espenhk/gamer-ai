@@ -2,6 +2,8 @@
 
 Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / evolutionary / CMA-ES / Q-learning algorithms trained against a live TMInterface session.
 
+**Runtime is Windows-only**: `pywin32`, `mss` window grab, and `tminterface` all bind to the live game process.
+
 ---
 
 ## Repository Structure
@@ -9,43 +11,24 @@ Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / e
 ```
 tmnf-ai/
 ├── main.py                 # Entry point — python main.py <experiment_name>
-├── grid_search.py          # Grid search over param combinations
+├── grid_search.py          # Grid search over param combinations (supports --distribute)
 ├── analytics.py            # Experiment result plots and summary tables
-├── policies.py             # All policy implementations (7 trainable + 1 baseline)
-├── obs_spec.py             # Observation space definition (single source of truth)
-├── utils.py                # StateData, Vec3, Quat, WheelState data classes
-├── constants.py            # N_ACTIONS, STEER_SCALE, UP_VECTOR
-├── track.py                # Centerline class: load .npy, project position
-├── steering.py             # PDHeadingController — shared PD+heading steering
-├── lidar.py                # LidarSensor — screenshot-based wall-distance rays
-├── build_centerline.py     # Script to build centerline .npy from a replay
-├── instructions.py         # Instruction parsing for fixed input sequences
-├── debug_straight.py       # Debugging utility
-├── clients/
-│   ├── base.py             # PhaseAwareClient base + Phase enum
-│   ├── instruction_client.py  # InstructionClient — replays a fixed sequence
-│   └── rl_client.py        # RLClient — thread-safe bridge for RL training
-├── rl/
-│   ├── env.py              # TMNFEnv — Gymnasium Env wrapping TMInterface
-│   ├── reward.py           # RewardCalculator + RewardConfig
-│   └── train.py            # PPO training script (not primary path)
-├── config/                 # Master config templates
-│   ├── training_params.yaml      # Training hyperparams (copied into each experiment)
-│   ├── reward_config.yaml        # Reward weights (copied into each experiment)
-│   ├── policy_weights.yaml       # Example/template weights
-│   ├── grid_search_template.yaml # Grid search template
-│   └── gs_*.yaml                 # Pre-made grid search configs
-├── tests/                  # Unit tests
+├── param_explorer.py       # Interactive weight/param exploration tool
+├── policies.py             # Backward-compat shim → framework + games/tmnf policies
+├── setup_and_run.ps1       # Windows bootstrap script
+├── pyproject.toml
+├── framework/              # Game-agnostic training loop, obs spec, analytics, base policies
+├── games/
+│   └── tmnf/               # TMNF-specific env, reward, lidar, steering, policies, clients, tools
+├── clients/                # Backward-compat shim → games/tmnf/clients
+├── rl/                     # Backward-compat shim + PPO/pretrain experiments
+├── distributed/            # Coordinator, worker, protocol for distributed grid search
+├── infrastructure/         # Terraform: auth, remote_state, environment (Azure VMs)
+├── config/                 # Master configs + grid-search templates
 ├── experiments/            # Per-experiment results (git-ignored)
-│   └── <track>/<name>/
-│       ├── policy_weights.yaml
-│       ├── reward_config.yaml
-│       ├── training_params.yaml
-│       └── results/
-├── tracks/
-│   └── a03_centerline.npy
-└── replays/
-    └── a03_centerline.Replay.Gbx
+├── tests/                  # Unit tests
+├── tracks/, replays/       # Centerline .npy files and TMNF replay .Gbx files
+└── runs/, plans/           # Saved run metadata and planning notes
 ```
 
 ---
@@ -242,6 +225,30 @@ reward_params:
 ```
 
 Creates one experiment per Cartesian-product combination (3 × 2 = 6 here). Experiment names encode only the varied params: `gs_v1__ms0.05__cw_n0.1`.
+
+---
+
+## Distributed training (`distributed/`)
+
+Scale grid search across multiple Windows VMs by splitting combinations over a coordinator + worker pool.
+
+- `distributed/coordinator.py` — HTTP work-queue server. Bearer-token auth; heartbeat-based re-queue of stalled jobs.
+- `distributed/worker.py` — polls `/work`, runs `train_rl()` locally against its TMInterface session, posts `ExperimentData` back to `/result`.
+- `distributed/protocol.py` — `ComboSpec` / `ResultPayload` dataclasses + JSON (de)serialization shared by both sides.
+
+Entry point: `python grid_search.py <config> --distribute` (coordinator mode). Workers are launched independently on each VM.
+
+---
+
+## Infrastructure (Azure)
+
+Three-stage Terraform stack under `infrastructure/` provisions the distributed training fleet.
+
+- `auth/` — service principal + role assignments.
+- `remote_state/` — storage account for shared Terraform state.
+- `environment/` — Windows 11 Pro VMs (1 coordinator + N workers), Key Vault for admin passwords, NSG allows RDP only from a single configured IP.
+
+See `infrastructure/README.md` for operational commands (plan/apply, start/stop/deallocate, worker scaling).
 
 ---
 

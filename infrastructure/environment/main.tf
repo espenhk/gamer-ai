@@ -4,6 +4,23 @@
 
 data "azurerm_client_config" "current" {}
 
+
+# tags
+
+locals {
+  common_tags = {
+    ghs-dataclassification = "Public"
+    ghs-deployedby         = "Manual"
+    ghs-environmenttype    = "Sandbox"
+    ghs-los                = "Advisory"
+    ghs-serviceoffering    = "Sandbox"
+    ghs-solution           = "PwC Alliance Sandbox"
+    ghs-solutionexposure   = "PwC Internal"
+    ghs-tariff             = "zab"
+  }
+
+}
+
 # ============================================================================
 # Resource Group
 # ============================================================================
@@ -11,6 +28,8 @@ data "azurerm_client_config" "current" {}
 resource "azurerm_resource_group" "main" {
   name     = "rg-${var.project_name}"
   location = var.location
+
+  tags = local.common_tags
 }
 
 # ============================================================================
@@ -22,6 +41,8 @@ resource "azurerm_virtual_network" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   address_space       = ["10.0.0.0/24"]
+
+  tags = local.common_tags
 }
 
 resource "azurerm_subnet" "vms" {
@@ -54,6 +75,8 @@ resource "azurerm_network_security_group" "vms" {
 
   # Azure NSGs have a built-in AllowInternetOutbound rule at priority 65001.
   # VMs can freely download from the internet without any explicit outbound rule.
+
+  tags = local.common_tags
 }
 
 resource "azurerm_subnet_network_security_group_association" "vms" {
@@ -71,6 +94,8 @@ resource "azurerm_public_ip" "coordinator" {
   resource_group_name = azurerm_resource_group.main.name
   allocation_method   = "Static"
   sku                 = "Standard"
+
+  tags = local.common_tags
 }
 
 resource "azurerm_network_interface" "coordinator" {
@@ -84,6 +109,8 @@ resource "azurerm_network_interface" "coordinator" {
     public_ip_address_id          = azurerm_public_ip.coordinator.id
     private_ip_address_allocation = "Dynamic"
   }
+
+  tags = local.common_tags
 }
 
 # ============================================================================
@@ -97,6 +124,8 @@ resource "azurerm_public_ip" "worker" {
   resource_group_name = azurerm_resource_group.main.name
   allocation_method   = "Static"
   sku                 = "Standard"
+
+  tags = local.common_tags
 }
 
 resource "azurerm_network_interface" "worker" {
@@ -111,6 +140,8 @@ resource "azurerm_network_interface" "worker" {
     public_ip_address_id          = azurerm_public_ip.worker[count.index].id
     private_ip_address_allocation = "Dynamic"
   }
+
+  tags = local.common_tags
 }
 
 # ============================================================================
@@ -134,6 +165,8 @@ resource "azurerm_key_vault" "main" {
   soft_delete_retention_days = 7
   purge_protection_enabled   = false
   enabled_for_deployment     = true
+
+  tags = local.common_tags
 }
 
 # ============================================================================
@@ -203,6 +236,7 @@ resource "azurerm_key_vault_secret" "coordinator_password" {
 
   depends_on = [azurerm_key_vault_access_policy.terraform_sp]
 }
+
 resource "azurerm_key_vault_secret" "worker_password" {
   count        = var.worker_vm_count
   name         = "${var.project_name}-worker-${count.index}-password"
@@ -242,7 +276,24 @@ resource "azurerm_windows_virtual_machine" "coordinator" {
     sku       = "win11-24h2-pro"
     version   = "latest"
   }
+
+  tags = local.common_tags
 }
+
+resource "azurerm_virtual_machine_extension" "clone_repo_to_coordinator" {
+  name                 = "clone-repo"
+  virtual_machine_id   = azurerm_windows_virtual_machine.coordinator.id
+  publisher            = "Microsoft.Compute"
+  type                 = "CustomScriptExtension"
+  type_handler_version = "1.10"
+
+  protected_settings = jsonencode({
+    commandToExecute = "powershell -ExecutionPolicy Unrestricted -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe' -OutFile 'C:\\git-installer.exe' -UseBasicParsing; Start-Process -FilePath 'C:\\git-installer.exe' -ArgumentList '/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=\\\"icons,ext\\\\shellhere,ext\\\\guihere,gitlfs,assoc,assoc_sh\\\"' -Wait; $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine'); git clone ${var.repo_url} C:\\tmnf-ai\""
+  })
+
+  tags = local.common_tags
+}
+
 resource "azurerm_windows_virtual_machine" "worker" {
   count               = var.worker_vm_count
   name                = "vm-${var.project_name}-${count.index}"
@@ -270,4 +321,49 @@ resource "azurerm_windows_virtual_machine" "worker" {
     sku       = "win11-24h2-pro"
     version   = "latest"
   }
+
+  tags = local.common_tags
+}
+
+resource "azurerm_virtual_machine_extension" "setup" {
+  count                = var.worker_vm_count
+  name                 = "setup"
+  virtual_machine_id   = azurerm_windows_virtual_machine.worker[count.index].id
+  publisher            = "Microsoft.Compute"
+  type                 = "CustomScriptExtension"
+  type_handler_version = "1.10"
+
+  protected_settings = jsonencode({
+    commandToExecute = join("; ", [
+      # Install Git silently
+      "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+      "Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe' -OutFile C:\\git-installer.exe -UseBasicParsing",
+      "Start-Process -FilePath C:\\git-installer.exe -ArgumentList '/VERYSILENT','/NORESTART' -Wait",
+      "$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')",
+
+      # Clone repo (skip if exists)
+      "if (!(Test-Path C:\\tmnf-ai)) { & git clone ${var.repo_url} C:\\tmnf-ai }",
+
+      # Register startup task (runs setup_and_run.ps1 at every boot)
+      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Unrestricted -File C:\\tmnf-ai\\setup_and_run.ps1'",
+      "$t = New-ScheduledTaskTrigger -AtStartup",
+      "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
+      "Register-ScheduledTask -TaskName 'TMNF-AI-Setup' -Action $a -Trigger $t -Principal $p -Force"
+    ])
+
+    # This tells Azure to run it as PowerShell, not cmd.exe
+    commandToExecute = "powershell.exe -ExecutionPolicy Unrestricted -Command \"${join("; ", [
+      "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+      "Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe' -OutFile C:\\git-installer.exe -UseBasicParsing",
+      "Start-Process -FilePath C:\\git-installer.exe -ArgumentList '/VERYSILENT','/NORESTART' -Wait",
+      "$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')",
+      "if (!(Test-Path C:\\tmnf-ai)) { & git clone ${var.repo_url} C:\\tmnf-ai }",
+      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Unrestricted -File C:\\tmnf-ai\\setup_and_run.ps1'",
+      "$t = New-ScheduledTaskTrigger -AtStartup",
+      "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
+      "Register-ScheduledTask -TaskName 'TMNF-AI-Setup' -Action $a -Trigger $t -Principal $p -Force",
+    ])}\""
+  })
+
+  tags = local.common_tags
 }

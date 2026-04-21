@@ -20,11 +20,11 @@ First time deploying, deploy resources in the following order:
 To stop your VMs:
 
 ```sh
-az vm deallocate --ids $(az vm list -g rg-tmnf-ai --query "[].id" -o tsv)
+az vm deallocate --ids $(az vm list -g rg-tmnf --query "[].id" -o tsv)
 ```
 
 To re-start them:
 
 ```sh
-az vm start --ids $(az vm list -g rg-tmnf-ai --query "[].id" -o tsv)
+az vm start --ids $(az vm list -g rg-tmnf --query "[].id" -o tsv)
 ```

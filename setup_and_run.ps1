@@ -113,6 +113,17 @@ function Assert-Winget {
 # ---------------------------------------------------------------------------
 
 $ScriptDir  = $PSScriptRoot
+
+# Trackmania Nations Forever (official Nadeo CDN).  NSIS installer — supports
+# `/S` for silent install and `/D=<path>` for a custom directory.
+$TMNFInstallDir      = Join-Path ${env:ProgramFiles(x86)} "TmNationsForever"
+$TMNFExe             = Join-Path $TMNFInstallDir "TmForever.exe"
+$TMNFInstallerUrl    = "https://nadeo-download.cdn.ubi.com/trackmaniaforever/tmnationsforever_setup.exe"
+# Set to the known SHA-256 of the installer above to enable integrity verification.
+# Leave empty to skip verification (not recommended for production use).
+$TMNFInstallerSha256 = ""
+
+# TMInterface 1.4
 $TMIfaceDir = Join-Path $env:USERPROFILE "TMInterface"
 $TMIfaceExe = Join-Path $TMIfaceDir "TMInterface.exe"
 # TMInterface 1.4 installer (official release page; update URL + SHA-256 when a new 1.4.x drops)
@@ -120,15 +131,6 @@ $TMIfaceInstallerUrl    = "https://github.com/donadigo/tminterface/releases/down
 # Set to the known SHA-256 of the installer above to enable integrity verification.
 # Leave empty to skip verification (not recommended for production use).
 $TMIfaceInstallerSha256 = ""
-
-# Trackmania Nations Forever (official Nadeo CDN).  NSIS installer — supports
-# `/S` for silent install and `/D=<path>` for a custom directory.
-$TMNFDir           = Join-Path ${env:ProgramFiles(x86)} "TmNationsForever"
-$TMNFExe           = Join-Path $TMNFDir "TmForever.exe"
-$TMNFInstallerUrl  = "https://nadeo-download.cdn.ubi.com/trackmaniaforever/tmnationsforever_setup.exe"
-# Set to the known SHA-256 of the installer above to enable integrity verification.
-# Leave empty to skip verification (not recommended for production use).
-$TMNFInstallerSha256 = ""
 
 # ---------------------------------------------------------------------------
 # 1. Python 3.11+
@@ -214,22 +216,23 @@ function Install-Poetry {
 # 4. Trackmania Nations Forever
 # ---------------------------------------------------------------------------
 
-function Install-Trackmania {
+function Install-TMNF {
     if (Test-Path $TMNFExe) {
-        Write-Skip "Trackmania Nations Forever already found at $TMNFExe."
+        Write-Skip "Trackmania Nations Forever already installed at $TMNFExe."
         return
     }
 
     Invoke-Step "Downloading Trackmania Nations Forever installer" {
         $installer = Join-Path $env:TEMP "tmnationsforever_setup.exe"
         Write-Step "  Fetching $TMNFInstallerUrl"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -Uri $TMNFInstallerUrl -OutFile $installer -UseBasicParsing
-        Assert-Success "Trackmania download"
+        Assert-Success "TMNF download"
 
         if ($TMNFInstallerSha256) {
             $actualHash = (Get-FileHash -Path $installer -Algorithm SHA256).Hash
             if ($actualHash.ToUpperInvariant() -ne $TMNFInstallerSha256.ToUpperInvariant()) {
-                Write-Err "Trackmania installer SHA-256 mismatch!"
+                Write-Err "TMNF installer SHA-256 mismatch!"
                 Write-Err "  Expected: $TMNFInstallerSha256"
                 Write-Err "  Actual:   $actualHash"
                 Write-Err "Aborting to avoid executing an unexpected binary."
@@ -237,24 +240,24 @@ function Install-Trackmania {
             }
             Write-Ok "Installer checksum verified."
         } else {
-            Write-Host "[WARN]  Trackmania installer SHA-256 not configured — skipping integrity check." -ForegroundColor Yellow
+            Write-Host "[WARN]  TMNF installer SHA-256 not configured — skipping integrity check." -ForegroundColor Yellow
         }
 
-        Write-Step "  Running Trackmania installer (silent)"
-        # NSIS: /S = silent, /D=<path> must be the LAST argument and unquoted.
-        $proc = Start-Process -FilePath $installer -ArgumentList "/S", "/D=$TMNFDir" -Wait -PassThru
+        Write-Step "  Running TMNF installer (silent)"
+        # NSIS: /S = silent (case-sensitive), /D=<path> must be last and unquoted.
+        $proc = Start-Process -FilePath $installer -ArgumentList "/S", "/D=$TMNFInstallDir" -Wait -PassThru
         if ($proc.ExitCode -ne 0) {
-            Write-Err "Trackmania installation failed (exit code $($proc.ExitCode))."
+            Write-Err "TMNF installation failed (exit code $($proc.ExitCode))."
             Write-Err "Please install Trackmania Nations Forever manually from: $TMNFInstallerUrl"
             exit $proc.ExitCode
         }
 
         if (-not (Test-Path $TMNFExe)) {
-            Write-Err "TmForever.exe not found after install at $TMNFExe."
+            Write-Err "TMNF executable not found after install at $TMNFExe."
             Write-Err "Please install Trackmania Nations Forever manually from: $TMNFInstallerUrl"
             exit 1
         }
-        Write-Ok "Trackmania Nations Forever installed at $TMNFDir."
+        Write-Ok "Trackmania Nations Forever installed at $TMNFInstallDir."
     }
 }
 
@@ -424,7 +427,7 @@ if ($DryRun) {
 Install-Python
 Install-Git
 Install-Poetry
-Install-Trackmania
+Install-TMNF
 Install-TMInterface
 Install-PoetryDeps
 Start-TMInterface

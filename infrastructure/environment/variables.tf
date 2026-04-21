@@ -47,3 +47,9 @@ variable "my_ip_address" {
   description = "Your public IP for RDP access (e.g. 203.0.113.10)"
   type        = string
 }
+
+variable "repo_url" {
+  description = "Git repo to clone onto worker VMs"
+  type        = string
+  default     = "https://github.com/espenhk/tmnf-ai.git"
+}

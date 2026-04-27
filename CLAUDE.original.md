@@ -1,8 +1,8 @@
 # CLAUDE.md
 
-Trackmania Nations Forever RL agent. Drives autonomously via hill-climbing / evolutionary / CMA-ES / Q-learning trained against live TMInterface session.
+Trackmania Nations Forever RL agent. Drives autonomously using hill-climbing / evolutionary / CMA-ES / Q-learning algorithms trained against a live TMInterface session.
 
-**Runtime Windows-only**: `pywin32`, `mss` window grab, `tminterface` bind to live game process.
+**Runtime is Windows-only**: `pywin32`, `mss` window grab, and `tminterface` all bind to the live game process.
 
 ---
 
@@ -46,13 +46,13 @@ python grid_search.py config/my_grid.yaml [--no-interrupt]
 python -m pytest tests/
 ```
 
-First run with new name: `experiments/<track>/<name>/` created, both master configs copied in. Edit experiment copies to tune without affecting others. `--re-initialize` ignores existing weights file, re-runs probe + cold-start.
+On first run with a new name, `experiments/<track>/<name>/` is created and both master configs are copied in. Edit the experiment copies to tune without affecting other experiments. `--re-initialize` ignores any existing weights file and re-runs probe + cold-start.
 
 ---
 
 ## Policies
 
-All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`.
+All policies live in `policies.py` and inherit `BasePolicy`. The active policy is set via `policy_type` in `training_params.yaml`.
 
 | `policy_type` | Class | Algorithm |
 |---|---|---|
@@ -63,23 +63,23 @@ All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via 
 | `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
 | `cmaes` | `CMAESPolicy` | `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over flat `WeightedLinearPolicy` weights. Automatic step-size + covariance adaptation. |
 
-`SimplePolicy` = non-trainable hand-coded PD baseline (see `steering.py`).
+`SimplePolicy` is a non-trainable hand-coded PD baseline (see `steering.py`).
 
 ### WeightedLinearPolicy
 
-Three independent linear heads (steer, accel, brake), each `dot(weights, normalised_obs)`. Weights stored in YAML. `mutated(scale, share)` adds Gaussian noise to random `share` fraction of weights; features pre-normalised so all contribute equally per mutation step. Auto-migrates existing weight files when new observation features added.
+Three independent linear heads (steer, accel, brake), each `dot(weights, normalised_obs)`. Weights stored in YAML. `mutated(scale, share)` adds Gaussian noise to a random `share` fraction of weights; features are pre-normalised so all features contribute equally per mutation step. Auto-migrates existing weight files when new observation features are added.
 
 ### GeneticPolicy
 
-Maintains population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (1 episode each), keep top `elite_k` unchanged, breed rest via uniform crossover between two random elites + mutation. Best individual ever seen = champion, saved to YAML for inference.
+Maintains a population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (1 episode each), keep top `elite_k` unchanged, breed the rest via uniform crossover between two random elites + mutation. The best individual ever seen is the champion and is saved to YAML for inference.
 
 ### CMAESPolicy
 
-Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | accel | brake]` weight vector of `WeightedLinearPolicy` (~63 dimensions for base observation space).
+Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over the concatenated `[steer | accel | brake]` weight vector of a `WeightedLinearPolicy` (~63 dimensions for the base observation space).
 
 **Training loop** (called from `_greedy_loop_cmaes`):
 1. `sample_population()` — draws λ offspring from `N(mean, σ²·C)` using cached eigen-factorization `C = B D² Bᵀ`
-2. Evaluate each offspring one episode → reward vector
+2. Evaluate each offspring for one episode → reward vector
 3. `update_distribution(rewards)` — weighted mean recombination (top μ = λ//2 elites), cumulative step-size adaptation (CSA) for σ, rank-1 + rank-μ covariance update
 
 **Key properties**: `population_size` (λ), `sigma` (current σ), `champion_reward`.
@@ -91,21 +91,21 @@ Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | acce
 | `population_size` | `20` | λ — offspring sampled per generation |
 | `initial_sigma` | `0.3` | Starting step size (adapts via CSA each generation) |
 
-`n_sims` controls generations; total episodes = `n_sims × population_size`. No `mutation_scale` tuning needed — σ adapts automatically.
+`n_sims` controls the number of generations; total episodes = `n_sims × population_size`. No `mutation_scale` tuning required — σ adapts automatically.
 
-`save()` writes champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, inference work unchanged.
+`save()` writes the champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, and inference work without changes.
 
 ---
 
 ## Training Phases
 
-Only `hill_climbing` runs probe and cold-start. All others go straight to greedy.
+Only `hill_climbing` runs probe and cold-start. All other policy types go straight to greedy.
 
 **1. Probe** (no weights file, or `--re-initialize`)
-Runs 6 fixed-action episodes (brake/accel × left/straight/right, `probe_s` seconds each). Establishes reward floor for cold-start comparison.
+Runs 6 fixed-action episodes (brake/accel × left/straight/right, `probe_s` seconds each). Establishes a reward floor for cold-start comparison.
 
 **2. Cold-start search**
-Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulations each. Stops early if any restart beats probe floor. Best policy saved, used as greedy starting point.
+Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulations each. Stops early if any restart beats the probe floor. The best policy found is saved and used as the greedy starting point.
 
 **3. Greedy optimisation**
 `n_sims` iterations (or generations for `genetic`). Best weights saved after each improvement.
@@ -118,7 +118,7 @@ Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulatio
 
 | Parameter | Default | Description |
 |---|---|---|
-| `track` | `a03_centerline` | Stem of `.npy` file in `tracks/` |
+| `track` | `a03_centerline` | Stem of the `.npy` file in `tracks/` |
 | `speed` | `10.0` | Game speed multiplier (TMInterface max 10×) |
 | `in_game_episode_s` | `30.0` | In-game seconds per episode |
 | `n_sims` | `100` | Greedy simulations / generations |
@@ -154,7 +154,7 @@ Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulatio
 
 ### Observation (15 + n_lidar_rays floats, float32)
 
-Defined in `obs_spec.py` — single source of truth for feature names, scales, descriptions.
+Defined in `obs_spec.py` — the single source of truth for feature names, scales, and descriptions.
 
 | Index | Name | Scale | Description |
 |-------|------|-------|-------------|
@@ -180,7 +180,7 @@ Defined in `obs_spec.py` — single source of truth for feature names, scales, d
 | 1 | accel | [0, 1] | Thresholded at 0.5 → bool |
 | 2 | brake | [0, 1] | Thresholded at 0.5 → bool; can fire simultaneously with accel |
 
-Policies using Discrete(9) abstraction ({brake, coast, accel} × {left, straight, right}) convert internally via `ACTIONS` in `clients/rl_client.py`.
+Policies using the Discrete(9) abstraction ({brake, coast, accel} × {left, straight, right}) convert internally via `ACTIONS` in `clients/rl_client.py`.
 
 ### Termination
 
@@ -190,18 +190,18 @@ Policies using Discrete(9) abstraction ({brake, coast, accel} × {left, straight
 
 ### Episode Warmup
 
-First 100 steps force full-throttle straight (`accel + straight, no brake`) regardless of policy. Covers braking-start phase so weights/Q-tables not updated during forced behaviour.
+The first 100 steps of every episode force full-throttle straight (`accel + straight, no brake`) regardless of policy. This covers the braking-start phase so policy weights/Q-tables are not updated during forced behaviour.
 
 ---
 
 ## LIDAR (`lidar.py`)
 
 Set `n_lidar_rays > 0` to append wall-distance observations. `LidarSensor`:
-1. Captures game window via MSS
-2. Converts to 128×32 binary edge image (grayscale → threshold → Canny → dilate → blur)
+1. Captures the game window via MSS
+2. Converts to a 128×32 binary edge image (grayscale → threshold → Canny → dilate → blur)
 3. Raycasts `n_lidar_rays` evenly spaced angles from 0 to π, returning normalised distances ~[0, 1]
 
-LIDAR rays appended to observation. All policies handle variable-length observations; `WeightedLinearPolicy` auto-migrates weight files to add new keys (initialised to 0.0).
+LIDAR rays are appended to the observation. All policies handle variable-length observations; `WeightedLinearPolicy` auto-migrates weight files to add new keys (initialised to 0.0).
 
 Requires `mss`, `opencv-python`, `pywin32`.
 
@@ -213,7 +213,7 @@ Requires `mss`, `opencv-python`, `pywin32`.
 python grid_search.py config/my_grid.yaml
 ```
 
-Set any param to list to sweep it:
+Set any param to a list to sweep it:
 
 ```yaml
 base_name: "gs_v1"
@@ -224,29 +224,29 @@ reward_params:
   centerline_weight: [-0.1, -0.5]    # 2-way sweep
 ```
 
-Creates one experiment per Cartesian-product combination (3 × 2 = 6 here). Names encode only varied params: `gs_v1__ms0.05__cw_n0.1`.
+Creates one experiment per Cartesian-product combination (3 × 2 = 6 here). Experiment names encode only the varied params: `gs_v1__ms0.05__cw_n0.1`.
 
 ---
 
 ## Distributed training (`distributed/`)
 
-Scale grid search across multiple Windows VMs by splitting combinations over coordinator + worker pool.
+Scale grid search across multiple Windows VMs by splitting combinations over a coordinator + worker pool.
 
 - `distributed/coordinator.py` — HTTP work-queue server. Bearer-token auth; heartbeat-based re-queue of stalled jobs.
 - `distributed/worker.py` — polls `/work`, runs `train_rl()` locally against its TMInterface session, posts `ExperimentData` back to `/result`.
 - `distributed/protocol.py` — `ComboSpec` / `ResultPayload` dataclasses + JSON (de)serialization shared by both sides.
 
-Entry point: `python grid_search.py <config> --distribute` (coordinator mode). Workers launched independently on each VM.
+Entry point: `python grid_search.py <config> --distribute` (coordinator mode). Workers are launched independently on each VM.
 
 ---
 
 ## Infrastructure (Azure)
 
-Three-stage Terraform stack under `infrastructure/` provisions distributed training fleet.
+Three-stage Terraform stack under `infrastructure/` provisions the distributed training fleet.
 
 - `auth/` — service principal + role assignments.
 - `remote_state/` — storage account for shared Terraform state.
-- `environment/` — Windows 11 Pro VMs (1 coordinator + N workers), Key Vault for admin passwords, NSG allows RDP only from single configured IP.
+- `environment/` — Windows 11 Pro VMs (1 coordinator + N workers), Key Vault for admin passwords, NSG allows RDP only from a single configured IP.
 
 See `infrastructure/README.md` for operational commands (plan/apply, start/stop/deallocate, worker scaling).
 
@@ -254,25 +254,25 @@ See `infrastructure/README.md` for operational commands (plan/apply, start/stop/
 
 ## Analytics (`analytics.py`)
 
-Called automatically at end of each experiment/grid-search run. Writes plots and summary JSON to `experiments/<track>/<name>/results/`. Skipped phases produce no output files.
+Called automatically at the end of each experiment/grid-search run. Writes plots and summary JSON to `experiments/<track>/<name>/results/`. Phases that were skipped (e.g. probe/cold-start on a resumed run) produce no output files.
 
 ---
 
 ## Threading Model
 
-TMInterface callback-driven (`on_run_step`); RL loop step-driven (`env.step()`). `RLClient` bridges with:
+TMInterface is callback-driven (`on_run_step`); the RL loop is step-driven (`env.step()`). `RLClient` bridges these with:
 - `_action` queue (RL thread → game thread)
 - `_state_queue` (game thread → RL thread, maxsize=1; drain before put)
 - `_episode_ready` event (signals env reset complete)
 
-Daemon keepalive thread keeps `iface.running` alive. `on_registered` sets event that `TMNFEnv.__init__` waits on before returning.
+A daemon keepalive thread keeps `iface.running` alive. `on_registered` sets an event that `TMNFEnv.__init__` waits on before returning.
 
 ---
 
 ## Dependencies
 
-Managed by Poetry. Run `poetry install` from repo root.
+Managed by Poetry. Run `poetry install` from the repo root.
 
-`tminterface` and `pygbx` not on PyPI — install from source before `poetry install`.
+`tminterface` and `pygbx` are not on PyPI — install from source before running `poetry install`.
 
 Core runtime deps: `numpy`, `scipy`, `gymnasium`, `pyyaml`, `matplotlib`, `opencv-python`, `mss`, `pywin32`, `tminterface`, `pygbx`.

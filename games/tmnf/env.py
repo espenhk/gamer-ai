@@ -222,7 +222,9 @@ class TMNFEnv(BaseGameEnv):
         lidar_rays   = self._lidar.get_distances() if self._lidar is not None else None
 
         # Build the next obs first so the curiosity module sees (s, a, s').
-        curr_obs = self._build_obs(step)
+        # Pass the already-sampled lidar_rays so the LIDAR is captured only once
+        # per step (avoids a second screenshot and ensures reward + obs agree).
+        curr_obs = self._build_obs(step, lidar_rays=lidar_rays)
 
         reward = self._reward_calc.compute(
             prev_state = self._prev_state,
@@ -329,7 +331,11 @@ class TMNFEnv(BaseGameEnv):
             skipped, avg, self._ep_max_skip
         )
 
-    def _build_obs(self, step: StepState) -> np.ndarray:  # type: ignore[override]
+    def _build_obs(
+        self,
+        step: StepState,
+        lidar_rays: np.ndarray | None = None,
+    ) -> np.ndarray:  # type: ignore[override]
         d = step.state_data
         # [15-20] interleaved lookahead: lat10, yaw10, lat25, yaw25, lat50, yaw50
         lookahead_vals = [v for lat, yaw in d.lookahead for v in (lat, yaw)]
@@ -355,7 +361,8 @@ class TMNFEnv(BaseGameEnv):
             dtype=np.float32,
         )
         if self._lidar is not None:
-            state = np.concatenate([state, self._lidar.get_distances()])
+            rays = lidar_rays if lidar_rays is not None else self._lidar.get_distances()
+            state = np.concatenate([state, rays])
         return state
 
     def _run_iface_loop(self) -> None:

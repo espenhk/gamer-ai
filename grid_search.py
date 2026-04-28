@@ -104,6 +104,13 @@ _ABBREV = {
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
+    # curiosity params (issue #24)
+    "curiosity_type": "ck",
+    "curiosity_weight": "cwgt",
+    "curiosity_feature_dim": "cfd",
+    "curiosity_hidden_size": "chs",
+    "curiosity_lr": "clr",
+    "curiosity_beta": "cbeta",
 }
 
 # Top-level training_params keys that should be forwarded into policy_params.

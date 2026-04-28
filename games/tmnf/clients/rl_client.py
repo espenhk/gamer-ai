@@ -52,7 +52,7 @@ _HARD_CRASH_THRESHOLD_M = 50.0
 # Finish is detected when track_progress reaches this threshold.
 # Slightly below 1.0 to catch cases where the game rounds or caps progress
 # just before the exact finish line value.
-_FINISH_THRESHOLD = 0.98
+_FINISH_THRESHOLD = 0.95
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ class RLClient(PhaseAwareClient):
         if self._stop_event.is_set():
             raise RuntimeError("RLClient stopped while waiting for episode ready")
         self._episode_ready.clear()
-        return self._state_queue.get(timeout=5.0)
+        return self._state_queue.get(timeout=30.0)
 
     # ------------------------------------------------------------------
     # TMInterface callbacks — called by the game thread
@@ -197,6 +197,40 @@ class RLClient(PhaseAwareClient):
         logger.info("Connected. RLClient running at %sx speed.", self.speed)
         iface.execute_command(f"set speed {self.speed}")
         self._registered_event.set()
+
+    def on_simulation_begin(self, iface: TMInterface) -> None:
+        """Fires every tick during replay validation (after race finish).
+        Unlike on_simulation_begin (one-shot), this fires repeatedly so a
+        drain+overwrite race between on_run_step and the RL thread cannot
+        cause the finish step to be lost."""
+        logger.debug("[RLClient] on_simulation_begin running=%s delivered=%s last_state=%s",
+                    self._running, self._simulation_finish_delivered,
+                    'yes' if self._last_step_state else 'no')
+
+        if not self._running:
+            logger.debug("[RLClient] on_simulation_begin: not RUNNING — ignoring")
+            return
+        if self._simulation_finish_delivered:
+            return  # already delivered; wait for respawn
+        if self._last_step_state is None:
+            logger.debug("[RLClient] on_simulation_begin: no last_step_state — cannot synthesize")
+            return
+
+        synthetic = StepState(
+            state_data=self._last_step_state.state_data,
+            yaw_error=self._last_step_state.yaw_error,
+            done=False,
+            finished=True,
+            ticks_this_step=self._last_step_state.ticks_this_step,
+        )
+        self._drain_and_put(synthetic)
+        self._simulation_finish_delivered = True
+        logger.debug("[RLClient] on_simulation_begin: delivered synthetic finish step")
+
+        if self._auto_respawn_on_finish:
+            self._finish_respawn_pending = True
+            logger.debug("[RLClient] on_simulation_begin: auto-respawn pending set")
+
 
     def on_simulation_step(self, iface: TMInterface, _time: int) -> None:
         """Fires every tick during replay validation (after race finish).

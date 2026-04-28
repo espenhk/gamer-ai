@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from games.tmnf.simple_policy import SimplePolicy
-from policies import WeightedLinearPolicy
+from games.tmnf.policies import WeightedLinearPolicy
 
 logger = logging.getLogger(__name__)
 

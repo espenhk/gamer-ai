@@ -127,9 +127,9 @@ def run_worker(
     from games.tmnf.obs_spec import TMNF_OBS_SPEC
     from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
     from games.tmnf.env import make_env
-    from analytics import save_experiment_results
+    from games.tmnf.analytics import save_experiment_results
 
-    from grid_search import _build_policy_params, _setup_experiment_dir
+    from grid_search import _build_policy_params, _build_tmnf_extras, _setup_experiment_dir
 
     logger.info("Worker %s connecting to %s", worker_id, base)
 
@@ -185,6 +185,13 @@ def run_worker(
         # --- run training ---
         n_lidar_rays = t.get("n_lidar_rays", 0)
         obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+        policy_params = _build_policy_params(t)
+        extras, dispatch = _build_tmnf_extras(
+            weights_file=weights_file,
+            n_lidar_rays=n_lidar_rays,
+            re_initialize=re_initialize,
+            policy_params=policy_params,
+        )
         try:
             data = train_rl(
                 experiment_name=spec.name,
@@ -214,7 +221,9 @@ def run_worker(
                 no_interrupt=no_interrupt,
                 re_initialize=re_initialize,
                 policy_type=t.get("policy_type", "hill_climbing"),
-                policy_params=_build_policy_params(t),
+                policy_params=policy_params,
+                extra_policy_types=extras,
+                extra_loop_dispatch=dispatch,
                 track=track,
                 do_pretrain=t.get("do_pretrain", False),
                 patience=t.get("patience", 0),

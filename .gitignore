@@ -209,11 +209,6 @@ __marimo__/
 # Claude files
 .claude/
 
-replays/
-tracks/*.npy
-
-docs/codestyle/
-
 # Terraform vars
 terraform.tfvars
 terraform.tfstate

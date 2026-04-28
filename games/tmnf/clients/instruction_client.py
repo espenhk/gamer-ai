@@ -2,22 +2,26 @@ import logging
 
 from tminterface.interface import TMInterface
 
-logger = logging.getLogger(__name__)
-
 from games.tmnf.clients.base import Phase, PhaseAwareClient
 from games.tmnf.instructions import InputState, apply_action, parse_instructions
 from games.tmnf.track import Centerline
 from games.tmnf.state import StateData
 
+logger = logging.getLogger(__name__)
 
-VELOCITY_ZERO_THRESHOLD = 0.5   # m/s
-PAUSE_DURATION_MS = 2_000       # game milliseconds
+VELOCITY_ZERO_THRESHOLD = 0.5  # m/s
+PAUSE_DURATION_MS = 2_000  # game milliseconds
 
 
 class InstructionClient(PhaseAwareClient):
     """Use a file like runs/example_run.txt to give simple instructions of when to steer, accelerate etc."""
 
-    def __init__(self, instruction_file: str, centerline_file: str | None = None, speed: float = 1.0) -> None:
+    def __init__(
+        self,
+        instruction_file: str,
+        centerline_file: str | None = None,
+        speed: float = 1.0,
+    ) -> None:
         super().__init__()
         self.speed = speed
         self.instructions = parse_instructions(instruction_file)
@@ -27,7 +31,11 @@ class InstructionClient(PhaseAwareClient):
         self._ticks_idx = 0
 
     def on_registered(self, iface: TMInterface) -> None:
-        logger.info("Connected. Running %d instruction(s) at speed %sx.", len(self.instructions), self.speed)
+        logger.info(
+            "Connected. Running %d instruction(s) at speed %sx.",
+            len(self.instructions),
+            self.speed,
+        )
         iface.execute_command(f"set speed {self.speed}")
 
     def on_run_step(self, iface: TMInterface, _time: int) -> None:

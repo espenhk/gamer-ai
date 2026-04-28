@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from policies import REINFORCEPolicy
+from games.tmnf.policies import REINFORCEPolicy
 from games.tmnf.actions import DISCRETE_ACTIONS
 from games.tmnf.obs_spec import BASE_OBS_DIM
 

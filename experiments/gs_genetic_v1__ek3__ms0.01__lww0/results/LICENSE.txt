@@ -1,6 +1,0 @@
-SPDX-License-Identifier: CC-BY-NC-SA-4.0
-Copyright (c) 2026 Espen H. Kristensen
-
-This directory contains analytics/report artifacts (e.g., plots) and is licensed
-under CC BY-NC-SA 4.0. Commercial use requires a separate license.
-See ../../../../LICENSE for full terms.

@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from games.tmnf.obs_spec import BASE_OBS_DIM
-from policies import MCTSPolicy, WeightedLinearPolicy, _action_to_idx, _discretize_obs
+from games.tmnf.policies import MCTSPolicy, WeightedLinearPolicy, _action_to_idx, _discretize_obs
 
 
 def _zero_obs() -> np.ndarray:

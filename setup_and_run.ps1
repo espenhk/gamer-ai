@@ -4,10 +4,10 @@
 
 .DESCRIPTION
     Two modes:
-      Fresh machine  — installs Python 3.11+, Poetry, Git, Trackmania Nations
+      Fresh machine  - installs Python 3.11+, Poetry, Git, Trackmania Nations
                        Forever, TMInterface 1.4, and Python dependencies, then
                        launches everything.
-      Existing setup — detects what is already present, skips install steps, and
+      Existing setup - detects what is already present, skips install steps, and
                        goes straight to launching TMInterface + the requested command.
 
     Idempotent: safe to re-run at any time.
@@ -39,7 +39,7 @@
     Python package dependencies (tminterface, pygbx, etc.):
         All dependencies are managed by Poetry and pinned in poetry.lock.
         Running `poetry install` (performed automatically by this script)
-        is sufficient — no manual source installation is required.
+        is sufficient - no manual source installation is required.
 
     winget:
         This script uses winget to install Python and Git on Windows 10/11.
@@ -82,7 +82,7 @@ function Write-Err([string]$msg) {
 function Invoke-Step([string]$description, [scriptblock]$action) {
     Write-Step $description
     if ($DryRun) {
-        Write-Host "        (dry-run — skipped)" -ForegroundColor Yellow
+        Write-Host "        (dry-run - skipped)" -ForegroundColor Yellow
         return
     }
     & $action
@@ -114,7 +114,7 @@ function Assert-Winget {
 
 $ScriptDir  = $PSScriptRoot
 
-# Trackmania Nations Forever (official Nadeo CDN).  NSIS installer — supports
+# Trackmania Nations Forever (official Nadeo CDN).  NSIS installer - supports
 # `/S` for silent install and `/D=<path>` for a custom directory.
 $TMNFInstallDir      = Join-Path ${env:ProgramFiles(x86)} "TmNationsForever"
 $TMNFExe             = Join-Path $TMNFInstallDir "TmForever.exe"
@@ -240,7 +240,7 @@ function Install-TMNF {
             }
             Write-Ok "Installer checksum verified."
         } else {
-            Write-Host "[WARN]  TMNF installer SHA-256 not configured — skipping integrity check." -ForegroundColor Yellow
+            Write-Host "[WARN]  TMNF installer SHA-256 not configured - skipping integrity check." -ForegroundColor Yellow
         }
 
         Write-Step "  Running TMNF installer (silent)"
@@ -288,11 +288,11 @@ function Install-TMInterface {
             }
             Write-Ok "Installer checksum verified."
         } else {
-            Write-Host "[WARN]  TMInterface installer SHA-256 not configured — skipping integrity check." -ForegroundColor Yellow
+            Write-Host "[WARN]  TMInterface installer SHA-256 not configured - skipping integrity check." -ForegroundColor Yellow
         }
 
         Write-Step "  Running TMInterface installer (silent)"
-        # /SILENT — run without wizard UI; /DIR — install location
+        # /SILENT - run without wizard UI; /DIR - install location
         $proc = Start-Process -FilePath $installer -ArgumentList "/SILENT", "/DIR=`"$TMIfaceDir`"" -Wait -PassThru
         if ($proc.ExitCode -ne 0) {
             Write-Err "TMInterface installation failed (exit code $($proc.ExitCode))."
@@ -336,13 +336,13 @@ function Start-TMInterface {
     }
 
     if (-not (Test-Path $TMIfaceExe)) {
-        Write-Err "Cannot launch TMInterface — executable not found at $TMIfaceExe."
+        Write-Err "Cannot launch TMInterface - executable not found at $TMIfaceExe."
         exit 1
     }
 
     Invoke-Step "Launching TMInterface" {
         Start-Process -FilePath $TMIfaceExe
-        Write-Step "Waiting for TMInterface to initialise (up to 30 s)…"
+        Write-Step "Waiting for TMInterface to initialise (up to 30 s)..."
         $deadline = (Get-Date).AddSeconds(30)
         $ready    = $false
         while ((Get-Date) -lt $deadline) {
@@ -366,19 +366,19 @@ function Start-TMInterface {
 
 function Invoke-UserCommand {
     if (-not $Command) {
-        Write-Step "No command supplied — setup complete.  Pass a command as the first argument to launch training."
+        Write-Step "No command supplied - setup complete.  Pass a command as the first argument to launch training."
         return
     }
 
     Write-Step "Running: $Command"
     if ($DryRun) {
-        Write-Host "        (dry-run — skipped)" -ForegroundColor Yellow
+        Write-Host "        (dry-run - skipped)" -ForegroundColor Yellow
         return
     }
 
     Push-Location $ScriptDir
     try {
-        # Tokenize safely using PSParser — respects quoted arguments and avoids
+        # Tokenize safely using PSParser - respects quoted arguments and avoids
         # Invoke-Expression evaluation of arbitrary PowerShell syntax.
         $parseErrors = $null
         $tokens = [System.Management.Automation.PSParser]::Tokenize($Command, [ref]$parseErrors) |
@@ -421,7 +421,7 @@ function Invoke-UserCommand {
 # ---------------------------------------------------------------------------
 
 if ($DryRun) {
-    Write-Host "=== DRY RUN — no changes will be made ===" -ForegroundColor Yellow
+    Write-Host "=== DRY RUN - no changes will be made ===" -ForegroundColor Yellow
 }
 
 Install-Python

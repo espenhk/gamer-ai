@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from policies import CMAESPolicy, WeightedLinearPolicy
+from games.tmnf.policies import CMAESPolicy, WeightedLinearPolicy
 
 
 class TestCMAESPolicyInit(unittest.TestCase):

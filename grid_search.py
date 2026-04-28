@@ -28,6 +28,7 @@ import argparse
 import itertools
 import logging
 import os
+from time import sleep
 from typing import Any
 import uuid as _uuid
 
@@ -35,7 +36,20 @@ import yaml
 
 from distributed.protocol import ComboSpec
 from distributed.coordinator import Coordinator
-from analytics import save_experiment_results
+
+from games.tmnf.analytics import save_experiment_results, save_grid_summary
+from framework.training import train_rl
+from games.tmnf.obs_spec import TMNF_OBS_SPEC
+from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+from games.tmnf.env import make_env
+from games.tmnf.policies import (
+    CMAESPolicy,
+    LSTMEvolutionPolicy,
+    LSTMPolicy,
+    NeuralDQNPolicy,
+    REINFORCEPolicy,
+    WeightedLinearPolicy,
+)
 
 # Game-specific and analytics imports are deferred to the functions that need them
 # so that importing grid_search for testing (utility functions only) doesn't require
@@ -66,6 +80,8 @@ _ABBREV = {
     # genetic policy params
     "population_size": "pop",
     "elite_k": "ek",
+    # cmaes policy params
+    "initial_sigma": "sigma",
     # epsilon-greedy params
     "epsilon": "eps",
     "epsilon_decay": "ed",
@@ -102,8 +118,9 @@ _POLICY_PARAM_MAP = {
     "gamma": "gamma",  # epsilon_greedy / mcts
     "n_bins": "n_bins",  # epsilon_greedy / mcts
     "mcts_c": "c",  # mcts (renamed)
-    "population_size": "population_size",  # genetic
+    "population_size": "population_size",  # genetic / cmaes
     "elite_k": "elite_k",  # genetic
+    "initial_sigma": "initial_sigma",  # cmaes
 }
 
 
@@ -222,6 +239,110 @@ def _build_policy_params(t: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _build_tmnf_extras(
+    weights_file: str,
+    n_lidar_rays: int,
+    re_initialize: bool,
+    policy_params: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """
+    Build (extra_policy_types, extra_loop_dispatch) for TMNF-specific policy
+    types so train_rl() can construct and route them. Mirrors main.py's setup
+    so `policy_type: cmaes | neural_dqn | reinforce | lstm` works from grid
+    search and distributed workers, not just from main.py.
+    """
+
+    def _make_neural_dqn() -> NeuralDQNPolicy:
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f)
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
+                return NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+        return NeuralDQNPolicy(
+            hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
+            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
+            batch_size          = policy_params.get("batch_size",          64),
+            min_replay_size     = policy_params.get("min_replay_size",     500),
+            target_update_freq  = policy_params.get("target_update_freq",  200),
+            learning_rate       = policy_params.get("learning_rate",       0.001),
+            epsilon_start       = policy_params.get("epsilon_start",       1.0),
+            epsilon_end         = policy_params.get("epsilon_end",         0.05),
+            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
+            gamma               = policy_params.get("gamma",               0.99),
+            n_lidar_rays        = n_lidar_rays,
+        )
+
+    def _make_cmaes() -> CMAESPolicy:
+        policy = CMAESPolicy(
+            population_size = policy_params.get("population_size", 20),
+            initial_sigma   = policy_params.get("initial_sigma",   0.3),
+            n_lidar_rays    = n_lidar_rays,
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                champion = WeightedLinearPolicy.from_cfg(yaml.safe_load(_f) or {}, n_lidar_rays=n_lidar_rays)
+            policy.initialize_from_champion(champion)
+        else:
+            policy.initialize_random()
+        return policy
+
+    def _make_reinforce() -> REINFORCEPolicy:
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
+                return REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+        return REINFORCEPolicy(
+            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
+            learning_rate = policy_params.get("learning_rate", 0.001),
+            gamma         = policy_params.get("gamma",         0.99),
+            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
+            baseline      = policy_params.get("baseline",      "running_mean"),
+            n_lidar_rays  = n_lidar_rays,
+        )
+
+    def _make_lstm() -> LSTMEvolutionPolicy:
+        hidden_size = policy_params.get("hidden_size",     32)
+        policy = LSTMEvolutionPolicy(
+            hidden_size     = hidden_size,
+            population_size = policy_params.get("population_size", 20),
+            initial_sigma   = policy_params.get("initial_sigma",   0.05),
+            n_lidar_rays    = n_lidar_rays,
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
+                saved_hidden = _cfg.get("hidden_size")
+                saved_lidar  = _cfg.get("n_lidar_rays")
+                if saved_hidden is not None and saved_hidden != hidden_size:
+                    raise ValueError(
+                        "Saved LSTM champion hidden_size does not match current run: "
+                        f"saved={saved_hidden}, current={hidden_size}"
+                    )
+                if saved_lidar is not None and saved_lidar != n_lidar_rays:
+                    raise ValueError(
+                        "Saved LSTM champion n_lidar_rays does not match current run: "
+                        f"saved={saved_lidar}, current={n_lidar_rays}"
+                    )
+                policy.initialize_from_champion(LSTMPolicy.from_cfg(_cfg))
+        return policy
+
+    extras = {
+        "neural_dqn": _make_neural_dqn,
+        "cmaes":      _make_cmaes,
+        "reinforce":  _make_reinforce,
+        "lstm":       _make_lstm,
+    }
+    dispatch = {
+        "neural_dqn": "q_learning",
+        "cmaes":      "cmaes",
+        "reinforce":  "q_learning",
+        "lstm":       "cmaes",
+    }
+    return extras, dispatch
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -231,15 +352,15 @@ def _setup_experiment_dir(
     name: str, track: str, t: dict[str, Any], r: dict[str, Any]
 ) -> tuple[str, str, str]:
     """Create experiment dir, write config files. Returns (experiment_dir, weights_file, reward_cfg_file)."""
-    centerline_path = f"tracks/{track}.npy"
-    experiment_dir = f"experiments/{track}/{name}"
+    centerline_path = f"games/tmnf/tracks/{track}.npy"
+    experiment_dir = f"games/tmnf/experiments/{track}/{name}"
     weights_file = f"{experiment_dir}/policy_weights.yaml"
     reward_cfg_file = f"{experiment_dir}/reward_config.yaml"
     training_params_file = f"{experiment_dir}/training_params.yaml"
 
     os.makedirs(experiment_dir, exist_ok=True)
 
-    with open("config/reward_config.yaml") as f:
+    with open("games/tmnf/config/reward_config.yaml") as f:
         reward_cfg = yaml.safe_load(f) or {}
     reward_cfg.update(r)
     reward_cfg["track_name"] = track
@@ -260,11 +381,6 @@ def _run_local(
     re_initialize: bool,
 ) -> list[tuple[str, Any]]:
     """Run all combos sequentially on this machine. Returns list of (name, ExperimentData)."""
-    from analytics import save_experiment_results
-    from framework.training import train_rl
-    from games.tmnf.obs_spec import TMNF_OBS_SPEC
-    from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-    from games.tmnf.env import make_env
 
     all_runs = []
     n = len(combos)
@@ -278,6 +394,13 @@ def _run_local(
         )
         n_lidar_rays = t.get("n_lidar_rays", 0)
         obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+        policy_params = _build_policy_params(t)
+        extras, dispatch = _build_tmnf_extras(
+            weights_file=weights_file,
+            n_lidar_rays=n_lidar_rays,
+            re_initialize=re_initialize,
+            policy_params=policy_params,
+        )
 
         data = train_rl(
             experiment_name=name,
@@ -304,12 +427,14 @@ def _run_local(
             cold_start_restarts=t.get("cold_restarts", 0),
             cold_start_sims=t.get("cold_sims", 0),
             warmup_action=WARMUP_ACTION,
-            warmup_steps=100,
+            warmup_steps=5,
             training_params=t,
             no_interrupt=no_interrupt or i > 1,
             re_initialize=re_initialize,
             policy_type=t.get("policy_type", "hill_climbing"),
-            policy_params=_build_policy_params(t),
+            policy_params=policy_params,
+            extra_policy_types=extras,
+            extra_loop_dispatch=dispatch,
             track=track,
             do_pretrain=t.get("do_pretrain", False),
             patience=t.get("patience", 0),
@@ -319,6 +444,7 @@ def _run_local(
         all_runs.append((name, data))
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
         logger.info("[%d/%d] %s  best_reward=%+.1f", i, n, name, best)
+        sleep(10)  # brief pause between runs to avoid overwhelming the system
 
     return all_runs
 
@@ -433,9 +559,19 @@ def main() -> None:
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
 
     n = len(combos)
-    logger.info("  Grid search: %d combination(s)", n)
-    logger.info("  Base name:   %s", base_name)
-    logger.info("  Track:       %s", track)
+    logger.info("  Grid search:       %d combination(s)", n)
+    logger.info("  Base name:         %s", base_name)
+    logger.info("  Track:             %s", track)
+    logger.info("  Training config:")
+    for k, v in training_spec.items():
+        logger.info("    %s: %s", k, v)
+    logger.info("  Reward config:")
+    for k, v in reward_spec.items():
+        logger.info("    %s: %s", k, v)
+    if args.distribute:
+        logger.info("  Distribute config: %s", distribute_cfg)
+        for k, v in distribute_cfg.items():
+            logger.info("    %s: %s", k, v)
     if varied_keys:
         logger.info("  Varied:      %s", ", ".join(varied_keys))
     logger.info("%s", "=" * 60)
@@ -481,7 +617,6 @@ def main() -> None:
         logger.info("  %-50s  %+12.1f", exp_name, best)
 
     # Cross-experiment summary report
-    from analytics import save_grid_summary
 
     summary_dir = f"experiments/{track}/{base_name}__summary"
     save_grid_summary(all_runs, varied_keys, summary_dir, base_name)

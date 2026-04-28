@@ -31,7 +31,7 @@ _iface.TMInterface = MagicMock
 # ---------------------------------------------------------------------------
 # Now we can safely import the module under test.
 # ---------------------------------------------------------------------------
-from clients.rl_client import RLClient, StepState, _DEFAULT_ACTION, ACTIONS  # noqa: E402
+from games.tmnf.clients.rl_client import RLClient, StepState, _DEFAULT_ACTION, ACTIONS  # noqa: E402
 
 
 def _make_state_data(track_progress=0.5, lateral_offset=0.0, speed=10.0):

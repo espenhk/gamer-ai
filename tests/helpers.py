@@ -6,7 +6,7 @@ module is imported, so the source imports below resolve correctly.
 """
 import numpy as np
 
-from policies import WeightedLinearPolicy  # backward-compat shim → framework.policies
+from games.tmnf.policies import WeightedLinearPolicy
 from games.tmnf.state import StateData
 
 

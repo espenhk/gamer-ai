@@ -62,6 +62,7 @@ def resample_centerline(positions: np.ndarray, spacing: float) -> np.ndarray:
 
 def update_registry(registry_path: Path, track_name: str, output_path: Path, replay_path: str) -> None:
     """Upsert an entry for *track_name* in *registry_path*."""
+
     registry = yaml.safe_load(registry_path.read_text()) if registry_path.exists() else {}
     registry[track_name] = {
         "centerline_path": str(output_path),
@@ -108,7 +109,7 @@ def main() -> None:
     np.save(args.output, centerline)
     logger.info("Saved centerline to %r  shape=%s", args.output, centerline.shape)
 
-    update_registry(Path("tracks/registry.yaml"), track_name, output_path, args.replay)
+    update_registry(Path("tracks/registry.yaml").as_posix(), track_name, output_path.as_posix(), args.replay)
 
 
 if __name__ == "__main__":

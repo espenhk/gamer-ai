@@ -381,7 +381,7 @@ class QTablePolicy(BasePolicy):
         return self._n_sa[s]
 
     @abstractmethod
-    def _select_action(self, s: tuple) -> int:
+    def _select_action(self, state_key: tuple) -> int:
         """Choose an action for state key s.  Implemented by subclasses."""
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
@@ -517,12 +517,12 @@ class MCTSPolicy(QTablePolicy):
         super().__init__(obs_spec, discrete_actions, alpha=alpha, gamma=gamma, n_bins=n_bins)
         self._c = c
 
-    def _select_action(self, s: tuple) -> int:
-        n_s = self._n_s.get(s, 0)
+    def _select_action(self, state_key: tuple) -> int:
+        n_s = self._n_s.get(state_key, 0)
         if n_s == 0:
             return int(np.random.randint(self._n_actions))
-        ucb = self._q(s) + self._c * np.sqrt(
-            math.log(n_s + 1) / (self._n(s) + 1e-8)
+        ucb = self._q(state_key) + self._c * np.sqrt(
+            math.log(n_s + 1) / (self._n(state_key) + 1e-8)
         )
         return int(np.argmax(ucb))
 

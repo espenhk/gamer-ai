@@ -1,0 +1,57 @@
+# Grid search: CMAESPolicy ((mu/mu_w, lambda)-CMA-ES)
+#
+# Primary axes:
+#   population_size — lambda in CMA-ES. Drives the total episode budget
+#                     (= n_sims * population_size) and the quality of the
+#                     rank-mu covariance update. Very small populations
+#                     (< 10) give noisy covariance estimates for an 87-dim
+#                     search ((BASE_OBS_DIM + n_lidar_rays) * 3 = (21+8)*3
+#                     with this template's n_lidar_rays=8); very large ones
+#                     burn the episode budget on individual evaluations
+#                     rather than generations.
+#   initial_sigma   — starting step size. CSA adapts sigma automatically
+#                     each generation, but the initial value still controls
+#                     how far the first samples spread. Too small → slow
+#                     escape from a flat initial basin; too large → the
+#                     first few generations are effectively random.
+#                     The adapted sigma typically converges regardless, so
+#                     this axis mainly affects wall-clock time to first
+#                     improvement, not the final champion.
+#
+# n_sims=30 generations × up to 30 individuals = up to 900 episodes,
+# comparable to the genetic experiments. No mutation_scale tuning needed —
+# CMA-ES replaces that dial with the adapted sigma + covariance.
+#
+# Combos: 3 x 3 = 9
+
+base_name: "gs_cmaes_v1"
+
+training_params:
+  speed: 10.0
+  n_sims: 30
+  in_game_episode_s: 90.0
+  mutation_scale: 0.05   # unused for CMA-ES but indexed directly by grid_search.py
+  mutation_share: 1.0    # unused for CMA-ES; optional in grid_search.py
+  probe_s: 8.0
+  cold_restarts: 1       # unused for CMA-ES; optional in grid_search.py
+  cold_sims: 1           # unused for CMA-ES; optional in grid_search.py
+  n_lidar_rays: 8
+  policy_type: cmaes
+
+  # --- Search axes ---
+  population_size: [10, 20, 30]
+  initial_sigma: [0.1, 0.3, 0.6]
+
+reward_params:
+  progress_weight: 10000.0
+  centerline_weight: 0.0
+  centerline_exp: 0.0
+  speed_weight: 0.05
+  step_penalty: -0.01
+  finish_bonus: 5000.0
+  finish_time_weight: -5.0
+  par_time_s: 60.0
+  accel_bonus: 1.0
+  airborne_penalty: -1.0
+  crash_threshold_m: 25.0
+  lidar_wall_weight: -5.0

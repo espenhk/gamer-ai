@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from policies import LSTMPolicy, LSTMEvolutionPolicy
+from games.tmnf.policies import LSTMPolicy, LSTMEvolutionPolicy
 from games.tmnf.obs_spec import BASE_OBS_DIM
 
 

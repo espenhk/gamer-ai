@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from games.tmnf.obs_spec import BASE_OBS_DIM
-from policies import NeuralNetPolicy
+from games.tmnf.policies import NeuralNetPolicy
 
 _N = BASE_OBS_DIM
 

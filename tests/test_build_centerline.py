@@ -28,15 +28,15 @@ class TestUpdateRegistry(unittest.TestCase):
         update_registry(self.registry_path, "a03", Path("tracks/a03_centerline.npy"), "replays/a03.Replay.Gbx")
         data = yaml.safe_load(self.registry_path.read_text())
         entry = data["a03"]
-        self.assertEqual(entry["centerline_path"], "tracks/a03_centerline.npy")
-        self.assertEqual(entry["source_replay"], "replays/a03.Replay.Gbx")
+        self.assertEqual(Path(entry["centerline_path"]).as_posix(), "tracks/a03_centerline.npy")
+        self.assertEqual(Path(entry["source_replay"]).as_posix(), "replays/a03.Replay.Gbx")
         self.assertIn("default_par_time_s", entry)
 
     def test_upsert_overwrites_existing_track(self):
         update_registry(self.registry_path, "a03", Path("tracks/a03_old.npy"), "replays/old.Replay.Gbx")
         update_registry(self.registry_path, "a03", Path("tracks/a03_new.npy"), "replays/new.Replay.Gbx")
         data = yaml.safe_load(self.registry_path.read_text())
-        self.assertEqual(data["a03"]["centerline_path"], "tracks/a03_new.npy")
+        self.assertEqual(Path(data["a03"]["centerline_path"]).as_posix(), "tracks/a03_new.npy")
 
     def test_upsert_preserves_other_tracks(self):
         update_registry(self.registry_path, "a03", Path("tracks/a03_centerline.npy"), "replays/a03.Replay.Gbx")
@@ -44,7 +44,7 @@ class TestUpdateRegistry(unittest.TestCase):
         data = yaml.safe_load(self.registry_path.read_text())
         self.assertIn("a03", data)
         self.assertIn("b05", data)
-        self.assertEqual(data["b05"]["centerline_path"], "tracks/b05_centerline.npy")
+        self.assertEqual(Path(data["b05"]["centerline_path"]).as_posix(), "tracks/b05_centerline.npy")
 
     def test_multiple_tracks_sorted_keys(self):
         update_registry(self.registry_path, "z99", Path("tracks/z99.npy"), "replays/z99.Replay.Gbx")

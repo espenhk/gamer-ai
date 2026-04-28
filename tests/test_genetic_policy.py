@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 from helpers import make_wlp
-from policies import GeneticPolicy, WeightedLinearPolicy
+from games.tmnf.policies import GeneticPolicy, WeightedLinearPolicy
 
 
 def _make_genetic(pop=6, elite=2) -> GeneticPolicy:

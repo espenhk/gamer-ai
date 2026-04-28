@@ -1,8 +1,0 @@
-speed: 10.0
-n_sims: 10
-in_game_episode_s: 90.0
-n_lidar_rays: 8
-policy_type: genetic
-elite_k: 3
-population_size: 20
-mutation_scale: 0.01

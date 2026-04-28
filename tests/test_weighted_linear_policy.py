@@ -5,7 +5,7 @@ import numpy as np
 
 from helpers import make_wlp
 from games.tmnf.obs_spec import BASE_OBS_DIM
-from policies import WeightedLinearPolicy
+from games.tmnf.policies import WeightedLinearPolicy
 
 _N = BASE_OBS_DIM
 

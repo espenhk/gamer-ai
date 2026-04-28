@@ -2,7 +2,41 @@
 
 A reinforcement-learning agent that drives Trackmania Nations Forever autonomously. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES — all trained live against TMInterface against the reference track A03. See [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
 
----
+--- [TMNF — Trackmania Nations Forever RL](#tmnf--trackmania-nations-forever-rl)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+  - [Automated (recommended)](#automated-recommended)
+  - [Manual](#manual)
+- [Quick start](#quick-start)
+- [Configuring a run](#configuring-a-run)
+- [Policy types](#policy-types)
+  - [Policy-specific params](#policy-specific-params)
+  - [Training phases (hill\_climbing only)](#training-phases-hill_climbing-only)
+  - [Episode warmup](#episode-warmup)
+- [LIDAR](#lidar)
+- [Grid search](#grid-search)
+- [Distributed training](#distributed-training)
+  - [Coordinator](#coordinator)
+  - [Worker](#worker)
+  - [Auth model](#auth-model)
+  - [Heartbeats and re-queue](#heartbeats-and-re-queue)
+  - [Status endpoint](#status-endpoint)
+  - [Same-machine smoke test](#same-machine-smoke-test)
+- [Azure worker VMs](#azure-worker-vms)
+  - [Topology](#topology)
+  - [One-time Azure prerequisites](#one-time-azure-prerequisites)
+  - [Terraform deployment order](#terraform-deployment-order)
+  - [Per-VM setup](#per-vm-setup)
+  - [Running a distributed sweep on Azure](#running-a-distributed-sweep-on-azure)
+  - [Cost controls](#cost-controls)
+  - [Teardown](#teardown)
+  - [Follow-up](#follow-up)
+- [Reward \& parameter tuning reference](#reward--parameter-tuning-reference)
+  - [When a reward param needs changing](#when-a-reward-param-needs-changing)
+  - [When a training param needs changing](#when-a-training-param-needs-changing)
+  - [Episode length vs finish signals](#episode-length-vs-finish-signals)
+- [Repository layout](#repository-layout)
+- [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 

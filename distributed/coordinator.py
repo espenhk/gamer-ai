@@ -235,6 +235,7 @@ class Coordinator:
             progress = len(self._results)
             if progress == self._total:
                 done = True
+                self._done_event.set()
 
         logger.info(
             "Received result for %s  best_reward=%+.1f  (%d/%d done)",
@@ -244,9 +245,6 @@ class Coordinator:
             self._total,
         )
         handler._send_json(200, {"status": "ok"})
-
-        if done:
-            self._done_event.set()
 
     def _handle_post_heartbeat(self, handler: Any, body: bytes) -> None:
         try:

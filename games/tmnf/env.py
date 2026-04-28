@@ -219,6 +219,11 @@ class TMNFEnv(BaseGameEnv):
         # wait for the car to stop at the new spawn, then continue the episode.
         if finished and self._auto_respawn_on_finish and not time_over:
             self._laps_completed += 1
+            logger.info(
+                "[TMNFEnv] finish detected (step.finished=%s progress=%.4f) "
+                "— calling wait_episode_ready for lap %d",
+                step.finished, data.track_progress or 0.0, self._laps_completed,
+            )
             init_step = self._client.wait_episode_ready()
             self._prev_state = init_step.state_data
             obs = self._build_obs(init_step)
@@ -237,6 +242,14 @@ class TMNFEnv(BaseGameEnv):
         terminated = finished or crashed
         # step.done signals a hard crash (>50 m off, handled by client safety net)
         truncated = (step.done and not terminated) or time_over
+
+        if finished or terminated or truncated:
+            logger.info(
+                "[TMNFEnv] episode end: finished=%s crashed=%s time_over=%s "
+                "terminated=%s truncated=%s progress=%.4f elapsed=%.1fs",
+                finished, crashed, time_over, terminated, truncated,
+                data.track_progress or 0.0, self._elapsed_s,
+            )
 
         if finished:
             termination_reason: str | None = "finish"

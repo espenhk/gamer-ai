@@ -1,4 +1,4 @@
-track: a03_centerline    # stem of the .npy file in tracks/ (e.g. "a03_centerline" → tracks/a03_centerline.npy)
+track: a01_centerline    # stem of the .npy file in tracks/ (e.g. "a03_centerline" → tracks/a03_centerline.npy)
 speed: 10.0              # game speed multiplier (TMInterface max is 10.0)
 in_game_episode_s: 30.0  # in-game seconds per episode (braking phase + driving)
 n_sims: 100              # greedy simulations / generations after cold-start

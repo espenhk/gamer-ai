@@ -202,7 +202,12 @@ class Coordinator:
             self._in_progress[spec.name] = {
                 "spec": spec,
                 "worker_id": worker_id,
-                "last_hb": time.monotonic(),
+                # Offset last_hb into the future by one timeout so the worker
+                # has 2×timeout to send its first heartbeat without being
+                # re-queued.  Once the first heartbeat arrives it resets
+                # last_hb to the real receive time, giving normal 1×timeout
+                # tracking for all subsequent heartbeats.
+                "last_hb": time.monotonic() + self._heartbeat_timeout,
             }
 
         logger.info("Dispatched %s → worker %s", spec.name, worker_id)

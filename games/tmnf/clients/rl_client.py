@@ -172,7 +172,7 @@ class RLClient(PhaseAwareClient):
 
     def request_respawn(self) -> None:
         """Signal the game thread to respawn the car. Call before wait_episode_ready()."""
-        logger.info(
+        logger.debug(
             "[RLClient] request_respawn: setting _respawn_event "
             "(running=%s finish_pending=%s finish_delivered=%s queue_size=%d)",
             self._running, self._finish_respawn_pending,
@@ -187,7 +187,7 @@ class RLClient(PhaseAwareClient):
         Block until the car has stopped after respawn (BRAKING_START → RUNNING).
         Returns the first state of the new episode.
         """
-        logger.info(
+        logger.debug(
             "[RLClient] wait_episode_ready: blocking "
             "(running=%s finish_pending=%s finish_delivered=%s queue_size=%d)",
             self._running, self._finish_respawn_pending,
@@ -207,7 +207,7 @@ class RLClient(PhaseAwareClient):
             )
         if self._stop_event.is_set():
             raise RuntimeError("RLClient stopped while waiting for episode ready")
-        logger.info("[RLClient] wait_episode_ready: _episode_ready fired — reading first state")
+        logger.debug("[RLClient] wait_episode_ready: _episode_ready fired — reading first state")
         self._episode_ready.clear()
         return self._state_queue.get(timeout=30.0)
 
@@ -222,7 +222,7 @@ class RLClient(PhaseAwareClient):
 
     def on_simulation_begin(self, iface: TMInterface) -> None:
         """Fires ONCE when replay validation begins (car crossed finish line)."""
-        logger.info(
+        logger.debug(
             "[RLClient] on_simulation_begin: replay validation started "
             "(running=%s finish_delivered=%s finish_pending=%s respawn_set=%s last_state=%s queue_size=%d)",
             self._running, self._simulation_finish_delivered,
@@ -232,10 +232,10 @@ class RLClient(PhaseAwareClient):
         )
 
         if not self._running:
-            logger.info("[RLClient] on_simulation_begin: not RUNNING — ignoring")
+            logger.debug("[RLClient] on_simulation_begin: not RUNNING — ignoring")
             return
         if self._simulation_finish_delivered:
-            logger.info("[RLClient] on_simulation_begin: finish already delivered — skipping synthetic")
+            logger.debug("[RLClient] on_simulation_begin: finish already delivered — skipping synthetic")
             return
         if self._last_step_state is None:
             logger.warning("[RLClient] on_simulation_begin: no last_step_state — cannot synthesize finish step!")
@@ -250,11 +250,11 @@ class RLClient(PhaseAwareClient):
         )
         self._drain_and_put(synthetic)
         self._simulation_finish_delivered = True
-        logger.info("[RLClient] on_simulation_begin: delivered synthetic finish step (done=False finished=True)")
+        logger.debug("[RLClient] on_simulation_begin: delivered synthetic finish step (done=False finished=True)")
 
         if self._auto_respawn_on_finish:
             self._finish_respawn_pending = True
-            logger.info("[RLClient] on_simulation_begin: auto-respawn pending set")
+            logger.debug("[RLClient] on_simulation_begin: auto-respawn pending set")
 
 
     def on_simulation_step(self, iface: TMInterface, _time: int) -> None:
@@ -262,7 +262,7 @@ class RLClient(PhaseAwareClient):
         on_simulation_begin is the one-shot entry; this fires repeatedly for each tick."""
         if _time == 0:
             # First tick of replay validation — log full state.
-            logger.info(
+            logger.debug(
                 "[RLClient] on_simulation_step t=0 (first replay tick): "
                 "running=%s finish_delivered=%s finish_pending=%s respawn_set=%s last_state=%s queue_size=%d",
                 self._running, self._simulation_finish_delivered,
@@ -272,7 +272,7 @@ class RLClient(PhaseAwareClient):
             )
         elif _time % 10_000 == 0:
             # Log every 10 s of replay time so we can see it's still running.
-            logger.info(
+            logger.debug(
                 "[RLClient] on_simulation_step t=%d still in replay validation "
                 "(running=%s finish_pending=%s respawn_set=%s queue_size=%d)",
                 _time, self._running, self._finish_respawn_pending,
@@ -286,7 +286,7 @@ class RLClient(PhaseAwareClient):
             # RL thread called request_respawn() (non-auto-respawn path).
             # Finish step was already delivered before on_run_step stopped, or by
             # on_simulation_begin above.  Safe to exit replay validation now.
-            logger.info(
+            logger.debug(
                 "[RLClient] on_simulation_step t=%d: _respawn_event set in replay validation "
                 "→ give_up() here (finish_delivered=%s queue_size=%d)",
                 _time, self._simulation_finish_delivered, self._state_queue.qsize(),
@@ -301,7 +301,7 @@ class RLClient(PhaseAwareClient):
         if self._finish_respawn_pending:
             # Auto-respawn path: finish step delivered, now exit replay validation.
             # on_run_step will resume after give_up() and handle BRAKING_START → RUNNING.
-            logger.info(
+            logger.debug(
                 "[RLClient] on_simulation_step t=%d: _finish_respawn_pending in replay validation "
                 "→ give_up() here (finish_delivered=%s queue_size=%d)",
                 _time, self._simulation_finish_delivered, self._state_queue.qsize(),
@@ -331,11 +331,11 @@ class RLClient(PhaseAwareClient):
         )
         self._drain_and_put(synthetic)
         self._simulation_finish_delivered = True
-        logger.info("[RLClient] on_simulation_step t=%d: delivered synthetic finish step", _time)
+        logger.debug("[RLClient] on_simulation_step t=%d: delivered synthetic finish step", _time)
 
         if self._auto_respawn_on_finish:
             self._finish_respawn_pending = True
-            logger.info("[RLClient] on_simulation_step t=%d: auto-respawn pending set", _time)
+            logger.debug("[RLClient] on_simulation_step t=%d: auto-respawn pending set", _time)
 
     def on_run_step(self, iface: TMInterface, _time: int) -> None:
         self._tick += 1
@@ -343,7 +343,7 @@ class RLClient(PhaseAwareClient):
         # Handle a pending respawn request from the RL thread.
         if self._respawn_event.is_set():
             self._respawn_event.clear()
-            logger.info(
+            logger.debug(
                 "[RLClient] on_run_step t=%d: _respawn_event set → give_up() "
                 "(running=%s finish_pending=%s finish_delivered=%s)",
                 _time, self._running, self._finish_respawn_pending,
@@ -378,7 +378,7 @@ class RLClient(PhaseAwareClient):
         if not self._running:
             iface.set_input_state(brake=True)
             if speed_ms < VELOCITY_ZERO_THRESHOLD:
-                logger.info("[RLClient] on_run_step t=%d: BRAKING_START → RUNNING (episode ready)", _time)
+                logger.debug("[RLClient] on_run_step t=%d: BRAKING_START → RUNNING (episode ready)", _time)
                 self._running = True
                 step_state = StepState(
                     state_data=data,
@@ -391,7 +391,7 @@ class RLClient(PhaseAwareClient):
             # Pending auto-respawn from the previous tick's lap completion:
             # act on it here so the finish step was already delivered first.
             if self._finish_respawn_pending:
-                logger.info(
+                logger.debug(
                     "[RLClient] on_run_step t=%d: _finish_respawn_pending → give_up() "
                     "(finish_delivered=%s queue_size=%d)",
                     _time, self._simulation_finish_delivered, self._state_queue.qsize(),

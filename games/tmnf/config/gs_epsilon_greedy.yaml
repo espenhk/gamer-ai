@@ -20,6 +20,7 @@
 base_name: "gs_epsilon_greedy_v1"
 
 training_params:
+  track: a01_centerline    # stem of the .npy file in tracks/ (e.g. "a03_centerline" → tracks/a03_centerline.npy)
   speed: 5.0
   n_sims: 200
   in_game_episode_s: 100.0

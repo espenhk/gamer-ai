@@ -39,7 +39,3 @@ lidar_wall_weight: -5.0
 
 # --- Episode termination ---
 crash_threshold_m: 25.0
-
-# --- Track ---
-track_name: a03
-centerline_path: tracks/a03_centerline.npy

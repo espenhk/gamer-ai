@@ -21,9 +21,10 @@ jobs:
         run: pip install pytest numpy scipy pyyaml gymnasium
 
       - name: Run tests
-        # test_env_termination requires tminterface (Windows-only, not on PyPI).
+        # test_env_termination and test_grid_search require tminterface
+        # (Windows-only, not on PyPI) so they are excluded from CI.
         # PYTHONPATH=. puts the repo root on sys.path so `import clients` etc.
         # resolve regardless of pytest's import-mode/rootdir handling.
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/ --ignore=tests/test_env_termination.py
+        run: python -m pytest tests/ --ignore=tests/test_env_termination.py --ignore=tests/test_grid_search.py

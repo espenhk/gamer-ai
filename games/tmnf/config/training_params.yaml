@@ -11,6 +11,28 @@ cold_sims: 5            # hill-climb sims per cold-start restart (hill_climbing 
 n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 = disabled)
 patience: 0              # stop greedy loop if no improvement for this many sims (0 = run all)
 
+# Action windowing (issue #65) — act only every X game ticks instead of every tick.
+# Counted in game ticks, independent of `speed`.
+#
+# action_window_ticks: 1 = legacy (commit and emit StepState every tick).
+# When > 1, the window has two phases:
+#   * Observation phase (tick 0 .. floor(window * decision_offset_pct) - 1):
+#     game thread emits a StepState every tick; RL thread iteratively refines
+#     the pending action with each new observation.
+#   * Transit phase (remaining ticks): pending action is locked, no StepStates.
+#     Provides deterministic compute slack so the RL thread is not racing the
+#     next commit boundary. Mimics human reaction delay.
+# At each window boundary the pending action is committed via set_input_state.
+#
+# Notes:
+#   - Per-tick reward terms (centerline, speed_weight, accel_bonus, step_penalty,
+#     airborne_penalty) scale with ticks_this_step. Per-RL-step magnitudes shift
+#     across the window but cumulative episode totals are unchanged.
+#   - Larger windows shrink RL-steps-per-episode by ~decision_idx×, affecting
+#     replay-buffer fill, batch sizes, and step-tuned epsilon schedules.
+action_window_ticks: 1
+decision_offset_pct: 0.75
+
 
 # Policy algorithm for the greedy training phase.
 # Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | neural_dqn | cmaes | reinforce | lstm

@@ -97,6 +97,8 @@ class TMNFEnv(BaseGameEnv):
         max_episode_time_s: float = 120.0,
         n_lidar_rays: int = 0,
         auto_respawn_on_finish: bool = True,
+        action_window_ticks: int = 1,
+        decision_offset_pct: float = 0.75,
     ) -> None:
         super().__init__()
 
@@ -104,6 +106,7 @@ class TMNFEnv(BaseGameEnv):
         self._reward_calc = RewardCalculator(self._reward_config)
         self._max_episode_time_s = max_episode_time_s
         self._auto_respawn_on_finish = auto_respawn_on_finish
+        self._action_window_ticks = action_window_ticks
 
         # Optional LIDAR sensor (screenshot-based wall distances)
         if n_lidar_rays > 0:
@@ -131,7 +134,9 @@ class TMNFEnv(BaseGameEnv):
 
         # Set up TMInterface
         self._client = RLClient(centerline_file, speed=speed,
-                                auto_respawn_on_finish=auto_respawn_on_finish)
+                                auto_respawn_on_finish=auto_respawn_on_finish,
+                                action_window_ticks=action_window_ticks,
+                                decision_offset_pct=decision_offset_pct)
         self._iface = TMInterface()
 
         # The keepalive thread owns register() so the message-pump is already
@@ -155,10 +160,11 @@ class TMNFEnv(BaseGameEnv):
         self._laps_completed: int = 0
 
         # Skip-event telemetry — reset each episode, printed at episode end.
-        self._ep_rl_steps: int = 0         # env.step() calls this episode
-        self._ep_total_ticks: int = 0      # game ticks covered (≥ rl_steps)
-        self._ep_max_skip: int = 0         # worst single-step skip
-        self._total_rl_steps: int = 0      # lifetime step counter (for periodic log)
+        self._ep_rl_steps: int = 0              # env.step() calls this episode
+        self._ep_total_ticks: int = 0           # game ticks covered (≥ rl_steps)
+        self._ep_max_window_ticks: int = 0      # worst single-step ticks_this_step
+        self._ep_max_overrun_ticks: int = 0     # worst overrun beyond action_window_ticks
+        self._total_rl_steps: int = 0           # lifetime step counter (for periodic log)
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -181,7 +187,8 @@ class TMNFEnv(BaseGameEnv):
         self._laps_completed = 0
         self._ep_rl_steps = 0
         self._ep_total_ticks = 0
-        self._ep_max_skip = 0
+        self._ep_max_window_ticks = 0
+        self._ep_max_overrun_ticks = 0
 
         obs = self._build_obs(init_step)
         return obs, {}
@@ -201,8 +208,11 @@ class TMNFEnv(BaseGameEnv):
         self._ep_rl_steps += 1
         self._ep_total_ticks += n
         self._total_rl_steps += 1
-        if n > self._ep_max_skip:
-            self._ep_max_skip = n
+        if n > self._ep_max_window_ticks:
+            self._ep_max_window_ticks = n
+        overrun = max(0, n - self._action_window_ticks)
+        if overrun > self._ep_max_overrun_ticks:
+            self._ep_max_overrun_ticks = overrun
 
         accelerating = bool(float(action[1]) >= 0.5)
         lidar_rays   = self._lidar.get_distances() if self._lidar is not None else None
@@ -283,7 +293,9 @@ class TMNFEnv(BaseGameEnv):
             "ep_rl_steps": self._ep_rl_steps,
             "ep_total_ticks": self._ep_total_ticks,
             "ep_skipped_ticks": self._ep_total_ticks - self._ep_rl_steps,
-            "ep_max_skip": self._ep_max_skip,
+            "ep_max_window_ticks": self._ep_max_window_ticks,
+            "ep_max_overrun_ticks": self._ep_max_overrun_ticks,
+            "ep_max_skip": self._ep_max_window_ticks,  # back-compat alias
             "termination_reason": termination_reason,
         }
 
@@ -312,9 +324,11 @@ class TMNFEnv(BaseGameEnv):
         skipped = self._ep_total_ticks - self._ep_rl_steps
         avg = self._ep_total_ticks / self._ep_rl_steps if self._ep_rl_steps else 0.0
         logger.debug(
-            "[skip] ep_step %d | rl_steps=%d  game_ticks=%d  skipped=%d  avg=%.2f  max=%d",
+            "[skip] ep_step %d | rl_steps=%d  game_ticks=%d  skipped=%d  avg=%.2f  "
+            "max_window=%d  max_overrun=%d  window_size=%d",
             self._total_rl_steps, self._ep_rl_steps, self._ep_total_ticks,
-            skipped, avg, self._ep_max_skip
+            skipped, avg, self._ep_max_window_ticks, self._ep_max_overrun_ticks,
+            self._action_window_ticks,
         )
 
     def _build_obs(self, step: StepState) -> np.ndarray:  # type: ignore[override]
@@ -359,6 +373,8 @@ def make_env(
     speed: float = 10.0,
     in_game_episode_s: float = 20.0,
     n_lidar_rays: int = 0,
+    action_window_ticks: int = 1,
+    decision_offset_pct: float = 0.75,
 ) -> TMNFEnv:
     """
     Factory that wires up a TMNFEnv from an experiment directory.
@@ -376,4 +392,6 @@ def make_env(
         reward_config=reward_config,
         max_episode_time_s=in_game_episode_s / speed,
         n_lidar_rays=n_lidar_rays,
+        action_window_ticks=action_window_ticks,
+        decision_offset_pct=decision_offset_pct,
     )

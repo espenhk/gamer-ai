@@ -101,15 +101,47 @@ class RLClient(PhaseAwareClient):
         centerline_file: str,
         speed: float = 10.0,
         auto_respawn_on_finish: bool = False,
+        action_window_ticks: int = 1,
+        decision_offset_pct: float = 0.75,
     ) -> None:
         super().__init__()
         self.speed = speed
         self.centerline = Centerline(centerline_file)
         self._auto_respawn_on_finish = auto_respawn_on_finish
 
-        # Shared state — written by RL thread, read by game thread
+        # --- Action windowing (issue #65) ---------------------------------
+        # The window has two phases:
+        #   * Observation phase (tick 0 .. _decision_idx-1): game thread emits
+        #     a StepState every tick; RL thread iteratively refines the pending
+        #     action.
+        #   * Transit phase (tick _decision_idx .. window-1): no StepStates,
+        #     pending action is locked.
+        # At every window boundary the pending action is committed to the game
+        # via iface.set_input_state(...).
+        # When action_window_ticks == 1, _decision_idx == 0 and every tick
+        # commits and emits — preserving legacy behavior bit-for-bit.
+        assert action_window_ticks >= 1, "action_window_ticks must be >= 1"
+        assert 0.0 < decision_offset_pct <= 1.0, "decision_offset_pct must be in (0, 1]"
+        self._action_window_ticks: int = action_window_ticks
+        if action_window_ticks > 1:
+            # Clamp to [1, window-1] so there's at least one observation tick
+            # and at least one transit tick.
+            self._decision_idx: int = max(
+                1,
+                min(action_window_ticks - 1,
+                    int(action_window_ticks * decision_offset_pct)),
+            )
+        else:
+            self._decision_idx = 0
+        self._window_tick: int = 0
+        self._force_commit_next_tick: bool = True
+
+        # Shared state — written by RL thread, read by game thread.
+        # _pending_action is what the RL thread is iteratively refining;
+        # _committed_action is what the game is currently being driven with.
         # shape (3,): [steer ∈ [-1,1], accel ∈ {0,1}, brake ∈ {0,1}]
-        self._action: np.ndarray = _DEFAULT_ACTION.copy()
+        self._pending_action: np.ndarray = _DEFAULT_ACTION.copy()
+        self._committed_action: np.ndarray = _DEFAULT_ACTION.copy()
         self._action_lock = threading.Lock()
 
         # Shared state — written by game thread, read by RL thread
@@ -153,13 +185,17 @@ class RLClient(PhaseAwareClient):
         self._episode_ready.set()  # unblock wait_episode_ready
 
     def set_action(self, action: np.ndarray) -> None:
-        """Set the next action. Thread-safe.
+        """Set the next pending action. Thread-safe.
+
+        Stored in _pending_action; copied to _committed_action and applied to
+        the game at the next window boundary (or immediately when
+        action_window_ticks == 1).
 
         action: shape (3,) float32 — [steer ∈ [-1,1], accel ∈ {0,1}, brake ∈ {0,1}]
         accel and brake are thresholded at 0.5 when applied to the game.
         """
         with self._action_lock:
-            self._action = action
+            self._pending_action = action
 
     def get_step_state(self) -> StepState:
         """Block until the game thread delivers the next state."""
@@ -353,6 +389,8 @@ class RLClient(PhaseAwareClient):
             self._last_centerline_idx = None  # full scan on next tick after respawn
             self._simulation_finish_delivered = False
             self._running = False
+            self._window_tick = 0
+            self._force_commit_next_tick = True
             return
 
         state = iface.get_simulation_state()
@@ -380,6 +418,8 @@ class RLClient(PhaseAwareClient):
             if speed_ms < VELOCITY_ZERO_THRESHOLD:
                 logger.debug("[RLClient] on_run_step t=%d: BRAKING_START → RUNNING (episode ready)", _time)
                 self._running = True
+                self._window_tick = 0
+                self._force_commit_next_tick = True
                 step_state = StepState(
                     state_data=data,
                     yaw_error=self._compute_yaw_error(data),
@@ -401,18 +441,9 @@ class RLClient(PhaseAwareClient):
                 iface.give_up()  # restart race from position zero
                 self._simulation_finish_delivered = False
                 self._running = False
+                self._window_tick = 0
+                self._force_commit_next_tick = True
                 return
-
-            with self._action_lock:
-                action = self._action
-            steer_norm = float(np.clip(action[0], -1.0, 1.0))
-            accel = bool(float(action[1]) >= 0.5)
-            brake = bool(float(action[2]) >= 0.5)
-            iface.set_input_state(
-                accelerate=accel,
-                brake=brake,
-                steer=int(steer_norm * STEER_SCALE),
-            )
 
             finished  = data.track_progress is not None and data.track_progress >= _FINISH_THRESHOLD
             hard_crash = (
@@ -429,6 +460,23 @@ class RLClient(PhaseAwareClient):
                     self._simulation_finish_delivered, self._state_queue.qsize(),
                 )
 
+            # --- Commit boundary: copy pending → committed and apply to game.
+            # Fires at the start of every window, on the very first running
+            # tick, and whenever termination forces an immediate commit.
+            is_window_start = (self._window_tick == 0) or self._force_commit_next_tick
+            if is_window_start or finished or hard_crash:
+                with self._action_lock:
+                    self._committed_action = self._pending_action.copy()
+                steer_norm = float(np.clip(self._committed_action[0], -1.0, 1.0))
+                accel = bool(float(self._committed_action[1]) >= 0.5)
+                brake = bool(float(self._committed_action[2]) >= 0.5)
+                iface.set_input_state(
+                    accelerate=accel,
+                    brake=brake,
+                    steer=int(steer_norm * STEER_SCALE),
+                )
+                self._force_commit_next_tick = False
+
             if finished and self._auto_respawn_on_finish:
                 # Deliver the finish step with done=False; respawn next tick.
                 self._finish_respawn_pending = True
@@ -437,13 +485,22 @@ class RLClient(PhaseAwareClient):
             else:
                 done = finished or hard_crash
 
-            step_state = StepState(
-                state_data=data,
-                yaw_error=self._compute_yaw_error(data),
-                done=done,
-                finished=finished,
-            )
-            self._drain_and_put(step_state)
+            # --- StepState gating: emit during the observation phase only.
+            # Always emit on termination so the env sees the final state.
+            in_observation_phase = self._window_tick < self._decision_idx or self._action_window_ticks == 1
+            if in_observation_phase or finished or hard_crash:
+                step_state = StepState(
+                    state_data=data,
+                    yaw_error=self._compute_yaw_error(data),
+                    done=done,
+                    finished=finished,
+                )
+                self._drain_and_put(step_state)
+
+            # --- Advance window pointer.
+            self._window_tick += 1
+            if self._window_tick >= self._action_window_ticks:
+                self._window_tick = 0
 
     def on_simulation_end(self, iface: TMInterface, result: int) -> None:
         """Fires once when replay validation finishes."""

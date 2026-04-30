@@ -134,6 +134,9 @@ class RLClient(PhaseAwareClient):
         # is delivered to the RL thread before the respawn is triggered.
         self._finish_respawn_pending: bool = False
 
+        # Backwards-compatibility flag retained for older tests/code that
+        # still expect this internal attribute to exist.
+        self._simulation_finish_delivered: bool = False
         # Debug: tick counter for periodic logging
         self._tick: int = 0
         # Cached nearest centerline index from the previous tick.  Passed as

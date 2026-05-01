@@ -12,7 +12,7 @@ Trackmania Nations Forever RL agent. Drives autonomously via hill-climbing / evo
 tmnf-ai/
 ├── main.py                 # Entry point — python main.py <experiment_name>
 ├── grid_search.py          # Grid search over param combinations (supports --distribute)
-├── analytics.py            # Experiment result plots and summary tables
+├── analytics.py            # Experiment result plots, summary tables, and consolidation CLI
 ├── param_explorer.py       # Interactive weight/param exploration tool
 ├── policies.py             # Backward-compat shim → framework + games/tmnf policies
 ├── setup_and_run.ps1       # Windows bootstrap script
@@ -255,6 +255,18 @@ See `infrastructure/README.md` for operational commands (plan/apply, start/stop/
 ## Analytics (`analytics.py`)
 
 Called automatically at end of each experiment/grid-search run. Writes plots and summary JSON to `experiments/<track>/<name>/results/`. Skipped phases produce no output files.
+
+Each run also saves a full `experiment_data.json` to its `results/` folder, which can be used to consolidate multiple runs into a single summary.
+
+### Consolidation CLI
+
+When a grid search spans multiple runs (e.g. interrupted and resumed), consolidate them:
+
+```bash
+python analytics.py path/to/exp1 path/to/exp2 path/to/exp3 [--output DIR] [--name NAME]
+```
+
+Each path must be an experiment folder containing `results/experiment_data.json`. The summary is written to `<parent>/<base_name>__summary/` by default (override with `--output`).
 
 ---
 

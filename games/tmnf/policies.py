@@ -918,24 +918,24 @@ class CMAESPolicy(BasePolicy):
         Raises ValueError if the saved dimension does not match the current
         observation space (e.g. n_lidar_rays changed since the state was saved).
         """
-        data = np.load(path)
-        n_saved = int(data["n"])
-        if n_saved != self._n:
-            raise ValueError(
-                f"CMAESPolicy: trainer state dimension mismatch — "
-                f"saved n={n_saved}, current n={self._n}. "
-                f"The observation space (n_lidar_rays) may have changed. "
-                f"Use --re-initialize to restart from scratch."
-            )
-        self._mean     = data["mean"].astype(np.float64)
-        self._sigma    = float(data["sigma"])
-        self._C        = data["C"].astype(np.float64)
-        self._B        = data["B"].astype(np.float64)
-        self._D        = data["D"].astype(np.float64)
-        self._invsqrtC = data["invsqrtC"].astype(np.float64)
-        self._ps       = data["ps"].astype(np.float64)
-        self._pc       = data["pc"].astype(np.float64)
-        self._gen      = int(data["gen"])
+        with np.load(path) as data:
+            n_saved = int(data["n"])
+            if n_saved != self._n:
+                raise ValueError(
+                    f"CMAESPolicy: trainer state dimension mismatch — "
+                    f"saved n={n_saved}, current n={self._n}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean     = data["mean"].astype(np.float64)
+            self._sigma    = float(data["sigma"])
+            self._C        = data["C"].astype(np.float64)
+            self._B        = data["B"].astype(np.float64)
+            self._D        = data["D"].astype(np.float64)
+            self._invsqrtC = data["invsqrtC"].astype(np.float64)
+            self._ps       = data["ps"].astype(np.float64)
+            self._pc       = data["pc"].astype(np.float64)
+            self._gen      = int(data["gen"])
         logger.info("[CMAESPolicy] trainer state loaded from %s (gen=%d, sigma=%.4f)",
                     path, self._gen, self._sigma)
 

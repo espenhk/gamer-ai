@@ -1311,6 +1311,10 @@ class LSTMPolicy(BasePolicy):
                next_obs: np.ndarray, done: bool) -> None:
         pass  # no online update; training via outer evolutionary optimiser
 
+    def on_episode_start(self) -> None:
+        self._h = np.zeros(self._hidden_size, dtype=np.float32)
+        self._c = np.zeros(self._hidden_size, dtype=np.float32)
+
     def on_episode_end(self) -> None:
         self._h = np.zeros(self._hidden_size, dtype=np.float32)
         self._c = np.zeros(self._hidden_size, dtype=np.float32)
@@ -1514,6 +1518,10 @@ class LSTMEvolutionPolicy(BasePolicy):
                 "and update_distribution() for at least one generation first."
             )
         return self._champion(obs)
+
+    def on_episode_start(self) -> None:
+        if self._champion is not None:
+            self._champion.on_episode_start()
 
     def on_episode_end(self) -> None:
         if self._champion is not None:

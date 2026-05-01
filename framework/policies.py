@@ -55,6 +55,13 @@ class BasePolicy(ABC):
                next_obs: np.ndarray, done: bool) -> None:
         """Per-step feedback from the environment.  No-op for non-online policies."""
 
+    def on_episode_start(self) -> None:
+        """Called once at the start of each episode, before the first step.
+
+        Override to reset episode-scoped hidden state (e.g. LSTM h/c).
+        No-op by default.
+        """
+
     def on_episode_end(self) -> None:
         """Called once at the end of each episode.  No-op by default."""
 

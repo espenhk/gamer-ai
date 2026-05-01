@@ -85,6 +85,9 @@ class _StubQPolicy:
     def update(self, *_) -> None:
         pass
 
+    def on_episode_start(self) -> None:
+        pass
+
     def on_episode_end(self) -> None:
         pass
 

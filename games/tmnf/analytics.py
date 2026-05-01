@@ -13,6 +13,10 @@ import os
 import numpy as np
 import yaml
 
+import sys
+import matplotlib
+if 'matplotlib.pyplot' not in sys.modules:
+    matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.axes import Axes

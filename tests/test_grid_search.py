@@ -1,7 +1,7 @@
 """Tests for grid_search.py — grid expansion and name generation."""
 from __future__ import annotations
 
-from grid_search import _expand_grid, _make_experiment_name, _fmt_value
+from grid_search import _expand_grid, _make_experiment_name, _fmt_value, _build_policy_params, _POLICY_PARAM_MAP
 
 
 class TestExpandGrid:
@@ -80,6 +80,58 @@ class TestMakeExperimentName:
     def test_unknown_key_uses_key_itself(self):
         name = _make_experiment_name("gs", {"my_custom_param": 42}, ["my_custom_param"])
         assert "my_custom_param42" in name
+
+
+class TestBuildPolicyParams:
+    def test_nested_policy_params_passed_through(self):
+        t = {"policy_params": {"hidden_sizes": [64, 64], "gamma": 0.99}}
+        pp = _build_policy_params(t)
+        assert pp["hidden_sizes"] == [64, 64]
+        assert pp["gamma"] == 0.99
+
+    def test_top_level_key_promoted_to_policy_params(self):
+        t = {"learning_rate": 0.001, "batch_size": 32}
+        pp = _build_policy_params(t)
+        assert pp["learning_rate"] == 0.001
+        assert pp["batch_size"] == 32
+
+    def test_top_level_overrides_nested(self):
+        t = {"learning_rate": 0.005, "policy_params": {"learning_rate": 0.001}}
+        pp = _build_policy_params(t)
+        assert pp["learning_rate"] == 0.005
+
+    def test_all_new_policy_param_keys_are_mapped(self):
+        new_keys = {
+            "hidden_sizes", "hidden_size", "learning_rate", "entropy_coeff",
+            "baseline", "batch_size", "target_update_freq", "epsilon_decay_steps",
+        }
+        assert new_keys.issubset(_POLICY_PARAM_MAP.keys())
+
+    def test_promoted_keys_have_correct_target_names(self):
+        identity_mapped = {
+            "hidden_sizes", "hidden_size", "learning_rate", "entropy_coeff",
+            "baseline", "batch_size", "target_update_freq", "epsilon_decay_steps",
+        }
+        for key in identity_mapped:
+            assert _POLICY_PARAM_MAP[key] == key, (
+                f"_POLICY_PARAM_MAP[{key!r}] = {_POLICY_PARAM_MAP[key]!r}, expected {key!r}"
+            )
+
+    def test_no_policy_params_key_returns_empty(self):
+        t = {"speed": 10.0, "n_sims": 50}
+        pp = _build_policy_params(t)
+        assert pp == {}
+
+    def test_lstm_hidden_size_promoted(self):
+        t = {"hidden_size": 64}
+        pp = _build_policy_params(t)
+        assert pp["hidden_size"] == 64
+
+    def test_reinforce_baseline_promoted(self):
+        t = {"baseline": "none", "entropy_coeff": 0.05}
+        pp = _build_policy_params(t)
+        assert pp["baseline"] == "none"
+        assert pp["entropy_coeff"] == 0.05
 
 
 class TestFmtValue:

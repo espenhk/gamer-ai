@@ -1,10 +1,15 @@
-"""TMNF-specific analytics plots.
+"""TORCS-specific analytics plots.
 
-These plots use TMNF-only concepts: bird's-eye position traces (pos_x / pos_z),
-throttle-state traces, and WeightedLinearPolicy weight heatmaps / evolution charts.
+These plots use TORCS-specific concepts: throttle-state traces,
+WeightedLinearPolicy weight heatmaps / evolution charts, and
+termination reason breakdowns.
 
-Entry point called by save_experiment_results():
-    save_tmnf_plots(data: ExperimentData, results_dir: str) -> None
+TORCS does not provide bird's-eye position coordinates in the same way
+as TMNF (no pos_x / pos_z from a centreline), so path-based plots are
+replaced by speed-profile and track-progress-based visualisations.
+
+Entry point called by main.py:
+    save_experiment_results(data: ExperimentData, results_dir: str) -> None
 """
 from __future__ import annotations
 
@@ -13,18 +18,15 @@ import os
 import numpy as np
 import yaml
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
-    from matplotlib.axes import Axes
-    from matplotlib.figure import Figure
-    import matplotlib.pyplot as plt
-    import sys
-    if 'plt' not in sys.modules:
-        matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
-    _HAS_MPL = True
-except ImportError:
-    _HAS_MPL = False
+import sys
+import matplotlib
+if 'matplotlib.pyplot' not in sys.modules:
+    matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
 
 from framework.analytics import (
     ExperimentData,
@@ -40,15 +42,12 @@ from framework.analytics import (
     _summary_md,
     save_grid_summary as _framework_save_grid_summary,
 )
-from games.tmnf.obs_spec import OBS_NAMES
+from games.torcs.obs_spec import OBS_NAMES
 
 logger = logging.getLogger(__name__)
 
 
-
 def _save(fig: "Figure", path: str) -> None:
-    if not _HAS_MPL:
-        return
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -57,12 +56,11 @@ _THROTTLE_COLORS = ["#c0392b", "#95a5a6", "#27ae60"]
 
 
 # ---------------------------------------------------------------------------
-# Throttle / position helpers
+# Throttle / speed helpers
 # ---------------------------------------------------------------------------
 
 def _plot_throttle_trace(ax: "Axes", throttle_state: list, title: str) -> None:
-    if not _HAS_MPL:
-        return
+    """Plot accel and brake values over time."""
     steps = range(len(throttle_state))
     accel = [t[0] for t in throttle_state]
     brake = [t[1] for t in throttle_state]
@@ -77,39 +75,10 @@ def _plot_throttle_trace(ax: "Axes", throttle_state: list, title: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Probe paths
-# ---------------------------------------------------------------------------
-
-def plot_probe_paths(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
-    probes = [p for p in sorted(data.probe_results, key=lambda p: p.action_idx)
-              if p.trace and p.trace.pos_x]
-    if not probes:
-        return
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-    colors  = cm.tab10(np.linspace(0, 1, len(probes)))
-    for p, color in zip(probes, colors):
-        ax.plot(p.trace.pos_x, p.trace.pos_z, color=color, linewidth=1.2,
-                label=p.action_name, alpha=0.85)
-        ax.plot(p.trace.pos_x[0], p.trace.pos_z[0], "o", color=color, markersize=5)
-    ax.set_title(f"{data.experiment_name} — Probe Phase: Paths (bird's eye)")
-    ax.set_xlabel("World X")
-    ax.set_ylabel("World Z")
-    ax.legend(fontsize=8)
-    ax.set_aspect("equal", adjustable="datalim")
-    fig.tight_layout()
-    _save(fig, os.path.join(results_dir, "probe_paths.png"))
-
-
-# ---------------------------------------------------------------------------
 # Cold-start best run
 # ---------------------------------------------------------------------------
 
 def plot_cold_start_best_run(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     best_sim = None
     best_r   = float("-inf")
     for restart in data.cold_start_restarts:
@@ -117,17 +86,14 @@ def plot_cold_start_best_run(data: ExperimentData, results_dir: str) -> None:
             if s.reward > best_r:
                 best_r   = s.reward
                 best_sim = s
-    if best_sim is None or not best_sim.trace or not best_sim.trace.pos_x:
+    if best_sim is None or not best_sim.trace:
         return
 
     trace = best_sim.trace
-    fig, (ax_path, ax_thr) = plt.subplots(1, 2, figsize=(14, 6))
-    ax_path.plot(trace.pos_x, trace.pos_z, color="#9b59b6", linewidth=1.4)
-    ax_path.plot(trace.pos_x[0], trace.pos_z[0], "o", color="#9b59b6", markersize=6)
-    ax_path.set_title("Path (bird's eye)")
-    ax_path.set_xlabel("World X")
-    ax_path.set_ylabel("World Z")
-    ax_path.set_aspect("equal", adjustable="datalim")
+    if not trace.throttle_state:
+        return
+
+    fig, ax_thr = plt.subplots(figsize=(10, 4))
     _plot_throttle_trace(ax_thr, trace.throttle_state,
                          f"Throttle/brake  (reward {trace.total_reward:+.1f})")
     fig.suptitle(f"{data.experiment_name} — Cold-Start Best Run", fontsize=11)
@@ -136,8 +102,6 @@ def plot_cold_start_best_run(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_cold_start_action_dist(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     restarts = data.cold_start_restarts
     xs = [r.restart for r in restarts]
     accel_pcts, brake_pcts = [], []
@@ -170,22 +134,14 @@ def plot_cold_start_action_dist(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_greedy_best_run(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     if not data.greedy_sims:
         return
     best  = max(data.greedy_sims, key=lambda s: s.reward)
     trace = best.trace
-    if not trace or not trace.pos_x:
+    if not trace or not trace.throttle_state:
         return
 
-    fig, (ax_path, ax_thr) = plt.subplots(1, 2, figsize=(14, 6))
-    ax_path.plot(trace.pos_x, trace.pos_z, color="#e67e22", linewidth=1.4)
-    ax_path.plot(trace.pos_x[0], trace.pos_z[0], "o", color="#e67e22", markersize=6)
-    ax_path.set_title("Path (bird's eye)")
-    ax_path.set_xlabel("World X")
-    ax_path.set_ylabel("World Z")
-    ax_path.set_aspect("equal", adjustable="datalim")
+    fig, ax_thr = plt.subplots(figsize=(10, 4))
     _plot_throttle_trace(ax_thr, trace.throttle_state,
                          f"Throttle/brake  (reward {trace.total_reward:+.1f})")
     fig.suptitle(f"{data.experiment_name} — Greedy Best Run (sim {best.sim})", fontsize=11)
@@ -194,8 +150,6 @@ def plot_greedy_best_run(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     sims = data.greedy_sims
     xs   = [s.sim for s in sims]
     accel_pcts, brake_pcts = [], []
@@ -220,8 +174,6 @@ def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     sims = data.greedy_sims
     xs   = [s.sim for s in sims]
     ys   = [s.laps_completed + s.final_track_progress for s in sims]
@@ -264,7 +216,7 @@ def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_weight_heatmap(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
+    if not os.path.exists(data.weights_file):
         return
     with open(data.weights_file) as f:
         cfg = yaml.safe_load(f) or {}
@@ -291,8 +243,6 @@ def plot_weight_heatmap(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_weight_evolution(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     sims = [s for s in data.greedy_sims
             if s.weights is not None and "steer_weights" in s.weights]
     if len(sims) < 2:
@@ -337,17 +287,15 @@ def plot_weight_evolution(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 _REASON_COLORS = {
-    "finish":     "#27ae60",
-    "crash":      "#c0392b",
-    "hard_crash": "#e74c3c",
-    "timeout":    "#f39c12",
+    "finish":  "#27ae60",
+    "crash":   "#c0392b",
+    "done":    "#e74c3c",
+    "timeout": "#f39c12",
 }
-_REASON_ORDER = ["finish", "crash", "hard_crash", "timeout"]
+_REASON_ORDER = ["finish", "crash", "done", "timeout"]
 
 
 def plot_termination_reasons(data: ExperimentData, results_dir: str) -> None:
-    if not _HAS_MPL:
-        return
     sims = data.greedy_sims
     if not sims:
         return
@@ -383,49 +331,13 @@ def plot_termination_reasons(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Grid-search path comparison
+# Grid-search progress comparison (replaces TMNF's path comparison)
 # ---------------------------------------------------------------------------
-
-def plot_gs_comparison_paths(
-    runs: list[tuple[str, ExperimentData]],
-    summary_dir: str,
-) -> None:
-    if not _HAS_MPL:
-        return
-    traced = []
-    for name, data in runs:
-        if not data.greedy_sims:
-            continue
-        best = max(data.greedy_sims, key=lambda s: s.reward)
-        if best.trace and best.trace.pos_x:
-            traced.append((name, best.reward, best.trace))
-    if not traced:
-        return
-
-    traced.sort(key=lambda x: x[1])
-    n      = len(traced)
-    colors = cm.RdYlGn(np.linspace(0.15, 0.85, n))
-
-    fig, ax = plt.subplots(figsize=(9, 9))
-    for (name, reward, trace), color in zip(traced, colors):
-        ax.plot(trace.pos_x, trace.pos_z, color=color, linewidth=1.0,
-                label=f"{name}  ({reward:+.0f})", alpha=0.8)
-        ax.plot(trace.pos_x[0], trace.pos_z[0], "o", color=color, markersize=4)
-    ax.set_title("Grid Search — Best-Run Paths (green = higher reward)")
-    ax.set_xlabel("World X")
-    ax.set_ylabel("World Z")
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.legend(fontsize=6, loc="best", framealpha=0.6)
-    fig.tight_layout()
-    _save(fig, os.path.join(summary_dir, "comparison_paths.png"))
-
 
 def plot_gs_comparison_progress(
     runs: list[tuple[str, ExperimentData]],
     summary_dir: str,
 ) -> None:
-    if not _HAS_MPL:
-        return
     series = []
     for name, data in runs:
         if not data.greedy_sims:
@@ -466,10 +378,8 @@ def plot_gs_comparison_progress(
 # Entry point: called by save_experiment_results
 # ---------------------------------------------------------------------------
 
-def save_tmnf_plots(data: ExperimentData, results_dir: str) -> None:
-    """Generate all TMNF-specific plots into results_dir."""
-    if data.probe_results:
-        plot_probe_paths(data, results_dir)
+def save_torcs_plots(data: ExperimentData, results_dir: str) -> None:
+    """Generate all TORCS-specific plots into results_dir."""
     if data.cold_start_restarts:
         plot_cold_start_action_dist(data, results_dir)
         plot_cold_start_best_run(data, results_dir)
@@ -483,26 +393,23 @@ def save_tmnf_plots(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Combined entry points (generic framework report + TMNF-specific plots)
+# Combined entry points (generic framework report + TORCS-specific plots)
 # ---------------------------------------------------------------------------
 
 def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     """Generate all plots and write a single results.md report to *results_dir*."""
     os.makedirs(results_dir, exist_ok=True)
 
-    track_line = f"\n**Track:** {data.track}\n" if data.track else ""
     sections = [
-        f"# Experiment: {data.experiment_name}\n{track_line}\n",
+        f"# Experiment: {data.experiment_name}\n\n**Game:** TORCS\n\n",
         _timings_md(data),
         _summary_md(data),
     ]
 
     if data.probe_results:
         plot_probe_rewards(data, results_dir)
-        plot_probe_paths(data, results_dir)
         sections.append(_probe_table_md(data))
         sections.append("\n![Probe rewards](probe_rewards.png)\n\n")
-        sections.append("![Probe paths](probe_paths.png)\n\n")
 
     if data.cold_start_restarts:
         plot_cold_start_rewards(data, results_dir)
@@ -540,9 +447,6 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(sections)
 
-    # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
-    plt.close('all')
-
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)
 
@@ -553,13 +457,12 @@ def save_grid_summary(
     summary_dir: str,
     base_name: str,
 ) -> None:
-    """Grid search cross-experiment summary with TMNF path/progress comparison plots."""
+    """Grid search cross-experiment summary with TORCS progress comparison plots."""
 
-    def _tmnf_extra(r, d):
-        plot_gs_comparison_paths(r, d)
+    def _torcs_extra(r, d):
         plot_gs_comparison_progress(r, d)
 
     _framework_save_grid_summary(
         runs, varied_keys, summary_dir, base_name,
-        extra_plots_fn=_tmnf_extra,
+        extra_plots_fn=_torcs_extra,
     )

@@ -1,0 +1,43 @@
+# Grid search config template for TORCS — copy this file and edit before running.
+# Usage:
+#   python grid_search.py games/torcs/config/my_grid.yaml --game torcs [--no-interrupt]
+#
+# Any param set to a list becomes a search axis.
+# One run is created per unique combination of list-valued params.
+# Experiment names encode only the varied params.
+#
+# This config sweeps the centerline penalty weight:
+#   centerline_weight: [-0.1, -0.5, -1.0]  → 3 combinations
+
+base_name: "gs_torcs_template_v1"
+game: torcs
+
+# ---------------------------------------------------------------------------
+# Training params — listed axes become search dimensions
+# ---------------------------------------------------------------------------
+training_params:
+  speed: 1.0
+  n_sims: 50
+  in_game_episode_s: 120.0
+  mutation_scale: 0.05
+  mutation_share: 1.0
+  probe_s: 30.0
+  cold_restarts: 10
+  cold_sims: 5
+  n_lidar_rays: 0
+  policy_type: hill_climbing
+
+# ---------------------------------------------------------------------------
+# Reward params — listed axes become search dimensions
+# ---------------------------------------------------------------------------
+reward_params:
+  progress_weight: 10.0
+  centerline_weight: [-0.1, -0.5, -1.0]  # search axis: centreline penalty strength
+  centerline_exp: 2.0
+  speed_weight: 0.05
+  step_penalty: -0.01
+  finish_bonus: 100.0
+  finish_time_weight: -0.1
+  par_time_s: 120.0
+  accel_bonus: 0.5
+  crash_threshold_m: 8.0

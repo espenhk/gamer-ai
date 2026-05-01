@@ -63,13 +63,15 @@ class RewardCalculatorBase(ABC):
     ) -> tuple[float, dict]:
         """Return ``(scalar_reward, components)`` for this RL step.
 
-        ``components`` is a ``dict[str, float]`` mapping each named reward
-        term to its individual contribution.  The scalar is the sum of all
-        components (identical to what :meth:`compute` returns).
+        ``components`` is a ``dict[str, float]`` mapping named reward terms
+        to their individual contributions when a subclass exposes a
+        per-term breakdown. In that case, the scalar should be the sum of
+        all component values (identical to what :meth:`compute` returns).
 
         The default implementation delegates to :meth:`compute` and returns
-        an empty components dict.  Game-specific subclasses should override
-        this to expose per-term breakdowns.
+        an empty components dict, indicating that no breakdown is available.
+        Game-specific subclasses should override this to expose per-term
+        breakdowns.
         """
         return self.compute(prev_state, curr_state, finished, elapsed_s, info, n_ticks), {}
 

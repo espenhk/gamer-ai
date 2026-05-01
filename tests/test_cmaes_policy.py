@@ -243,7 +243,8 @@ class TestCMAESTrainerState(unittest.TestCase):
         return policy
 
     def test_save_load_roundtrip_all_arrays(self):
-        """save_trainer_state → load_trainer_state preserves all distribution arrays."""
+        """save_trainer_state → load_trainer_state preserves all distribution arrays
+        and the loaded state drives subsequent evolution correctly."""
         import tempfile
         policy = self._make_trained_policy()
 
@@ -265,6 +266,14 @@ class TestCMAESTrainerState(unittest.TestCase):
             np.testing.assert_array_equal(policy._pc,       policy2._pc)
             self.assertAlmostEqual(policy._sigma, policy2._sigma)
             self.assertEqual(policy._gen,         policy2._gen)
+
+            # Verify that evolution continues from the loaded state (gen increments)
+            prev_mean = policy2._mean.copy()
+            policy2.sample_population()
+            policy2.update_distribution([float(i) for i in range(10)])
+            self.assertEqual(policy2._gen, policy._gen + 1)
+            # Mean should have shifted from the loaded state
+            self.assertFalse(np.allclose(policy2._mean, prev_mean))
         finally:
             os.unlink(path)
 

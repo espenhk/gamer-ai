@@ -248,6 +248,10 @@ class TestREINFORCETrainerState(unittest.TestCase):
             policy.update(obs, np.array([0, 1, 0]), 5.0, obs, True)
             policy.on_episode_end()
 
+        # Confirm the training loop actually changed the baseline from its initial value
+        self.assertNotEqual(policy._baseline_val, 0.0,
+                            "Expected baseline_val to change after training episodes")
+
         with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
             path = f.name
         try:

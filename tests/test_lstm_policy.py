@@ -411,7 +411,8 @@ class TestLSTMEvolutionTrainerState(unittest.TestCase):
         return policy
 
     def test_save_load_roundtrip(self):
-        """save_trainer_state → load_trainer_state preserves mean and sigma."""
+        """save_trainer_state → load_trainer_state preserves mean and sigma,
+        and the loaded state drives subsequent evolution correctly."""
         import tempfile, os
         policy = self._make_trained_policy()
 
@@ -426,6 +427,13 @@ class TestLSTMEvolutionTrainerState(unittest.TestCase):
 
             np.testing.assert_array_equal(policy._mean, policy2._mean)
             self.assertAlmostEqual(policy._sigma, policy2._sigma)
+
+            # Verify that evolution continues from the loaded mean (not the random init)
+            prev_mean = policy2._mean.copy()
+            policy2.sample_population()
+            policy2.update_distribution([float(i) for i in range(6)])
+            # Mean should shift from the loaded state (not remain identical)
+            self.assertFalse(np.allclose(policy2._mean, prev_mean))
         finally:
             os.unlink(path)
 

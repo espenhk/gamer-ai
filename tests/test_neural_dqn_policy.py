@@ -262,10 +262,13 @@ class TestNeuralDQNTrainerState(unittest.TestCase):
         return policy
 
     def test_save_load_roundtrip_replay_buffer(self):
-        """Replay buffer contents survive a save/load cycle."""
+        """Replay buffer length and transition contents survive a save/load cycle."""
         import tempfile, os
         policy = self._make_trained_policy()
         original_buf_len = len(policy._replay)
+
+        # Capture original buffer contents for comparison
+        original_buf = list(policy._replay._buf)
 
         with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
             path = f.name
@@ -281,6 +284,15 @@ class TestNeuralDQNTrainerState(unittest.TestCase):
             policy2.load_trainer_state(path)
 
             self.assertEqual(len(policy2._replay), original_buf_len)
+
+            # Verify actual transition contents match
+            restored_buf = list(policy2._replay._buf)
+            for orig, rest in zip(original_buf, restored_buf):
+                np.testing.assert_array_equal(orig[0], rest[0])   # obs
+                self.assertEqual(orig[1], rest[1])                 # action_idx
+                self.assertAlmostEqual(orig[2], rest[2])           # reward
+                np.testing.assert_array_equal(orig[3], rest[3])   # next_obs
+                self.assertEqual(orig[4], rest[4])                 # done
         finally:
             os.unlink(path)
 

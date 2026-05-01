@@ -1,0 +1,69 @@
+# Grid search: curiosity-driven exploration (issue #24)
+#
+# Sweeps the two curiosity modules introduced for exploration reward shaping:
+#
+#   curiosity_type   — "none" (extrinsic only, baseline)
+#                      "icm"  (Pathak et al. 2017 — encoder + forward + inverse)
+#                      "rnd"  (Burda et al. 2018 — predictor vs frozen target)
+#   curiosity_weight — scale of the intrinsic reward when added on top of the
+#                      extrinsic signal.  Tune relative to progress_weight
+#                      (10 000) and the typical extrinsic step reward.
+#                      0 disables curiosity entirely (matches type=none).
+#
+# Combos: 3 types x 3 weights = 9 runs, but the "none" type cells with non-zero
+# weight are wasteful — the env constructs no module when type=none.  This is
+# tolerated because the Cartesian expansion is what grid_search.py supports;
+# the redundant cells produce identical baseline behaviour and can be pruned
+# manually if needed.
+#
+# The acceleration_bonus is dropped to 0 here so the intrinsic reward is the
+# *only* dense exploration signal — the goal is to see whether curiosity alone
+# can break the early-episode collapse described in the issue.
+#
+# Usage (from repo root):
+#   python grid_search.py games/tmnf/config/gs_curiosity_v1.yaml
+#
+
+base_name: "gs_curiosity_v1"
+
+# ---------------------------------------------------------------------------
+# Training params
+# ---------------------------------------------------------------------------
+training_params:
+  speed: 10.0
+  n_sims: 50
+  in_game_episode_s: 30.0
+  mutation_scale: 0.05
+  mutation_share: 1.0
+  probe_s: 8.0
+  cold_restarts: 20
+  cold_sims: 5
+  n_lidar_rays: 8
+  policy_type: hill_climbing
+
+# ---------------------------------------------------------------------------
+# Reward params — the curiosity_* axes are the search dimensions
+# ---------------------------------------------------------------------------
+reward_params:
+  progress_weight: 10000.0
+  centerline_weight: -0.083
+  centerline_exp: 2.0
+  speed_weight: 0.042
+  step_penalty: -0.05
+  finish_bonus: 5000.0
+  finish_time_weight: -5.0
+  par_time_s: 60.0
+  accel_bonus: 0.5
+  airborne_penalty: -0.83
+  lidar_wall_weight: -5.0
+  crash_threshold_m: 25.0
+
+  # --- Curiosity search axes ---
+  curiosity_type:        ["none", "icm", "rnd"]
+  curiosity_weight:      [0.0, 0.05, 0.5]
+  # Fixed architecture / optimiser hyperparams — varied independently if needed.
+  curiosity_feature_dim: 8
+  curiosity_hidden_size: 32
+  curiosity_lr:          0.001
+  curiosity_beta:        0.2
+  curiosity_seed:        0

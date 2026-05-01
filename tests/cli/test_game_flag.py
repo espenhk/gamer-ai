@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -195,7 +196,7 @@ class TestImportErrorConversion(unittest.TestCase):
                 main._run_beamng(args)
 
     def test_assetto_missing_dep_raises_value_error(self):
-        """_run_assetto should raise ValueError when assettocorsa is not installed."""
+        """_run_assetto should raise ValueError when assetto_corsa entry is not importable."""
         import main  # noqa: PLC0415
         args = argparse.Namespace(
             experiment="test",
@@ -204,7 +205,7 @@ class TestImportErrorConversion(unittest.TestCase):
             re_initialize=False,
             log_level="INFO",
         )
-        with patch.dict(sys.modules, {"games.assetto.env": None}):
+        with patch.dict(sys.modules, {"games.assetto_corsa.entry": None}):
             with self.assertRaises((ValueError, ImportError)):
                 main._run_assetto(args)
 
@@ -299,7 +300,32 @@ class TestExperimentDirectoryNaming(unittest.TestCase):
         self.assertIn("my_exp", exp_dir)
 
     def test_assetto_experiment_dir_contains_assetto(self):
-        exp_dir = self._get_experiment_dir_for_new_game("assetto", "my_exp")
+        """The assetto runner now delegates to games.assetto_corsa.entry.run(),
+        which creates experiment dirs under experiments/assetto_corsa/."""
+        import main  # noqa: PLC0415
+
+        captured: dict = {}
+        original_mkdir = Path.mkdir
+
+        def _fake_mkdir(self_path, *a, **kw):
+            if "experiment_dir" not in captured:
+                captured["experiment_dir"] = str(self_path)
+
+        args = argparse.Namespace(
+            experiment="my_exp",
+            game="assetto",
+            no_interrupt=True,
+            re_initialize=False,
+            log_level="INFO",
+        )
+
+        with patch.object(Path, "mkdir", _fake_mkdir):
+            try:
+                main._run_assetto(args)
+            except Exception:
+                pass
+
+        exp_dir = captured.get("experiment_dir", "")
         self.assertIn("assetto", exp_dir)
         self.assertIn("my_exp", exp_dir)
 

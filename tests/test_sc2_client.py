@@ -108,6 +108,8 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         self.assertAlmostEqual(flat[10], 20.0)
 
     def test_terminal_outcome_recorded(self):
+        """For minigames, player_outcome is always None (timestep.reward is
+        the per-step score delta, not a terminal win/loss signal)."""
         ob = {
             "player": _NamedArr({
                 "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
@@ -119,7 +121,7 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         }
         ts = _FakeTimeStep(ob, reward=1.0, last=True)
         _, info = self.client._timestep_to_obs_info(ts)
-        self.assertEqual(info["player_outcome"], 1.0)
+        self.assertIsNone(info["player_outcome"])
         self.assertTrue(info["is_last"])
 
 
@@ -146,7 +148,7 @@ class TestSC2ClientLadderFlatten(unittest.TestCase):
     def test_visibility_tracking(self):
         """Explored fraction should be monotonically non-decreasing."""
         mmap = np.zeros((11, 64, 64), dtype=np.int32)
-        # Channel 1 = visibility_map; mark a quadrant visible.
+        # Channel 1 = visibility_map; mark a quadrant visible (value 2).
         mmap[1, :32, :32] = 2
         ob = {
             "player": _NamedArr({
@@ -164,7 +166,7 @@ class TestSC2ClientLadderFlatten(unittest.TestCase):
         ob["feature_minimap"] = np.zeros((11, 64, 64), dtype=np.int32)
         flat2, _ = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
 
-        # Index 19 = minimap_visible_frac, 20 = minimap_explored_frac
+        # Index 18 = minimap_visible_frac, 19 = minimap_explored_frac
         # (offset by 13 from minigame dims).
         self.assertGreater(flat1[18], 0.0)  # visible_frac > 0 first call
         self.assertEqual(flat2[18], 0.0)    # visible_frac = 0 second call
@@ -172,6 +174,67 @@ class TestSC2ClientLadderFlatten(unittest.TestCase):
         self.assertGreater(flat1[19], 0.0)
         self.assertGreater(flat2[19], 0.0)
         self.assertGreaterEqual(flat2[19], flat1[19])
+
+    def test_visibility_fogged_not_counted_as_visible(self):
+        """visible_frac uses == 2; fogged tiles (value 1) must not be counted."""
+        mmap = np.zeros((11, 64, 64), dtype=np.int32)
+        # Mark top-left quadrant as fogged (1) and bottom-right as visible (2).
+        mmap[1, :32, :32] = 1   # fogged — explored but not currently visible
+        mmap[1, 32:, 32:] = 2   # fully visible
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_minimap": mmap,
+            "score_cumulative": np.array([0]),
+            "game_loop": np.array([0]),
+        }
+        flat, _ = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
+        # visible_frac should only count the 32×32 visible quadrant.
+        expected_visible = (32 * 32) / (64 * 64)
+        self.assertAlmostEqual(float(flat[18]), expected_visible, places=5)
+        # explored_frac counts both fogged (1) and visible (2).
+        expected_explored = (32 * 32 + 32 * 32) / (64 * 64)
+        self.assertAlmostEqual(float(flat[19]), expected_explored, places=5)
+
+    def test_ladder_terminal_outcome_set(self):
+        """For ladder maps, player_outcome is set from timestep.reward on last step."""
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_minimap": np.zeros((11, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+            "game_loop": np.array([0]),
+        }
+        # Simulate a win (reward=1) on the terminal step.
+        ts = _FakeTimeStep(ob, reward=1.0, last=True)
+        _, info = self.client._timestep_to_obs_info(ts)
+        self.assertEqual(info["player_outcome"], 1.0)
+        self.assertTrue(info["is_last"])
+
+    def test_ladder_non_terminal_outcome_is_none(self):
+        """player_outcome is None on non-terminal ladder steps."""
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_minimap": np.zeros((11, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+            "game_loop": np.array([0]),
+        }
+        ts = _FakeTimeStep(ob, reward=0.0, last=False)
+        _, info = self.client._timestep_to_obs_info(ts)
+        self.assertIsNone(info["player_outcome"])
 
 
 if __name__ == "__main__":

@@ -87,6 +87,7 @@ class SC2Env(BaseGameEnv):
         self._is_ladder = map_name not in MINIGAME_NAMES
         self._reward_config = reward_config or SC2RewardConfig()
         self._max_episode_time_s = max_episode_time_s
+        self._step_mul = step_mul
         self._reward_calc = SC2RewardCalculator(self._reward_config)
 
         spec = get_spec(map_name)
@@ -168,6 +169,7 @@ class SC2Env(BaseGameEnv):
             finished=finished,
             elapsed_s=self._elapsed_s,
             info=info,
+            n_ticks=self._step_mul,
         )
 
         terminated = finished

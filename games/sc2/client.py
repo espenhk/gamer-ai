@@ -74,6 +74,7 @@ class SC2Client:
         )
         self._cumulative_score: float = 0.0
         self._explored_mask: np.ndarray | None = None
+        self._available_actions: set[int] | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -86,6 +87,7 @@ class SC2Client:
         timesteps = self._sc2_env.reset()
         self._cumulative_score = 0.0
         self._explored_mask = None
+        self._available_actions = None
         return self._timestep_to_obs_info(timesteps[0])
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict]:
@@ -171,12 +173,22 @@ class SC2Client:
         Falls back to ``no_op`` if the requested function is not currently
         available (PySC2 enforces preconditions like "have units selected").
         """
-        try:
-            from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
-        except ImportError:
-            raise
+        from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
         fn_call = action_to_function_call(action, self._screen_size)
+
+        if (
+            self._available_actions is not None
+            and int(fn_call.function) not in self._available_actions
+        ):
+            logger.debug(
+                "Function %d not in available_actions; substituting no_op.",
+                int(fn_call.function),
+            )
+            return pysc2_actions.FunctionCall(
+                int(pysc2_actions.FUNCTIONS.no_op.id), []
+            )
+
         return fn_call
 
     # ------------------------------------------------------------------
@@ -255,7 +267,7 @@ class SC2Client:
                 mm_self_count = float((player_relative_mm == 1).sum())
                 mm_enemy_count = float((player_relative_mm == 4).sum())
             if visible_mm is not None:
-                visible_frac = float((visible_mm > 0).sum()) / max(visible_mm.size, 1)
+                visible_frac = float((visible_mm == 2).sum()) / max(visible_mm.size, 1)
                 if self._explored_mask is None:
                     self._explored_mask = (visible_mm > 0).astype(bool)
                 else:
@@ -281,6 +293,21 @@ class SC2Client:
             cumulative = prev_score + float(getattr(timestep, "reward", 0.0) or 0.0)
         self._cumulative_score = cumulative
 
+        # Track available actions for precondition checking in _action_to_call.
+        avail_arr = self._safe_array(ob, "available_actions")
+        if avail_arr is not None:
+            self._available_actions = set(avail_arr.tolist())
+
+        # player_outcome is only meaningful for ladder maps where PySC2 emits
+        # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
+        # score delta, not a win/loss signal, so we leave it as None.
+        if timestep.last() and self._is_ladder:
+            player_outcome: float | None = float(
+                getattr(timestep, "reward", 0.0) or 0.0
+            )
+        else:
+            player_outcome = None
+
         info = {
             "score": cumulative,
             "prev_score": prev_score,
@@ -291,8 +318,7 @@ class SC2Client:
             "food_used": food_used,
             "food_cap": food_cap,
             "army_count": army_count,
-            "player_outcome": float(getattr(timestep, "reward", 0.0) or 0.0)
-                              if timestep.last() else None,
+            "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
         }
         return flat, info

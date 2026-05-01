@@ -98,11 +98,12 @@ class TestSC2EnvStepLogic(unittest.TestCase):
 
     def test_score_delta_reward(self):
         """With default reward config (score_weight=1.0), a +1 score delta
-        should produce a reward close to +1 (minus tiny step_penalty)."""
+        should produce a reward close to +1 minus step_penalty scaled by
+        step_mul (default 8)."""
         self.env.reset()
         _, reward, _, _, _ = self.env.step(np.zeros(4, dtype=np.float32))
-        # score went 0 -> 1, default step_penalty -0.001 → reward ≈ 0.999.
-        self.assertAlmostEqual(reward, 1.0 - 0.001, places=5)
+        # score went 0 -> 1, default step_penalty -0.001 × 8 ticks → reward ≈ 0.992.
+        self.assertAlmostEqual(reward, 1.0 - 0.001 * 8, places=5)
 
     def test_done_terminates(self):
         """When the client signals done, terminated should be True."""

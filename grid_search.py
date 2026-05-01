@@ -85,6 +85,8 @@ _ABBREV = {
     "elite_k": "ek",
     # cmaes policy params
     "initial_sigma": "sigma",
+    # shared genetic/cmaes policy params
+    "eval_episodes": "evep",
     # epsilon-greedy params
     "epsilon": "eps",
     "epsilon_decay": "ed",
@@ -131,6 +133,7 @@ _POLICY_PARAM_MAP = {
     "population_size": "population_size",  # genetic / cmaes
     "elite_k": "elite_k",  # genetic
     "initial_sigma": "initial_sigma",  # cmaes
+    "eval_episodes": "eval_episodes",  # genetic / cmaes
 }
 
 
@@ -287,6 +290,7 @@ def _build_tmnf_extras(
             population_size=policy_params.get("population_size", 20),
             initial_sigma=policy_params.get("initial_sigma", 0.3),
             n_lidar_rays=n_lidar_rays,
+            eval_episodes=policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:

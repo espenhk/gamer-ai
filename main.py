@@ -182,10 +182,11 @@ def main() -> None:
     data = train_rl(
         experiment_name     = args.experiment,
         make_env_fn         = lambda: make_env(
-            experiment_dir    = experiment_dir,
-            speed             = p["speed"],
-            in_game_episode_s = p["in_game_episode_s"],
-            n_lidar_rays      = n_lidar_rays,
+            experiment_dir      = experiment_dir,
+            speed               = p["speed"],
+            in_game_episode_s   = p["in_game_episode_s"],
+            n_lidar_rays        = n_lidar_rays,
+            action_window_ticks = p.get("action_window_ticks", 1),
         ),
         obs_spec            = obs_spec,
         head_names          = ["steer", "accel", "brake"],

@@ -99,6 +99,7 @@ class TMNFEnv(BaseGameEnv):
         max_episode_time_s: float = 120.0,
         n_lidar_rays: int = 0,
         auto_respawn_on_finish: bool = True,
+        action_window_ticks: int = 1,
     ) -> None:
         super().__init__()
 
@@ -146,7 +147,8 @@ class TMNFEnv(BaseGameEnv):
 
         # Set up TMInterface
         self._client = RLClient(centerline_file, speed=speed,
-                                auto_respawn_on_finish=auto_respawn_on_finish)
+                                auto_respawn_on_finish=auto_respawn_on_finish,
+                                action_window_ticks=action_window_ticks)
         self._iface = TMInterface()
 
         # The keepalive thread owns register() so the message-pump is already
@@ -395,6 +397,7 @@ def make_env(
     speed: float = 10.0,
     in_game_episode_s: float = 20.0,
     n_lidar_rays: int = 0,
+    action_window_ticks: int = 1,
 ) -> TMNFEnv:
     """
     Factory that wires up a TMNFEnv from an experiment directory.
@@ -412,4 +415,5 @@ def make_env(
         reward_config=reward_config,
         max_episode_time_s=in_game_episode_s / speed,
         n_lidar_rays=n_lidar_rays,
+        action_window_ticks=action_window_ticks,
     )

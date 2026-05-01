@@ -109,11 +109,13 @@ class RLClient(PhaseAwareClient):
         centerline_file: str,
         speed: float = 10.0,
         auto_respawn_on_finish: bool = False,
+        action_window_ticks: int = 1,
     ) -> None:
         super().__init__()
         self.speed = speed
         self.centerline = Centerline(centerline_file)
         self._auto_respawn_on_finish = auto_respawn_on_finish
+        self._action_window_ticks = max(1, int(action_window_ticks))
 
         # Shared state — written by RL thread, read by game thread
         # shape (3,): [steer ∈ [-1,1], accel ∈ {0,1}, brake ∈ {0,1}]
@@ -139,6 +141,10 @@ class RLClient(PhaseAwareClient):
         self._simulation_finish_delivered: bool = False
         # Debug: tick counter for periodic logging
         self._tick: int = 0
+        # Tracks ticks elapsed within the current action window.
+        # A state is emitted to the RL thread only when this reaches
+        # _action_window_ticks, then it resets to 0.
+        self._window_tick: int = 0
         # Cached nearest centerline index from the previous tick.  Passed as
         # hint_idx to project_with_forward() so it only searches a local window
         # (O(window)) instead of the full centerline (O(N)) every tick.
@@ -265,6 +271,7 @@ class RLClient(PhaseAwareClient):
             if speed_ms < VELOCITY_ZERO_THRESHOLD:
                 logger.debug("[RLClient] on_run_step t=%d: BRAKING_START → RUNNING (episode ready)", _time)
                 self._running = True
+                self._window_tick = 0
                 step_state = StepState(
                     state_data=data,
                     yaw_error=self._compute_yaw_error(data),
@@ -304,6 +311,21 @@ class RLClient(PhaseAwareClient):
                 and abs(data.lateral_offset) > _HARD_CRASH_THRESHOLD_M
             )
 
+            # Action windowing: only emit a state to the RL thread every
+            # _action_window_ticks game ticks.  The same action is held
+            # for the entire window, simulating human reaction time.
+            # Always emit immediately on done/finished so the episode ends
+            # without delay.
+            self._window_tick += 1
+            window_complete = self._window_tick >= self._action_window_ticks
+            episode_ending = finished or hard_crash
+
+            if not window_complete and not episode_ending:
+                return
+
+            ticks_elapsed = self._window_tick
+            self._window_tick = 0
+
             if finished:
                 logger.info(
                     "[RLClient] on_run_step t=%d: FINISH DETECTED progress=%.4f >= %.2f "
@@ -326,6 +348,7 @@ class RLClient(PhaseAwareClient):
                 yaw_error=self._compute_yaw_error(data),
                 done=done,
                 finished=finished,
+                ticks_this_step=ticks_elapsed,
             )
             self._drain_and_put(step_state)
 

@@ -44,11 +44,11 @@ def _make_state_data(track_progress=0.5, lateral_offset=0.0, speed=10.0):
     )
 
 
-def _make_client():
+def _make_client(action_window_ticks=1):
     """Instantiate RLClient with a mocked Centerline (no file I/O)."""
     with patch("games.tmnf.clients.rl_client.Centerline", return_value=MagicMock()):
-        return RLClient(centerline_file="fake.npy", speed=1.0)
-
+        return RLClient(centerline_file="fake.npy", speed=1.0,
+                        action_window_ticks=action_window_ticks)
 
 class TestSetInputStateCalled(unittest.TestCase):
     """Verify set_input_state is called on every normal running tick."""
@@ -143,6 +143,90 @@ class TestDefaultAction(unittest.TestCase):
     def test_coast_straight(self):
         """Default action should be coast straight: [steer=0, accel=0, brake=0]."""
         np.testing.assert_array_equal(_DEFAULT_ACTION, [0.0, 0.0, 0.0])
+
+
+class TestActionWindow(unittest.TestCase):
+    """Verify action windowing emits states only every N ticks."""
+
+    def setUp(self):
+        self.client = _make_client(action_window_ticks=5)
+        self.client._running = True
+        self.client._finish_respawn_pending = False
+        self.state_data = _make_state_data()
+
+    def _iface(self):
+        iface = MagicMock()
+        iface.get_simulation_state.return_value = MagicMock()
+        return iface
+
+    def _run_step(self, iface, time_ms=1000):
+        """Execute one on_run_step with the default action."""
+        self.client.set_action(np.array([0.0, 1.0, 0.0], dtype=np.float32))
+        with patch("games.tmnf.clients.rl_client.StateData", return_value=self.state_data), \
+             patch.object(self.client, "_compute_yaw_error", return_value=0.0):
+            self.client.on_run_step(iface, time_ms)
+
+    def test_no_state_emitted_before_window_complete(self):
+        """State queue should stay empty for first N-1 ticks."""
+        iface = self._iface()
+        for i in range(4):
+            self._run_step(iface, time_ms=i * 10)
+        self.assertTrue(self.client._state_queue.empty())
+
+    def test_state_emitted_on_window_complete(self):
+        """State should be emitted on the Nth tick (window complete)."""
+        iface = self._iface()
+        for i in range(5):
+            self._run_step(iface, time_ms=i * 10)
+        self.assertFalse(self.client._state_queue.empty())
+
+    def test_ticks_this_step_reflects_window_size(self):
+        """ticks_this_step in emitted state should equal action_window_ticks."""
+        iface = self._iface()
+        for i in range(5):
+            self._run_step(iface, time_ms=i * 10)
+        step_state = self.client._state_queue.get_nowait()
+        self.assertEqual(step_state.ticks_this_step, 5)
+
+    def test_action_applied_every_tick(self):
+        """set_input_state must be called every tick even within a window."""
+        iface = self._iface()
+        for i in range(5):
+            self._run_step(iface, time_ms=i * 10)
+        self.assertEqual(iface.set_input_state.call_count, 5)
+
+    def test_done_emits_immediately(self):
+        """When a hard crash is detected mid-window, state should emit immediately."""
+        client = _make_client(action_window_ticks=10)
+        client._running = True
+        client._finish_respawn_pending = False
+        # Simulate a hard crash state (lateral offset > 50m)
+        crash_state = _make_state_data(lateral_offset=60.0)
+
+        iface = self._iface()
+        client.set_action(np.array([0.0, 1.0, 0.0], dtype=np.float32))
+        with patch("games.tmnf.clients.rl_client.StateData", return_value=crash_state), \
+             patch.object(client, "_compute_yaw_error", return_value=0.0):
+            client.on_run_step(iface, 0)
+        # Should emit immediately even though window_tick=1 < 10
+        self.assertFalse(client._state_queue.empty())
+        step_state = client._state_queue.get_nowait()
+        self.assertTrue(step_state.done)
+        self.assertEqual(step_state.ticks_this_step, 1)
+
+    def test_window_default_is_one(self):
+        """Default action_window_ticks=1 means state emitted every tick."""
+        client = _make_client(action_window_ticks=1)
+        client._running = True
+        client._finish_respawn_pending = False
+        state_data = _make_state_data()
+
+        iface = self._iface()
+        client.set_action(np.array([0.0, 1.0, 0.0], dtype=np.float32))
+        with patch("games.tmnf.clients.rl_client.StateData", return_value=state_data), \
+             patch.object(client, "_compute_yaw_error", return_value=0.0):
+            client.on_run_step(iface, 0)
+        self.assertFalse(client._state_queue.empty())
 
 
 if __name__ == "__main__":

@@ -591,7 +591,7 @@ def _run_sc2(args: argparse.Namespace) -> None:
     policy_params = p.get("policy_params") or {}
 
     # ---- SC2-specific extra policy types --------------------------------
-    from games.sc2.sc2_policies import SC2GeneticPolicy, SC2MultiHeadLinearPolicy
+    from games.sc2.sc2_policies import SC2GeneticPolicy
 
     def _make_sc2_genetic():
         pop_size = policy_params.get("population_size", 30)

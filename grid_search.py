@@ -77,7 +77,9 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
-    # neural_net / reinforce / neural_dqn policy params
+    "decision_offset_pct": "dec",
+    "action_window_ticks": "awt",
+    # neural_net policy params
     "hidden_sizes": "hs",
     "hidden_size": "hsize",
     "learning_rate": "lr",
@@ -92,6 +94,8 @@ _ABBREV = {
     "elite_k": "ek",
     # cmaes policy params
     "initial_sigma": "sigma",
+    # shared genetic/cmaes policy params
+    "eval_episodes": "evep",
     # epsilon-greedy params
     "epsilon": "eps",
     "epsilon_decay": "ed",
@@ -144,7 +148,8 @@ _POLICY_PARAM_MAP = {
     "mcts_c": "c",  # mcts (renamed)
     "population_size": "population_size",  # genetic / cmaes / lstm
     "elite_k": "elite_k",  # genetic
-    "initial_sigma": "initial_sigma",  # cmaes / lstm
+    "initial_sigma": "initial_sigma",  # cmaes
+    "eval_episodes": "eval_episodes",  # genetic / cmaes
 }
 
 
@@ -301,6 +306,7 @@ def _build_tmnf_extras(
             population_size=policy_params.get("population_size", 20),
             initial_sigma=policy_params.get("initial_sigma", 0.3),
             n_lidar_rays=n_lidar_rays,
+            eval_episodes=policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:
@@ -435,11 +441,12 @@ def _run_local(
             experiment_name=name,
             make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t[
                 "in_game_episode_s"
-            ], _lr=n_lidar_rays: make_env(
+            ], _lr=n_lidar_rays, _aw=t.get("action_window_ticks", 1): make_env(
                 experiment_dir=_dir,
                 speed=_sp,
                 in_game_episode_s=_ep,
                 n_lidar_rays=_lr,
+                action_window_ticks=_aw,
             ),
             obs_spec=obs_spec,
             head_names=["steer", "accel", "brake"],

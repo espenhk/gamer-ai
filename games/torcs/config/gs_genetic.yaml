@@ -1,0 +1,40 @@
+# Grid search: GeneticPolicy on TORCS
+#
+# Primary axes:
+#   population_size — individuals evaluated per generation.
+#                     Total episodes = n_sims * population_size.
+#   mutation_scale  — Gaussian noise applied when breeding offspring.
+#                     Too small → offspring cluster near parents (slow spread);
+#                     too large → offspring are effectively random (no heredity).
+#
+# elite_k=3 fixed: keeps the top 3 survivors regardless of population size.
+#
+# Combos: 2 x 3 = 6
+
+base_name: "gs_torcs_genetic_v1"
+game: torcs
+
+training_params:
+  speed: 1.0
+  n_sims: 30
+  in_game_episode_s: 120.0
+  n_lidar_rays: 0
+  policy_type: genetic
+
+  # --- Search axes ---
+  population_size: [10, 20]
+  mutation_scale: [0.01, 0.05, 0.1]
+  mutation_share: 1.0
+  elite_k: 3
+
+reward_params:
+  progress_weight: 10.0
+  centerline_weight: -0.5
+  centerline_exp: 2.0
+  speed_weight: 0.05
+  step_penalty: -0.01
+  finish_bonus: 100.0
+  finish_time_weight: -0.1
+  par_time_s: 120.0
+  accel_bonus: 0.5
+  crash_threshold_m: 8.0

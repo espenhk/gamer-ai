@@ -74,7 +74,7 @@ Three independent linear heads (steer, accel, brake), each `dot(weights, normali
 
 ### GeneticPolicy
 
-Maintains population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (1 episode each), keep top `elite_k` unchanged, breed rest via uniform crossover between two random elites + mutation. Best individual ever seen = champion, saved to YAML for inference.
+Maintains population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (`eval_episodes` episodes each, averaged), keep top `elite_k` unchanged, breed rest via uniform crossover between two random elites + mutation. Best individual ever seen = champion, saved to YAML for inference.
 
 ### CMAESPolicy
 
@@ -82,7 +82,7 @@ Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | acce
 
 **Training loop** (called from `_greedy_loop_cmaes`):
 1. `sample_population()` — draws λ offspring from `N(mean, σ²·C)` using cached eigen-factorization `C = B D² Bᵀ`
-2. Evaluate each offspring one episode → reward vector
+2. Evaluate each offspring for `eval_episodes` episodes → average reward → reward vector
 3. `update_distribution(rewards)` — weighted mean recombination (top μ = λ//2 elites), cumulative step-size adaptation (CSA) for σ, rank-1 + rank-μ covariance update
 
 **Key properties**: `population_size` (λ), `sigma` (current σ), `champion_reward`.
@@ -93,8 +93,11 @@ Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | acce
 |---|---|---|
 | `population_size` | `20` | λ — offspring sampled per generation |
 | `initial_sigma` | `0.3` | Starting step size (adapts via CSA each generation) |
+| `eval_episodes` | `1` | Episodes per individual per generation (averaged for fitness) |
 
-`n_sims` controls generations; total episodes = `n_sims × population_size`. No `mutation_scale` tuning needed — σ adapts automatically.
+`n_sims` controls generations; total episodes = `n_sims × population_size × eval_episodes`. No `mutation_scale` tuning needed — σ adapts automatically.
+
+> **Budget note**: `eval_episodes > 1` multiplies total episode count by that factor. For `GeneticPolicy` the same formula applies: `n_sims × population_size × eval_episodes`. Keep `eval_episodes: 1` in grid-search templates to preserve comparability with existing runs unless you are explicitly studying variance reduction vs episode budget.
 
 `save()` writes champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, inference work unchanged.
 

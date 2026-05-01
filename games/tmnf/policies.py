@@ -266,6 +266,7 @@ class GeneticPolicy(_FrameworkGP):
         mutation_scale: float = 0.1,
         mutation_share: float = 1.0,
         n_lidar_rays: int = 0,
+        eval_episodes: int = 1,
     ) -> None:
         self._n_lidar_rays = n_lidar_rays
         super().__init__(
@@ -275,6 +276,7 @@ class GeneticPolicy(_FrameworkGP):
             elite_k         = elite_k,
             mutation_scale  = mutation_scale,
             mutation_share  = mutation_share,
+            eval_episodes   = eval_episodes,
         )
 
     def _make_member(self, cfg: dict) -> WeightedLinearPolicy:
@@ -288,6 +290,7 @@ class GeneticPolicy(_FrameworkGP):
             mutation_scale  = cfg.get("mutation_scale", 0.1),
             mutation_share  = cfg.get("mutation_share", 1.0),
             n_lidar_rays    = n_lidar_rays,
+            eval_episodes   = cfg.get("eval_episodes", 1),
         )
         champion_w = cfg.get("champion_weights")
         if champion_w:
@@ -590,9 +593,11 @@ class CMAESPolicy(BasePolicy):
         initial_sigma: float = 0.3,
         n_lidar_rays: int = 0,
         seed: int | None = None,
+        eval_episodes: int = 1,
     ) -> None:
         self._lam          = population_size
         self._n_lidar_rays = n_lidar_rays
+        self._eval_episodes = max(1, int(eval_episodes))
         n                  = (BASE_OBS_DIM + n_lidar_rays) * 3   # steer + accel + brake heads
         self._n            = n
 
@@ -787,6 +792,7 @@ class CMAESPolicy(BasePolicy):
             "population_size": self._lam,
             "sigma":           self._sigma,
             "n_lidar_rays":    self._n_lidar_rays,
+            "eval_episodes":   self._eval_episodes,
             "champion_reward": float(self._champion_reward),
         }
 

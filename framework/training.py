@@ -146,6 +146,7 @@ def _make_policy(
                              policy_params.get("_mutation_scale_fallback", 0.1)),
             mutation_share = policy_params.get("mutation_share",
                              policy_params.get("_mutation_share_fallback", 1.0)),
+            eval_episodes  = policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
             champion = WeightedLinearPolicy(obs_spec, head_names, weights_file)
@@ -614,8 +615,9 @@ def _greedy_loop_cmaes(
     warmup_steps: int = 0,
     patience: int = 0,
 ) -> tuple[Any, float, list[GreedySimResult], bool, int | None]:
-    """CMA-ES loop: sample λ offspring, evaluate each for one episode, update distribution."""
+    """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution."""
     pop_size          = policy.population_size
+    eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
@@ -623,8 +625,12 @@ def _greedy_loop_cmaes(
     early_stopped     = False
     early_stop_sim    = None
 
-    logger.info("[CMA-ES] population_size=%d, total episodes = %d × %d = %d",
-                pop_size, n_generations, pop_size, n_generations * pop_size)
+    logger.info(
+        "[CMA-ES] population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        pop_size, eval_episodes,
+        n_generations, pop_size, eval_episodes,
+        n_generations * pop_size * eval_episodes,
+    )
 
     try:
         for gen in range(1, n_generations + 1):
@@ -639,13 +645,16 @@ def _greedy_loop_cmaes(
             trace        = None
 
             for individual in offspring:
-                obs, _ = env.reset()
-                reward, info, _, steps, trace = _run_episode(
-                    env, individual, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
-                )
-                rewards.append(reward)
-                total_steps += steps
+                ep_rewards: list[float] = []
+                for _ in range(eval_episodes):
+                    obs, _ = env.reset()
+                    reward, info, _, steps, trace = _run_episode(
+                        env, individual, obs,
+                        warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    )
+                    ep_rewards.append(reward)
+                    total_steps += steps
+                rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.update_distribution(rewards)
             gen_best = max(rewards)
@@ -762,6 +771,7 @@ def _greedy_loop_genetic(
 ) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
     """Genetic algorithm loop: N_pop episodes per generation."""
     pop_size          = len(policy.population)
+    eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
@@ -769,8 +779,12 @@ def _greedy_loop_genetic(
     early_stopped     = False
     early_stop_sim    = None
 
-    logger.info("[Genetic] population_size=%d, total episodes = %d × %d = %d",
-                pop_size, n_generations, pop_size, n_generations * pop_size)
+    logger.info(
+        "[Genetic] population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        pop_size, eval_episodes,
+        n_generations, pop_size, eval_episodes,
+        n_generations * pop_size * eval_episodes,
+    )
     if full_episode_time_s is None:
         logger.info("[Genetic] environment has no adjustable episode time limit; "
                     "skipping per-generation time scaling.")
@@ -787,13 +801,16 @@ def _greedy_loop_genetic(
             info: dict   = {}
 
             for idx, individual in enumerate(policy.population):
-                obs, _ = env.reset()
-                reward, info, _, steps, trace = _run_episode(
-                    env, individual, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
-                )
-                rewards.append(reward)
-                total_steps += steps
+                ep_rewards: list[float] = []
+                for _ in range(eval_episodes):
+                    obs, _ = env.reset()
+                    reward, info, _, steps, trace = _run_episode(
+                        env, individual, obs,
+                        warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    )
+                    ep_rewards.append(reward)
+                    total_steps += steps
+                rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.evaluate_and_evolve(rewards)
             gen_best = max(rewards)

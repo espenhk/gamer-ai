@@ -540,6 +540,9 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(sections)
 
+    # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
+    plt.close('all')
+
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)
 

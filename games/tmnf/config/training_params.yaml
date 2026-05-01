@@ -15,13 +15,16 @@ patience: 0              # stop greedy loop if no improvement for this many sims
 # Counted in game ticks, independent of `speed`.
 #
 # action_window_ticks: 1 = legacy (commit and emit StepState every tick).
-# When > 1, the window has two phases:
-#   * Observation phase (tick 0 .. floor(window * decision_offset_pct) - 1):
+# When > 1, the window has two phases. The split point is computed as
+# floor(window * decision_offset_pct) and then clamped to [1, window - 1],
+# so there is always at least one observation tick and one transit tick.
+#   * Observation phase (tick 0 .. decision_idx - 1):
 #     game thread emits a StepState every tick; RL thread iteratively refines
 #     the pending action with each new observation.
 #   * Transit phase (remaining ticks): pending action is locked, no StepStates.
 #     Provides deterministic compute slack so the RL thread is not racing the
-#     next commit boundary. Mimics human reaction delay.
+#     next commit boundary. Even decision_offset_pct: 1.0 still leaves one
+#     transit tick because of the clamp. Mimics human reaction delay.
 # At each window boundary the pending action is committed via set_input_state.
 #
 # Notes:

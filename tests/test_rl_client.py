@@ -44,11 +44,11 @@ def _make_state_data(track_progress=0.5, lateral_offset=0.0, speed=10.0):
     )
 
 
-def _make_client():
+def _make_client(action_window_ticks=1):
     """Instantiate RLClient with a mocked Centerline (no file I/O)."""
     with patch("games.tmnf.clients.rl_client.Centerline", return_value=MagicMock()):
-        return RLClient(centerline_file="fake.npy", speed=1.0)
-
+        return RLClient(centerline_file="fake.npy", speed=1.0,
+                        action_window_ticks=action_window_ticks)
 
 class TestSetInputStateCalled(unittest.TestCase):
     """Verify set_input_state is called on every normal running tick."""

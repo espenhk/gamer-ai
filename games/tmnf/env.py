@@ -65,6 +65,8 @@ from framework.base_env import BaseGameEnv
 from games.tmnf.clients.rl_client import RLClient, StepState
 from games.tmnf.obs_spec import BASE_OBS_DIM
 from games.tmnf.reward import RewardConfig, RewardCalculator
+from games.tmnf.curiosity import make_curiosity
+from games.tmnf.lidar import LidarSensor
 
 
 _DEFAULT_REWARD_CONFIG = os.path.join(os.path.dirname(__file__), "..", "..", "config", "reward_config.yaml")
@@ -103,7 +105,6 @@ class TMNFEnv(BaseGameEnv):
         super().__init__()
 
         self._reward_config = reward_config or RewardConfig.from_yaml(_DEFAULT_REWARD_CONFIG)
-        self._reward_calc = RewardCalculator(self._reward_config)
         self._max_episode_time_s = max_episode_time_s
         self._auto_respawn_on_finish = auto_respawn_on_finish
         self._action_window_ticks = action_window_ticks
@@ -116,6 +117,20 @@ class TMNFEnv(BaseGameEnv):
             self._lidar = None
 
         obs_dim = BASE_OBS_DIM + n_lidar_rays
+
+        # Optional curiosity module (issue #24).  Disabled by default.
+        cfg = self._reward_config
+        curiosity = make_curiosity(
+            cfg.curiosity_type,
+            obs_dim     = obs_dim,
+            action_dim  = 3,  # [steer, accel, brake]
+            feature_dim = cfg.curiosity_feature_dim,
+            hidden_size = cfg.curiosity_hidden_size,
+            lr          = cfg.curiosity_lr,
+            beta        = cfg.curiosity_beta,
+            seed        = cfg.curiosity_seed,
+        ) if cfg.curiosity_weight != 0.0 else None
+        self._reward_calc = RewardCalculator(self._reward_config, curiosity=curiosity)
         # Observation: unbounded (SB3's VecNormalize can normalise online)
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -155,6 +170,7 @@ class TMNFEnv(BaseGameEnv):
 
         # Episode tracking
         self._prev_state = None
+        self._prev_obs: np.ndarray | None = None
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._laps_completed: int = 0
@@ -191,6 +207,8 @@ class TMNFEnv(BaseGameEnv):
         self._ep_max_overrun_ticks = 0
 
         obs = self._build_obs(init_step)
+        self._prev_obs = obs
+        self._reward_calc.reset()
         return obs, {}
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
@@ -217,12 +235,23 @@ class TMNFEnv(BaseGameEnv):
         accelerating = bool(float(action[1]) >= 0.5)
         lidar_rays   = self._lidar.get_distances() if self._lidar is not None else None
 
+        # Build the next obs first so the curiosity module sees (s, a, s').
+        # Pass the already-sampled lidar_rays so the LIDAR is captured only once
+        # per step (avoids a second screenshot and ensures reward + obs agree).
+        curr_obs = self._build_obs(step, lidar_rays=lidar_rays)
+
         reward = self._reward_calc.compute(
             prev_state = self._prev_state,
             curr_state = data,
             finished   = finished,
             elapsed_s  = self._elapsed_s,
-            info       = {"accelerating": accelerating, "lidar_rays": lidar_rays},
+            info       = {
+                "accelerating": accelerating,
+                "lidar_rays":   lidar_rays,
+                "prev_obs":     self._prev_obs,
+                "curr_obs":     curr_obs,
+                "action":       action,
+            },
             n_ticks    = step.ticks_this_step,
         )
 
@@ -240,6 +269,7 @@ class TMNFEnv(BaseGameEnv):
             init_step = self._client.wait_episode_ready()
             self._prev_state = init_step.state_data
             obs = self._build_obs(init_step)
+            self._prev_obs = obs
             info = {
                 "track_progress": 0.0,
                 "lateral_offset": 0.0,
@@ -279,7 +309,8 @@ class TMNFEnv(BaseGameEnv):
             self._log_skip_stats()
 
         self._prev_state = data
-        obs = self._build_obs(step)
+        obs = curr_obs
+        self._prev_obs = obs
         info = {
             "track_progress": data.track_progress or 0.0,
             "lateral_offset": data.lateral_offset or 0.0,
@@ -331,7 +362,11 @@ class TMNFEnv(BaseGameEnv):
             self._action_window_ticks,
         )
 
-    def _build_obs(self, step: StepState) -> np.ndarray:  # type: ignore[override]
+    def _build_obs(
+        self,
+        step: StepState,
+        lidar_rays: np.ndarray | None = None,
+    ) -> np.ndarray:  # type: ignore[override]
         d = step.state_data
         # [15-20] interleaved lookahead: lat10, yaw10, lat25, yaw25, lat50, yaw50
         lookahead_vals = [v for lat, yaw in d.lookahead for v in (lat, yaw)]
@@ -357,7 +392,8 @@ class TMNFEnv(BaseGameEnv):
             dtype=np.float32,
         )
         if self._lidar is not None:
-            state = np.concatenate([state, self._lidar.get_distances()])
+            rays = lidar_rays if lidar_rays is not None else self._lidar.get_distances()
+            state = np.concatenate([state, rays])
         return state
 
     def _run_iface_loop(self) -> None:

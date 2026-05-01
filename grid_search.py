@@ -41,7 +41,9 @@ from games.tmnf.analytics import save_experiment_results, save_grid_summary
 from framework.training import train_rl
 from games.tmnf.obs_spec import TMNF_OBS_SPEC
 from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-from games.tmnf.env import make_env
+# games.tmnf.env is imported lazily inside _run_combo() because it pulls in
+# tminterface (Windows-only, not on PyPI) which breaks pure-logic test imports
+# of this module on Linux CI.
 from games.tmnf.policies import (
     CMAESPolicy,
     LSTMEvolutionPolicy,
@@ -75,8 +77,8 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
-    "action_window_ticks": "win",
     "decision_offset_pct": "dec",
+    "action_window_ticks": "awt",
     # neural_net policy params
     "hidden_sizes": "hs",
     # genetic policy params
@@ -84,6 +86,8 @@ _ABBREV = {
     "elite_k": "ek",
     # cmaes policy params
     "initial_sigma": "sigma",
+    # shared genetic/cmaes policy params
+    "eval_episodes": "evep",
     # epsilon-greedy params
     "epsilon": "eps",
     "epsilon_decay": "ed",
@@ -106,6 +110,13 @@ _ABBREV = {
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
+    # curiosity params (issue #24)
+    "curiosity_type": "ck",
+    "curiosity_weight": "cwgt",
+    "curiosity_feature_dim": "cfd",
+    "curiosity_hidden_size": "chs",
+    "curiosity_lr": "clr",
+    "curiosity_beta": "cbeta",
 }
 
 # Top-level training_params keys that should be forwarded into policy_params.
@@ -123,6 +134,7 @@ _POLICY_PARAM_MAP = {
     "population_size": "population_size",  # genetic / cmaes
     "elite_k": "elite_k",  # genetic
     "initial_sigma": "initial_sigma",  # cmaes
+    "eval_episodes": "eval_episodes",  # genetic / cmaes
 }
 
 
@@ -279,6 +291,7 @@ def _build_tmnf_extras(
             population_size=policy_params.get("population_size", 20),
             initial_sigma=policy_params.get("initial_sigma", 0.3),
             n_lidar_rays=n_lidar_rays,
+            eval_episodes=policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:
@@ -385,6 +398,9 @@ def _run_local(
     re_initialize: bool,
 ) -> list[tuple[str, Any]]:
     """Run all combos sequentially on this machine. Returns list of (name, ExperimentData)."""
+    # Local import: pulls in tminterface; only needed when actually running
+    # training, not when grid_search is imported for unit tests.
+    from games.tmnf.env import make_env
 
     all_runs = []
     n = len(combos)
@@ -410,11 +426,12 @@ def _run_local(
             experiment_name=name,
             make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t[
                 "in_game_episode_s"
-            ], _lr=n_lidar_rays: make_env(
+            ], _lr=n_lidar_rays, _aw=t.get("action_window_ticks", 1): make_env(
                 experiment_dir=_dir,
                 speed=_sp,
                 in_game_episode_s=_ep,
                 n_lidar_rays=_lr,
+                action_window_ticks=_aw,
             ),
             obs_spec=obs_spec,
             head_names=["steer", "accel", "brake"],

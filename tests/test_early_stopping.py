@@ -93,6 +93,9 @@ class _StubQPolicy:
         with open(path, "w") as f:
             yaml.dump({}, f)
 
+    def save_trainer_state(self, path: str) -> None:
+        pass  # no-op for this test stub
+
     def to_cfg(self) -> dict:
         return {}
 

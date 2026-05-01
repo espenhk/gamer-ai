@@ -567,6 +567,106 @@ class NeuralDQNPolicy(BasePolicy):
             "target_biases":       [b.tolist() for b in self._target["biases"]],
         }
 
+    def save_trainer_state(self, path: str) -> None:
+        """Persist replay buffer and Adam optimizer moments to an .npz file."""
+        buf = list(self._replay._buf)
+        n   = len(buf)
+        if n > 0:
+            obs_arr  = np.stack([t[0] for t in buf]).astype(np.float32)
+            act_arr  = np.array([t[1] for t in buf], dtype=np.int32)
+            rew_arr  = np.array([t[2] for t in buf], dtype=np.float32)
+            next_arr = np.stack([t[3] for t in buf]).astype(np.float32)
+            done_arr = np.array([t[4] for t in buf], dtype=np.float32)
+        else:
+            obs_arr  = np.empty((0, self._obs_dim), dtype=np.float32)
+            act_arr  = np.empty(0, dtype=np.int32)
+            rew_arr  = np.empty(0, dtype=np.float32)
+            next_arr = np.empty((0, self._obs_dim), dtype=np.float32)
+            done_arr = np.empty(0, dtype=np.float32)
+
+        n_layers = len(self._m_w)
+        arrays: dict = dict(
+            replay_obs  = obs_arr,
+            replay_act  = act_arr,
+            replay_rew  = rew_arr,
+            replay_next = next_arr,
+            replay_done = done_arr,
+            total_steps = np.int64(self._total_steps),
+            grad_steps  = np.int64(self._grad_steps),
+            adam_t      = np.int64(self._adam_t),
+            epsilon     = np.float32(self._eps),
+            obs_dim     = np.int64(self._obs_dim),
+            n_layers    = np.int64(n_layers),
+        )
+        for i in range(n_layers):
+            arrays[f"m_w_{i}"] = self._m_w[i]
+            arrays[f"m_b_{i}"] = self._m_b[i]
+            arrays[f"v_w_{i}"] = self._v_w[i]
+            arrays[f"v_b_{i}"] = self._v_b[i]
+        np.savez(path, **arrays)
+        logger.debug("[NeuralDQNPolicy] trainer state saved → %s (buf=%d)", path, n)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore replay buffer and Adam optimizer moments from an .npz file.
+
+        Raises ValueError if obs_dim or layer count do not match the current
+        network architecture (e.g. n_lidar_rays or hidden_sizes changed).
+        """
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
+                raise ValueError(
+                    f"NeuralDQNPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            n_layers = int(data["n_layers"])
+            if n_layers != len(self._m_w):
+                raise ValueError(
+                    f"NeuralDQNPolicy: trainer state n_layers mismatch — "
+                    f"saved={n_layers}, current={len(self._m_w)}. "
+                    f"The network architecture (hidden_sizes) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            for i in range(n_layers):
+                mw = data[f"m_w_{i}"]
+                if mw.shape != self._m_w[i].shape:
+                    raise ValueError(
+                        f"NeuralDQNPolicy: Adam moment m_w[{i}] shape mismatch — "
+                        f"saved={mw.shape}, current={self._m_w[i].shape}. "
+                        f"Use --re-initialize to restart from scratch."
+                    )
+
+            # Restore replay buffer
+            replay_obs  = data["replay_obs"]
+            replay_act  = data["replay_act"]
+            replay_rew  = data["replay_rew"]
+            replay_next = data["replay_next"]
+            replay_done = data["replay_done"]
+            self._replay = ReplayBuffer(self._buf_maxlen)
+            for i in range(len(replay_obs)):
+                self._replay.push(
+                    replay_obs[i], int(replay_act[i]), float(replay_rew[i]),
+                    replay_next[i], bool(replay_done[i]),
+                )
+
+            # Restore optimizer state
+            self._total_steps = int(data["total_steps"])
+            self._grad_steps  = int(data["grad_steps"])
+            self._adam_t      = int(data["adam_t"])
+            self._eps         = float(data["epsilon"])
+            for i in range(n_layers):
+                self._m_w[i] = data[f"m_w_{i}"]
+                self._m_b[i] = data[f"m_b_{i}"]
+                self._v_w[i] = data[f"v_w_{i}"]
+                self._v_b[i] = data[f"v_b_{i}"]
+        logger.info(
+            "[NeuralDQNPolicy] trainer state loaded from %s "
+            "(buf=%d, steps=%d, eps=%.4f)",
+            path, len(self._replay), self._total_steps, self._eps,
+        )
+
 
 # ---------------------------------------------------------------------------
 # CMAESPolicy
@@ -801,6 +901,50 @@ class CMAESPolicy(BasePolicy):
         if self._champion is not None:
             self._champion.save(path)
 
+    def save_trainer_state(self, path: str) -> None:
+        """Persist full CMA-ES distribution state to an .npz file."""
+        np.savez(
+            path,
+            mean      = self._mean,
+            sigma     = np.float64(self._sigma),
+            C         = self._C,
+            B         = self._B,
+            D         = self._D,
+            invsqrtC  = self._invsqrtC,
+            ps        = self._ps,
+            pc        = self._pc,
+            gen       = np.int64(self._gen),
+            n         = np.int64(self._n),
+        )
+        logger.debug("[CMAESPolicy] trainer state saved → %s", path)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore CMA-ES distribution state from an .npz file.
+
+        Raises ValueError if the saved dimension does not match the current
+        observation space (e.g. n_lidar_rays changed since the state was saved).
+        """
+        with np.load(path) as data:
+            n_saved = int(data["n"])
+            if n_saved != self._n:
+                raise ValueError(
+                    f"CMAESPolicy: trainer state dimension mismatch — "
+                    f"saved n={n_saved}, current n={self._n}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean     = data["mean"].astype(np.float64)
+            self._sigma    = float(data["sigma"])
+            self._C        = data["C"].astype(np.float64)
+            self._B        = data["B"].astype(np.float64)
+            self._D        = data["D"].astype(np.float64)
+            self._invsqrtC = data["invsqrtC"].astype(np.float64)
+            self._ps       = data["ps"].astype(np.float64)
+            self._pc       = data["pc"].astype(np.float64)
+            self._gen      = int(data["gen"])
+        logger.info("[CMAESPolicy] trainer state loaded from %s (gen=%d, sigma=%.4f)",
+                    path, self._gen, self._sigma)
+
 
 # ---------------------------------------------------------------------------
 # REINFORCEPolicy
@@ -991,6 +1135,33 @@ class REINFORCEPolicy(BasePolicy):
         if "baseline_value" in cfg:
             obj._baseline_val = float(cfg["baseline_value"])
         return obj
+
+    def save_trainer_state(self, path: str) -> None:
+        """Persist REINFORCE running-mean baseline and obs_dim to an .npz file."""
+        np.savez(
+            path,
+            baseline_val = np.float64(self._baseline_val),
+            obs_dim      = np.int64(self._obs_dim),
+        )
+        logger.debug("[REINFORCEPolicy] trainer state saved → %s", path)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore REINFORCE baseline from an .npz file.
+
+        Raises ValueError if the saved obs_dim does not match (e.g. n_lidar_rays changed).
+        """
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
+                raise ValueError(
+                    f"REINFORCEPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._baseline_val = float(data["baseline_val"])
+        logger.info("[REINFORCEPolicy] trainer state loaded from %s (baseline=%.4f)",
+                    path, self._baseline_val)
 
 
 # ---------------------------------------------------------------------------
@@ -1361,3 +1532,33 @@ class LSTMEvolutionPolicy(BasePolicy):
     def save(self, path: str) -> None:
         if self._champion is not None:
             self._champion.save(path)
+
+    def save_trainer_state(self, path: str) -> None:
+        """Persist isotropic ES distribution state (mean, sigma) to an .npz file."""
+        np.savez(
+            path,
+            mean     = self._mean,
+            sigma    = np.float64(self._sigma),
+            flat_dim = np.int64(self._flat_dim),
+        )
+        logger.debug("[LSTMEvolutionPolicy] trainer state saved → %s", path)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore ES distribution state from an .npz file.
+
+        Raises ValueError if the saved flat_dim does not match (e.g. hidden_size
+        or n_lidar_rays changed since the state was saved).
+        """
+        with np.load(path) as data:
+            saved_flat_dim = int(data["flat_dim"])
+            if saved_flat_dim != self._flat_dim:
+                raise ValueError(
+                    f"LSTMEvolutionPolicy: trainer state flat_dim mismatch — "
+                    f"saved={saved_flat_dim}, current={self._flat_dim}. "
+                    f"The network architecture (hidden_size or n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean  = data["mean"].astype(np.float64)
+            self._sigma = float(data["sigma"])
+        logger.info("[LSTMEvolutionPolicy] trainer state loaded from %s (sigma=%.4f)",
+                    path, self._sigma)

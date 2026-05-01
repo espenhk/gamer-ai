@@ -66,18 +66,40 @@ _FINISH_THRESHOLD = 0.95
 # ---------------------------------------------------------------------------
 # Discrete action table
 # Index → (accelerate, brake, steer_percent, description)
+# accelerate and brake are in [0, 1]; values ≥ 0.5 are treated as True in-game.
 # steer_percent is in [-100, 100]; converted to [-STEER_SCALE, STEER_SCALE] when applied.
 # ---------------------------------------------------------------------------
-ACTIONS: list[tuple[bool, bool, int, str]] = [
-    (False,  True,  -100, "brake LEFT"),         # 0: brake  + full left
-    (False,  True,     0, "brake"),              # 1: brake  + straight
-    (False,  True,   100, "brake RIGHT"),        # 2: brake  + full right
-    (False, False,  -100, "coast LEFT"),         # 3: coast  + full left
-    (False, False,     0, "coast"),              # 4: coast  + straight
-    (False, False,   100, "coast RIGHT"),        # 5: coast  + full right
-    (True,  False,  -100, "accelerate LEFT"),    # 6: accel  + full left
-    (True,  False,     0, "accelerate"),         # 7: accel  + straight   ← default
-    (True,  False,   100, "accelerate right"),   # 8: accel  + full right
+ACTIONS: list[tuple[float, float, int, str]] = [
+    # --- full brake (accel=0, brake=1) ---
+    (0., 1., -100, "full brake + full left"),       #  0
+    (0., 1.,  -50, "full brake + half left"),       #  1
+    (0., 1.,    0, "full brake + straight"),        #  2
+    (0., 1.,   50, "full brake + half right"),      #  3
+    (0., 1.,  100, "full brake + full right"),      #  4
+    # --- half brake (accel=0, brake=0.5) ---
+    (0., 0.5,-100, "half brake + full left"),       #  5
+    (0., 0.5, -50, "half brake + half left"),       #  6
+    (0., 0.5,   0, "half brake + straight"),        #  7
+    (0., 0.5,  50, "half brake + half right"),      #  8
+    (0., 0.5, 100, "half brake + full right"),      #  9
+    # --- coast (accel=0, brake=0) ---
+    (0., 0., -100, "coast + full left"),            # 10
+    (0., 0.,  -50, "coast + half left"),            # 11
+    (0., 0.,    0, "coast + straight"),             # 12
+    (0., 0.,   50, "coast + half right"),           # 13
+    (0., 0.,  100, "coast + full right"),           # 14
+    # --- half accel (accel=0.5, brake=0) ---
+    (0.5, 0., -100, "half accel + full left"),      # 15
+    (0.5, 0.,  -50, "half accel + half left"),      # 16
+    (0.5, 0.,    0, "half accel + straight"),       # 17
+    (0.5, 0.,   50, "half accel + half right"),     # 18
+    (0.5, 0.,  100, "half accel + full right"),     # 19
+    # --- full accel (accel=1, brake=0) ---
+    (1., 0., -100, "full accel + full left"),       # 20
+    (1., 0.,  -50, "full accel + half left"),       # 21
+    (1., 0.,    0, "full accel + straight"),        # 22
+    (1., 0.,   50, "full accel + half right"),      # 23
+    (1., 0.,  100, "full accel + full right"),      # 24
 ]
 assert len(ACTIONS) == N_ACTIONS, (
     f"ACTIONS has {len(ACTIONS)} entries but N_ACTIONS={N_ACTIONS}; "

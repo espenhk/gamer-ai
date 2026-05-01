@@ -38,12 +38,12 @@ class TestREINFORCEPolicyStructure(unittest.TestCase):
     def test_accel_binary(self):
         for _ in range(20):
             action = self.policy(_zero_obs())
-            self.assertIn(float(action[1]), (0.0, 1.0))
+            self.assertIn(float(action[1]), (0.0, 0.5, 1.0))
 
     def test_brake_binary(self):
         for _ in range(20):
             action = self.policy(_zero_obs())
-            self.assertIn(float(action[2]), (0.0, 1.0))
+            self.assertIn(float(action[2]), (0.0, 0.5, 1.0))
 
     def test_action_is_discrete(self):
         """Returned actions must come from DISCRETE_ACTIONS."""

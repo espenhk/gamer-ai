@@ -233,7 +233,7 @@ Defined in `obs_spec.py` — single source of truth for feature names, scales, d
 | 1 | accel | [0, 1] | Thresholded at 0.5 → bool |
 | 2 | brake | [0, 1] | Thresholded at 0.5 → bool; can fire simultaneously with accel |
 
-Policies using Discrete(9) abstraction ({brake, coast, accel} × {left, straight, right}) convert internally via `ACTIONS` in `clients/rl_client.py`.
+Policies using the Discrete(25) abstraction ({full brake, half brake, coast, half accel, full accel} × {full left, half left, straight, half right, full right}) convert internally via `ACTIONS` in `clients/rl_client.py`.
 
 ### Termination
 

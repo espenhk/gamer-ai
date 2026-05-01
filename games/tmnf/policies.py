@@ -1543,16 +1543,16 @@ class LSTMEvolutionPolicy(BasePolicy):
         Raises ValueError if the saved flat_dim does not match (e.g. hidden_size
         or n_lidar_rays changed since the state was saved).
         """
-        data = np.load(path)
-        saved_flat_dim = int(data["flat_dim"])
-        if saved_flat_dim != self._flat_dim:
-            raise ValueError(
-                f"LSTMEvolutionPolicy: trainer state flat_dim mismatch — "
-                f"saved={saved_flat_dim}, current={self._flat_dim}. "
-                f"The network architecture (hidden_size or n_lidar_rays) may have changed. "
-                f"Use --re-initialize to restart from scratch."
-            )
-        self._mean  = data["mean"].astype(np.float64)
-        self._sigma = float(data["sigma"])
+        with np.load(path) as data:
+            saved_flat_dim = int(data["flat_dim"])
+            if saved_flat_dim != self._flat_dim:
+                raise ValueError(
+                    f"LSTMEvolutionPolicy: trainer state flat_dim mismatch — "
+                    f"saved={saved_flat_dim}, current={self._flat_dim}. "
+                    f"The network architecture (hidden_size or n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean  = data["mean"].astype(np.float64)
+            self._sigma = float(data["sigma"])
         logger.info("[LSTMEvolutionPolicy] trainer state loaded from %s (sigma=%.4f)",
                     path, self._sigma)

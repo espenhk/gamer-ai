@@ -426,5 +426,105 @@ class TestRewardCuriosityIntegration(unittest.TestCase):
             os.unlink(tmp)
 
 
+class TestComputeWithComponents(unittest.TestCase):
+    """RewardCalculator.compute_with_components() — per-component breakdown."""
+
+    def setUp(self):
+        self.cfg  = RewardConfig()
+        self.calc = RewardCalculator(self.cfg)
+
+    def _rwc(self, prev, curr, finished=False, elapsed_s=0.0, accelerating=False,
+             n_ticks=1):
+        return self.calc.compute_with_components(
+            prev, curr, finished, elapsed_s,
+            info={"accelerating": accelerating},
+            n_ticks=n_ticks,
+        )
+
+    def test_scalar_matches_compute(self):
+        """Total from compute_with_components must equal compute()."""
+        prev = make_state_data(track_progress=0.0)
+        curr = make_state_data(track_progress=0.1, speed=(0.0, 0.0, 0.0))
+        scalar, _ = self._rwc(prev, curr)
+        expected  = self.calc.compute(prev, curr, finished=False, elapsed_s=0.0,
+                                      info={"accelerating": False})
+        self.assertAlmostEqual(scalar, expected, places=6)
+
+    def test_components_sum_to_total(self):
+        """Sum of all component values must equal the returned scalar."""
+        prev = make_state_data(track_progress=0.0, lateral_offset=1.5)
+        curr = make_state_data(track_progress=0.05, lateral_offset=1.0,
+                               speed=(10.0, 0.0, 0.0))
+        scalar, components = self._rwc(prev, curr, accelerating=True)
+        self.assertAlmostEqual(sum(components.values()), scalar, places=6)
+
+    def test_component_keys_present(self):
+        """All expected component names must be present."""
+        expected_keys = {
+            "progress", "centerline", "speed", "accel_bonus",
+            "step_penalty", "finish_bonus", "finish_time",
+            "airborne", "lidar_wall", "curiosity",
+        }
+        state = make_state_data(track_progress=0.5, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(state, state)
+        self.assertEqual(set(components.keys()), expected_keys)
+
+    def test_progress_component(self):
+        prev = make_state_data(track_progress=0.0)
+        curr = make_state_data(track_progress=0.1, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(prev, curr)
+        self.assertAlmostEqual(components["progress"],
+                               0.1 * self.cfg.progress_weight, places=6)
+
+    def test_centerline_component(self):
+        prev = make_state_data(track_progress=0.5, lateral_offset=0.0)
+        curr = make_state_data(track_progress=0.5, lateral_offset=2.0,
+                               speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(prev, curr)
+        expected = self.cfg.centerline_weight * 2.0 ** self.cfg.centerline_exp
+        self.assertAlmostEqual(components["centerline"], expected, places=6)
+
+    def test_finish_bonus_component(self):
+        prev = make_state_data(track_progress=0.9)
+        curr = make_state_data(track_progress=1.0, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(prev, curr, finished=True,
+                                  elapsed_s=self.cfg.par_time_s)
+        self.assertAlmostEqual(components["finish_bonus"], self.cfg.finish_bonus, places=6)
+        self.assertAlmostEqual(components["finish_time"], 0.0, places=6)
+
+    def test_finish_time_component_over_par(self):
+        prev = make_state_data(track_progress=1.0)
+        curr = make_state_data(track_progress=1.0, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(prev, curr, finished=True,
+                                  elapsed_s=self.cfg.par_time_s + 10.0)
+        self.assertAlmostEqual(components["finish_time"],
+                               self.cfg.finish_time_weight * 10.0, places=6)
+
+    def test_no_finish_when_not_finished(self):
+        state = make_state_data(track_progress=0.5, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(state, state)
+        self.assertEqual(components["finish_bonus"], 0.0)
+        self.assertEqual(components["finish_time"], 0.0)
+
+    def test_step_penalty_component(self):
+        state = make_state_data(track_progress=0.5, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(state, state, n_ticks=2)
+        self.assertAlmostEqual(components["step_penalty"],
+                               self.cfg.step_penalty * 2, places=6)
+
+    def test_accel_bonus_component_present_when_accelerating(self):
+        state = make_state_data(track_progress=0.5, speed=(0.0, 0.0, 0.0))
+        _, comps_accel = self._rwc(state, state, accelerating=True)
+        _, comps_coast = self._rwc(state, state, accelerating=False)
+        self.assertAlmostEqual(comps_accel["accel_bonus"],
+                               self.cfg.accel_bonus, places=6)
+        self.assertEqual(comps_coast["accel_bonus"], 0.0)
+
+    def test_curiosity_zero_without_module(self):
+        state = make_state_data(track_progress=0.5, speed=(0.0, 0.0, 0.0))
+        _, components = self._rwc(state, state)
+        self.assertEqual(components["curiosity"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

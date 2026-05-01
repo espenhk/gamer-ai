@@ -240,5 +240,103 @@ class TestNeuralDQNConvergence(unittest.TestCase):
         self.assertGreater(float(q_vals[BEST]), float(np.max(np.delete(q_vals, BEST))))
 
 
+class TestNeuralDQNTrainerState(unittest.TestCase):
+
+    def _make_trained_policy(self) -> NeuralDQNPolicy:
+        policy = NeuralDQNPolicy(
+            hidden_sizes        = [16, 16],
+            replay_buffer_size  = 200,
+            batch_size          = 16,
+            min_replay_size     = 32,
+            target_update_freq  = 10,
+            learning_rate       = 0.001,
+            epsilon_start       = 1.0,
+            epsilon_end         = 0.05,
+            epsilon_decay_steps = 100,
+            n_lidar_rays        = 0,
+        )
+        obs  = np.zeros(_N, dtype=np.float32)
+        next_obs = np.zeros(_N, dtype=np.float32)
+        for i in range(50):
+            policy.update(obs, i % 9, float(i % 3), next_obs, done=False)
+        return policy
+
+    def test_save_load_roundtrip_replay_buffer(self):
+        """Replay buffer length and transition contents survive a save/load cycle."""
+        import tempfile, os
+        policy = self._make_trained_policy()
+        original_buf_len = len(policy._replay)
+
+        # Capture original buffer contents for comparison
+        original_buf = list(policy._replay._buf)
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = NeuralDQNPolicy(
+                hidden_sizes        = [16, 16],
+                replay_buffer_size  = 200,
+                min_replay_size     = 32,
+                n_lidar_rays        = 0,
+            )
+            policy2.load_trainer_state(path)
+
+            self.assertEqual(len(policy2._replay), original_buf_len)
+
+            # Verify actual transition contents match
+            restored_buf = list(policy2._replay._buf)
+            for orig, rest in zip(original_buf, restored_buf):
+                np.testing.assert_array_equal(orig[0], rest[0])   # obs
+                self.assertEqual(orig[1], rest[1])                 # action_idx
+                self.assertAlmostEqual(orig[2], rest[2])           # reward
+                np.testing.assert_array_equal(orig[3], rest[3])   # next_obs
+                self.assertEqual(orig[4], rest[4])                 # done
+        finally:
+            os.unlink(path)
+
+    def test_save_load_roundtrip_adam_moments(self):
+        """Adam moments survive a save/load cycle."""
+        import tempfile, os
+        policy = self._make_trained_policy()
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = NeuralDQNPolicy(
+                hidden_sizes        = [16, 16],
+                replay_buffer_size  = 200,
+                min_replay_size     = 32,
+                n_lidar_rays        = 0,
+            )
+            policy2.load_trainer_state(path)
+
+            for i in range(len(policy._m_w)):
+                np.testing.assert_array_equal(policy._m_w[i], policy2._m_w[i])
+                np.testing.assert_array_equal(policy._v_w[i], policy2._v_w[i])
+            self.assertEqual(policy._adam_t,      policy2._adam_t)
+            self.assertEqual(policy._total_steps, policy2._total_steps)
+            self.assertAlmostEqual(policy._eps,   policy2._eps)
+        finally:
+            os.unlink(path)
+
+    def test_load_wrong_obs_dim_raises(self):
+        """Loading state with mismatched obs_dim raises ValueError."""
+        import tempfile, os
+        policy1 = NeuralDQNPolicy(hidden_sizes=[16], replay_buffer_size=10, n_lidar_rays=0)
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy1.save_trainer_state(path)
+            policy2 = NeuralDQNPolicy(hidden_sizes=[16], replay_buffer_size=10, n_lidar_rays=4)
+            with self.assertRaises(ValueError):
+                policy2.load_trainer_state(path)
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

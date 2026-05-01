@@ -23,6 +23,8 @@ jobs:
       - name: Run tests
         # test_env_termination and test_grid_search require tminterface
         # (Windows-only, not on PyPI) so they are excluded from CI.
+        # tests/assetto_corsa/ uses a stub gym env (see test_smoke.py) so it
+        # runs on every PR without needing the assetto-corsa-rl package.
         # PYTHONPATH=. puts the repo root on sys.path so `import clients` etc.
         # resolve regardless of pytest's import-mode/rootdir handling.
         env:

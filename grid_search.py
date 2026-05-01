@@ -77,9 +77,18 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
+    "decision_offset_pct": "dec",
     "action_window_ticks": "awt",
     # neural_net policy params
     "hidden_sizes": "hs",
+    "hidden_size": "hsize",
+    "learning_rate": "lr",
+    "entropy_coeff": "ec",
+    "baseline": "base",
+    # neural_dqn params
+    "batch_size": "bs",
+    "target_update_freq": "tuf",
+    "epsilon_decay_steps": "eds",
     # genetic policy params
     "population_size": "pop",
     "elite_k": "ek",
@@ -122,21 +131,72 @@ _ABBREV = {
 # Allows grid axes like `epsilon: [0.5, 1.0]` without nesting inside policy_params.
 # mcts_c is renamed to c because that's what MCTSPolicy.from_cfg expects.
 _POLICY_PARAM_MAP = {
-    "hidden_sizes": "hidden_sizes",  # neural_net
+    "hidden_sizes": "hidden_sizes",  # neural_net / reinforce / neural_dqn
+    "hidden_size": "hidden_size",  # lstm
+    "learning_rate": "learning_rate",  # reinforce / neural_dqn
+    "entropy_coeff": "entropy_coeff",  # reinforce
+    "baseline": "baseline",  # reinforce
+    "batch_size": "batch_size",  # neural_dqn
+    "target_update_freq": "target_update_freq",  # neural_dqn
+    "epsilon_decay_steps": "epsilon_decay_steps",  # neural_dqn
     "epsilon": "epsilon",  # epsilon_greedy
     "epsilon_decay": "epsilon_decay",  # epsilon_greedy
     "epsilon_min": "epsilon_min",  # epsilon_greedy
     "alpha": "alpha",  # epsilon_greedy / mcts
-    "gamma": "gamma",  # epsilon_greedy / mcts
+    "gamma": "gamma",  # epsilon_greedy / mcts / neural_dqn / reinforce
     "n_bins": "n_bins",  # epsilon_greedy / mcts
     "mcts_c": "c",  # mcts (renamed)
-    "population_size": "population_size",  # genetic / cmaes
+    "population_size": "population_size",  # genetic / cmaes / lstm
     "elite_k": "elite_k",  # genetic
     "initial_sigma": "initial_sigma",  # cmaes
     "eval_episodes": "eval_episodes",  # genetic / cmaes
 }
 
+# Guard against silent regressions when adding or editing promoted top-level
+# training_params keys. If one of these entries is removed or renamed
+# incorrectly, grid configs can silently fall back to policy defaults.
+_EXPECTED_POLICY_PARAM_MAP = {
+    "hidden_sizes": "hidden_sizes",
+    "hidden_size": "hidden_size",
+    "learning_rate": "learning_rate",
+    "entropy_coeff": "entropy_coeff",
+    "baseline": "baseline",
+    "batch_size": "batch_size",
+    "target_update_freq": "target_update_freq",
+    "epsilon_decay_steps": "epsilon_decay_steps",
+    "epsilon": "epsilon",
+    "epsilon_decay": "epsilon_decay",
+    "epsilon_min": "epsilon_min",
+    "alpha": "alpha",
+    "gamma": "gamma",
+    "n_bins": "n_bins",
+    "mcts_c": "c",
+    "population_size": "population_size",
+    "elite_k": "elite_k",
+    "initial_sigma": "initial_sigma",
+}
 
+
+def _validate_policy_param_map() -> None:
+    """Fail fast if promoted training_params keys are miswired.
+
+    This provides a lightweight regression check in environments where the
+    pure-logic promotion path is imported without the full training stack.
+    """
+    mismatches = {
+        src: (expected_dst, _POLICY_PARAM_MAP.get(src))
+        for src, expected_dst in _EXPECTED_POLICY_PARAM_MAP.items()
+        if _POLICY_PARAM_MAP.get(src) != expected_dst
+    }
+    if mismatches:
+        details = ", ".join(
+            f"{src}->{actual!r} (expected {expected!r})"
+            for src, (expected, actual) in sorted(mismatches.items())
+        )
+        raise RuntimeError(f"Invalid _POLICY_PARAM_MAP entries: {details}")
+
+
+_validate_policy_param_map()
 def _fmt_value(v: Any) -> str:
     """Format a param value for use in a directory name.
 

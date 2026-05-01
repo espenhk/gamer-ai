@@ -447,7 +447,6 @@ def _greedy_loop(
         try:
             for sim in range(1, n_sims + 1):
                 candidate = best_policy.mutated(scale=current_scale)
-                logger.info("--- Sim %d/%d ---", sim, n_sims)
                 obs, _ = env.reset()
                 reward, info, tc, total_steps, trace = _run_episode(
                     env, candidate, obs,
@@ -459,9 +458,9 @@ def _greedy_loop(
                     best_reward = reward
                     best_policy = candidate
                     best_policy.save(weights_file)
-                    verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
+                    verdict = f"[{sim}/{n_sims}] NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                 else:
-                    verdict = f"no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
+                    verdict = f"[{sim}/{n_sims}] no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
                 logger.info("  >> %s", verdict)
                 improvement_history.append(improved)
                 _maybe_adapt_scale(improvement_history, current_scale, sim,
@@ -545,10 +544,10 @@ def _greedy_loop(
                 best_policy = best_cand
                 best_policy.save(weights_file)
                 improved    = True
-                verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
+                verdict = (f"[{sim}/{n_sims}] NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
             else:
-                verdict = (f"no improvement  +ε={r_plus:+.1f}  −ε={r_minus:+.1f}"
+                verdict = (f"[{sim}/{n_sims}] no improvement  +ε={r_plus:+.1f}  −ε={r_minus:+.1f}"
                            f"  best={best_reward:+.1f}")
             logger.info("  >> %s", verdict)
 
@@ -653,10 +652,10 @@ def _greedy_loop_cmaes(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
-                verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
+                verdict = (f"[{gen}/{n_generations}] NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
             else:
-                verdict = (f"no improvement  gen_best={gen_best:+.1f}"
+                verdict = (f"[{gen}/{n_generations}] no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
             logger.info("  >> %s", verdict)
@@ -720,9 +719,9 @@ def _greedy_loop_q_learning(
                 prev_best   = best_reward
                 best_reward = reward
                 policy.save(weights_file)
-                verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
+                verdict = f"[{episode}/{n_episodes}] NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
-                verdict = f"no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
+                verdict = f"[{episode}/{n_episodes}] no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
             cfg = policy.to_cfg()
             logger.info("  >> %s  [states visited: %s]",
                         verdict, cfg.get("n_states_visited", "?"))
@@ -801,9 +800,9 @@ def _greedy_loop_genetic(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
-                verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
+                verdict = f"[{gen}/{n_generations}] NEW BEST champion  reward={policy.champion_reward:+.1f}"
             else:
-                verdict = (f"no improvement  gen_best={gen_best:+.1f}"
+                verdict = (f"[{gen}/{n_generations}] no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}")
             logger.info("  >> %s", verdict)
 

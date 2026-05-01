@@ -22,6 +22,7 @@
 # Combos: 3 x 3 = 9
 
 base_name: "gs_genetic_v1"
+track: a01_centerline
 
 training_params:
   speed: 10.0
@@ -34,7 +35,7 @@ training_params:
 
   # --- Search axes ---
   elite_k: [3, 5]
-  population_size: 20
+  population_size: [10, 20, 40]
   mutation_scale: [0.01, 0.05]
   mutation_share: 1.0
 
@@ -50,4 +51,4 @@ reward_params:
   accel_bonus: 1.0
   airborne_penalty: -1.0
   crash_threshold_m: 25.0
-  lidar_wall_weight: [0, -5.0, -20.0]  # search axis: wall-proximity penalty strength
+  lidar_wall_weight: [0, -20.0]  # search axis: wall-proximity penalty strength

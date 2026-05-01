@@ -75,6 +75,7 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
+    "n_lidar_rays": "n_lr",
     # neural_net policy params
     "hidden_sizes": "hs",
     # genetic policy params
@@ -121,6 +122,7 @@ _POLICY_PARAM_MAP = {
     "population_size": "population_size",  # genetic / cmaes
     "elite_k": "elite_k",  # genetic
     "initial_sigma": "initial_sigma",  # cmaes
+    "n_lidar_rays": "n_lidar_rays",  # neural_net
 }
 
 
@@ -429,7 +431,7 @@ def _run_local(
             cold_start_restarts=t.get("cold_restarts", 0),
             cold_start_sims=t.get("cold_sims", 0),
             warmup_action=WARMUP_ACTION,
-            warmup_steps=5,
+            warmup_steps=t.get("warmup_steps", 5),
             training_params=t,
             no_interrupt=no_interrupt or i > 1,
             re_initialize=re_initialize,

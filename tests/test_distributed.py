@@ -330,24 +330,33 @@ class TestCoordinator:
         with self._get(coord, "/work") as r:
             assert r.status == 200
 
-        # Send heartbeats every 0.3 s for 1.5 s — should keep item alive
+        # Send heartbeats continuously until signalled to stop.
+        # Using a stop event lets us check the queue WHILE heartbeats are
+        # still flowing, avoiding the race where the last HB ages out before
+        # the assertion runs.
+        stop_hb = threading.Event()
+
         def send_hbs():
-            for _ in range(5):
+            while not stop_hb.wait(0.3):
                 body = json.dumps({"name": "hb_test", "worker_id": "tester"}).encode()
                 try:
-                    self._post(coord, "/heartbeat", body)
+                    with self._post(coord, "/heartbeat", body):
+                        pass
                 except Exception:
                     pass
-                time.sleep(0.3)
 
         hb_thread = threading.Thread(target=send_hbs, daemon=True)
         hb_thread.start()
-        hb_thread.join()
+
+        # Wait long enough for at least two monitor cycles (check_interval ≈ 0.5 s).
+        time.sleep(1.5)
 
         # Queue should still be empty (item is still in-progress, not re-queued)
         with self._get(coord, "/work") as r:
             assert r.status == 204
 
+        stop_hb.set()
+        hb_thread.join(timeout=2.0)
         coord.stop()
 
     def test_empty_queue_returns_immediately(self):

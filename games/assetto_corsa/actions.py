@@ -1,14 +1,16 @@
 """Assetto Corsa action definitions.
 
-The continuous action layout is identical to TMNF's so framework policies
-(WeightedLinearPolicy, NeuralNetPolicy, CMAESPolicy, …) work unchanged:
+The continuous action layout is identical to TMNF's, so the framework's
+supported continuous-action policy types for Assetto (`hill_climbing` and
+`neural_net`) can use it unchanged:
 
     action[0] steer  ∈ [-1, 1]
     action[1] accel  ∈ [0, 1]   (thresholded at 0.5 for discrete output heads)
     action[2] brake  ∈ [0, 1]   (thresholded at 0.5)
 
-For Q-table policies (epsilon_greedy, mcts) the same 9-action discrete grid
-as TMNF is used.
+The same 9-action discrete grid as TMNF is used for the supported framework
+`policy_type` values: `hill_climbing`, `neural_net`, `epsilon_greedy`,
+`mcts`, and `genetic`.
 """
 
 from __future__ import annotations

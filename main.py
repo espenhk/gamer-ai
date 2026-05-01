@@ -4,7 +4,11 @@ Thin glue layer: reads experiment config, wires game-specific objects into the
 game-agnostic framework.training.train_rl(), then saves results.
 
 Supports multiple games via the ``--game`` flag:
-    python main.py <experiment> --game tmnf   (default)
+    python main.py <experiment>                       # default: tmnf
+    python main.py <experiment> --game tmnf
+    python main.py <experiment> --game beamng
+    python main.py <experiment> --game assetto
+    python main.py <experiment> --game car_racing
     python main.py <experiment> --game torcs
 
 All algorithm logic lives in framework/training.py.
@@ -31,8 +35,14 @@ def main() -> None:
         help="Experiment name — files stored in experiments/<track>/<name>/",
     )
     parser.add_argument(
-        "--game", default="tmnf", choices=["tmnf", "torcs"],
-        help="Game to train on (default: tmnf)",
+        "--game",
+        default="tmnf",
+        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs"],
+        help=(
+            "Select which racing simulator to use. "
+            "Choices: tmnf (default), beamng, assetto, car_racing, torcs. "
+            "beamng and assetto require optional simulator dependencies."
+        ),
     )
     parser.add_argument(
         "--no-interrupt", action="store_true",
@@ -56,10 +66,14 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    if args.game == "torcs":
-        _run_torcs(args)
-    else:
-        _run_tmnf(args)
+    _GAME_RUNNERS = {
+        "tmnf":       _run_tmnf,
+        "beamng":     _run_beamng,
+        "assetto":    _run_assetto,
+        "car_racing": _run_car_racing,
+        "torcs":      _run_torcs,
+    }
+    _GAME_RUNNERS[args.game](args)
 
 
 # ======================================================================
@@ -238,6 +252,228 @@ def _run_tmnf(args: argparse.Namespace) -> None:
     )
 
     save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+
+
+# ======================================================================
+# BeamNG entry point
+# ======================================================================
+
+def _run_beamng(args: argparse.Namespace) -> None:
+    try:
+        from games.beamng.obs_spec import BEAMNG_OBS_SPEC
+        from games.beamng.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+        from games.beamng.env import BeamNGEnv, make_env  # noqa: F401
+        from games.beamng.analytics import save_experiment_results
+    except ImportError as exc:
+        raise ValueError(
+            f"Cannot import BeamNG dependencies: {exc}\n"
+            "Install the BeamNG Python bridge and BeamNG.drive, then:\n"
+            "    pip install beamng-gym"
+        ) from exc
+
+    experiment_dir       = f"experiments/beamng/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    if not os.path.exists(reward_cfg_file):
+        shutil.copy("games/beamng/config/reward_config.yaml", reward_cfg_file)
+        logger.info("Copied BeamNG reward config → %s", reward_cfg_file)
+    if not os.path.exists(training_params_file):
+        shutil.copy("games/beamng/config/training_params.yaml", training_params_file)
+        logger.info("Copied BeamNG training params → %s", training_params_file)
+
+    with open(training_params_file) as f:
+        p = yaml.safe_load(f)
+
+    obs_spec      = BEAMNG_OBS_SPEC
+    policy_type   = p.get("policy_type", "hill_climbing")
+    policy_params = p.get("policy_params") or {}
+
+    data = train_rl(
+        experiment_name     = args.experiment,
+        make_env_fn         = lambda: make_env(
+            experiment_dir    = experiment_dir,
+            max_episode_time_s = p["in_game_episode_s"],
+        ),
+        obs_spec            = obs_spec,
+        head_names          = ["steer", "accel", "brake"],
+        discrete_actions    = DISCRETE_ACTIONS,
+        speed               = p.get("speed", 1.0),
+        n_sims              = p["n_sims"],
+        in_game_episode_s   = p["in_game_episode_s"],
+        weights_file        = weights_file,
+        reward_config_file  = reward_cfg_file,
+        mutation_scale      = p["mutation_scale"],
+        mutation_share      = p.get("mutation_share", 1.0),
+        probe_actions       = PROBE_ACTIONS,
+        probe_in_game_s     = p["probe_s"],
+        cold_start_restarts = p["cold_restarts"],
+        cold_start_sims     = p["cold_sims"],
+        warmup_action       = WARMUP_ACTION,
+        warmup_steps        = 5,
+        training_params     = p,
+        no_interrupt        = args.no_interrupt,
+        re_initialize       = args.re_initialize,
+        do_pretrain         = p.get("do_pretrain", False),
+        policy_type         = policy_type,
+        policy_params       = policy_params,
+        track               = "beamng",
+        adaptive_mutation   = p.get("adaptive_mutation", True),
+        patience            = p.get("patience", 0),
+    )
+
+    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+    logger.info("BeamNG training complete. Results saved to %s", experiment_dir)
+
+
+# ======================================================================
+# Assetto Corsa entry point
+# ======================================================================
+
+def _run_assetto(args: argparse.Namespace) -> None:
+    try:
+        from games.assetto.obs_spec import ASSETTO_OBS_SPEC
+        from games.assetto.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+        from games.assetto.env import AssettoCorsaEnv, make_env  # noqa: F401
+        from games.assetto.analytics import save_experiment_results
+    except ImportError as exc:
+        raise ValueError(
+            f"Cannot import Assetto Corsa dependencies: {exc}\n"
+            "Install the Assetto Corsa Python bridge and Assetto Corsa, then:\n"
+            "    pip install assettocorsa"
+        ) from exc
+
+    experiment_dir       = f"experiments/assetto/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    if not os.path.exists(reward_cfg_file):
+        shutil.copy("games/assetto/config/reward_config.yaml", reward_cfg_file)
+        logger.info("Copied Assetto Corsa reward config → %s", reward_cfg_file)
+    if not os.path.exists(training_params_file):
+        shutil.copy("games/assetto/config/training_params.yaml", training_params_file)
+        logger.info("Copied Assetto Corsa training params → %s", training_params_file)
+
+    with open(training_params_file) as f:
+        p = yaml.safe_load(f)
+
+    obs_spec      = ASSETTO_OBS_SPEC
+    policy_type   = p.get("policy_type", "hill_climbing")
+    policy_params = p.get("policy_params") or {}
+
+    data = train_rl(
+        experiment_name     = args.experiment,
+        make_env_fn         = lambda: make_env(
+            experiment_dir    = experiment_dir,
+            max_episode_time_s = p["in_game_episode_s"],
+        ),
+        obs_spec            = obs_spec,
+        head_names          = ["steer", "accel", "brake"],
+        discrete_actions    = DISCRETE_ACTIONS,
+        speed               = p.get("speed", 1.0),
+        n_sims              = p["n_sims"],
+        in_game_episode_s   = p["in_game_episode_s"],
+        weights_file        = weights_file,
+        reward_config_file  = reward_cfg_file,
+        mutation_scale      = p["mutation_scale"],
+        mutation_share      = p.get("mutation_share", 1.0),
+        probe_actions       = PROBE_ACTIONS,
+        probe_in_game_s     = p["probe_s"],
+        cold_start_restarts = p["cold_restarts"],
+        cold_start_sims     = p["cold_sims"],
+        warmup_action       = WARMUP_ACTION,
+        warmup_steps        = 5,
+        training_params     = p,
+        no_interrupt        = args.no_interrupt,
+        re_initialize       = args.re_initialize,
+        do_pretrain         = p.get("do_pretrain", False),
+        policy_type         = policy_type,
+        policy_params       = policy_params,
+        track               = "assetto",
+        adaptive_mutation   = p.get("adaptive_mutation", True),
+        patience            = p.get("patience", 0),
+    )
+
+    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+    logger.info("Assetto Corsa training complete. Results saved to %s", experiment_dir)
+
+
+# ======================================================================
+# CarRacing entry point
+# ======================================================================
+
+def _run_car_racing(args: argparse.Namespace) -> None:
+    try:
+        from games.car_racing.obs_spec import CAR_RACING_OBS_SPEC
+        from games.car_racing.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+        from games.car_racing.env import CarRacingEnv, make_env  # noqa: F401
+        from games.car_racing.analytics import save_experiment_results
+    except ImportError as exc:
+        raise ValueError(
+            f"Cannot import CarRacing dependencies: {exc}\n"
+            "Install the gymnasium box2d extras:\n"
+            "    pip install gymnasium[box2d]"
+        ) from exc
+
+    experiment_dir       = f"experiments/car_racing/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    if not os.path.exists(reward_cfg_file):
+        shutil.copy("games/car_racing/config/reward_config.yaml", reward_cfg_file)
+        logger.info("Copied CarRacing reward config → %s", reward_cfg_file)
+    if not os.path.exists(training_params_file):
+        shutil.copy("games/car_racing/config/training_params.yaml", training_params_file)
+        logger.info("Copied CarRacing training params → %s", training_params_file)
+
+    with open(training_params_file) as f:
+        p = yaml.safe_load(f)
+
+    obs_spec      = CAR_RACING_OBS_SPEC
+    policy_type   = p.get("policy_type", "hill_climbing")
+    policy_params = p.get("policy_params") or {}
+
+    data = train_rl(
+        experiment_name     = args.experiment,
+        make_env_fn         = lambda: make_env(
+            experiment_dir    = experiment_dir,
+            max_episode_time_s = p["in_game_episode_s"],
+        ),
+        obs_spec            = obs_spec,
+        head_names          = ["steer", "accel", "brake"],
+        discrete_actions    = DISCRETE_ACTIONS,
+        speed               = p.get("speed", 1.0),
+        n_sims              = p["n_sims"],
+        in_game_episode_s   = p["in_game_episode_s"],
+        weights_file        = weights_file,
+        reward_config_file  = reward_cfg_file,
+        mutation_scale      = p["mutation_scale"],
+        mutation_share      = p.get("mutation_share", 1.0),
+        probe_actions       = PROBE_ACTIONS,
+        probe_in_game_s     = p["probe_s"],
+        cold_start_restarts = p["cold_restarts"],
+        cold_start_sims     = p["cold_sims"],
+        warmup_action       = WARMUP_ACTION,
+        warmup_steps        = 5,
+        training_params     = p,
+        no_interrupt        = args.no_interrupt,
+        re_initialize       = args.re_initialize,
+        do_pretrain         = p.get("do_pretrain", False),
+        policy_type         = policy_type,
+        policy_params       = policy_params,
+        track               = "car_racing",
+        adaptive_mutation   = p.get("adaptive_mutation", True),
+        patience            = p.get("patience", 0),
+    )
+
+    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+    logger.info("CarRacing training complete. Results saved to %s", experiment_dir)
 
 
 # ======================================================================

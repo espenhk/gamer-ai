@@ -305,7 +305,6 @@ class TestExperimentDirectoryNaming(unittest.TestCase):
         import main  # noqa: PLC0415
 
         captured: dict = {}
-        original_mkdir = Path.mkdir
 
         def _fake_mkdir(self_path, *a, **kw):
             if "experiment_dir" not in captured:

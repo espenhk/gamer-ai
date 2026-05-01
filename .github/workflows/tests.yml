@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install test dependencies
-        run: pip install pytest numpy scipy pyyaml gymnasium
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
 
       - name: Run tests
         # test_env_termination and test_grid_search require tminterface

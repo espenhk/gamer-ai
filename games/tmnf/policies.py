@@ -609,55 +609,55 @@ class NeuralDQNPolicy(BasePolicy):
         Raises ValueError if obs_dim or layer count do not match the current
         network architecture (e.g. n_lidar_rays or hidden_sizes changed).
         """
-        data = np.load(path)
-        saved_obs_dim = int(data["obs_dim"])
-        if saved_obs_dim != self._obs_dim:
-            raise ValueError(
-                f"NeuralDQNPolicy: trainer state obs_dim mismatch — "
-                f"saved={saved_obs_dim}, current={self._obs_dim}. "
-                f"The observation space (n_lidar_rays) may have changed. "
-                f"Use --re-initialize to restart from scratch."
-            )
-        n_layers = int(data["n_layers"])
-        if n_layers != len(self._m_w):
-            raise ValueError(
-                f"NeuralDQNPolicy: trainer state n_layers mismatch — "
-                f"saved={n_layers}, current={len(self._m_w)}. "
-                f"The network architecture (hidden_sizes) may have changed. "
-                f"Use --re-initialize to restart from scratch."
-            )
-        for i in range(n_layers):
-            mw = data[f"m_w_{i}"]
-            if mw.shape != self._m_w[i].shape:
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
                 raise ValueError(
-                    f"NeuralDQNPolicy: Adam moment m_w[{i}] shape mismatch — "
-                    f"saved={mw.shape}, current={self._m_w[i].shape}. "
+                    f"NeuralDQNPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
                     f"Use --re-initialize to restart from scratch."
                 )
+            n_layers = int(data["n_layers"])
+            if n_layers != len(self._m_w):
+                raise ValueError(
+                    f"NeuralDQNPolicy: trainer state n_layers mismatch — "
+                    f"saved={n_layers}, current={len(self._m_w)}. "
+                    f"The network architecture (hidden_sizes) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            for i in range(n_layers):
+                mw = data[f"m_w_{i}"]
+                if mw.shape != self._m_w[i].shape:
+                    raise ValueError(
+                        f"NeuralDQNPolicy: Adam moment m_w[{i}] shape mismatch — "
+                        f"saved={mw.shape}, current={self._m_w[i].shape}. "
+                        f"Use --re-initialize to restart from scratch."
+                    )
 
-        # Restore replay buffer
-        replay_obs  = data["replay_obs"]
-        replay_act  = data["replay_act"]
-        replay_rew  = data["replay_rew"]
-        replay_next = data["replay_next"]
-        replay_done = data["replay_done"]
-        self._replay = ReplayBuffer(self._buf_maxlen)
-        for i in range(len(replay_obs)):
-            self._replay.push(
-                replay_obs[i], int(replay_act[i]), float(replay_rew[i]),
-                replay_next[i], bool(replay_done[i]),
-            )
+            # Restore replay buffer
+            replay_obs  = data["replay_obs"]
+            replay_act  = data["replay_act"]
+            replay_rew  = data["replay_rew"]
+            replay_next = data["replay_next"]
+            replay_done = data["replay_done"]
+            self._replay = ReplayBuffer(self._buf_maxlen)
+            for i in range(len(replay_obs)):
+                self._replay.push(
+                    replay_obs[i], int(replay_act[i]), float(replay_rew[i]),
+                    replay_next[i], bool(replay_done[i]),
+                )
 
-        # Restore optimizer state
-        self._total_steps = int(data["total_steps"])
-        self._grad_steps  = int(data["grad_steps"])
-        self._adam_t      = int(data["adam_t"])
-        self._eps         = float(data["epsilon"])
-        for i in range(n_layers):
-            self._m_w[i] = data[f"m_w_{i}"]
-            self._m_b[i] = data[f"m_b_{i}"]
-            self._v_w[i] = data[f"v_w_{i}"]
-            self._v_b[i] = data[f"v_b_{i}"]
+            # Restore optimizer state
+            self._total_steps = int(data["total_steps"])
+            self._grad_steps  = int(data["grad_steps"])
+            self._adam_t      = int(data["adam_t"])
+            self._eps         = float(data["epsilon"])
+            for i in range(n_layers):
+                self._m_w[i] = data[f"m_w_{i}"]
+                self._m_b[i] = data[f"m_b_{i}"]
+                self._v_w[i] = data[f"v_w_{i}"]
+                self._v_b[i] = data[f"v_b_{i}"]
         logger.info(
             "[NeuralDQNPolicy] trainer state loaded from %s "
             "(buf=%d, steps=%d, eps=%.4f)",

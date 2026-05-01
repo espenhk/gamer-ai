@@ -1,0 +1,13 @@
+# Belief + info-gain configuration for SC2 fog-of-war play.
+#
+# These parameters control the belief decay and scouting drive modules
+# defined in framework/belief.py and framework/info_gain.py.
+#
+# Set scout_drive_weight to 0.0 to disable intrinsic scouting reward.
+
+region_grid: [8, 8]          # Minimap partitioning (rows, cols)
+decay_tau: 30.0              # Belief confidence decay constant (seconds)
+scout_drive_weight: 0.1      # Coefficient on intrinsic scouting reward
+scout_horizon_s: 60.0        # Seconds until a slot reaches full staleness
+stale_threshold: 0.5         # Staleness above which re-discovery is rewarded
+never_seen_bonus: 2.0        # Multiplier for first-time slot discovery

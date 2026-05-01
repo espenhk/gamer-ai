@@ -246,18 +246,18 @@ class TestCMAESEvalEpisodes(unittest.TestCase):
             return original_fn(rewards)
 
         class _SeqEnv:
-            def reset(self_inner):
+            def reset(self):
                 return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
 
-            def step(self_inner, action):
+            def step(self, action):
                 info = {"track_progress": 0.5, "laps_completed": 0,
                         "pos_x": 0.0, "pos_z": 0.0}
                 return np.zeros(BASE_OBS_DIM, dtype=np.float32), next(rewards_iter), True, False, info
 
-            def get_episode_time_limit(self_inner):
+            def get_episode_time_limit(self):
                 return None
 
-            def set_episode_time_limit(self_inner, _):
+            def set_episode_time_limit(self, _):
                 pass
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
@@ -309,19 +309,19 @@ class TestCMAESEvalEpisodes(unittest.TestCase):
         rewards_iter = iter([float(i) for i in range(100)])
 
         class _CountingEnv:
-            def reset(self_inner):
+            def reset(self):
                 reset_count[0] += 1
                 return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
 
-            def step(self_inner, action):
+            def step(self, action):
                 info = {"track_progress": 0.5, "laps_completed": 0,
                         "pos_x": 0.0, "pos_z": 0.0}
                 return np.zeros(BASE_OBS_DIM, dtype=np.float32), next(rewards_iter), True, False, info
 
-            def get_episode_time_limit(self_inner):
+            def get_episode_time_limit(self):
                 return None
 
-            def set_episode_time_limit(self_inner, _):
+            def set_episode_time_limit(self, _):
                 pass
 
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:

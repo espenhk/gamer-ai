@@ -6,6 +6,7 @@ import numpy as np
 import yaml
 
 from framework.base_reward import RewardCalculatorBase
+from games.tmnf.curiosity import CuriosityModule
 from games.tmnf.state import StateData
 
 
@@ -57,6 +58,19 @@ class RewardConfig:
         nearest wall distance normalised to [0, 1].  Set to 0.0 when n_lidar_rays=0.
     crash_threshold_m:
         The env ends the episode when |lateral_offset| exceeds this (metres).
+    curiosity_type:
+        Optional exploration bonus: ``"none"`` (default, disabled),
+        ``"icm"`` for the Intrinsic Curiosity Module (Pathak et al. 2017)
+        or ``"rnd"`` for Random Network Distillation (Burda et al. 2018).
+        When enabled, ``curiosity_weight`` multiplies the intrinsic reward
+        before it is added to the extrinsic reward.
+    curiosity_weight:
+        Scale of the intrinsic reward (``0.0`` = disabled, same as
+        ``curiosity_type: none``).  Tune relative to ``progress_weight``.
+    curiosity_feature_dim / curiosity_hidden_size / curiosity_lr /
+    curiosity_beta / curiosity_seed:
+        Architecture and optimiser hyperparameters of the curiosity model.
+        ``beta`` controls the forward vs inverse loss balance for ICM only.
     """
 
     progress_weight:    float = 10.0
@@ -74,6 +88,15 @@ class RewardConfig:
     track_name:         str   = "a03"
     centerline_path:    str   = "tracks/a03_centerline.npy"
 
+    # --- Curiosity-driven exploration (disabled by default) ---
+    curiosity_type:        str   = "none"   # "none" | "icm" | "rnd"
+    curiosity_weight:      float = 0.0
+    curiosity_feature_dim: int   = 8
+    curiosity_hidden_size: int   = 32
+    curiosity_lr:          float = 1e-3
+    curiosity_beta:        float = 0.2      # ICM only
+    curiosity_seed:        int   = 0
+
     @classmethod
     def from_yaml(cls, path: str) -> RewardConfig:
         with open(path) as f:
@@ -89,10 +112,29 @@ class RewardConfig:
 
 
 class RewardCalculator(RewardCalculatorBase):
-    """Stateless reward computation — call compute() every RL step."""
+    """Reward computation — call compute() every RL step.
 
-    def __init__(self, config: RewardConfig) -> None:
+    Stateless w.r.t. the extrinsic reward.  When a :class:`CuriosityModule`
+    is attached, the calculator also produces an intrinsic reward bonus
+    computed from the (prev_obs, action, curr_obs) triple supplied via the
+    *info* dict; the module updates itself online on every step.
+    """
+
+    def __init__(
+        self,
+        config: RewardConfig,
+        curiosity: CuriosityModule | None = None,
+    ) -> None:
         self.config = config
+        self._curiosity = curiosity
+
+    @property
+    def curiosity(self) -> CuriosityModule | None:
+        return self._curiosity
+
+    def reset(self) -> None:
+        if self._curiosity is not None:
+            self._curiosity.reset_episode()
 
     def compute(
         self,
@@ -110,6 +152,9 @@ class RewardCalculator(RewardCalculatorBase):
 
             info["accelerating"]  bool    — whether the throttle was pressed
             info["lidar_rays"]    ndarray — LIDAR wall-distance rays (optional)
+            info["prev_obs"]      ndarray — previous obs vector (curiosity only)
+            info["curr_obs"]      ndarray — current  obs vector (curiosity only)
+            info["action"]        ndarray — action taken         (curiosity only)
         """
         cfg          = self.config
         accelerating = bool(info.get("accelerating", False))
@@ -164,5 +209,20 @@ class RewardCalculator(RewardCalculatorBase):
         ):
             min_ray = float(np.min(lidar_rays))
             reward += cfg.lidar_wall_weight * (1.0 - min_ray) ** 2
+
+        # Intrinsic curiosity bonus (ICM / RND).
+        # Disabled when no module is attached or the weight is zero — the
+        # extrinsic reward above is then bit-for-bit identical to the
+        # pre-curiosity calculator (backward compatibility).
+        # Scaled by n_ticks so the intrinsic-vs-extrinsic ratio is invariant
+        # to skip-event frequency, matching the other per-tick components.
+        if self._curiosity is not None and cfg.curiosity_weight != 0.0:
+            prev_obs = info.get("prev_obs")
+            curr_obs = info.get("curr_obs")
+            action   = info.get("action")
+            if prev_obs is not None and curr_obs is not None and action is not None:
+                r_intrinsic = self._curiosity.reward(prev_obs, action, curr_obs)
+                self._curiosity.update(prev_obs, action, curr_obs)
+                reward += cfg.curiosity_weight * r_intrinsic * n_ticks
 
         return reward

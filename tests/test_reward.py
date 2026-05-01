@@ -3,7 +3,10 @@ import tempfile
 import os
 import unittest
 
+import numpy as np
+
 from helpers import make_state_data
+from games.tmnf.curiosity import ICM, RND, make_curiosity
 from rl.reward import RewardCalculator, RewardConfig
 
 
@@ -281,6 +284,144 @@ class TestRewardConfigMultiTrack(unittest.TestCase):
             cfg = RewardConfig.from_yaml(tmp)
             self.assertEqual(cfg.track_name, "a03")
             self.assertEqual(cfg.centerline_path, "tracks/a03_centerline.npy")
+        finally:
+            os.unlink(tmp)
+
+
+class TestRewardCuriosityIntegration(unittest.TestCase):
+    """RewardCalculator + curiosity: defaults stay backward compatible."""
+
+    def _states(self):
+        prev = make_state_data(track_progress=0.5, lateral_offset=0.0,
+                               speed=(0.0, 0.0, 0.0))
+        curr = make_state_data(track_progress=0.5, lateral_offset=0.0,
+                               speed=(0.0, 0.0, 0.0))
+        return prev, curr
+
+    def test_default_config_is_backward_compatible(self):
+        cfg = RewardConfig()
+        self.assertEqual(cfg.curiosity_type, "none")
+        self.assertEqual(cfg.curiosity_weight, 0.0)
+        # No curiosity attached -> bit-for-bit unchanged behaviour.
+        calc_plain = RewardCalculator(cfg)
+        prev, curr = self._states()
+        r_plain = calc_plain.compute(prev, curr, finished=False, elapsed_s=0.0,
+                                     info={"accelerating": True})
+        # Even if a module is somehow attached, weight=0 still skips it.
+        icm = ICM(obs_dim=4, action_dim=3, seed=0)
+        calc_off = RewardCalculator(cfg, curiosity=icm)
+        r_off = calc_off.compute(prev, curr, finished=False, elapsed_s=0.0,
+                                 info={"accelerating": True,
+                                       "prev_obs": np.zeros(4, dtype=np.float32),
+                                       "curr_obs": np.ones(4, dtype=np.float32),
+                                       "action":   np.array([0.5, 1.0, 0.0],
+                                                            dtype=np.float32)})
+        self.assertAlmostEqual(r_plain, r_off, places=6)
+
+    def test_icm_adds_positive_intrinsic_reward(self):
+        cfg = RewardConfig(curiosity_type="icm", curiosity_weight=10.0)
+        icm = make_curiosity("icm", obs_dim=4, action_dim=3,
+                             feature_dim=4, hidden_size=8, seed=1)
+        calc = RewardCalculator(cfg, curiosity=icm)
+        prev, curr = self._states()
+
+        rng = np.random.default_rng(9)
+        prev_obs = rng.standard_normal(4).astype(np.float32)
+        curr_obs = rng.standard_normal(4).astype(np.float32)
+        action   = rng.standard_normal(3).astype(np.float32)
+        info = {"accelerating": False,
+                "prev_obs": prev_obs, "curr_obs": curr_obs, "action": action}
+
+        r_with = calc.compute(prev, curr, finished=False, elapsed_s=0.0, info=info)
+
+        cfg_off = RewardConfig()
+        r_without = RewardCalculator(cfg_off).compute(
+            prev, curr, finished=False, elapsed_s=0.0,
+            info={"accelerating": False},
+        )
+        self.assertGreater(r_with, r_without)
+
+    def test_intrinsic_reward_scales_with_n_ticks(self):
+        # Intrinsic bonus should scale linearly with n_ticks, like the other
+        # per-tick reward components, so the intrinsic-vs-extrinsic ratio is
+        # invariant to skip-event frequency.
+        cfg = RewardConfig(curiosity_type="rnd", curiosity_weight=10.0,
+                           accel_bonus=0.0, step_penalty=0.0)
+        rnd = make_curiosity("rnd", obs_dim=4, action_dim=3,
+                             feature_dim=4, hidden_size=8, seed=11)
+        calc = RewardCalculator(cfg, curiosity=rnd)
+        prev, curr = self._states()
+        rng = np.random.default_rng(13)
+        prev_obs = rng.standard_normal(4).astype(np.float32)
+        curr_obs = rng.standard_normal(4).astype(np.float32)
+        action   = rng.standard_normal(3).astype(np.float32)
+        # Two separate calculators with identical seeds so the underlying
+        # intrinsic value matches; only n_ticks differs.
+        rnd1 = make_curiosity("rnd", obs_dim=4, action_dim=3,
+                              feature_dim=4, hidden_size=8, seed=11)
+        calc1 = RewardCalculator(cfg, curiosity=rnd1)
+        info = {"accelerating": False,
+                "prev_obs": prev_obs, "curr_obs": curr_obs, "action": action}
+        r1 = calc1.compute(prev, curr, finished=False, elapsed_s=0.0,
+                           info=info, n_ticks=1)
+
+        rnd3 = make_curiosity("rnd", obs_dim=4, action_dim=3,
+                              feature_dim=4, hidden_size=8, seed=11)
+        calc3 = RewardCalculator(cfg, curiosity=rnd3)
+        r3 = calc3.compute(prev, curr, finished=False, elapsed_s=0.0,
+                           info=info, n_ticks=3)
+        self.assertAlmostEqual(r3, 3.0 * r1, places=4)
+
+    def test_curiosity_skipped_when_obs_missing(self):
+        # If the env forgets to supply obs/action, curiosity is silently skipped
+        # rather than crashing — extrinsic reward is unaffected.
+        cfg = RewardConfig(curiosity_type="icm", curiosity_weight=10.0)
+        icm = make_curiosity("icm", obs_dim=4, action_dim=3, seed=2)
+        calc = RewardCalculator(cfg, curiosity=icm)
+        prev, curr = self._states()
+        r = calc.compute(prev, curr, finished=False, elapsed_s=0.0,
+                         info={"accelerating": False})
+        # With zero progress / speed and no curiosity inputs, only step penalty.
+        self.assertAlmostEqual(r, cfg.step_penalty, places=4)
+
+    def test_reset_propagates_to_curiosity(self):
+        cfg = RewardConfig(curiosity_type="rnd", curiosity_weight=1.0)
+        rnd = make_curiosity("rnd", obs_dim=4, action_dim=3, seed=3)
+        calls = {"n": 0}
+        original = rnd.reset_episode
+
+        def _spy():
+            calls["n"] += 1
+            original()
+
+        rnd.reset_episode = _spy  # type: ignore[assignment]
+        calc = RewardCalculator(cfg, curiosity=rnd)
+        calc.reset()
+        calc.reset()
+        self.assertEqual(calls["n"], 2)
+
+    def test_from_yaml_accepts_new_curiosity_keys(self):
+        yaml_content = (
+            "curiosity_type: icm\n"
+            "curiosity_weight: 0.05\n"
+            "curiosity_feature_dim: 16\n"
+            "curiosity_hidden_size: 64\n"
+            "curiosity_lr: 0.005\n"
+            "curiosity_beta: 0.1\n"
+            "curiosity_seed: 42\n"
+        )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            tmp = f.name
+        try:
+            cfg = RewardConfig.from_yaml(tmp)
+            self.assertEqual(cfg.curiosity_type, "icm")
+            self.assertAlmostEqual(cfg.curiosity_weight, 0.05)
+            self.assertEqual(cfg.curiosity_feature_dim, 16)
+            self.assertEqual(cfg.curiosity_hidden_size, 64)
+            self.assertAlmostEqual(cfg.curiosity_lr, 0.005)
+            self.assertAlmostEqual(cfg.curiosity_beta, 0.1)
+            self.assertEqual(cfg.curiosity_seed, 42)
         finally:
             os.unlink(tmp)
 

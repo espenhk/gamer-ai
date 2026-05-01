@@ -8,7 +8,6 @@ Entry point called by save_experiment_results():
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import numpy as np
@@ -19,12 +18,14 @@ try:
     import matplotlib.cm as cm
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+    import matplotlib.pyplot as plt
+    import sys
+    if 'plt' not in sys.modules:
+        matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
     _HAS_MPL = True
 except ImportError:
     _HAS_MPL = False
 
-
-from distributed.protocol import experiment_to_json
 from framework.analytics import (
     ExperimentData,
     RunTrace,
@@ -488,11 +489,6 @@ def save_tmnf_plots(data: ExperimentData, results_dir: str) -> None:
 def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     """Generate all plots and write a single results.md report to *results_dir*."""
     os.makedirs(results_dir, exist_ok=True)
-
-    # Persist full ExperimentData so runs can be consolidated later.
-    data_json_path = os.path.join(results_dir, "experiment_data.json")
-    with open(data_json_path, "w", encoding="utf-8") as _f:
-        _f.write(experiment_to_json(data))
 
     track_line = f"\n**Track:** {data.track}\n" if data.track else ""
     sections = [

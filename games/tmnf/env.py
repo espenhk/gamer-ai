@@ -49,7 +49,10 @@ import os
 import time
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from games.tmnf.lidar import LidarSensor
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,7 @@ class TMNFEnv(BaseGameEnv):
 
         # Optional LIDAR sensor (screenshot-based wall distances)
         if n_lidar_rays > 0:
+            from games.tmnf.lidar import LidarSensor
             self._lidar: LidarSensor | None = LidarSensor(n_lidar_rays)
         else:
             self._lidar = None
@@ -247,6 +251,11 @@ class TMNFEnv(BaseGameEnv):
         # wait for the car to stop at the new spawn, then continue the episode.
         if finished and self._auto_respawn_on_finish and not time_over:
             self._laps_completed += 1
+            logger.info(
+                "[TMNFEnv] finish detected (step.finished=%s progress=%.4f) "
+                "— calling wait_episode_ready for lap %d",
+                step.finished, data.track_progress or 0.0, self._laps_completed,
+            )
             init_step = self._client.wait_episode_ready()
             self._prev_state = init_step.state_data
             obs = self._build_obs(init_step)
@@ -266,6 +275,14 @@ class TMNFEnv(BaseGameEnv):
         terminated = finished or crashed
         # step.done signals a hard crash (>50 m off, handled by client safety net)
         truncated = (step.done and not terminated) or time_over
+
+        if finished or terminated or truncated:
+            logger.debug(
+                "[TMNFEnv] episode end: finished=%s crashed=%s time_over=%s "
+                "terminated=%s truncated=%s progress=%.4f elapsed=%.1fs",
+                finished, crashed, time_over, terminated, truncated,
+                data.track_progress or 0.0, self._elapsed_s,
+            )
 
         if finished:
             termination_reason: str | None = "finish"
@@ -325,7 +342,7 @@ class TMNFEnv(BaseGameEnv):
         """Print a per-episode skip-event summary."""
         skipped = self._ep_total_ticks - self._ep_rl_steps
         avg = self._ep_total_ticks / self._ep_rl_steps if self._ep_rl_steps else 0.0
-        logger.info(
+        logger.debug(
             "[skip] ep_step %d | rl_steps=%d  game_ticks=%d  skipped=%d  avg=%.2f  max=%d",
             self._total_rl_steps, self._ep_rl_steps, self._ep_total_ticks,
             skipped, avg, self._ep_max_skip

@@ -302,7 +302,8 @@ class TestCoordinator:
     def test_stale_worker_item_requeued(self):
         """An item not heartbeated within heartbeat_timeout should be re-queued."""
         combo = _make_combo("requeue_test")
-        # hb_timeout=0.5 → monitor fires every 0.25 s; item stale after 0.5 s
+        # hb_timeout=0.5 → monitor fires every 0.5 s; dispatch gives a one-timeout
+        # grace period, so the item becomes stale after ~2×timeout ≈ 1 s.
         coord = self._start_coord([combo], hb_timeout=0.5)
 
         # Fetch work (marks as in-progress) but send NO heartbeats
@@ -310,7 +311,8 @@ class TestCoordinator:
             assert r.status == 200
 
         # Wait long enough for the monitor to re-queue the stale item
-        time.sleep(1.5)
+        # (needs > 2×hb_timeout to clear the initial grace period)
+        time.sleep(2.5)
 
         # Item should now be back in the queue
         with self._get(coord, "/work") as r:

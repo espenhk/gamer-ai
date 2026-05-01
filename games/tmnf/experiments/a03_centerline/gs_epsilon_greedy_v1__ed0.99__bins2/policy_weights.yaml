@@ -1,0 +1,8 @@
+policy_type: epsilon_greedy
+n_bins: 2
+epsilon: 0.15877723826413953
+epsilon_decay: 0.99
+epsilon_min: 0.05
+alpha: 0.1
+gamma: 0.99
+n_states_visited: 8

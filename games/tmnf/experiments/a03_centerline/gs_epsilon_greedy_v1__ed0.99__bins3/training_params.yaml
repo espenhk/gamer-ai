@@ -1,0 +1,15 @@
+speed: 10.0
+n_sims: 200
+in_game_episode_s: 100.0
+mutation_scale: 0.05
+probe_s: 8.0
+cold_restarts: 1
+cold_sims: 1
+n_lidar_rays: 8
+policy_type: epsilon_greedy
+alpha: 0.1
+gamma: 0.99
+epsilon: 0.95
+epsilon_min: 0.05
+epsilon_decay: 0.99
+n_bins: 3

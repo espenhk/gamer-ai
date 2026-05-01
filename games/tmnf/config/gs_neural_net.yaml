@@ -19,11 +19,11 @@ base_name: "gs_neural_net_v1"
 training_params:
   speed: 10.0
   n_sims: 50
-  in_game_episode_s: 30.0
+  in_game_episode_s: 120.0
   probe_s: 8.0
   cold_restarts: 10
   cold_sims: 5
-  n_lidar_rays: 0
+  n_lidar_rays: 8
   policy_type: neural_net
 
   # --- Search axes ---
@@ -32,14 +32,14 @@ training_params:
 
 reward_params:
   progress_weight: 10000.0
-  centerline_weight: -0.1
-  centerline_exp: 2.0
-  speed_weight: 0.05
-  step_penalty: -0.05
-  finish_bonus: 5000.0
-  finish_time_weight: -5.0
-  par_time_s: 60.0
-  accel_bonus: 0.5
-  airborne_penalty: -1.0
-  crash_threshold_m: 25.0
-  lidar_wall_weight: 0.0
+  #centerline_weight: -0.1
+  #centerline_exp: 2.0
+  #speed_weight: 0.05
+  #step_penalty: -0.05
+  #finish_bonus: 5000.0
+  #finish_time_weight: -5.0
+  #par_time_s: 60.0
+  #accel_bonus: 0.5
+  #airborne_penalty: -1.0
+  #crash_threshold_m: 25.0
+  #lidar_wall_weight: -5.0

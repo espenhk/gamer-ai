@@ -1,4 +1,24 @@
+a01:
+  centerline_path: tracks/a01_centerline.npy
+  default_par_time_s: 30.0
+  source_replay: replays/a01_race_centerline.Replay.Gbx
+
+a02:
+  centerline_path: tracks/a02_centerline.npy
+  default_par_time_s: 30.0
+  source_replay: replays/a02_race_centerline.Replay.Gbx
+
 a03:
   centerline_path: tracks/a03_centerline.npy
   default_par_time_s: 60.0
   source_replay: replays/a03_centerline.Replay.Gbx
+
+a04:
+  centerline_path: tracks/a04_centerline.npy
+  default_par_time_s: 10.0
+  source_replay: replays/a04_acrobatic_centerline.Replay.Gbx
+
+a05:
+  centerline_path: tracks/a05_centerline.npy
+  default_par_time_s: 25.0
+  source_replay: replays/a05_race_centerline.Replay.Gbx

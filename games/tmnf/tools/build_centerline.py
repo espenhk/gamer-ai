@@ -65,9 +65,9 @@ def update_registry(registry_path: Path, track_name: str, output_path: Path, rep
 
     registry = yaml.safe_load(registry_path.read_text()) if registry_path.exists() else {}
     registry[track_name] = {
-        "centerline_path": str(output_path),
+        "centerline_path": output_path.as_posix(),
         "default_par_time_s": None,   # user fills in manually
-        "source_replay": str(replay_path),
+        "source_replay": replay_path,
     }
     registry_path.write_text(yaml.dump(registry, sort_keys=True))
     logger.info("Updated registry %s  (track=%r)", registry_path, track_name)

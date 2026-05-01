@@ -126,7 +126,7 @@ def action_to_function_call(action: np.ndarray, screen_size: int):
     fn_idx = int(action[0])
     x_norm = float(np.clip(action[1], 0.0, 1.0))
     y_norm = float(np.clip(action[2], 0.0, 1.0))
-    queue = int(round(float(action[3])))
+    queue = int(np.clip(round(float(action[3])), 0, 1))
     sx = int(x_norm * (screen_size - 1))
     sy = int(y_norm * (screen_size - 1))
 

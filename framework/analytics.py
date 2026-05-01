@@ -13,6 +13,7 @@ Entry points used by the training loop:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -706,3 +707,38 @@ def save_grid_summary(
     if _HAS_MPL:
         plt.close('all')
     logger.info("Saved grid summary → %s", report_path)
+
+
+# ---------------------------------------------------------------------------
+# Experiment data JSON persistence (for grid-search consolidation)
+# ---------------------------------------------------------------------------
+
+def save_experiment_data_json(data: ExperimentData, results_dir: str) -> str:
+    """Serialise *data* to ``experiment_data.json`` inside *results_dir*.
+
+    Returns the path to the written file.
+    """
+    from distributed.protocol import experiment_to_json
+
+    os.makedirs(results_dir, exist_ok=True)
+    path = os.path.join(results_dir, "experiment_data.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(experiment_to_json(data))
+    logger.info("Saved experiment data → %s", path)
+    return path
+
+
+def load_experiment_data(experiment_dir: str) -> ExperimentData:
+    """Load an ``ExperimentData`` from *experiment_dir*/results/experiment_data.json.
+
+    *experiment_dir* is the top-level experiment folder (e.g.
+    ``games/tmnf/experiments/a03_centerline/gs_v1__ms0.05``).
+    """
+    from distributed.protocol import experiment_from_dict
+
+    path = os.path.join(experiment_dir, "results", "experiment_data.json")
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
+    data = experiment_from_dict(d)
+    logger.debug("Loaded experiment data ← %s", path)
+    return data

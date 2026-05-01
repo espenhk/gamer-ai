@@ -521,6 +521,8 @@ def _run_local(
         )
 
         save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+        from framework.analytics import save_experiment_data_json
+        save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
         logger.info("[%d/%d] %s  best_reward=%+.1f", i, n, name, best)
@@ -571,16 +573,70 @@ def _run_distributed(
         data.reward_config_file = f"{experiment_dir}/reward_config.yaml"
         data.weights_file = f"{experiment_dir}/policy_weights.yaml"
         save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+        from framework.analytics import save_experiment_data_json
+        save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
 
     return all_runs
+
+
+def _consolidate(
+    experiment_dirs: list[str],
+    summary_name: str,
+    summary_dir: str | None,
+) -> None:
+    """Load experiment data from *experiment_dirs* and produce a combined summary."""
+    from framework.analytics import load_experiment_data
+
+    all_runs: list[tuple[str, Any]] = []
+    for d in experiment_dirs:
+        try:
+            data = load_experiment_data(d)
+        except FileNotFoundError:
+            logger.error(
+                "No experiment_data.json found in %s/results/ — skipping. "
+                "(Was this experiment run with a version that saves experiment_data.json?)",
+                d,
+            )
+            continue
+        all_runs.append((data.experiment_name, data))
+        best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
+        logger.info("  Loaded %-50s  best_reward=%+.1f", data.experiment_name, best)
+
+    if not all_runs:
+        logger.error("No experiment data loaded — nothing to consolidate.")
+        return
+
+    # Infer varied keys: collect all training_params keys whose values differ
+    # across runs.
+    all_keys: set[str] = set()
+    for _, data in all_runs:
+        all_keys.update(data.training_params.keys())
+    varied_keys: list[str] = []
+    for k in sorted(all_keys):
+        values = [data.training_params.get(k) for _, data in all_runs]
+        if len(set(str(v) for v in values)) > 1:
+            varied_keys.append(k)
+
+    # Determine summary output dir
+    if summary_dir is None:
+        # Place summary next to the experiment dirs (common parent)
+        parent = os.path.commonpath(experiment_dirs)
+        summary_dir = os.path.join(parent, f"{summary_name}__summary")
+
+    logger.info(
+        "Consolidating %d experiment(s) into %s", len(all_runs), summary_dir
+    )
+    save_grid_summary(all_runs, varied_keys, summary_dir, summary_name)
+    logger.info("Summary report: %s/summary.md", summary_dir)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Grid search over TMNF training/reward params"
     )
-    parser.add_argument("config", help="Path to grid search YAML config")
+    parser.add_argument("config", nargs="?", default=None,
+                        help="Path to grid search YAML config (not needed with --consolidate)")
     parser.add_argument(
         "--no-interrupt",
         action="store_true",
@@ -597,6 +653,28 @@ def main() -> None:
         action="store_true",
         help="Act as coordinator: serve work items over HTTP and wait for "
         "workers to post results instead of running locally",
+    )
+    parser.add_argument(
+        "--consolidate",
+        nargs="+",
+        metavar="DIR",
+        help="Consolidate previous grid-search experiment folders into one "
+        "summary. Each DIR is a path to an experiment directory containing "
+        "results/experiment_data.json. Example: "
+        "python grid_search.py --consolidate experiments/a03/gs__ms0.05 "
+        "experiments/a03/gs__ms0.1 --summary-name my_summary",
+    )
+    parser.add_argument(
+        "--summary-name",
+        default="consolidated",
+        help="Base name for the consolidated summary (default: 'consolidated'). "
+        "Used with --consolidate.",
+    )
+    parser.add_argument(
+        "--summary-dir",
+        default=None,
+        help="Output directory for the consolidated summary report. "
+        "If not given, inferred from experiment paths. Used with --consolidate.",
     )
     parser.add_argument(
         "--port",
@@ -632,6 +710,13 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    if args.consolidate:
+        _consolidate(args.consolidate, args.summary_name, args.summary_dir)
+        return
+
+    if args.config is None:
+        parser.error("config is required when not using --consolidate")
 
     base_name, track, training_spec, reward_spec, distribute_cfg = _load_grid_config(
         args.config

@@ -29,6 +29,11 @@ numpy = ">=1.26"
 scipy = ">=1.12"
 pyyaml = ">=6.0"
 
+[tool.poetry.group.torcs.dependencies]
+numpy = ">=1.26"
+gymnasium = ">=0.29"
+pyyaml = ">=6.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

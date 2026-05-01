@@ -1,0 +1,30 @@
+# Reward configuration for TORCS RL training.
+# Edit these values freely — no code changes required.
+# See games/torcs/reward.py for full documentation of each parameter.
+
+# --- Progress ---
+progress_weight: 10.0
+
+# --- Centerline adherence ---
+# penalty = centerline_weight * |lateral_offset_m| ^ centerline_exp
+centerline_weight: -0.5
+centerline_exp: 2.0
+
+# --- Speed ---
+speed_weight: 0.05
+
+# --- Time cost ---
+step_penalty: -0.01
+
+# --- Finish rewards ---
+finish_bonus: 100.0
+finish_time_weight: -0.1
+par_time_s: 120.0
+
+# --- Acceleration bonus ---
+# Flat reward per step when throttle is pressed — discourages coasting.
+accel_bonus: 0.5
+
+# --- Episode termination ---
+# TORCS tracks are typically narrower than TMNF — lower threshold.
+crash_threshold_m: 8.0

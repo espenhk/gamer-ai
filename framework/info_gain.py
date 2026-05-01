@@ -137,7 +137,8 @@ class RegionStalenessTracker(InfoGainModule):
         reward = 0.0
         for i in range(self._n_slots):
             if old_staleness[i] > self._stale_threshold and new_staleness[i] <= self._stale_threshold:
-                bonus = self._never_seen_bonus if np.isnan(self._prev_staleness[i]) and old_staleness[i] >= 1.0 else 1.0
+                is_first_discovery = np.isnan(self._prev_staleness[i]) and old_staleness[i] >= 1.0
+                bonus = self._never_seen_bonus if is_first_discovery else 1.0
                 reward += bonus
 
         self._pending_reward = reward * self._scout_drive_weight

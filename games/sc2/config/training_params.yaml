@@ -1,8 +1,14 @@
 # StarCraft 2 training parameters.
 # Mirrors the TMNF / TORCS config structure with SC2-specific defaults.
+#
+# Minigame default: MoveToBeacon — genetic policy, 2-minute episodes.
+# Ladder (Simple64) recommended settings are commented inline below.
+# To train on Simple64 set map_name: Simple64 and optionally switch the
+# reward_config.yaml to the ladder preset (score_weight: 0.0,
+# economy_weight: 0.001 — see reward_config.yaml comments).
 
 game: sc2
-map_name: MoveToBeacon       # PySC2 map; one of MINIGAME_NAMES or a ladder map
+map_name: MoveToBeacon       # PySC2 map; one of MINIGAME_NAMES or a ladder map (e.g. Simple64)
 agent_race: random           # protoss | terran | zerg | random
 bot_difficulty: very_easy    # only used on ladder maps; ignored for minigames
 step_mul: 8                  # game ticks per env step (~0.5 s real-time at default speed)
@@ -10,7 +16,9 @@ screen_size: 64              # square feature-screen resolution
 minimap_size: 64             # square feature-minimap resolution
 
 speed: 1.0                   # SC2 has no in-engine speed multiplier; kept for framework compatibility
-in_game_episode_s: 120.0     # wall-clock seconds before truncation
+# Ladder maps (Simple64) use longer wall-clock episodes since a 1v1 game
+# can last 5-15 minutes.  Minigames rarely need more than 120 s.
+in_game_episode_s: 120.0     # wall-clock seconds before truncation (ladder: 600.0 recommended)
 n_sims: 100                  # greedy simulations / generations after cold-start
 mutation_scale: 0.05         # std-dev of Gaussian noise applied to each perturbed weight
 mutation_share: 1.0          # fraction of weights perturbed per mutation (1.0 = all)
@@ -22,6 +30,9 @@ n_lidar_rays: 0              # not applicable for SC2
 patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
 
 # Policy algorithm for the greedy training phase.
+# All framework policies work with both minigame (13-dim) and ladder (21-dim) obs.
+# Advanced policies available for SC2: genetic (default), cmaes, neural_dqn,
+# reinforce, lstm, hill_climbing, neural_net, epsilon_greedy, mcts.
 policy_type: genetic
 
 policy_params:

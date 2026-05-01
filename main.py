@@ -561,6 +561,13 @@ def _run_sc2(args: argparse.Namespace) -> None:
     from games.sc2.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
     from games.sc2.env import make_env
     from games.sc2.analytics import save_experiment_results
+    from games.sc2.policies import (
+        NeuralDQNPolicy as SC2NeuralDQNPolicy,
+        CMAESPolicy as SC2CMAESPolicy,
+        REINFORCEPolicy as SC2REINFORCEPolicy,
+        LSTMPolicy as SC2LSTMPolicy,
+        LSTMEvolutionPolicy as SC2LSTMEvolutionPolicy,
+    )
 
     # Read SC2 master config.
     with open("games/sc2/config/training_params.yaml") as f:
@@ -569,6 +576,7 @@ def _run_sc2(args: argparse.Namespace) -> None:
     map_name = master_p.get("map_name", "MoveToBeacon")
     experiment_dir       = f"experiments/sc2_{map_name}/{args.experiment}"
     weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    trainer_state_file   = f"{experiment_dir}/trainer_state.npz"
     reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
     training_params_file = f"{experiment_dir}/training_params.yaml"
 
@@ -589,6 +597,149 @@ def _run_sc2(args: argparse.Namespace) -> None:
     obs_spec      = get_spec(map_name)
     policy_type   = p.get("policy_type", "genetic")
     policy_params = p.get("policy_params") or {}
+    re_initialize = args.re_initialize
+
+    # Remove persisted state when re-initializing.
+    if re_initialize:
+        for stale in (trainer_state_file, weights_file):
+            if os.path.exists(stale):
+                os.remove(stale)
+                logger.info("Removed existing %s for re-initialization", stale)
+
+    # Factory callables for SC2-specific advanced policy types.
+    _head_names = ["fn_idx", "x", "y", "queue"]
+
+    def _make_neural_dqn() -> SC2NeuralDQNPolicy:
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f)
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
+                policy = SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[SC2 NeuralDQNPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2 NeuralDQNPolicy] could not load trainer state — %s; "
+                            "continuing with default state.", exc,
+                        )
+                return policy
+        return SC2NeuralDQNPolicy(
+            obs_spec            = obs_spec,
+            hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
+            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
+            batch_size          = policy_params.get("batch_size",          64),
+            min_replay_size     = policy_params.get("min_replay_size",     500),
+            target_update_freq  = policy_params.get("target_update_freq",  200),
+            learning_rate       = policy_params.get("learning_rate",       0.001),
+            epsilon_start       = policy_params.get("epsilon_start",       1.0),
+            epsilon_end         = policy_params.get("epsilon_end",         0.05),
+            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
+            gamma               = policy_params.get("gamma",               0.99),
+        )
+
+    def _make_cmaes() -> SC2CMAESPolicy:
+        pop_size = policy_params.get("population_size", 20)
+        sigma    = policy_params.get("initial_sigma",   0.3)
+        policy   = SC2CMAESPolicy(
+            obs_spec        = obs_spec,
+            head_names      = _head_names,
+            population_size = pop_size,
+            initial_sigma   = sigma,
+            eval_episodes   = policy_params.get("eval_episodes", 1),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            from framework.policies import WeightedLinearPolicy as _WLP
+            champion = _WLP(obs_spec, _head_names, weights_file)
+            policy.initialize_from_champion(champion)
+            if os.path.exists(trainer_state_file):
+                try:
+                    policy.load_trainer_state(trainer_state_file)
+                    logger.info("[SC2 CMAESPolicy] loaded trainer state from %s",
+                                trainer_state_file)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[SC2 CMAESPolicy] could not load trainer state — %s; "
+                        "continuing with champion weights and default distribution.", exc,
+                    )
+        else:
+            policy.initialize_random()
+        return policy
+
+    def _make_reinforce() -> SC2REINFORCEPolicy:
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
+                policy = SC2REINFORCEPolicy.from_cfg(_cfg, obs_spec)
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[SC2 REINFORCEPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2 REINFORCEPolicy] could not load trainer state — %s; "
+                            "continuing with default state.", exc,
+                        )
+                return policy
+        return SC2REINFORCEPolicy(
+            obs_spec      = obs_spec,
+            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
+            learning_rate = policy_params.get("learning_rate", 0.001),
+            gamma         = policy_params.get("gamma",         0.99),
+            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
+            baseline      = policy_params.get("baseline",      "running_mean"),
+        )
+
+    def _make_lstm() -> SC2LSTMEvolutionPolicy:
+        hidden_size = policy_params.get("hidden_size",     32)
+        pop_size    = policy_params.get("population_size", 20)
+        sigma       = policy_params.get("initial_sigma",   0.05)
+        policy      = SC2LSTMEvolutionPolicy(
+            obs_spec        = obs_spec,
+            hidden_size     = hidden_size,
+            population_size = pop_size,
+            initial_sigma   = sigma,
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
+                champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec)
+                try:
+                    policy.initialize_from_champion(champion)
+                except ValueError as exc:
+                    logger.warning(
+                        "[SC2 LSTMEvolutionPolicy] incompatible saved champion — %s; "
+                        "starting from random.", exc,
+                    )
+            if os.path.exists(trainer_state_file):
+                try:
+                    policy.load_trainer_state(trainer_state_file)
+                    logger.info("[SC2 LSTMEvolutionPolicy] loaded trainer state from %s",
+                                trainer_state_file)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[SC2 LSTMEvolutionPolicy] could not load trainer state — %s; "
+                        "continuing.", exc,
+                    )
+        return policy
+
+    extra_policy_types = {
+        "neural_dqn": _make_neural_dqn,
+        "cmaes":      _make_cmaes,
+        "reinforce":  _make_reinforce,
+        "lstm":       _make_lstm,
+    }
+    extra_loop_dispatch = {
+        "neural_dqn": "q_learning",
+        "cmaes":      "cmaes",
+        "reinforce":  "q_learning",
+        "lstm":       "cmaes",
+    }
 
     data = train_rl(
         experiment_name     = args.experiment,
@@ -603,7 +754,7 @@ def _run_sc2(args: argparse.Namespace) -> None:
             bot_difficulty     = p.get("bot_difficulty", "very_easy"),
         ),
         obs_spec            = obs_spec,
-        head_names          = ["fn_idx", "x", "y", "queue"],
+        head_names          = _head_names,
         discrete_actions    = DISCRETE_ACTIONS,
         speed               = p.get("speed", 1.0),
         n_sims              = p["n_sims"],
@@ -620,13 +771,15 @@ def _run_sc2(args: argparse.Namespace) -> None:
         warmup_steps        = 5,
         training_params     = p,
         no_interrupt        = args.no_interrupt,
-        re_initialize       = args.re_initialize,
+        re_initialize       = re_initialize,
         do_pretrain         = p.get("do_pretrain", False),
         policy_type         = policy_type,
         policy_params       = policy_params,
         track               = f"sc2_{map_name}",
         adaptive_mutation   = p.get("adaptive_mutation", True),
         patience            = p.get("patience", 0),
+        extra_policy_types  = extra_policy_types,
+        extra_loop_dispatch = extra_loop_dispatch,
     )
 
     save_experiment_results(data, results_dir=f"{experiment_dir}/results")

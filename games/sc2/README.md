@@ -187,9 +187,33 @@ All policies in the framework work with SC2. Set `policy_type` in `games/sc2/con
 | `epsilon_greedy` | Tabular Q-learning, ε-greedy | Classical RL baseline |
 | `mcts` | UCT-style Q-learning (UCB1 exploration) | More systematic exploration than ε-greedy |
 | `genetic` | Population of WeightedLinearPolicy, evolutionary crossover+mutation | Good for escaping local optima |
+| `sc2_genetic` | Population of SC2MultiHeadLinearPolicy, evolutionary crossover+mutation | SC2-native multi-head individuals; separate fn_idx and spatial heads |
 | `cmaes` | (μ/μ_w, λ)-CMA-ES over flat weight vector | Best general-purpose choice for linear policies |
 | `neural_dqn` | Deep Q-network, experience replay, target network | Gradient-based neural training |
 | `reinforce` | Monte Carlo policy gradient | Stochastic policy, simpler than DQN |
 | `lstm` | LSTM + isotropic Gaussian ES | Useful when temporal memory matters |
 
 Policy-specific hyperparameters go under `policy_params:` in `training_params.yaml`. See the root `README.md` or `games/tmnf/README.md` for full param reference.
+
+### `sc2_genetic` — SC2GeneticPolicy
+
+An SC2-optimised variant of the genetic algorithm. Unlike the generic `genetic` policy (which uses a single linear head per output), `sc2_genetic` maintains a population of `SC2MultiHeadLinearPolicy` individuals, each with:
+
+- **fn_idx head** — 6×obs_dim weight matrix; `argmax` selects the SC2 function ID.
+- **spatial head** — 9×obs_dim weight matrix; `argmax` selects the target grid cell.
+
+This gives each individual **15 × obs_dim** parameters (195 for minigames, 315 for ladder maps), compared to the 4 × obs_dim from the generic `genetic` policy.
+
+```yaml
+policy_type: sc2_genetic
+policy_params:
+  population_size: 30      # larger search space benefits from a bigger population
+  elite_k: 5
+  eval_episodes: 2         # average fitness over 2 noisy episodes per individual
+  mutation_scale: 0.1
+  mutation_share: 0.3      # sparse mutation — mutate 30% of weights per step
+```
+
+With `eval_episodes: 2`, total episodes per generation = `population_size × eval_episodes = 60`. At `n_sims: 50` generations that is 3,000 episodes.
+
+Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format (compatible with `SC2CMAESPolicy`).

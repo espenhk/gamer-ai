@@ -278,6 +278,10 @@ class TMNFEnv(BaseGameEnv):
             self._prev_state = init_step.state_data
             obs = self._build_obs(init_step)
             self._prev_obs = obs
+            mean_lat_lap = (
+                self._ep_lateral_sum / self._ep_lateral_count
+                if self._ep_lateral_count > 0 else None
+            )
             info = {
                 "track_progress": 0.0,
                 "lateral_offset": 0.0,
@@ -287,6 +291,9 @@ class TMNFEnv(BaseGameEnv):
                 "pos_x": init_step.state_data.position.x,
                 "pos_z": init_step.state_data.position.z,
                 "termination_reason": None,  # episode continues after lap
+                # Cumulative task metrics up to this lap completion.
+                "mean_abs_lateral_offset": mean_lat_lap,
+                "episode_reward_components": dict(self._ep_reward_components),
             }
             return obs, reward, False, False, info
 

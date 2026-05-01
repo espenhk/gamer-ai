@@ -423,8 +423,8 @@ def _greedy_table_md(data: ExperimentData) -> str:
     lines = [
         "## Greedy Phase\n\n",
         f"Best reward: **{best_r:+.1f}**\n\n",
-        "| Sim  | Reward   | Progress | Finish Time | Mean |Lat| | Reason       | Result       |\n",
-        "|------|----------|----------|-------------|---------|--------------|-------------|\n",
+        "| Sim  | Reward   | Progress | Finish Time | Mean abs lat | Reason       | Result       |\n",
+        "|------|----------|----------|-------------|--------------|--------------|-------------|\n",
     ]
     for s in data.greedy_sims:
         tag    = "**NEW BEST**" if s.improved else ""

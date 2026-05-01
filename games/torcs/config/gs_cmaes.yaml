@@ -1,0 +1,41 @@
+# Grid search: CMAESPolicy on TORCS ((mu/mu_w, lambda)-CMA-ES)
+#
+# Primary axes:
+#   population_size — lambda in CMA-ES. Drives the total episode budget
+#                     (= n_sims * population_size). Very small populations
+#                     give noisy covariance estimates for a 57-dim search
+#                     ((BASE_OBS_DIM) * 3 = 19 * 3 with TORCS obs spec).
+#   initial_sigma   — starting step size. CSA adapts sigma automatically
+#                     each generation, but the initial value controls how
+#                     far the first samples spread.
+#
+# n_sims=30 generations × up to 40 individuals = up to 1200 episodes max.
+#
+# Combos: 2 x 3 = 6
+
+base_name: "gs_torcs_cmaes_v1"
+game: torcs
+
+training_params:
+  speed: 1.0
+  n_sims: 30
+  in_game_episode_s: 120.0
+  probe_s: 30.0
+  n_lidar_rays: 0
+  policy_type: cmaes
+
+  # --- Search axes ---
+  population_size: [20, 40]
+  initial_sigma: [0.01, 0.05, 0.1]
+
+reward_params:
+  progress_weight: 10.0
+  centerline_weight: -0.5
+  centerline_exp: 2.0
+  speed_weight: 0.05
+  step_penalty: -0.01
+  finish_bonus: 100.0
+  finish_time_weight: -0.1
+  par_time_s: 120.0
+  accel_bonus: 0.5
+  crash_threshold_m: 8.0

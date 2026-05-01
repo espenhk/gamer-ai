@@ -1,5 +1,8 @@
 """Tests for CMAESPolicy in policies.py."""
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -172,7 +175,7 @@ class TestCMAESPolicySerialisation(unittest.TestCase):
         policy = CMAESPolicy(population_size=10, initial_sigma=0.3)
         cfg    = policy.to_cfg()
         for key in ("policy_type", "population_size", "sigma",
-                    "n_lidar_rays", "champion_reward"):
+                    "n_lidar_rays", "champion_reward", "eval_episodes"):
             self.assertIn(key, cfg)
 
     def test_to_cfg_policy_type(self):
@@ -199,6 +202,138 @@ class TestCMAESPolicySerialisation(unittest.TestCase):
             self.assertIn("brake_weights", cfg)
         finally:
             os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Tests — eval_episodes attribute and training loop integration
+# ---------------------------------------------------------------------------
+
+class TestCMAESEvalEpisodes(unittest.TestCase):
+
+    def test_eval_episodes_default_is_one(self):
+        policy = CMAESPolicy(population_size=10)
+        self.assertEqual(policy._eval_episodes, 1)
+
+    def test_eval_episodes_stored(self):
+        policy = CMAESPolicy(population_size=10, eval_episodes=3)
+        self.assertEqual(policy._eval_episodes, 3)
+
+    def test_eval_episodes_in_to_cfg(self):
+        policy = CMAESPolicy(population_size=10, eval_episodes=4)
+        cfg = policy.to_cfg()
+        self.assertIn("eval_episodes", cfg)
+        self.assertEqual(cfg["eval_episodes"], 4)
+
+    def test_eval_episodes_clamped_to_at_least_one(self):
+        policy = CMAESPolicy(population_size=10, eval_episodes=0)
+        self.assertEqual(policy._eval_episodes, 1)
+
+    def _run_one_gen_and_capture(self, pop_size, eval_episodes, rewards_seq):
+        """Run one generation and capture rewards passed to update_distribution."""
+        from framework.training import _greedy_loop_cmaes
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+
+        policy = CMAESPolicy(population_size=pop_size, initial_sigma=0.3,
+                             eval_episodes=eval_episodes)
+        policy.initialize_random()
+
+        rewards_iter = iter(rewards_seq)
+        captured = []
+        original_fn = policy.update_distribution
+
+        def _capture(rewards):
+            captured.append(list(rewards))
+            return original_fn(rewards)
+
+        class _SeqEnv:
+            def reset(self):
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+            def step(self, action):
+                info = {"track_progress": 0.5, "laps_completed": 0,
+                        "pos_x": 0.0, "pos_z": 0.0}
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), next(rewards_iter), True, False, info
+
+            def get_episode_time_limit(self):
+                return None
+
+            def set_episode_time_limit(self, _):
+                pass
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            with patch.object(policy, "update_distribution", side_effect=_capture):
+                _greedy_loop_cmaes(env=_SeqEnv(), policy=policy, n_generations=1,
+                                   weights_file=wf)
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+
+        return captured
+
+    def test_eval_episodes_1_passes_single_reward(self):
+        """eval_episodes=1 passes one reward per offspring unchanged."""
+        captured = self._run_one_gen_and_capture(
+            pop_size=4, eval_episodes=1,
+            rewards_seq=[10.0, 20.0, 30.0, 40.0],
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured[0]), 4)
+        np.testing.assert_allclose(captured[0], [10.0, 20.0, 30.0, 40.0])
+
+    def test_eval_episodes_3_averages_rewards(self):
+        """eval_episodes=3 passes the mean of 3 episode rewards per offspring."""
+        # 2 offspring, 3 episodes each
+        # ind0: 10, 20, 30 → mean 20; ind1: 40, 50, 60 → mean 50
+        captured = self._run_one_gen_and_capture(
+            pop_size=2, eval_episodes=3,
+            rewards_seq=[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured[0]), 2)
+        np.testing.assert_allclose(captured[0], [20.0, 50.0])
+
+    def test_eval_episodes_2_correct_reset_count(self):
+        """eval_episodes=2 calls env.reset() pop_size * 2 times per generation."""
+        from framework.training import _greedy_loop_cmaes
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+
+        pop_size = 3
+        eval_episodes = 2
+        policy = CMAESPolicy(population_size=pop_size, initial_sigma=0.3,
+                             eval_episodes=eval_episodes)
+        policy.initialize_random()
+
+        reset_count = [0]
+        rewards_iter = iter([float(i) for i in range(100)])
+
+        class _CountingEnv:
+            def reset(self):
+                reset_count[0] += 1
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+            def step(self, action):
+                info = {"track_progress": 0.5, "laps_completed": 0,
+                        "pos_x": 0.0, "pos_z": 0.0}
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), next(rewards_iter), True, False, info
+
+            def get_episode_time_limit(self):
+                return None
+
+            def set_episode_time_limit(self, _):
+                pass
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            _greedy_loop_cmaes(env=_CountingEnv(), policy=policy, n_generations=1,
+                               weights_file=wf)
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+
+        self.assertEqual(reset_count[0], pop_size * eval_episodes)
 
 
 class TestCMAESConvergence(unittest.TestCase):
@@ -229,6 +364,70 @@ class TestCMAESConvergence(unittest.TestCase):
             f"CMA-ES failed to converge: initial_dist={initial_dist:.3f}, "
             f"final_dist={final_dist:.3f}",
         )
+
+
+class TestCMAESTrainerState(unittest.TestCase):
+
+    def _make_trained_policy(self, n_gens: int = 3) -> CMAESPolicy:
+        policy = CMAESPolicy(population_size=10, initial_sigma=0.5, seed=42)
+        policy.initialize_random()
+        for _ in range(n_gens):
+            policy.sample_population()
+            policy.update_distribution([float(i) for i in range(10)])
+        return policy
+
+    def test_save_load_roundtrip_all_arrays(self):
+        """save_trainer_state → load_trainer_state preserves all distribution arrays
+        and the loaded state drives subsequent evolution correctly."""
+        import tempfile
+        policy = self._make_trained_policy()
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = CMAESPolicy(population_size=10, initial_sigma=0.99, seed=99)
+            policy2.initialize_random()
+            policy2.load_trainer_state(path)
+
+            np.testing.assert_array_equal(policy._mean,     policy2._mean)
+            np.testing.assert_array_equal(policy._C,        policy2._C)
+            np.testing.assert_array_equal(policy._B,        policy2._B)
+            np.testing.assert_array_equal(policy._D,        policy2._D)
+            np.testing.assert_array_equal(policy._invsqrtC, policy2._invsqrtC)
+            np.testing.assert_array_equal(policy._ps,       policy2._ps)
+            np.testing.assert_array_equal(policy._pc,       policy2._pc)
+            self.assertAlmostEqual(policy._sigma, policy2._sigma)
+            self.assertEqual(policy._gen,         policy2._gen)
+
+            # Verify that evolution continues from the loaded state (gen increments)
+            prev_mean = policy2._mean.copy()
+            policy2.sample_population()
+            policy2.update_distribution([float(i) for i in range(10)])
+            self.assertEqual(policy2._gen, policy._gen + 1)
+            # Mean should have shifted from the loaded state
+            self.assertFalse(np.allclose(policy2._mean, prev_mean))
+        finally:
+            os.unlink(path)
+
+    def test_load_wrong_dimension_raises(self):
+        """Loading state whose n differs from current obs space raises ValueError."""
+        import tempfile
+        policy1 = CMAESPolicy(population_size=6, n_lidar_rays=0)
+        policy1.initialize_random()
+        policy1.sample_population()
+        policy1.update_distribution([float(i) for i in range(6)])
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy1.save_trainer_state(path)
+            policy2 = CMAESPolicy(population_size=6, n_lidar_rays=4)  # different n
+            with self.assertRaises(ValueError):
+                policy2.load_trainer_state(path)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

@@ -117,6 +117,9 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
             laps_completed=s.get("laps_completed", 0),
             mutation_scale=s.get("mutation_scale"),
             termination_reason=s.get("termination_reason"),
+            finish_time_s=s.get("finish_time_s"),
+            mean_abs_lateral_offset=s.get("mean_abs_lateral_offset"),
+            reward_components=s.get("reward_components"),
         )
 
     return ExperimentData(

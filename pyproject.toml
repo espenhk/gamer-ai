@@ -45,6 +45,11 @@ numpy = ">=1.26"
 pyyaml = ">=6.0"
 matplotlib = ">=3.8"
 
+[tool.poetry.group.torcs.dependencies]
+numpy = ">=1.26"
+gymnasium = ">=0.29"
+pyyaml = ">=6.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

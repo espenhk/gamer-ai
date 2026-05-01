@@ -46,6 +46,15 @@ logger = logging.getLogger(__name__)
 _TRACE_SAMPLE_EVERY = 2   # record position every N steps
 
 
+def _trainer_state_path(weights_file: str) -> str:
+    """Return the trainer-state checkpoint path alongside the weights file.
+
+    e.g. experiments/a03/my_run/policy_weights.yaml
+         → experiments/a03/my_run/trainer_state.npz
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "trainer_state.npz")
+
+
 # ---------------------------------------------------------------------------
 # Constant-action policy (probe phase)
 # ---------------------------------------------------------------------------
@@ -146,6 +155,7 @@ def _make_policy(
                              policy_params.get("_mutation_scale_fallback", 0.1)),
             mutation_share = policy_params.get("mutation_share",
                              policy_params.get("_mutation_share_fallback", 1.0)),
+            eval_episodes  = policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
             champion = WeightedLinearPolicy(obs_spec, head_names, weights_file)
@@ -459,6 +469,7 @@ def _greedy_loop(
                     best_reward = reward
                     best_policy = candidate
                     best_policy.save(weights_file)
+                    best_policy.save_trainer_state(_trainer_state_path(weights_file))
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                 else:
                     verdict = f"no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
@@ -478,6 +489,9 @@ def _greedy_loop(
                     laps_completed=info.get("laps_completed", 0),
                     mutation_scale=current_scale,
                     termination_reason=info.get("termination_reason"),
+                    finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                    mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                    reward_components=info.get("episode_reward_components"),
                 ))
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
@@ -544,6 +558,7 @@ def _greedy_loop(
                 best_reward = best_r
                 best_policy = best_cand
                 best_policy.save(weights_file)
+                best_policy.save_trainer_state(_trainer_state_path(weights_file))
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
@@ -572,6 +587,9 @@ def _greedy_loop(
                 laps_completed=best_info.get("laps_completed", 0),
                 mutation_scale=current_scale,
                 termination_reason=best_info.get("termination_reason"),
+                finish_time_s=best_info.get("elapsed_s") if best_info.get("finished") else None,
+                mean_abs_lateral_offset=best_info.get("mean_abs_lateral_offset"),
+                reward_components=best_info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -614,8 +632,9 @@ def _greedy_loop_cmaes(
     warmup_steps: int = 0,
     patience: int = 0,
 ) -> tuple[Any, float, list[GreedySimResult], bool, int | None]:
-    """CMA-ES loop: sample λ offspring, evaluate each for one episode, update distribution."""
+    """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution."""
     pop_size          = policy.population_size
+    eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
@@ -623,8 +642,12 @@ def _greedy_loop_cmaes(
     early_stopped     = False
     early_stop_sim    = None
 
-    logger.info("[CMA-ES] population_size=%d, total episodes = %d × %d = %d",
-                pop_size, n_generations, pop_size, n_generations * pop_size)
+    logger.info(
+        "[CMA-ES] population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        pop_size, eval_episodes,
+        n_generations, pop_size, eval_episodes,
+        n_generations * pop_size * eval_episodes,
+    )
 
     try:
         for gen in range(1, n_generations + 1):
@@ -639,13 +662,16 @@ def _greedy_loop_cmaes(
             trace        = None
 
             for individual in offspring:
-                obs, _ = env.reset()
-                reward, info, _, steps, trace = _run_episode(
-                    env, individual, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
-                )
-                rewards.append(reward)
-                total_steps += steps
+                ep_rewards: list[float] = []
+                for _ in range(eval_episodes):
+                    obs, _ = env.reset()
+                    reward, info, _, steps, trace = _run_episode(
+                        env, individual, obs,
+                        warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    )
+                    ep_rewards.append(reward)
+                    total_steps += steps
+                rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.update_distribution(rewards)
             gen_best = max(rewards)
@@ -653,6 +679,7 @@ def _greedy_loop_cmaes(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
             else:
@@ -668,6 +695,9 @@ def _greedy_loop_cmaes(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -720,6 +750,7 @@ def _greedy_loop_q_learning(
                 prev_best   = best_reward
                 best_reward = reward
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
                 verdict = f"no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
@@ -734,6 +765,9 @@ def _greedy_loop_q_learning(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -762,6 +796,7 @@ def _greedy_loop_genetic(
 ) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
     """Genetic algorithm loop: N_pop episodes per generation."""
     pop_size          = len(policy.population)
+    eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
@@ -769,8 +804,12 @@ def _greedy_loop_genetic(
     early_stopped     = False
     early_stop_sim    = None
 
-    logger.info("[Genetic] population_size=%d, total episodes = %d × %d = %d",
-                pop_size, n_generations, pop_size, n_generations * pop_size)
+    logger.info(
+        "[Genetic] population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        pop_size, eval_episodes,
+        n_generations, pop_size, eval_episodes,
+        n_generations * pop_size * eval_episodes,
+    )
     if full_episode_time_s is None:
         logger.info("[Genetic] environment has no adjustable episode time limit; "
                     "skipping per-generation time scaling.")
@@ -787,13 +826,16 @@ def _greedy_loop_genetic(
             info: dict   = {}
 
             for idx, individual in enumerate(policy.population):
-                obs, _ = env.reset()
-                reward, info, _, steps, trace = _run_episode(
-                    env, individual, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
-                )
-                rewards.append(reward)
-                total_steps += steps
+                ep_rewards: list[float] = []
+                for _ in range(eval_episodes):
+                    obs, _ = env.reset()
+                    reward, info, _, steps, trace = _run_episode(
+                        env, individual, obs,
+                        warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    )
+                    ep_rewards.append(reward)
+                    total_steps += steps
+                rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.evaluate_and_evolve(rewards)
             gen_best = max(rewards)
@@ -801,6 +843,7 @@ def _greedy_loop_genetic(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
             else:
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
@@ -814,6 +857,9 @@ def _greedy_loop_genetic(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:

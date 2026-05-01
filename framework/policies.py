@@ -63,6 +63,14 @@ class BasePolicy(ABC):
         with open(path, "w") as f:
             yaml.dump(self.to_cfg(), f, default_flow_style=False, sort_keys=False)
 
+    def save_trainer_state(self, path: str) -> None:
+        """Persist trainer-internal state (e.g. CMA-ES distribution, DQN replay buffer).
+        No-op for policies with no persistent trainer state beyond the champion weights."""
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore trainer-internal state from *path*.
+        No-op for policies with no persistent trainer state."""
+
 
 # ---------------------------------------------------------------------------
 # WeightedLinearPolicy
@@ -566,13 +574,15 @@ class GeneticPolicy(BasePolicy):
         elite_k: int = 3,
         mutation_scale: float = 0.1,
         mutation_share: float = 1.0,
+        eval_episodes: int = 1,
     ) -> None:
-        self._obs_spec       = obs_spec
-        self._head_names     = list(head_names)
-        self._pop_size       = population_size
-        self._elite_k        = min(elite_k, population_size)
-        self._mutation_scale = mutation_scale
-        self._mutation_share = mutation_share
+        self._obs_spec        = obs_spec
+        self._head_names      = list(head_names)
+        self._pop_size        = population_size
+        self._elite_k         = min(elite_k, population_size)
+        self._mutation_scale  = mutation_scale
+        self._mutation_share  = mutation_share
+        self._eval_episodes   = max(1, int(eval_episodes))
         self._population: list[WeightedLinearPolicy] = []
         self._champion: WeightedLinearPolicy | None  = None
         self._champion_reward: float                  = float("-inf")
@@ -666,6 +676,7 @@ class GeneticPolicy(BasePolicy):
             "elite_k":          self._elite_k,
             "mutation_scale":   float(self._mutation_scale),
             "mutation_share":   float(self._mutation_share),
+            "eval_episodes":    self._eval_episodes,
             "champion_reward":  float(self._champion_reward),
             "champion_weights": self._champion.to_cfg() if self._champion else {},
         }

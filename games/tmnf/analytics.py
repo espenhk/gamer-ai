@@ -13,15 +13,18 @@ import os
 import numpy as np
 import yaml
 
-import sys
-import matplotlib
-if 'matplotlib.pyplot' not in sys.modules:
-    matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    import matplotlib.pyplot as plt
+    import sys
+    if 'plt' not in sys.modules:
+        matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
+    _HAS_MPL = True
+except ImportError:
+    _HAS_MPL = False
 
 from framework.analytics import (
     ExperimentData,
@@ -44,6 +47,8 @@ logger = logging.getLogger(__name__)
 
 
 def _save(fig: "Figure", path: str) -> None:
+    if not _HAS_MPL:
+        return
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -56,6 +61,8 @@ _THROTTLE_COLORS = ["#c0392b", "#95a5a6", "#27ae60"]
 # ---------------------------------------------------------------------------
 
 def _plot_throttle_trace(ax: "Axes", throttle_state: list, title: str) -> None:
+    if not _HAS_MPL:
+        return
     steps = range(len(throttle_state))
     accel = [t[0] for t in throttle_state]
     brake = [t[1] for t in throttle_state]
@@ -74,6 +81,8 @@ def _plot_throttle_trace(ax: "Axes", throttle_state: list, title: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_probe_paths(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     probes = [p for p in sorted(data.probe_results, key=lambda p: p.action_idx)
               if p.trace and p.trace.pos_x]
     if not probes:
@@ -99,6 +108,8 @@ def plot_probe_paths(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_cold_start_best_run(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     best_sim = None
     best_r   = float("-inf")
     for restart in data.cold_start_restarts:
@@ -125,6 +136,8 @@ def plot_cold_start_best_run(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_cold_start_action_dist(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     restarts = data.cold_start_restarts
     xs = [r.restart for r in restarts]
     accel_pcts, brake_pcts = [], []
@@ -157,6 +170,8 @@ def plot_cold_start_action_dist(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_greedy_best_run(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     if not data.greedy_sims:
         return
     best  = max(data.greedy_sims, key=lambda s: s.reward)
@@ -179,6 +194,8 @@ def plot_greedy_best_run(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     sims = data.greedy_sims
     xs   = [s.sim for s in sims]
     accel_pcts, brake_pcts = [], []
@@ -203,6 +220,8 @@ def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     sims = data.greedy_sims
     xs   = [s.sim for s in sims]
     ys   = [s.laps_completed + s.final_track_progress for s in sims]
@@ -245,6 +264,8 @@ def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def plot_weight_heatmap(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     with open(data.weights_file) as f:
         cfg = yaml.safe_load(f) or {}
     if "steer_weights" not in cfg:
@@ -270,6 +291,8 @@ def plot_weight_heatmap(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_weight_evolution(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     sims = [s for s in data.greedy_sims
             if s.weights is not None and "steer_weights" in s.weights]
     if len(sims) < 2:
@@ -323,6 +346,8 @@ _REASON_ORDER = ["finish", "crash", "hard_crash", "timeout"]
 
 
 def plot_termination_reasons(data: ExperimentData, results_dir: str) -> None:
+    if not _HAS_MPL:
+        return
     sims = data.greedy_sims
     if not sims:
         return
@@ -365,6 +390,8 @@ def plot_gs_comparison_paths(
     runs: list[tuple[str, ExperimentData]],
     summary_dir: str,
 ) -> None:
+    if not _HAS_MPL:
+        return
     traced = []
     for name, data in runs:
         if not data.greedy_sims:
@@ -397,6 +424,8 @@ def plot_gs_comparison_progress(
     runs: list[tuple[str, ExperimentData]],
     summary_dir: str,
 ) -> None:
+    if not _HAS_MPL:
+        return
     series = []
     for name, data in runs:
         if not data.greedy_sims:

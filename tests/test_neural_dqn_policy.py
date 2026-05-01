@@ -100,22 +100,22 @@ class TestNeuralDQNPolicyStructure(unittest.TestCase):
         self.assertEqual(act.shape, (3,))
         self.assertGreaterEqual(float(act[0]), -1.0)
         self.assertLessEqual(float(act[0]), 1.0)
-        self.assertIn(float(act[1]), {0.0, 1.0})
-        self.assertIn(float(act[2]), {0.0, 1.0})
+        self.assertIn(float(act[1]), {0.0, 0.5, 1.0})
+        self.assertIn(float(act[2]), {0.0, 0.5, 1.0})
 
     def test_greedy_action_is_discrete(self):
-        """Greedy action must be one of the 9 discrete actions."""
+        """Greedy action must be one of the 25 discrete actions."""
         p   = self._make(epsilon_start=0.0)
         act = p(_zero_obs())
         idx = _action_to_idx(act)
-        self.assertIn(idx, range(9))
+        self.assertIn(idx, range(25))
 
     def test_random_action_when_epsilon_one(self):
         """With epsilon=1, every call should still return a valid action."""
         p = self._make(epsilon_start=1.0, epsilon_end=1.0)
         for _ in range(20):
             act = p(_zero_obs())
-            self.assertIn(_action_to_idx(act), range(9))
+            self.assertIn(_action_to_idx(act), range(25))
 
     def test_replay_buffer_fills_on_update(self):
         p = self._make()
@@ -140,17 +140,17 @@ class TestNeuralDQNPolicyStructure(unittest.TestCase):
         p = self._make(target_update_freq=5, min_replay_size=16)
         # Fill buffer and trigger enough gradient steps to force a sync
         for _ in range(50):
-            p.update(_rand_obs(), np.random.randint(9), 0.0, _rand_obs(), False)
+            p.update(_rand_obs(), np.random.randint(25), 0.0, _rand_obs(), False)
         # After sync, target matches online
         for w_on, w_tgt in zip(p._online["weights"], p._target["weights"]):
             np.testing.assert_array_equal(w_on, w_tgt)
 
     def test_network_weight_shapes(self):
         p = self._make(hidden_sizes=[32, 16])
-        # Layer dims: [obs_dim, 32, 16, 9]
+        # Layer dims: [obs_dim, 32, 16, 25]
         self.assertEqual(p._online["weights"][0].shape, (32, _N))
         self.assertEqual(p._online["weights"][1].shape, (16, 32))
-        self.assertEqual(p._online["weights"][2].shape, (9,  16))
+        self.assertEqual(p._online["weights"][2].shape, (25, 16))
 
     def test_to_cfg_roundtrip(self):
         p   = self._make(epsilon_start=0.0)
@@ -201,7 +201,7 @@ class TestNeuralDQNConvergence(unittest.TestCase):
         np.random.seed(42)
         N = BASE_OBS_DIM
         state   = np.zeros(N, dtype=np.float32)
-        BEST    = 7          # accel + straight
+        BEST    = 22         # full accel + straight
         GOOD_R  =  1.0
         BAD_R   = -0.1
 
@@ -220,9 +220,9 @@ class TestNeuralDQNConvergence(unittest.TestCase):
         )
 
         next_obs = np.zeros(N, dtype=np.float32)
-        # Cycle through all 9 actions so each is equally represented
-        for step in range(4500):
-            action_idx = step % 9
+        # Cycle through all 25 actions so each is equally represented
+        for step in range(12500):
+            action_idx = step % 25
             r = GOOD_R if action_idx == BEST else BAD_R
             policy.update(state, action_idx, r, next_obs, done=True)
 

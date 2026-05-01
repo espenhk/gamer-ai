@@ -334,13 +334,13 @@ class ReplayBuffer:
 
 class NeuralDQNPolicy(BasePolicy):
     """
-    DQN over the 9-action discrete action set.
+    DQN over the 25-action discrete action set.
 
     Online network:  Q(s, a; theta_online)
     Target network:  Q(s, a; theta_target)  -- synced every target_update_freq gradient steps
     Replay buffer:   circular buffer of (s, a_idx, r, s', done)
 
-    Architecture: obs -> Linear -> ReLU -> ... -> Linear(9)
+    Architecture: obs -> Linear -> ReLU -> ... -> Linear(25)
     Pure numpy with Adam optimiser -- no external ML framework required.
     Epsilon decays linearly from epsilon_start -> epsilon_end over epsilon_decay_steps steps.
     """

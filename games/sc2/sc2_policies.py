@@ -26,7 +26,6 @@ SC2GeneticPolicy
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 import yaml
@@ -346,8 +345,13 @@ class SC2GeneticPolicy(GeneticPolicy):
         cfg: dict,
         obs_spec: ObsSpec = SC2_MINIGAME_OBS_SPEC,
     ) -> "SC2GeneticPolicy":
-        """Reconstruct policy meta-parameters from a ``to_cfg()`` dict."""
-        return cls(
+        """Reconstruct policy from a ``to_cfg()`` dict.
+
+        Restores hyperparameters and, when ``champion_weights`` is present,
+        also restores the champion individual and ``champion_reward`` so that a
+        full round-trip through ``to_cfg()`` / ``from_cfg()`` is lossless.
+        """
+        policy = cls(
             obs_spec        = obs_spec,
             population_size = cfg.get("population_size", 30),
             elite_k         = cfg.get("elite_k", 5),
@@ -355,3 +359,10 @@ class SC2GeneticPolicy(GeneticPolicy):
             mutation_share  = float(cfg.get("mutation_share", 0.3)),
             eval_episodes   = int(cfg.get("eval_episodes", 2)),
         )
+        champion_cfg = cfg.get("champion_weights")
+        if champion_cfg and isinstance(champion_cfg, dict):
+            policy._champion = SC2MultiHeadLinearPolicy.from_cfg(
+                champion_cfg, obs_spec
+            )
+            policy._champion_reward = float(cfg.get("champion_reward", float("-inf")))
+        return policy

@@ -445,6 +445,27 @@ class TestSC2GeneticPolicySerialization(unittest.TestCase):
         self.assertAlmostEqual(gp2._mutation_share, 0.5)
         self.assertEqual(gp2._eval_episodes,     3)
 
+    def test_from_cfg_restores_champion_weights(self):
+        """to_cfg / from_cfg round-trip preserves champion weights and reward."""
+        gp1 = _make_genetic(pop=4)
+        gp1.initialize_random()
+        gp1.evaluate_and_evolve([10.0, 20.0, 5.0, 1.0])   # champion_reward = 20
+        cfg = gp1.to_cfg()
+        gp2 = SC2GeneticPolicy.from_cfg(cfg, SC2_MINIGAME_OBS_SPEC)
+        self.assertIsNotNone(gp2._champion)
+        self.assertAlmostEqual(gp2._champion_reward, 20.0)
+        np.testing.assert_array_almost_equal(
+            gp1._champion._fn_weights, gp2._champion._fn_weights, decimal=6
+        )
+        np.testing.assert_array_almost_equal(
+            gp1._champion._sp_weights, gp2._champion._sp_weights, decimal=6
+        )
+
+    def test_from_cfg_no_champion_key_leaves_champion_none(self):
+        """from_cfg with no champion_weights key leaves champion unset."""
+        gp = SC2GeneticPolicy.from_cfg({"population_size": 4}, SC2_MINIGAME_OBS_SPEC)
+        self.assertIsNone(gp._champion)
+
 
 class TestSC2GeneticPolicyCall(unittest.TestCase):
 

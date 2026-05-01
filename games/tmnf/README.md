@@ -2,6 +2,35 @@
 
 Trackmania Nations Forever integration for the tmnf-ai reinforcement learning framework.
 
+- [Installation \& Setup](#installation--setup)
+  - [Prerequisites](#prerequisites)
+  - [Automated installation (recommended)](#automated-installation-recommended)
+  - [Manual installation](#manual-installation)
+- [Running TMNF](#running-tmnf)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Configuration](#configuration)
+- [Policy Guide](#policy-guide)
+- [Background: What Is a Policy?](#background-what-is-a-policy)
+- [What the Car Can Sense (Observations)](#what-the-car-can-sense-observations)
+- [What the Car Can Do (Actions)](#what-the-car-can-do-actions)
+- [The Reward Signal](#the-reward-signal)
+- [Episode Warmup](#episode-warmup)
+- [Policies](#policies)
+  - [1. `hill_climbing` — WeightedLinearPolicy](#1-hill_climbing--weightedlinearpolicy)
+  - [2. `neural_net` — NeuralNetPolicy](#2-neural_net--neuralnetpolicy)
+  - [3. `epsilon_greedy` — EpsilonGreedyPolicy](#3-epsilon_greedy--epsilongreedypolicy)
+  - [4. `mcts` — MCTSPolicy](#4-mcts--mctspolicy)
+  - [5. `genetic` — GeneticPolicy](#5-genetic--geneticpolicy)
+  - [6. `cmaes` — CMAESPolicy](#6-cmaes--cmaespolicy)
+  - [7. `neural_dqn` — NeuralDQNPolicy](#7-neural_dqn--neuraldqnpolicy)
+  - [8. `reinforce` — REINFORCEPolicy](#8-reinforce--reinforcepolicy)
+  - [9. `lstm` — LSTMEvolutionPolicy](#9-lstm--lstmevolutionpolicy)
+- [Algorithm Comparison Summary](#algorithm-comparison-summary)
+- [Choosing an Algorithm](#choosing-an-algorithm)
+- [Config Quick-Reference](#config-quick-reference)
+
 ---
 
 ## Installation & Setup

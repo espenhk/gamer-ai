@@ -2,6 +2,19 @@
 
 BeamNG.drive integration for the tmnf-ai reinforcement learning framework. Uses the `beamng_gym` package, which connects to the BeamNG.drive process via its TCP API.
 
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Python dependencies](#python-dependencies)
+- [Running BeamNG](#running-beamng)
+- [Configuration](#configuration)
+- [Observation space](#observation-space)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Supported policies](#supported-policies)
+
 ---
 
 ## Installation

@@ -2,6 +2,25 @@
 
 StarCraft II (PySC2) integration for the tmnf-ai reinforcement learning framework.
 
+- [Installation](#installation)
+  - [SC2 binary](#sc2-binary)
+  - [Maps](#maps)
+  - [Python dependencies](#python-dependencies)
+- [Running SC2](#running-sc2)
+- [Configuration](#configuration)
+- [Available maps](#available-maps)
+  - [Minigames (13-dim observation)](#minigames-13-dim-observation)
+  - [Ladder maps (21-dim observation)](#ladder-maps-21-dim-observation)
+- [Observation space](#observation-space)
+  - [Minigames — 13 features](#minigames--13-features)
+  - [Ladder maps — 21 features (above + 8 more)](#ladder-maps--21-features-above--8-more)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Supported policies](#supported-policies)
+
 ---
 
 ## Installation

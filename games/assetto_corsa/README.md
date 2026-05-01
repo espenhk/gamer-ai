@@ -2,6 +2,19 @@
 
 Assetto Corsa integration for the tmnf-ai reinforcement learning framework. Uses the `assetto-corsa-rl` gym wrapper, which connects to the AC process via shared memory and an in-game Python plugin.
 
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Python dependencies](#python-dependencies)
+- [Running Assetto Corsa](#running-assetto-corsa)
+- [Configuration](#configuration)
+- [Observation space](#observation-space)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Supported policies](#supported-policies)
+
 ---
 
 ## Installation

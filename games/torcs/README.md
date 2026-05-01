@@ -2,6 +2,20 @@
 
 TORCS (The Open Racing Car Simulator) integration for the tmnf-ai reinforcement learning framework.
 
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [TORCS binary](#torcs-binary)
+  - [Python dependencies](#python-dependencies)
+- [Running TORCS](#running-torcs)
+- [Configuration](#configuration)
+- [Observation space](#observation-space)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Supported policies](#supported-policies)
+
 ---
 
 ## Installation

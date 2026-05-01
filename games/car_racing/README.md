@@ -2,6 +2,19 @@
 
 Gymnasium `CarRacing-v2` integration for the tmnf-ai reinforcement learning framework. No separate game binary is needed — the environment runs entirely inside Python.
 
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Python dependencies](#python-dependencies)
+- [Running](#running)
+- [Configuration](#configuration)
+- [Observation space](#observation-space)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+  - [Single experiment](#single-experiment)
+  - [Grid search](#grid-search)
+- [Supported policies](#supported-policies)
+
 ---
 
 ## Installation

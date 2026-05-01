@@ -1,14 +1,19 @@
 """Tests for GeneticPolicy in tmnf/policies.py."""
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
 from helpers import make_wlp
 from games.tmnf.policies import GeneticPolicy, WeightedLinearPolicy
+from framework.training import _greedy_loop_genetic
 
 
-def _make_genetic(pop=6, elite=2) -> GeneticPolicy:
-    return GeneticPolicy(population_size=pop, elite_k=elite, mutation_scale=0.1)
+def _make_genetic(pop=6, elite=2, eval_episodes=1) -> GeneticPolicy:
+    return GeneticPolicy(population_size=pop, elite_k=elite, mutation_scale=0.1,
+                         eval_episodes=eval_episodes)
 
 
 class TestGeneticPolicy(unittest.TestCase):
@@ -74,6 +79,153 @@ class TestGeneticPolicy(unittest.TestCase):
         new_ids = [id(ind) for ind in gp._population]
         # At least some individuals should be new objects
         self.assertFalse(original_ids == new_ids)
+
+    def test_eval_episodes_default_is_one(self):
+        gp = _make_genetic()
+        self.assertEqual(gp._eval_episodes, 1)
+
+    def test_eval_episodes_stored(self):
+        gp = _make_genetic(eval_episodes=3)
+        self.assertEqual(gp._eval_episodes, 3)
+
+    def test_eval_episodes_in_to_cfg(self):
+        gp = _make_genetic(eval_episodes=4)
+        gp.initialize_random()
+        cfg = gp.to_cfg()
+        self.assertIn("eval_episodes", cfg)
+        self.assertEqual(cfg["eval_episodes"], 4)
+
+    def test_eval_episodes_from_cfg_roundtrip(self):
+        gp = GeneticPolicy.from_cfg({"eval_episodes": 5})
+        self.assertEqual(gp._eval_episodes, 5)
+
+    def test_eval_episodes_from_cfg_default(self):
+        gp = GeneticPolicy.from_cfg({})
+        self.assertEqual(gp._eval_episodes, 1)
+
+
+# ---------------------------------------------------------------------------
+# Minimal stub env for training loop tests
+# ---------------------------------------------------------------------------
+
+class _SequentialRewardEnv:
+    """Env that returns rewards from a preset list on successive episodes."""
+
+    def __init__(self, rewards: list[float]) -> None:
+        self._rewards = rewards
+        self._idx = 0
+
+    def reset(self):
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+        return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+    def step(self, action):
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+        info = {"track_progress": 0.5, "laps_completed": 0, "pos_x": 0.0, "pos_z": 0.0}
+        reward = self._rewards[self._idx % len(self._rewards)]
+        self._idx += 1
+        return np.zeros(BASE_OBS_DIM, dtype=np.float32), reward, True, False, info
+
+    def get_episode_time_limit(self):
+        return None
+
+    def set_episode_time_limit(self, _):
+        pass
+
+    def close(self):
+        pass
+
+
+class TestGeneticEvalEpisodes(unittest.TestCase):
+    """Tests for multi-episode fitness averaging in _greedy_loop_genetic."""
+
+    def _run_one_gen(self, pop_size, eval_episodes, rewards_per_episode):
+        """Run one generation and capture the rewards passed to evaluate_and_evolve."""
+        gp = _make_genetic(pop=pop_size, elite=1, eval_episodes=eval_episodes)
+        gp.initialize_random()
+
+        env = _SequentialRewardEnv(rewards_per_episode)
+        captured = []
+        original_fn = gp.evaluate_and_evolve
+
+        def _capture(rewards):
+            captured.append(list(rewards))
+            return original_fn(rewards)
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            with patch.object(gp, "evaluate_and_evolve", side_effect=_capture):
+                _greedy_loop_genetic(env=env, policy=gp, n_generations=1,
+                                     weights_file=wf)
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+
+        return captured
+
+    def test_eval_episodes_1_passes_single_reward(self):
+        """eval_episodes=1 passes single episode rewards unchanged."""
+        # 4 individuals, 1 episode each → rewards = [10, 20, 30, 40]
+        captured = self._run_one_gen(
+            pop_size=4, eval_episodes=1,
+            rewards_per_episode=[10.0, 20.0, 30.0, 40.0],
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured[0]), 4)
+        np.testing.assert_allclose(captured[0], [10.0, 20.0, 30.0, 40.0])
+
+    def test_eval_episodes_3_averages_rewards(self):
+        """eval_episodes=3 passes the mean of 3 episode rewards per individual."""
+        # 2 individuals, 3 episodes each
+        # Rewards in order: ind0ep0=10, ind0ep1=20, ind0ep2=30,
+        #                   ind1ep0=40, ind1ep1=50, ind1ep2=60
+        # Mean ind0 = 20.0, mean ind1 = 50.0
+        captured = self._run_one_gen(
+            pop_size=2, eval_episodes=3,
+            rewards_per_episode=[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(len(captured[0]), 2)
+        np.testing.assert_allclose(captured[0], [20.0, 50.0])
+
+    def test_eval_episodes_2_correct_env_reset_calls(self):
+        """eval_episodes=2 resets env pop_size * 2 times per generation."""
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+        pop_size = 3
+        eval_episodes = 2
+        gp = _make_genetic(pop=pop_size, elite=1, eval_episodes=eval_episodes)
+        gp.initialize_random()
+
+        reset_count = [0]
+        rewards_iter = iter([float(i) for i in range(100)])
+
+        class _CountingEnv:
+            def reset(self_inner):
+                reset_count[0] += 1
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+            def step(self_inner, action):
+                info = {"track_progress": 0.5, "laps_completed": 0,
+                        "pos_x": 0.0, "pos_z": 0.0}
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), next(rewards_iter), True, False, info
+
+            def get_episode_time_limit(self_inner):
+                return None
+
+            def set_episode_time_limit(self_inner, _):
+                pass
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            _greedy_loop_genetic(env=_CountingEnv(), policy=gp, n_generations=1,
+                                 weights_file=wf)
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+
+        self.assertEqual(reset_count[0], pop_size * eval_episodes)
 
 
 if __name__ == "__main__":

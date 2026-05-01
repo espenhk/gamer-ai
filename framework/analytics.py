@@ -468,7 +468,7 @@ def _task_metrics_table_md(data: ExperimentData) -> str:
                 f"| Mean finish time | {mean_ft:.1f}s |\n",
             ]
     if mean_lat is not None:
-        lines.append(f"| Mean |lateral offset| | {mean_lat:.3f}m |\n")
+        lines.append(f"| Mean abs lateral offset | {mean_lat:.3f}m |\n")
     return "".join(lines) + "\n"
 
 

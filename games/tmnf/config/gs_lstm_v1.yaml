@@ -1,0 +1,45 @@
+# Grid search: LSTMEvolutionPolicy (recurrent policy trained by evolutionary search)
+#
+# Primary axes:
+#   hidden_size     — LSTM hidden/cell dimensionality. Larger = more expressive
+#                     recurrent memory but a bigger weight vector to search over.
+#                     NOTE: changing hidden_size between runs requires
+#                     --re-initialize (saved checkpoints are incompatible).
+#   population_size — λ offspring evaluated per generation, identical semantics
+#                     to CMAESPolicy. More offspring → better covariance estimate
+#                     but more episodes per generation.
+#   initial_sigma   — starting perturbation scale. Smaller than CMAESPolicy's
+#                     default (0.3) because the LSTM weight vector is large and
+#                     large perturbations produce effectively random policies.
+#
+# n_sims = generations; total episodes = n_sims × population_size.
+# 30 gens × 20 individuals = 600 episodes, comparable to gs_cmaes.yaml.
+#
+# Combos: 2 x 2 x 2 = 8
+
+base_name: "gs_lstm_v1"
+track: a03_centerline
+
+training_params:
+  speed: 10.0
+  n_sims: 30
+  in_game_episode_s: 90.0
+  n_lidar_rays: 8
+  policy_type: lstm
+
+  # --- Search axes ---
+  hidden_size: [16, 32]
+  population_size: [10, 20]
+  initial_sigma: [0.02, 0.05]
+
+reward_params:
+  progress_weight: 10000.0
+  centerline_weight: 0.0
+  centerline_exp: 0.0
+  finish_bonus: 5000.0
+  finish_time_weight: -5.0
+  par_time_s: 60.0
+  accel_bonus: 1.0
+  airborne_penalty: -1.0
+  crash_threshold_m: 25.0
+  lidar_wall_weight: -5.0

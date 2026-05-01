@@ -77,8 +77,16 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
-    # neural_net policy params
+    # neural_net / reinforce / neural_dqn policy params
     "hidden_sizes": "hs",
+    "hidden_size": "hsize",
+    "learning_rate": "lr",
+    "entropy_coeff": "ec",
+    "baseline": "base",
+    # neural_dqn params
+    "batch_size": "bs",
+    "target_update_freq": "tuf",
+    "epsilon_decay_steps": "eds",
     # genetic policy params
     "population_size": "pop",
     "elite_k": "ek",
@@ -119,17 +127,24 @@ _ABBREV = {
 # Allows grid axes like `epsilon: [0.5, 1.0]` without nesting inside policy_params.
 # mcts_c is renamed to c because that's what MCTSPolicy.from_cfg expects.
 _POLICY_PARAM_MAP = {
-    "hidden_sizes": "hidden_sizes",  # neural_net
+    "hidden_sizes": "hidden_sizes",  # neural_net / reinforce / neural_dqn
+    "hidden_size": "hidden_size",  # lstm
+    "learning_rate": "learning_rate",  # reinforce / neural_dqn
+    "entropy_coeff": "entropy_coeff",  # reinforce
+    "baseline": "baseline",  # reinforce
+    "batch_size": "batch_size",  # neural_dqn
+    "target_update_freq": "target_update_freq",  # neural_dqn
+    "epsilon_decay_steps": "epsilon_decay_steps",  # neural_dqn
     "epsilon": "epsilon",  # epsilon_greedy
     "epsilon_decay": "epsilon_decay",  # epsilon_greedy
     "epsilon_min": "epsilon_min",  # epsilon_greedy
     "alpha": "alpha",  # epsilon_greedy / mcts
-    "gamma": "gamma",  # epsilon_greedy / mcts
+    "gamma": "gamma",  # epsilon_greedy / mcts / neural_dqn / reinforce
     "n_bins": "n_bins",  # epsilon_greedy / mcts
     "mcts_c": "c",  # mcts (renamed)
-    "population_size": "population_size",  # genetic / cmaes
+    "population_size": "population_size",  # genetic / cmaes / lstm
     "elite_k": "elite_k",  # genetic
-    "initial_sigma": "initial_sigma",  # cmaes
+    "initial_sigma": "initial_sigma",  # cmaes / lstm
 }
 
 

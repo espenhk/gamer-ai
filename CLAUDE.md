@@ -62,6 +62,9 @@ All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via 
 | `mcts` | `MCTSPolicy` | UCT-style online Q-learner (UCB1). No env cloning — builds value table over real episodes. |
 | `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
 | `cmaes` | `CMAESPolicy` | `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over flat `WeightedLinearPolicy` weights. Automatic step-size + covariance adaptation. |
+| `neural_dqn` | `NeuralDQNPolicy` | Deep Q-learning with replay buffer + target network. |
+| `reinforce` | `REINFORCEPolicy` | Monte Carlo policy gradient (optional running-mean baseline). |
+| `lstm` | `LSTMEvolutionPolicy` | Recurrent (LSTM) policy, trained by evolutionary search over network weights. |
 
 `SimplePolicy` = non-trainable hand-coded PD baseline (see `steering.py`).
 
@@ -94,6 +97,53 @@ Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | acce
 `n_sims` controls generations; total episodes = `n_sims × population_size`. No `mutation_scale` tuning needed — σ adapts automatically.
 
 `save()` writes champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, inference work unchanged.
+
+### NeuralDQNPolicy
+
+MLP Q-network (pure numpy) with experience replay and a periodically-synced target network. Action space is the 9-element discrete set (`DISCRETE_ACTIONS`). ε-greedy exploration decays linearly from `epsilon_start` to `epsilon_end` over `epsilon_decay_steps` environment steps.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `hidden_sizes` | `[64, 64]` | Hidden layer widths of the Q-network MLP |
+| `replay_buffer_size` | `10000` | Max transitions stored in the replay buffer |
+| `batch_size` | `64` | Transitions sampled per gradient update |
+| `min_replay_size` | `500` | Buffer must reach this size before training starts |
+| `target_update_freq` | `200` | Steps between copying online weights → target network |
+| `learning_rate` | `0.001` | Adam-style gradient step size |
+| `epsilon_start` | `1.0` | Initial exploration rate |
+| `epsilon_end` | `0.05` | Final exploration rate |
+| `epsilon_decay_steps` | `5000` | Steps over which ε decays linearly |
+| `gamma` | `0.99` | Discount factor |
+
+### REINFORCEPolicy
+
+Monte Carlo policy-gradient over the 9-element discrete action set. Collects full episodes, computes discounted returns, optionally subtracts a running-mean baseline, then updates the softmax policy network via gradient ascent.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `hidden_sizes` | `[64, 64]` | Hidden layer widths of the policy MLP |
+| `learning_rate` | `0.001` | Gradient step size |
+| `gamma` | `0.99` | Discount factor for return computation |
+| `entropy_coeff` | `0.01` | Entropy regularisation weight (encourages exploration) |
+| `baseline` | `"running_mean"` | Return baseline: `"running_mean"` or `"none"` |
+
+### LSTMEvolutionPolicy
+
+LSTM recurrent policy trained by CMA-ES-style evolutionary search over flattened network weights. The hidden state is reset each episode; at each step the LSTM receives the current observation and emits logits over the 9-element discrete action set.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `hidden_size` | `32` | LSTM hidden/cell state dimensionality |
+| `population_size` | `20` | λ — offspring evaluated per generation |
+| `initial_sigma` | `0.05` | Starting perturbation scale (smaller than CMAESPolicy because the LSTM weight space is larger) |
+
+`n_sims` controls generations; total episodes = `n_sims × population_size`. Saved champion weights are incompatible across different `hidden_size` or `n_lidar_rays` values — changing either requires `--re-initialize`.
 
 ---
 

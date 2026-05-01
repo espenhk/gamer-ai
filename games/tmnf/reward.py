@@ -144,7 +144,7 @@ class RewardCalculator(RewardCalculatorBase):
         elapsed_s: float,
         info: dict,
         n_ticks: int = 1,
-    ) -> tuple[float, dict]:
+    ) -> tuple[float, dict[str, float]]:
         """Internal implementation shared by compute() and compute_with_components().
 
         Returns

@@ -100,6 +100,8 @@ def _run_tmnf(args: argparse.Namespace) -> None:
     obs_spec     = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
     policy_type  = p.get("policy_type", "hill_climbing")
     policy_params = p.get("policy_params") or {}
+    action_window_ticks = p.get("action_window_ticks", 1)
+    decision_offset_pct = p.get("decision_offset_pct", 0.75)
     re_initialize = args.re_initialize
 
     # Factory callables for TMNF-specific policy types (injected into framework).
@@ -206,6 +208,7 @@ def _run_tmnf(args: argparse.Namespace) -> None:
             speed               = p["speed"],
             in_game_episode_s   = p["in_game_episode_s"],
             n_lidar_rays        = n_lidar_rays,
+            decision_offset_pct = decision_offset_pct,
             action_window_ticks = p.get("action_window_ticks", 1),
         ),
         obs_spec            = obs_spec,

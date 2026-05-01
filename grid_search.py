@@ -77,6 +77,7 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
+    "decision_offset_pct": "dec",
     "action_window_ticks": "awt",
     # neural_net policy params
     "hidden_sizes": "hs",

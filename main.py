@@ -83,12 +83,17 @@ def main() -> None:
     policy_params = p.get("policy_params") or {}
     re_initialize = args.re_initialize
 
-    # Delete trainer state when re-initializing so stale distribution state
+    # Delete persisted state when re-initializing so stale policy/trainer state
     # doesn't survive the restart.
-    if re_initialize and os.path.exists(trainer_state_file):
-        os.remove(trainer_state_file)
-        logger.info("Removed existing trainer state for re-initialization: %s",
-                    trainer_state_file)
+    if re_initialize:
+        if os.path.exists(trainer_state_file):
+            os.remove(trainer_state_file)
+            logger.info("Removed existing trainer state for re-initialization: %s",
+                        trainer_state_file)
+        if os.path.exists(weights_file):
+            os.remove(weights_file)
+            logger.info("Removed existing policy weights for re-initialization: %s",
+                        weights_file)
 
     # Factory callables for TMNF-specific policy types (injected into framework).
     def _make_neural_dqn() -> NeuralDQNPolicy:

@@ -33,9 +33,12 @@ from framework.analytics import (
     plot_cold_start_rewards,
     plot_greedy_rewards,
     plot_reward_trajectory,
+    plot_task_metrics,
+    plot_reward_components,
     _probe_table_md,
     _cold_start_table_md,
     _greedy_table_md,
+    _task_metrics_table_md,
     _timings_md,
     _summary_md,
     save_grid_summary as _framework_save_grid_summary,
@@ -519,12 +522,18 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         plot_greedy_best_run(data, results_dir)
         plot_weight_evolution(data, results_dir)
         plot_termination_reasons(data, results_dir)
+        plot_task_metrics(data, results_dir)
+        plot_reward_components(data, results_dir)
         sections.append(_greedy_table_md(data))
         sections.append("\n![Greedy rewards](greedy_rewards.png)\n\n")
         sections.append("![Greedy progress](greedy_progress.png)\n\n")
         sections.append("![Greedy best run](greedy_best_run.png)\n\n")
         sections.append("![Weight evolution](greedy_weight_evolution.png)\n\n")
         sections.append("![Termination reasons](termination_reasons.png)\n\n")
+        sections.append(_task_metrics_table_md(data))
+        sections.append("![Task metrics](task_metrics.png)\n\n")
+        if any(s.reward_components for s in data.greedy_sims):
+            sections.append("![Reward components](reward_components.png)\n\n")
 
     plot_greedy_action_dist(data, results_dir)
     plot_reward_trajectory(data, results_dir)
@@ -539,6 +548,9 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(sections)
+
+    # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
+    plt.close('all')
 
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)

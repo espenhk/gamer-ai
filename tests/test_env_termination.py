@@ -67,7 +67,9 @@ def _make_env(
     env._laps_completed = 0
     env._ep_rl_steps = 0
     env._ep_total_ticks = 0
-    env._ep_max_skip = 0
+    env._ep_max_window_ticks = 0
+    env._ep_max_overrun_ticks = 0
+    env._action_window_ticks = 1
     env._total_rl_steps = 0
     env._client = MagicMock()
     env._log_skip_stats = MagicMock()

@@ -81,14 +81,24 @@ If you'd rather install the prerequisites yourself:
 ## Quick start
 
 ```bash
-# Single experiment
+# Single experiment (default game: TMNF)
 python main.py <experiment_name> [--no-interrupt] [--re-initialize]
+
+# Select a different simulator with --game
+python main.py my_experiment --game tmnf        # Trackmania Nations Forever (default)
+python main.py my_experiment --game torcs       # TORCS (requires gym_torcs)
+python main.py my_experiment --game beamng      # BeamNG.drive (requires beamng-gym)
+python main.py my_experiment --game assetto     # Assetto Corsa (requires assettocorsa)
+python main.py my_experiment --game car_racing  # gymnasium CarRacing-v2 (requires gymnasium[box2d])
+
+# Show all available options
+python main.py --help
 
 # Grid search over multiple param combinations
 python grid_search.py config/my_grid.yaml [--no-interrupt]
 ```
 
-Results land in `experiments/<track>/<name>/results/`.
+Results land in `experiments/<game>/<name>/results/` (TMNF uses `experiments/<track>/<name>/results/`).
 
 `--re-initialize` ignores any existing weights file and reruns probe + cold-start from scratch.
 

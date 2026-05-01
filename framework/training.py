@@ -46,6 +46,15 @@ logger = logging.getLogger(__name__)
 _TRACE_SAMPLE_EVERY = 2   # record position every N steps
 
 
+def _trainer_state_path(weights_file: str) -> str:
+    """Return the trainer-state checkpoint path alongside the weights file.
+
+    e.g. experiments/a03/my_run/policy_weights.yaml
+         → experiments/a03/my_run/trainer_state.npz
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "trainer_state.npz")
+
+
 # ---------------------------------------------------------------------------
 # Constant-action policy (probe phase)
 # ---------------------------------------------------------------------------
@@ -460,6 +469,7 @@ def _greedy_loop(
                     best_reward = reward
                     best_policy = candidate
                     best_policy.save(weights_file)
+                    best_policy.save_trainer_state(_trainer_state_path(weights_file))
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                 else:
                     verdict = f"no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
@@ -479,6 +489,9 @@ def _greedy_loop(
                     laps_completed=info.get("laps_completed", 0),
                     mutation_scale=current_scale,
                     termination_reason=info.get("termination_reason"),
+                    finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                    mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                    reward_components=info.get("episode_reward_components"),
                 ))
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
@@ -545,6 +558,7 @@ def _greedy_loop(
                 best_reward = best_r
                 best_policy = best_cand
                 best_policy.save(weights_file)
+                best_policy.save_trainer_state(_trainer_state_path(weights_file))
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
@@ -573,6 +587,9 @@ def _greedy_loop(
                 laps_completed=best_info.get("laps_completed", 0),
                 mutation_scale=current_scale,
                 termination_reason=best_info.get("termination_reason"),
+                finish_time_s=best_info.get("elapsed_s") if best_info.get("finished") else None,
+                mean_abs_lateral_offset=best_info.get("mean_abs_lateral_offset"),
+                reward_components=best_info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -662,6 +679,7 @@ def _greedy_loop_cmaes(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
             else:
@@ -677,6 +695,9 @@ def _greedy_loop_cmaes(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -729,6 +750,7 @@ def _greedy_loop_q_learning(
                 prev_best   = best_reward
                 best_reward = reward
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
                 verdict = f"no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
@@ -743,6 +765,9 @@ def _greedy_loop_q_learning(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -818,6 +843,7 @@ def _greedy_loop_genetic(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
             else:
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
@@ -831,6 +857,9 @@ def _greedy_loop_genetic(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:

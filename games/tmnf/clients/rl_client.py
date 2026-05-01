@@ -66,18 +66,40 @@ _FINISH_THRESHOLD = 0.95
 # ---------------------------------------------------------------------------
 # Discrete action table
 # Index → (accelerate, brake, steer_percent, description)
+# accelerate and brake are in [0, 1]; values ≥ 0.5 are treated as True in-game.
 # steer_percent is in [-100, 100]; converted to [-STEER_SCALE, STEER_SCALE] when applied.
 # ---------------------------------------------------------------------------
-ACTIONS: list[tuple[bool, bool, int, str]] = [
-    (False,  True,  -100, "brake LEFT"),         # 0: brake  + full left
-    (False,  True,     0, "brake"),              # 1: brake  + straight
-    (False,  True,   100, "brake RIGHT"),        # 2: brake  + full right
-    (False, False,  -100, "coast LEFT"),         # 3: coast  + full left
-    (False, False,     0, "coast"),              # 4: coast  + straight
-    (False, False,   100, "coast RIGHT"),        # 5: coast  + full right
-    (True,  False,  -100, "accelerate LEFT"),    # 6: accel  + full left
-    (True,  False,     0, "accelerate"),         # 7: accel  + straight   ← default
-    (True,  False,   100, "accelerate right"),   # 8: accel  + full right
+ACTIONS: list[tuple[float, float, int, str]] = [
+    # --- full brake (accel=0, brake=1) ---
+    (0., 1., -100, "full brake + full left"),       #  0
+    (0., 1.,  -50, "full brake + half left"),       #  1
+    (0., 1.,    0, "full brake + straight"),        #  2
+    (0., 1.,   50, "full brake + half right"),      #  3
+    (0., 1.,  100, "full brake + full right"),      #  4
+    # --- half brake (accel=0, brake=0.5) ---
+    (0., 0.5,-100, "half brake + full left"),       #  5
+    (0., 0.5, -50, "half brake + half left"),       #  6
+    (0., 0.5,   0, "half brake + straight"),        #  7
+    (0., 0.5,  50, "half brake + half right"),      #  8
+    (0., 0.5, 100, "half brake + full right"),      #  9
+    # --- coast (accel=0, brake=0) ---
+    (0., 0., -100, "coast + full left"),            # 10
+    (0., 0.,  -50, "coast + half left"),            # 11
+    (0., 0.,    0, "coast + straight"),             # 12
+    (0., 0.,   50, "coast + half right"),           # 13
+    (0., 0.,  100, "coast + full right"),           # 14
+    # --- half accel (accel=0.5, brake=0) ---
+    (0.5, 0., -100, "half accel + full left"),      # 15
+    (0.5, 0.,  -50, "half accel + half left"),      # 16
+    (0.5, 0.,    0, "half accel + straight"),       # 17
+    (0.5, 0.,   50, "half accel + half right"),     # 18
+    (0.5, 0.,  100, "half accel + full right"),     # 19
+    # --- full accel (accel=1, brake=0) ---
+    (1., 0., -100, "full accel + full left"),       # 20
+    (1., 0.,  -50, "full accel + half left"),       # 21
+    (1., 0.,    0, "full accel + straight"),        # 22
+    (1., 0.,   50, "full accel + half right"),      # 23
+    (1., 0.,  100, "full accel + full right"),      # 24
 ]
 assert len(ACTIONS) == N_ACTIONS, (
     f"ACTIONS has {len(ACTIONS)} entries but N_ACTIONS={N_ACTIONS}; "
@@ -110,6 +132,7 @@ class RLClient(PhaseAwareClient):
         speed: float = 10.0,
         auto_respawn_on_finish: bool = False,
         action_window_ticks: int = 1,
+        decision_offset_pct: float = 0.75,
     ) -> None:
         super().__init__()
         self.speed = speed
@@ -117,9 +140,42 @@ class RLClient(PhaseAwareClient):
         self._auto_respawn_on_finish = auto_respawn_on_finish
         self._action_window_ticks = max(1, int(action_window_ticks))
 
-        # Shared state — written by RL thread, read by game thread
+        # --- Action windowing (issue #65) ---------------------------------
+        # The window has two phases:
+        #   * Observation phase (tick 0 .. _decision_idx-1): game thread emits
+        #     a StepState every tick; RL thread iteratively refines the pending
+        #     action.
+        #   * Transit phase (tick _decision_idx .. window-1): no StepStates,
+        #     pending action is locked.
+        # At every window boundary the pending action is committed to the game
+        # via iface.set_input_state(...).
+        # When action_window_ticks == 1, _decision_idx == 0 and every tick
+        # commits and emits — preserving legacy behavior bit-for-bit.
+        assert action_window_ticks >= 1, "action_window_ticks must be >= 1"
+        assert 0.0 < decision_offset_pct <= 1.0, "decision_offset_pct must be in (0, 1]"
+        self._action_window_ticks: int = action_window_ticks
+        if action_window_ticks > 1:
+            # Clamp to [1, window-1] so there's at least one observation tick
+            # and at least one transit tick.
+            self._decision_idx: int = max(
+                1,
+                min(action_window_ticks - 1,
+                    int(action_window_ticks * decision_offset_pct)),
+            )
+        else:
+            self._decision_idx = 0
+        self._window_tick: int = 0
+        self._force_commit_next_tick: bool = True
+        # Game ticks suppressed during the transit phase, pending attribution
+        # to the next emitted StepState so cumulative tick totals are preserved.
+        self._pending_transit_ticks: int = 0
+
+        # Shared state — written by RL thread, read by game thread.
+        # _pending_action is what the RL thread is iteratively refining;
+        # _committed_action is what the game is currently being driven with.
         # shape (3,): [steer ∈ [-1,1], accel ∈ {0,1}, brake ∈ {0,1}]
-        self._action: np.ndarray = _DEFAULT_ACTION.copy()
+        self._pending_action: np.ndarray = _DEFAULT_ACTION.copy()
+        self._committed_action: np.ndarray = _DEFAULT_ACTION.copy()
         self._action_lock = threading.Lock()
 
         # Shared state — written by game thread, read by RL thread
@@ -165,13 +221,17 @@ class RLClient(PhaseAwareClient):
         self._episode_ready.set()  # unblock wait_episode_ready
 
     def set_action(self, action: np.ndarray) -> None:
-        """Set the next action. Thread-safe.
+        """Set the next pending action. Thread-safe.
+
+        Stored in _pending_action; copied to _committed_action and applied to
+        the game at the next window boundary (or immediately when
+        action_window_ticks == 1).
 
         action: shape (3,) float32 — [steer ∈ [-1,1], accel ∈ {0,1}, brake ∈ {0,1}]
         accel and brake are thresholded at 0.5 when applied to the game.
         """
         with self._action_lock:
-            self._action = action
+            self._pending_action = action
 
     def get_step_state(self) -> StepState:
         """Block until the game thread delivers the next state."""
@@ -244,6 +304,9 @@ class RLClient(PhaseAwareClient):
             iface.give_up()
             self._last_centerline_idx = None  # full scan on next tick after respawn
             self._running = False
+            self._window_tick = 0
+            self._force_commit_next_tick = True
+            self._pending_transit_ticks = 0
             return
 
         state = iface.get_simulation_state()
@@ -272,6 +335,8 @@ class RLClient(PhaseAwareClient):
                 logger.debug("[RLClient] on_run_step t=%d: BRAKING_START → RUNNING (episode ready)", _time)
                 self._running = True
                 self._window_tick = 0
+                self._force_commit_next_tick = True
+                self._pending_transit_ticks = 0
                 step_state = StepState(
                     state_data=data,
                     yaw_error=self._compute_yaw_error(data),
@@ -292,18 +357,10 @@ class RLClient(PhaseAwareClient):
                 self._episode_ready.clear()
                 iface.give_up()  # restart race from position zero
                 self._running = False
+                self._window_tick = 0
+                self._force_commit_next_tick = True
+                self._pending_transit_ticks = 0
                 return
-
-            with self._action_lock:
-                action = self._action
-            steer_norm = float(np.clip(action[0], -1.0, 1.0))
-            accel = bool(float(action[1]) >= 0.5)
-            brake = bool(float(action[2]) >= 0.5)
-            iface.set_input_state(
-                accelerate=accel,
-                brake=brake,
-                steer=int(steer_norm * STEER_SCALE),
-            )
 
             finished  = data.track_progress is not None and data.track_progress >= _FINISH_THRESHOLD
             hard_crash = (
@@ -335,6 +392,23 @@ class RLClient(PhaseAwareClient):
                     self._state_queue.qsize(),
                 )
 
+            # --- Commit boundary: copy pending → committed and apply to game.
+            # Fires at the start of every window, on the very first running
+            # tick, and whenever termination forces an immediate commit.
+            is_window_start = (self._window_tick == 0) or self._force_commit_next_tick
+            if is_window_start or finished or hard_crash:
+                with self._action_lock:
+                    self._committed_action = self._pending_action.copy()
+                steer_norm = float(np.clip(self._committed_action[0], -1.0, 1.0))
+                accel = bool(float(self._committed_action[1]) >= 0.5)
+                brake = bool(float(self._committed_action[2]) >= 0.5)
+                iface.set_input_state(
+                    accelerate=accel,
+                    brake=brake,
+                    steer=int(steer_norm * STEER_SCALE),
+                )
+                self._force_commit_next_tick = False
+
             if finished and self._auto_respawn_on_finish:
                 # Deliver the finish step with done=False; respawn next tick.
                 self._finish_respawn_pending = True
@@ -343,14 +417,30 @@ class RLClient(PhaseAwareClient):
             else:
                 done = finished or hard_crash
 
-            step_state = StepState(
-                state_data=data,
-                yaw_error=self._compute_yaw_error(data),
-                done=done,
-                finished=finished,
-                ticks_this_step=ticks_elapsed,
-            )
-            self._drain_and_put(step_state)
+            # --- StepState gating: emit during the observation phase only.
+            # Always emit on termination so the env sees the final state.
+            in_observation_phase = self._window_tick < self._decision_idx or self._action_window_ticks == 1
+            if in_observation_phase or finished or hard_crash:
+                step_state = StepState(
+                    state_data=data,
+                    yaw_error=self._compute_yaw_error(data),
+                    done=done,
+                    finished=finished,
+                )
+                # Carry forward any ticks that were suppressed during the
+                # transit phase so cumulative totals are never undercounted.
+                step_state.ticks_this_step += self._pending_transit_ticks
+                self._pending_transit_ticks = 0
+                self._drain_and_put(step_state)
+            else:
+                # Transit phase: StepState suppressed — count the tick so it
+                # can be attributed to the next emitted StepState.
+                self._pending_transit_ticks += 1
+
+            # --- Advance window pointer.
+            self._window_tick += 1
+            if self._window_tick >= self._action_window_ticks:
+                self._window_tick = 0
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int) -> None:
         logger.info(

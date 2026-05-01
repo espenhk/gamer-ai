@@ -52,5 +52,28 @@ class RewardCalculatorBase(ABC):
             Tick-rate-independent rewards should be scaled by n_ticks.
         """
 
+    def compute_with_components(
+        self,
+        prev_state: Any,
+        curr_state: Any,
+        finished: bool,
+        elapsed_s: float,
+        info: dict,
+        n_ticks: int = 1,
+    ) -> tuple[float, dict]:
+        """Return ``(scalar_reward, components)`` for this RL step.
+
+        ``components`` is a ``dict[str, float]`` mapping named reward terms
+        to their individual contributions when a subclass exposes a
+        per-term breakdown. In that case, the scalar should be the sum of
+        all component values (identical to what :meth:`compute` returns).
+
+        The default implementation delegates to :meth:`compute` and returns
+        an empty components dict, indicating that no breakdown is available.
+        Game-specific subclasses should override this to expose per-term
+        breakdowns.
+        """
+        return self.compute(prev_state, curr_state, finished, elapsed_s, info, n_ticks), {}
+
     def reset(self) -> None:
         """Called at the start of each episode.  Override if stateful."""

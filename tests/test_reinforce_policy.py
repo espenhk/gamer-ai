@@ -38,12 +38,12 @@ class TestREINFORCEPolicyStructure(unittest.TestCase):
     def test_accel_binary(self):
         for _ in range(20):
             action = self.policy(_zero_obs())
-            self.assertIn(float(action[1]), (0.0, 1.0))
+            self.assertIn(float(action[1]), (0.0, 0.5, 1.0))
 
     def test_brake_binary(self):
         for _ in range(20):
             action = self.policy(_zero_obs())
-            self.assertIn(float(action[2]), (0.0, 1.0))
+            self.assertIn(float(action[2]), (0.0, 0.5, 1.0))
 
     def test_action_is_discrete(self):
         """Returned actions must come from DISCRETE_ACTIONS."""
@@ -233,6 +233,50 @@ class TestREINFORCECfgRoundtrip(unittest.TestCase):
         self.assertEqual(loaded._obs_dim, BASE_OBS_DIM + 4)
         action = loaded(_zero_obs(n_lidar_rays=4))
         self.assertEqual(action.shape, (3,))
+
+
+class TestREINFORCETrainerState(unittest.TestCase):
+
+    def test_save_load_roundtrip_baseline(self):
+        """save_trainer_state → load_trainer_state preserves baseline_val."""
+        import tempfile, os
+        policy = REINFORCEPolicy(hidden_sizes=[8], seed=0)
+        # Run a few episodes to shift the baseline from zero
+        obs = _rand_obs(seed=1)
+        for _ in range(3):
+            policy(obs)
+            policy.update(obs, np.array([0, 1, 0]), 5.0, obs, True)
+            policy.on_episode_end()
+
+        # Confirm the training loop actually changed the baseline from its initial value
+        self.assertNotEqual(policy._baseline_val, 0.0,
+                            "Expected baseline_val to change after training episodes")
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = REINFORCEPolicy(hidden_sizes=[8], seed=99)
+            policy2.load_trainer_state(path)
+
+            self.assertAlmostEqual(policy._baseline_val, policy2._baseline_val, places=10)
+        finally:
+            os.unlink(path)
+
+    def test_load_wrong_obs_dim_raises(self):
+        """Loading state with mismatched obs_dim raises ValueError."""
+        import tempfile, os
+        policy1 = REINFORCEPolicy(n_lidar_rays=0)
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy1.save_trainer_state(path)
+            policy2 = REINFORCEPolicy(n_lidar_rays=4)
+            with self.assertRaises(ValueError):
+                policy2.load_trainer_state(path)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

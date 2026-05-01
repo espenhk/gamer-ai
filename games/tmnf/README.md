@@ -47,13 +47,19 @@ Every policy ultimately outputs three numbers:
 | `accel` | [0, 1] | Thresholded at 0.5: accelerate or not |
 | `brake` | [0, 1] | Thresholded at 0.5: brake or not |
 
-Policies that use a **discrete action set** (Q-table-based ones) pick from these 9 combinations:
+Policies that use a **discrete action set** (Q-table-based ones) pick from 25 combinations:
 
 ```
-brake+left  | brake+straight  | brake+right
-coast+left  | coast+straight  | coast+right
-accel+left  | accel+straight  | accel+right
+                | full left | half left | straight | half right | full right
+----------------+-----------+-----------+----------+------------+-----------
+full brake      |     ✓     |     ✓     |    ✓     |     ✓      |     ✓
+half brake      |     ✓     |     ✓     |    ✓     |     ✓      |     ✓
+coast           |     ✓     |     ✓     |    ✓     |     ✓      |     ✓
+half accel      |     ✓     |     ✓     |    ✓     |     ✓      |     ✓
+full accel      |     ✓     |     ✓     |    ✓     |     ✓      |     ✓
 ```
+
+Half-steer (±0.5) maps to ±50% of the steering range; half-accel/brake (0.5) threshold to the same in-game boolean as full, but appear as distinct choices in the action space.
 
 Policies that use **continuous actions** (linear, neural net) can produce any steering value in [−1, 1].
 
@@ -177,7 +183,7 @@ Q[state, "accel+left"]  = 98.2
 ```
 
 To pick an action, the policy either:
-- **Explores** (with probability ε): picks a random action from the 9 options.
+- **Explores** (with probability ε): picks a random action from the 25 options.
 - **Exploits** (with probability 1−ε): picks the action with the highest Q-value for the current state.
 
 After each step, the Q-table is updated using the **Bellman equation**:

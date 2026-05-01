@@ -216,4 +216,4 @@ policy_params:
 
 With `population_size: 30` and `eval_episodes: 2`, total episodes per generation = `population_size × eval_episodes = 60`. At `n_sims: 50` generations that is 3,000 episodes.
 
-Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format (compatible with `SC2CMAESPolicy`).
+Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format.

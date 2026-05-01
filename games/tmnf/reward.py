@@ -136,6 +136,111 @@ class RewardCalculator(RewardCalculatorBase):
         if self._curiosity is not None:
             self._curiosity.reset_episode()
 
+    def _compute_all(
+        self,
+        prev_state: StateData,
+        curr_state: StateData,
+        finished: bool,
+        elapsed_s: float,
+        info: dict,
+        n_ticks: int = 1,
+    ) -> tuple[float, dict]:
+        """Internal implementation shared by compute() and compute_with_components().
+
+        Returns
+        -------
+        (total_reward, components)
+            ``total_reward`` is the scalar sum of all terms.
+            ``components`` maps each named term to its individual contribution.
+        """
+        cfg          = self.config
+        accelerating = bool(info.get("accelerating", False))
+        lidar_rays   = info.get("lidar_rays", None)
+        components: dict[str, float] = {}
+
+        # Progress: reward for advancing along the track this step.
+        progress = 0.0
+        if curr_state.track_progress is not None and prev_state.track_progress is not None:
+            delta    = curr_state.track_progress - prev_state.track_progress
+            progress = delta * cfg.progress_weight
+        components["progress"] = progress
+
+        # Centerline: quadratic penalty for lateral deviation.
+        # Scaled by n_ticks: the car was off-centreline for this many game ticks.
+        centerline = 0.0
+        if curr_state.lateral_offset is not None:
+            centerline = (
+                cfg.centerline_weight * abs(curr_state.lateral_offset) ** cfg.centerline_exp
+                * n_ticks
+            )
+        components["centerline"] = centerline
+
+        # Speed: small reward for going fast.
+        # Scaled by n_ticks: the car was travelling at this speed for this many ticks.
+        speed = cfg.speed_weight * curr_state.velocity.magnitude() * n_ticks
+        components["speed"] = speed
+
+        # Acceleration bonus: nudge the policy away from coasting.
+        # Scaled by n_ticks because the action was held for that many game ticks.
+        accel_bonus = cfg.accel_bonus * n_ticks if accelerating else 0.0
+        components["accel_bonus"] = accel_bonus
+
+        # Time cost: constant small penalty per tick, scaled by ticks covered.
+        step_penalty = cfg.step_penalty * n_ticks
+        components["step_penalty"] = step_penalty
+
+        # Finish: one-time bonus + time-relative bonus.
+        finish_bonus = 0.0
+        finish_time  = 0.0
+        if finished:
+            finish_bonus = cfg.finish_bonus
+            over_par     = elapsed_s - cfg.par_time_s
+            finish_time  = cfg.finish_time_weight * over_par  # negative if slow
+        components["finish_bonus"] = finish_bonus
+        components["finish_time"]  = finish_time
+
+        # Airborne penalty: only when below or beside the centerline.
+        # Scaled by n_ticks: the car was airborne for this many game ticks.
+        airborne = 0.0
+        if curr_state.vertical_offset is not None:
+            wheels_in_contact = sum(w.contact for w in curr_state.wheels)
+            is_airborne = wheels_in_contact <= 1
+            # vertical_offset > 0 → car is above centerline → legitimate jump → no penalty
+            if is_airborne and curr_state.vertical_offset <= 0.0:
+                airborne = cfg.airborne_penalty * n_ticks
+        components["airborne"] = airborne
+
+        # Lidar wall proximity: quadratic penalty for the nearest detected wall.
+        lidar_wall = 0.0
+        if (
+            lidar_rays is not None
+            and len(lidar_rays) > 0
+            and cfg.lidar_wall_weight != 0.0
+        ):
+            min_ray    = float(np.min(lidar_rays))
+            lidar_wall = cfg.lidar_wall_weight * (1.0 - min_ray) ** 2
+        components["lidar_wall"] = lidar_wall
+
+        # Intrinsic curiosity bonus (ICM / RND).
+        # Disabled when no module is attached or the weight is zero — the
+        # extrinsic reward above is then bit-for-bit identical to the
+        # pre-curiosity calculator (backward compatibility).
+        # Scaled by n_ticks so the intrinsic-vs-extrinsic ratio is invariant
+        # to skip-event frequency, matching the other per-tick components.
+        curiosity = 0.0
+        if self._curiosity is not None and cfg.curiosity_weight != 0.0:
+            prev_obs = info.get("prev_obs")
+            curr_obs = info.get("curr_obs")
+            action   = info.get("action")
+            if prev_obs is not None and curr_obs is not None and action is not None:
+                r_intrinsic = self._curiosity.reward(prev_obs, action, curr_obs)
+                self._curiosity.update(prev_obs, action, curr_obs)
+                curiosity = cfg.curiosity_weight * r_intrinsic * n_ticks
+        components["curiosity"] = curiosity
+
+        total = sum(components.values())
+        return total, components
+
     def compute(
         self,
         prev_state: StateData,
@@ -156,73 +261,31 @@ class RewardCalculator(RewardCalculatorBase):
             info["curr_obs"]      ndarray — current  obs vector (curiosity only)
             info["action"]        ndarray — action taken         (curiosity only)
         """
-        cfg          = self.config
-        accelerating = bool(info.get("accelerating", False))
-        lidar_rays   = info.get("lidar_rays", None)
-        reward       = 0.0
+        total, _ = self._compute_all(
+            prev_state, curr_state, finished, elapsed_s, info, n_ticks
+        )
+        return total
 
-        # Progress: reward for advancing along the track this step.
-        if curr_state.track_progress is not None and prev_state.track_progress is not None:
-            delta = curr_state.track_progress - prev_state.track_progress
-            reward += delta * cfg.progress_weight
+    def compute_with_components(
+        self,
+        prev_state: StateData,
+        curr_state: StateData,
+        finished: bool,
+        elapsed_s: float,
+        info: dict,
+        n_ticks: int = 1,
+    ) -> tuple[float, dict]:
+        """Like compute(), but also returns a per-component breakdown.
 
-        # Centerline: quadratic penalty for lateral deviation.
-        # Scaled by n_ticks: the car was off-centreline for this many game ticks.
-        if curr_state.lateral_offset is not None:
-            reward += (
-                cfg.centerline_weight * abs(curr_state.lateral_offset) ** cfg.centerline_exp
-                * n_ticks
-            )
-
-        # Speed: small reward for going fast.
-        # Scaled by n_ticks: the car was travelling at this speed for this many ticks.
-        reward += cfg.speed_weight * curr_state.velocity.magnitude() * n_ticks
-
-        # Acceleration bonus: nudge the policy away from coasting.
-        # Scaled by n_ticks because the action was held for that many game ticks.
-        if accelerating:
-            reward += cfg.accel_bonus * n_ticks
-
-        # Time cost: constant small penalty per tick, scaled by ticks covered.
-        reward += cfg.step_penalty * n_ticks
-
-        # Finish: one-time bonus + time-relative bonus.
-        if finished:
-            reward += cfg.finish_bonus
-            over_par = elapsed_s - cfg.par_time_s
-            reward += cfg.finish_time_weight * over_par  # negative if slow
-
-        # Airborne penalty: only when below or beside the centerline.
-        # Scaled by n_ticks: the car was airborne for this many game ticks.
-        if curr_state.vertical_offset is not None:
-            wheels_in_contact = sum(w.contact for w in curr_state.wheels)
-            airborne = wheels_in_contact <= 1
-            # vertical_offset > 0 → car is above centerline → legitimate jump → no penalty
-            if airborne and curr_state.vertical_offset <= 0.0:
-                reward += cfg.airborne_penalty * n_ticks
-
-        # Lidar wall proximity: quadratic penalty for the nearest detected wall.
-        if (
-            lidar_rays is not None
-            and len(lidar_rays) > 0
-            and cfg.lidar_wall_weight != 0.0
-        ):
-            min_ray = float(np.min(lidar_rays))
-            reward += cfg.lidar_wall_weight * (1.0 - min_ray) ** 2
-
-        # Intrinsic curiosity bonus (ICM / RND).
-        # Disabled when no module is attached or the weight is zero — the
-        # extrinsic reward above is then bit-for-bit identical to the
-        # pre-curiosity calculator (backward compatibility).
-        # Scaled by n_ticks so the intrinsic-vs-extrinsic ratio is invariant
-        # to skip-event frequency, matching the other per-tick components.
-        if self._curiosity is not None and cfg.curiosity_weight != 0.0:
-            prev_obs = info.get("prev_obs")
-            curr_obs = info.get("curr_obs")
-            action   = info.get("action")
-            if prev_obs is not None and curr_obs is not None and action is not None:
-                r_intrinsic = self._curiosity.reward(prev_obs, action, curr_obs)
-                self._curiosity.update(prev_obs, action, curr_obs)
-                reward += cfg.curiosity_weight * r_intrinsic * n_ticks
-
-        return reward
+        Returns
+        -------
+        (total_reward, components)
+            ``total_reward`` is identical to what :meth:`compute` returns.
+            ``components`` is a ``dict[str, float]`` with keys:
+            ``progress``, ``centerline``, ``speed``, ``accel_bonus``,
+            ``step_penalty``, ``finish_bonus``, ``finish_time``,
+            ``airborne``, ``lidar_wall``, ``curiosity``.
+        """
+        return self._compute_all(
+            prev_state, curr_state, finished, elapsed_s, info, n_ticks
+        )

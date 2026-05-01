@@ -479,6 +479,9 @@ def _greedy_loop(
                     laps_completed=info.get("laps_completed", 0),
                     mutation_scale=current_scale,
                     termination_reason=info.get("termination_reason"),
+                    finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                    mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                    reward_components=info.get("episode_reward_components"),
                 ))
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
@@ -573,6 +576,9 @@ def _greedy_loop(
                 laps_completed=best_info.get("laps_completed", 0),
                 mutation_scale=current_scale,
                 termination_reason=best_info.get("termination_reason"),
+                finish_time_s=best_info.get("elapsed_s") if best_info.get("finished") else None,
+                mean_abs_lateral_offset=best_info.get("mean_abs_lateral_offset"),
+                reward_components=best_info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -677,6 +683,9 @@ def _greedy_loop_cmaes(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -743,6 +752,9 @@ def _greedy_loop_q_learning(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -831,6 +843,9 @@ def _greedy_loop_genetic(
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
+                finish_time_s=info.get("elapsed_s") if info.get("finished") else None,
+                mean_abs_lateral_offset=info.get("mean_abs_lateral_offset"),
+                reward_components=info.get("episode_reward_components"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:

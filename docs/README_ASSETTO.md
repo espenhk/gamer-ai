@@ -62,4 +62,4 @@ Box([-1, 0, 0], [1, 1, 1], shape=(3,), dtype=float32)
     [2] brake  ∈ [0, 1]   (thresholded at 0.5 → bool)
 ```
 
-This is identical to TMNF's action space, so framework policies (genetic, CMA-ES, DQN, REINFORCE, …) work unchanged.
+This is identical to TMNF's action space, so the default genetic policy works unchanged. Other TMNF policy families may be compatible in principle, but for Assetto you should only use the policy types currently exposed by the Assetto entrypoint; unsupported values will fail with `Unknown policy_type`.

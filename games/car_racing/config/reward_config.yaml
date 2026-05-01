@@ -1,0 +1,6 @@
+# Reward configuration for CarRacing RL training.
+
+native_reward_scale: 1.0
+step_penalty: -0.1
+finish_bonus: 100.0
+crash_threshold_m: 25.0

@@ -321,7 +321,7 @@ class TMNFEnv(BaseGameEnv):
         self._prev_obs = obs
         mean_lat = (
             self._ep_lateral_sum / self._ep_lateral_count
-            if self._ep_lateral_count > 0 else 0.0
+            if self._ep_lateral_count > 0 else None
         )
         info = {
             "track_progress": data.track_progress or 0.0,

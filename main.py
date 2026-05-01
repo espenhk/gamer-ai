@@ -247,6 +247,7 @@ def _run_torcs(args: argparse.Namespace) -> None:
     from games.torcs.obs_spec import TORCS_OBS_SPEC
     from games.torcs.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
     from games.torcs.env import make_env
+    from games.torcs.analytics import save_experiment_results
 
     # Read TORCS master config.
     with open("games/torcs/config/training_params.yaml") as f:
@@ -305,6 +306,7 @@ def _run_torcs(args: argparse.Namespace) -> None:
         patience            = p.get("patience", 0),
     )
 
+    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
     logger.info("TORCS training complete. Results saved to %s", experiment_dir)
 
 

@@ -3,7 +3,7 @@
 # enable_vision=False"); tune freely.
 
 track: assetto_default      # informational; AC env doesn't load a track .npy
-speed: 5.0                  # game speed multiplier (forwarded to env wrapper)
+speed: 5.0                  # retained for config/API parity; may not affect AC env
 in_game_episode_s: 150.0    # episode time-limit in seconds
 n_sims: 100                 # greedy simulations / generations after cold-start
 mutation_scale: 0.05

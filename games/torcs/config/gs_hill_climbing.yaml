@@ -1,0 +1,41 @@
+# Grid search: WeightedLinearPolicy (hill_climbing) on TORCS
+#
+# Primary axes:
+#   mutation_scale  — step size of the hill-climbing search. Too small → stuck
+#                     in flat reward regions; too large → random walk.
+#   cold_restarts   — number of independent random basins explored before
+#                     greedy begins. More restarts reduces sensitivity to the
+#                     initial weight vector.
+#
+# n_sims is held fixed so training budget is constant across combos.
+#
+# Combos: 3 x 2 = 6
+
+base_name: "gs_torcs_hc_v1"
+game: torcs
+
+training_params:
+  speed: 1.0
+  n_sims: 50
+  in_game_episode_s: 120.0
+  probe_s: 30.0
+  cold_sims: 5
+  n_lidar_rays: 0
+  policy_type: hill_climbing
+  mutation_share: 1.0
+
+  # --- Search axes ---
+  mutation_scale: [0.01, 0.05, 0.2]
+  cold_restarts: [5, 20]
+
+reward_params:
+  progress_weight: 10.0
+  centerline_weight: -0.5
+  centerline_exp: 2.0
+  speed_weight: 0.05
+  step_penalty: -0.01
+  finish_bonus: 100.0
+  finish_time_weight: -0.1
+  par_time_s: 120.0
+  accel_bonus: 0.5
+  crash_threshold_m: 8.0

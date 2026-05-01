@@ -1,4 +1,5 @@
-"""Tests for task-metric fields and analytics helpers added in issue #XX.
+"""Tests for task-metric fields and analytics helpers added in the
+'Normalize training rewards' issue.
 
 Covers:
 - GreedySimResult new fields (finish_time_s, mean_abs_lateral_offset,

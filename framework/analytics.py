@@ -459,12 +459,14 @@ def _task_metrics_table_md(data: ExperimentData) -> str:
         f"| Mean track progress | {mean_progress:.4f} |\n",
     ]
     if finished_sims:
-        best_ft  = min(s.finish_time_s for s in finished_sims)  # type: ignore[arg-type]
-        mean_ft  = sum(s.finish_time_s for s in finished_sims) / len(finished_sims)  # type: ignore[arg-type]
-        lines += [
-            f"| Best finish time | {best_ft:.1f}s |\n",
-            f"| Mean finish time | {mean_ft:.1f}s |\n",
-        ]
+        finish_times = [s.finish_time_s for s in finished_sims if s.finish_time_s is not None]
+        if finish_times:
+            best_ft  = min(finish_times)
+            mean_ft  = sum(finish_times) / len(finish_times)
+            lines += [
+                f"| Best finish time | {best_ft:.1f}s |\n",
+                f"| Mean finish time | {mean_ft:.1f}s |\n",
+            ]
     if mean_lat is not None:
         lines.append(f"| Mean |lateral offset| | {mean_lat:.3f}m |\n")
     return "".join(lines) + "\n"
@@ -545,8 +547,8 @@ def _gs_stats(data: ExperimentData) -> dict:
     finished_sims = [s for s in sims if s.finish_time_s is not None]
     finish_rate = len(finished_sims) / len(sims)
     best_track_progress = max(s.final_track_progress for s in sims)
-    best_finish_time_s = (min(s.finish_time_s for s in finished_sims)  # type: ignore[type-var]
-                          if finished_sims else None)
+    finish_times = [s.finish_time_s for s in finished_sims if s.finish_time_s is not None]
+    best_finish_time_s = min(finish_times) if finish_times else None
     return {
         "best_reward": best_reward,
         "n_improvements": n_improvements,

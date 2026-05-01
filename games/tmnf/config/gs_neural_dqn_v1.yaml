@@ -21,9 +21,9 @@
 # Combos: 2 x 2 x 2 x 2 = 16
 
 base_name: "gs_neural_dqn_v1"
+track: a03_centerline
 
 training_params:
-  track: a03_centerline
   speed: 10.0
   n_sims: 100
   in_game_episode_s: 90.0

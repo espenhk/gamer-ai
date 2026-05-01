@@ -18,9 +18,9 @@
 # Combos: 2 x 2 x 2 = 8
 
 base_name: "gs_lstm_v1"
+track: a03_centerline
 
 training_params:
-  track: a03_centerline
   speed: 10.0
   n_sims: 30
   in_game_episode_s: 90.0

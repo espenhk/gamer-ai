@@ -218,3 +218,6 @@ terraform.tfstate.backup
 backend.conf
 
 .terraform/
+
+# Experiment outputs (created at runtime, not committed)
+experiments/

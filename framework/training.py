@@ -67,6 +67,8 @@ class _ConstantPolicy:
         return self._action
     def update(self, *_) -> None:
         pass
+    def on_episode_start(self) -> None:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,8 @@ def _run_episode(
     pos_z: list[float] = []
     throttle_state: list = []
     prev_obs = obs
+
+    policy.on_episode_start()
 
     while True:
         in_warmup = (warmup_action is not None) and (steps < warmup_steps)

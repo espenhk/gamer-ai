@@ -81,6 +81,7 @@ def _run_tmnf(args: argparse.Namespace) -> None:
 
     experiment_dir       = f"experiments/{track}/{args.experiment}"
     weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    trainer_state_file   = f"{experiment_dir}/trainer_state.npz"
     reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
     training_params_file = f"{experiment_dir}/training_params.yaml"
 
@@ -104,13 +105,37 @@ def _run_tmnf(args: argparse.Namespace) -> None:
     decision_offset_pct = p.get("decision_offset_pct", 0.75)
     re_initialize = args.re_initialize
 
+    # Delete persisted state when re-initializing so stale policy/trainer state
+    # doesn't survive the restart.
+    if re_initialize:
+        if os.path.exists(trainer_state_file):
+            os.remove(trainer_state_file)
+            logger.info("Removed existing trainer state for re-initialization: %s",
+                        trainer_state_file)
+        if os.path.exists(weights_file):
+            os.remove(weights_file)
+            logger.info("Removed existing policy weights for re-initialization: %s",
+                        weights_file)
+
     # Factory callables for TMNF-specific policy types (injected into framework).
     def _make_neural_dqn() -> NeuralDQNPolicy:
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:
                 _cfg = yaml.safe_load(_f)
             if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
-                return NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+                policy = NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[NeuralDQNPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[NeuralDQNPolicy] could not load trainer state from %s — %s; "
+                            "continuing with default state.",
+                            trainer_state_file, exc,
+                        )
+                return policy
         return NeuralDQNPolicy(
             hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
             replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
@@ -139,6 +164,17 @@ def _run_tmnf(args: argparse.Namespace) -> None:
                 yaml.safe_load(open(weights_file)) or {}, n_lidar_rays=n_lidar_rays
             )
             policy.initialize_from_champion(champion)
+            if os.path.exists(trainer_state_file):
+                try:
+                    policy.load_trainer_state(trainer_state_file)
+                    logger.info("[CMAESPolicy] loaded trainer state from %s",
+                                trainer_state_file)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[CMAESPolicy] could not load trainer state from %s — %s; "
+                        "continuing with champion weights and default distribution.",
+                        trainer_state_file, exc,
+                    )
         else:
             policy.initialize_random()
         return policy
@@ -148,7 +184,19 @@ def _run_tmnf(args: argparse.Namespace) -> None:
             with open(weights_file) as _f:
                 _cfg = yaml.safe_load(_f) or {}
             if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                return REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+                policy = REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[REINFORCEPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[REINFORCEPolicy] could not load trainer state from %s — %s; "
+                            "continuing with default state.",
+                            trainer_state_file, exc,
+                        )
+                return policy
         return REINFORCEPolicy(
             hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
             learning_rate = policy_params.get("learning_rate", 0.001),
@@ -186,6 +234,17 @@ def _run_tmnf(args: argparse.Namespace) -> None:
                     )
                 champion = LSTMPolicy.from_cfg(_cfg)
                 policy.initialize_from_champion(champion)
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[LSTMEvolutionPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[LSTMEvolutionPolicy] could not load trainer state from %s — %s; "
+                            "continuing with champion weights and default distribution.",
+                            trainer_state_file, exc,
+                        )
         return policy
 
     extra_policy_types = {

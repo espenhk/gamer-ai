@@ -1,6 +1,90 @@
-# TMNF AI — Policy Guide
+# TMNF — Trackmania Nations Forever
 
-This guide explains every training algorithm available in this project in plain language. You don't need a machine learning background to follow along — the goal is to give you enough intuition to pick the right algorithm and tune it confidently.
+Trackmania Nations Forever integration for the tmnf-ai reinforcement learning framework.
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+
+- **Windows 10/11** — `pywin32`, the `mss` window-capture backend, and the `tminterface` Python bindings all attach to the live game process.
+- **Trackmania Nations Forever** installed (free from Ubisoft / Nadeo).
+- **TMInterface 1.4.x** — later versions changed the Python API and are **not** compatible. Official installer: https://donadigo.com/tminterface
+- **Python 3.11+** and **Poetry**.
+
+### Automated installation (recommended)
+
+The repo ships with a PowerShell bootstrap script that installs Python, Git, Poetry, and TMInterface 1.4, runs `poetry install --with tmnf`, launches TMInterface, and invokes the command you pass it:
+
+```powershell
+.\setup_and_run.ps1 "python main.py my_experiment"
+```
+
+The script is idempotent — re-running it on an already-configured machine skips the install steps and goes straight to launching TMInterface + your command. Pass `-DryRun` to preview without executing.
+
+### Manual installation
+
+1. Install Windows, TMNF, TMInterface 1.4.x, Python 3.11+, and Poetry (see Prerequisites above).
+2. From the repo root, install the Python dependencies:
+   ```bash
+   poetry install --with tmnf
+   ```
+3. Verify the install:
+   ```bash
+   poetry run python -m pytest tests/
+   ```
+
+---
+
+## Running TMNF
+
+1. **Launch TMInterface** and open Trackmania Nations Forever through it.
+2. **Run the training command:**
+
+   ```bash
+   # default game is TMNF — both forms are equivalent
+   python main.py my_experiment
+   python main.py my_experiment --game tmnf
+   ```
+
+Results are saved to `experiments/<track>/my_experiment/results/`.
+
+---
+
+## Example commands
+
+### Single experiment
+
+```bash
+python main.py my_experiment
+```
+
+### Grid search
+
+A ready-made grid search template is included:
+
+```bash
+python grid_search.py games/tmnf/config/grid_search_template.yaml
+```
+
+You can also copy one of the pre-built grid configs in `games/tmnf/config/` (e.g. `gs_cmaes.yaml`, `gs_genetic.yaml`, `gs_hill_climbing.yaml`) as a starting point.
+
+---
+
+## Configuration
+
+| File | Purpose |
+|---|---|
+| `games/tmnf/config/training_params.yaml` | Track, episode length, policy type, hyperparams |
+| `games/tmnf/config/reward_config.yaml` | Reward weights |
+| `games/tmnf/config/grid_search_template.yaml` | Grid search starting point |
+
+---
+
+## Policy Guide
+
+This section explains every training algorithm available in this project in plain language. You don't need a machine learning background to follow along — the goal is to give you enough intuition to pick the right algorithm and tune it confidently.
 
 ---
 

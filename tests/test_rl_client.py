@@ -228,7 +228,13 @@ class TestActionWindow(unittest.TestCase):
         self.assertTrue(self.client._state_queue.empty())
 
     def test_transit_phase_ticks_accumulate_via_drain_and_put(self):
-        """The next window's tick 0 StepState absorbs suppressed transit ticks."""
+        """Transit ticks are carried into the next window's first StepState.
+
+        Window=4: ticks 0-2 (observation) each emit a StepState; tick 3
+        (transit) is suppressed and increments _pending_transit_ticks.  The
+        next window's tick 0 must add that pending count to its own
+        ticks_this_step so no game tick is lost.
+        """
         iface = self._iface()
         # Run a full window: ticks 0, 1, 2 emit; tick 3 (transit) suppresses.
         for _ in range(4):
@@ -236,11 +242,16 @@ class TestActionWindow(unittest.TestCase):
         # Drain queue (whatever's left from observation phase).
         while not self.client._state_queue.empty():
             self.client._state_queue.get_nowait()
-        # Next tick is tick 0 of a new window — should emit and absorb the
-        # transit tick from the previous window. Exact count depends on
-        # _drain_and_put state; this just verifies emission.
+        # Verify the counter was incremented for the suppressed transit tick.
+        self.assertEqual(self.client._pending_transit_ticks, 1)
+        # Next tick is tick 0 of a new window — emits with ticks_this_step=2:
+        # 1 for the current tick + 1 for the suppressed transit tick.
         self._run_step(iface)
         self.assertEqual(self.client._state_queue.qsize(), 1)
+        emitted = self.client._state_queue.get_nowait()
+        self.assertEqual(emitted.ticks_this_step, 2)
+        # Counter must be reset after emission.
+        self.assertEqual(self.client._pending_transit_ticks, 0)
 
     def test_pending_action_locked_after_decision_tick(self):
         """Action set during transit phase does NOT reach the game until next window-start."""

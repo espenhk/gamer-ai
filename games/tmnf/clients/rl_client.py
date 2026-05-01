@@ -135,6 +135,9 @@ class RLClient(PhaseAwareClient):
             self._decision_idx = 0
         self._window_tick: int = 0
         self._force_commit_next_tick: bool = True
+        # Game ticks suppressed during the transit phase, pending attribution
+        # to the next emitted StepState so cumulative tick totals are preserved.
+        self._pending_transit_ticks: int = 0
 
         # Shared state — written by RL thread, read by game thread.
         # _pending_action is what the RL thread is iteratively refining;
@@ -391,6 +394,7 @@ class RLClient(PhaseAwareClient):
             self._running = False
             self._window_tick = 0
             self._force_commit_next_tick = True
+            self._pending_transit_ticks = 0
             return
 
         state = iface.get_simulation_state()
@@ -420,6 +424,7 @@ class RLClient(PhaseAwareClient):
                 self._running = True
                 self._window_tick = 0
                 self._force_commit_next_tick = True
+                self._pending_transit_ticks = 0
                 step_state = StepState(
                     state_data=data,
                     yaw_error=self._compute_yaw_error(data),
@@ -443,6 +448,7 @@ class RLClient(PhaseAwareClient):
                 self._running = False
                 self._window_tick = 0
                 self._force_commit_next_tick = True
+                self._pending_transit_ticks = 0
                 return
 
             finished  = data.track_progress is not None and data.track_progress >= _FINISH_THRESHOLD
@@ -495,7 +501,15 @@ class RLClient(PhaseAwareClient):
                     done=done,
                     finished=finished,
                 )
+                # Carry forward any ticks that were suppressed during the
+                # transit phase so cumulative totals are never undercounted.
+                step_state.ticks_this_step += self._pending_transit_ticks
+                self._pending_transit_ticks = 0
                 self._drain_and_put(step_state)
+            else:
+                # Transit phase: StepState suppressed — count the tick so it
+                # can be attributed to the next emitted StepState.
+                self._pending_transit_ticks += 1
 
             # --- Advance window pointer.
             self._window_tick += 1

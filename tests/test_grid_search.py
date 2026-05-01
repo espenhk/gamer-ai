@@ -1,7 +1,12 @@
 """Tests for grid_search.py — grid expansion and name generation."""
 from __future__ import annotations
 
-from grid_search import _expand_grid, _make_experiment_name, _fmt_value, _build_policy_params, _POLICY_PARAM_MAP
+import os
+import tempfile
+
+import yaml
+
+from grid_search import _expand_grid, _make_experiment_name, _fmt_value, _build_policy_params, _POLICY_PARAM_MAP, _load_grid_config
 
 
 class TestExpandGrid:
@@ -147,3 +152,55 @@ class TestFmtValue:
 
     def test_string(self):
         assert _fmt_value("hill_climbing") == "hill_climbing"
+
+
+class TestLoadGridConfig:
+    def test_default_game_is_tmnf(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "training_params": {"n_sims": 10}}, f)
+            f.flush()
+            base_name, game, track, t, r, d = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert game == "tmnf"
+
+    def test_game_field_honoured(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "game": "torcs",
+                        "training_params": {"n_sims": 10}}, f)
+            f.flush()
+            base_name, game, track, t, r, d = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert game == "torcs"
+
+    def test_track_field_honoured(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "track": "aalborg",
+                        "training_params": {"n_sims": 10}}, f)
+            f.flush()
+            base_name, game, track, t, r, d = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert track == "aalborg"
+
+    def test_track_default_is_none(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "training_params": {"n_sims": 10}}, f)
+            f.flush()
+            base_name, game, track, t, r, d = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert track is None
+
+    def test_grid_expansion_unaffected_by_game_field(self):
+        """Adding game: field should not affect grid expansion."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({
+                "base_name": "test",
+                "game": "torcs",
+                "training_params": {"mutation_scale": [0.05, 0.1]},
+                "reward_params": {}
+            }, f)
+            f.flush()
+            _, _, _, t, r, _ = _load_grid_config(f.name)
+        os.unlink(f.name)
+        combos, varied = _expand_grid(t, r)
+        assert len(combos) == 2
+        assert varied == ["mutation_scale"]

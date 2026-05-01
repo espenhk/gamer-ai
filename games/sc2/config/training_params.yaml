@@ -1,5 +1,4 @@
 # StarCraft 2 training parameters.
-# Mirrors the TMNF / TORCS config structure with SC2-specific defaults.
 
 game: sc2
 map_name: MoveToBeacon       # PySC2 map; one of MINIGAME_NAMES or a ladder map
@@ -15,10 +14,6 @@ n_sims: 100                  # greedy simulations / generations after cold-start
 mutation_scale: 0.05         # std-dev of Gaussian noise applied to each perturbed weight
 mutation_share: 1.0          # fraction of weights perturbed per mutation (1.0 = all)
 adaptive_mutation: true      # apply 1/5th success rule to adapt mutation_scale during greedy phase
-probe_s: 30.0                # in-game seconds for each probe action run
-cold_restarts: 10            # max random restarts during cold-start search
-cold_sims: 5                 # hill-climb sims per cold-start restart
-n_lidar_rays: 0              # not applicable for SC2
 patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
 
 # Policy algorithm for the greedy training phase.

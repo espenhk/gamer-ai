@@ -1,0 +1,62 @@
+# Reward configuration for TMNF RL training.
+# Edit these values freely — no code changes required.
+# See rl/reward.py for full documentation of each parameter.
+
+# --- Progress ---
+progress_weight: 10000.0
+
+# --- Centerline adherence ---
+# penalty = centerline_weight * |lateral_offset_m| ^ centerline_exp
+# Divided by ~1.2 (expected avg ticks/step at 10x speed) because compute() now
+# scales this term by n_ticks, keeping reward magnitudes comparable to before.
+centerline_weight: -0.083
+centerline_exp: 2.0
+
+# --- Speed ---
+# Divided by ~1.2 for the same n_ticks scaling reason as centerline_weight above.
+speed_weight: 0.042
+
+# --- Time cost ---
+step_penalty: -0.05
+
+# --- Finish rewards ---
+finish_bonus: 5000.0
+finish_time_weight: -5.0   # negative: slower than par costs reward
+par_time_s: 60.0
+
+# --- Acceleration bonus ---
+# Flat reward per step when throttle is pressed — discourages coasting.
+accel_bonus: 0.5
+
+# --- Airborne penalty (below/beside centerline only) ---
+# Divided by ~1.2 for the same n_ticks scaling reason as centerline_weight above.
+airborne_penalty: -0.83
+
+# --- Lidar wall proximity ---
+# penalty = lidar_wall_weight * (1 - min_ray)^2  (negative weight → closer = worse)
+# Set to 0.0 to disable when not using lidar rays.
+lidar_wall_weight: -5.0
+
+# --- Episode termination ---
+crash_threshold_m: 25.0
+
+# --- Track ---
+track_name: a03
+centerline_path: tracks/a03_centerline.npy
+
+# --- Curiosity-driven exploration (issue #24) ---
+# Adds an intrinsic reward bonus on top of the extrinsic signal above.
+# Two modules are available; both train online (no replay buffer needed):
+#   icm  — Intrinsic Curiosity Module (Pathak et al. 2017)
+#          forward-model prediction error in a learned feature space, with
+#          an inverse model preventing feature collapse.
+#   rnd  — Random Network Distillation (Burda et al. 2018)
+#          predictor vs frozen-random target error; cheaper, no action input.
+# Set curiosity_type to "none" (or curiosity_weight to 0) to disable.
+curiosity_type: none           # "none" | "icm" | "rnd"
+curiosity_weight: 0.0          # scale of the intrinsic reward
+curiosity_feature_dim: 8       # internal feature embedding dimension
+curiosity_hidden_size: 32      # hidden layer width for ICM/RND nets
+curiosity_lr: 0.001            # online SGD step size for the curiosity nets
+curiosity_beta: 0.2            # ICM only: forward vs inverse loss weighting
+curiosity_seed: 0              # RNG seed for the random init

@@ -21,10 +21,6 @@ training_params:
   in_game_episode_s: 120.0
   mutation_scale: 0.05
   mutation_share: 1.0
-  probe_s: 30.0
-  cold_restarts: 10
-  cold_sims: 5
-  n_lidar_rays: 0
   policy_type: hill_climbing
 
 # ---------------------------------------------------------------------------

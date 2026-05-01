@@ -26,6 +26,7 @@ class ComboSpec:
     track: str
     training_params: dict[str, Any]
     reward_params: dict[str, Any]
+    game: str = "tmnf"
 
 
 @dataclasses.dataclass

@@ -1,0 +1,104 @@
+track: a03_centerline    # stem of the .npy file in tracks/ (e.g. "a03_centerline" → tracks/a03_centerline.npy)
+speed: 10.0              # game speed multiplier (TMInterface max is 10.0)
+in_game_episode_s: 30.0  # in-game seconds per episode (braking phase + driving)
+n_sims: 100              # greedy simulations / generations after cold-start
+mutation_scale: 0.05      # std-dev of Gaussian noise applied to each perturbed weight
+mutation_share: 1.0       # fraction of weights perturbed per mutation (1.0 = all, 0.2 = ~6/30)
+adaptive_mutation: true   # apply 1/5th success rule to adapt mutation_scale during greedy phase
+probe_s: 15.0             # in-game seconds for each of the 9 single-action probe runs
+cold_restarts: 20         # max random restarts during cold-start search (hill_climbing only)
+cold_sims: 5            # hill-climb sims per cold-start restart (hill_climbing only)
+n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 = disabled)
+action_window_ticks: 1   # game ticks between RL decisions (1 = act every tick; higher = simulate human reaction time)
+patience: 0              # stop greedy loop if no improvement for this many sims (0 = run all)
+
+# Action windowing (issue #65) — act only every X game ticks instead of every tick.
+# Counted in game ticks, independent of `speed`.
+#
+# action_window_ticks: 1 = legacy (commit and emit StepState every tick).
+# When > 1, the window has two phases. The split point is computed as
+# floor(window * decision_offset_pct) and then clamped to [1, window - 1],
+# so there is always at least one observation tick and one transit tick.
+#   * Observation phase (tick 0 .. decision_idx - 1):
+#     game thread emits a StepState every tick; RL thread iteratively refines
+#     the pending action with each new observation.
+#   * Transit phase (remaining ticks): pending action is locked, no StepStates.
+#     Provides deterministic compute slack so the RL thread is not racing the
+#     next commit boundary. Even decision_offset_pct: 1.0 still leaves one
+#     transit tick because of the clamp. Mimics human reaction delay.
+# At each window boundary the pending action is committed via set_input_state.
+#
+# Notes:
+#   - Per-tick reward terms (centerline, speed_weight, accel_bonus, step_penalty,
+#     airborne_penalty) scale with ticks_this_step. Per-RL-step magnitudes shift
+#     across the window but cumulative episode totals are unchanged.
+#   - Larger windows shrink RL-steps-per-episode by ~decision_idx×, affecting
+#     replay-buffer fill, batch sizes, and step-tuned epsilon schedules.
+action_window_ticks: 1
+decision_offset_pct: 0.75
+
+
+# Policy algorithm for the greedy training phase.
+# Options: hill_climbing | neural_net | epsilon_greedy | mcts | genetic | neural_dqn | cmaes | reinforce | lstm
+policy_type: genetic
+
+# Type-specific hyperparams.  Only the block matching policy_type is used.
+# Uncomment and edit the relevant section when switching policy_type.
+#
+policy_params:
+
+  # hill_climbing — ES gradient estimation with antithetic pairs (+ε / −ε).
+  # Each sim runs two episodes and updates weights via:
+  #   θ += learning_rate * (R⁺ − R⁻) * ε
+  # mutation_scale controls the probe radius; learning_rate controls the step size.
+  #learning_rate: 0.01
+
+  # neural_net — MLP policy, hill-climbing on network weights
+  #hidden_sizes: [16, 16]   # hidden layer sizes
+
+  # epsilon_greedy — tabular Q-learning with epsilon-greedy exploration
+  #n_bins: 3                # discretization buckets per obs feature
+  #epsilon: 1.0             # initial exploration rate
+  #epsilon_decay: 0.995     # per-episode epsilon multiplier
+  #epsilon_min: 0.05        # minimum epsilon
+  #alpha: 0.1               # Q-learning rate
+  #gamma: 0.99              # reward discount factor
+
+  # mcts — UCT-style online Q-learner (UCB1 action selection)
+  #n_bins: 3                # discretization buckets per obs feature
+  #c: 1.41                  # UCB1 exploration constant (sqrt(2) default)
+  #alpha: 0.1               # Q-learning rate
+  #gamma: 0.99              # reward discount factor
+
+  # genetic — population of linear policies, evolutionary training
+  population_size: 20      # individuals per generation
+  elite_k: 3               # top survivors kept unchanged each generation
+  # mutation_scale is inherited from the top-level value above
+
+  # neural_dqn — DQN with experience replay and frozen target network
+  #hidden_sizes: [64, 64]       # MLP hidden layer sizes
+  #replay_buffer_size: 10000    # max transitions stored in replay buffer
+  #batch_size: 64               # minibatch size for each gradient step
+  #min_replay_size: 500         # steps before first gradient update
+  #target_update_freq: 200      # gradient steps between target network syncs
+  #learning_rate: 0.001         # Adam learning rate
+  #epsilon_start: 1.0           # initial exploration rate
+  #epsilon_end: 0.05            # minimum exploration rate
+  #epsilon_decay_steps: 5000    # steps over which epsilon decays linearly
+  #gamma: 0.99                  # discount factor
+  
+  # cmaes — CMA-ES over flat WeightedLinearPolicy weight vector (Hansen 2016)
+  #population_size: 20     # λ — offspring sampled each generation
+  #initial_sigma: 0.3      # initial step size (adapted automatically)
+
+  # reinforce — Monte Carlo policy gradient (pure numpy MLP, softmax over 9 discrete actions)
+  #hidden_sizes: [64, 64]  # MLP hidden layer sizes
+  #learning_rate: 0.001    # gradient ascent step size
+  #gamma: 0.99             # reward discount factor
+  #entropy_coeff: 0.01     # H(π) bonus coefficient (0 = disabled)
+  #baseline: running_mean  # variance reduction baseline ("running_mean" or "none")
+
+  # lstm — LSTM policy trained via isotropic (μ/μ_w, λ)-ES (1/5 success rule for σ)
+  #hidden_size: 32         # LSTM hidden units (flat param dim ≈ 4×(h+obs_dim)×h + 3h)
+  #population_size: 20     # λ — offspring sampled per generation
+  #initial_sigma: 0.05     # initial step size (adapted via 1/5 rule)

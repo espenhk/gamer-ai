@@ -37,25 +37,9 @@ import yaml
 from distributed.protocol import ComboSpec
 from distributed.coordinator import Coordinator
 
-from games.tmnf.analytics import save_experiment_results, save_grid_summary
+from framework.game_adapter import GAME_ADAPTERS
+from framework.run_config import RunConfig
 from framework.training import train_rl
-from games.tmnf.obs_spec import TMNF_OBS_SPEC
-from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-# games.tmnf.env is imported lazily inside _run_combo() because it pulls in
-# tminterface (Windows-only, not on PyPI) which breaks pure-logic test imports
-# of this module on Linux CI.
-from games.tmnf.policies import (
-    CMAESPolicy,
-    LSTMEvolutionPolicy,
-    LSTMPolicy,
-    NeuralDQNPolicy,
-    REINFORCEPolicy,
-    WeightedLinearPolicy,
-)
-
-# Game-specific and analytics imports are deferred to the functions that need them
-# so that importing grid_search for testing (utility functions only) doesn't require
-# a live game environment or Windows-only modules.
 
 logger = logging.getLogger(__name__)
 
@@ -231,16 +215,17 @@ def _make_experiment_name(
 
 def _load_grid_config(
     path: str,
-) -> tuple[str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """Load grid config YAML. Returns (base_name, track, training_spec, reward_spec, distribute_cfg)."""
+) -> tuple[str, str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load grid config YAML. Returns (base_name, game, track, training_spec, reward_spec, distribute_cfg)."""
     with open(path) as f:
         cfg = yaml.safe_load(f)
     base_name = cfg.get("base_name", "gs")
-    track = cfg.get("track", "a03_centerline")
+    game = cfg.get("game", "tmnf")
+    track = cfg.get("track", None)
     training_spec = cfg.get("training_params", {})
     reward_spec = cfg.get("reward_params", {})
     distribute_cfg = cfg.get("distribute", {})
-    return base_name, track, training_spec, reward_spec, distribute_cfg
+    return base_name, game, track, training_spec, reward_spec, distribute_cfg
 
 
 def _expand_grid(
@@ -312,112 +297,6 @@ def _build_policy_params(t: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-def _build_tmnf_extras(
-    weights_file: str,
-    n_lidar_rays: int,
-    re_initialize: bool,
-    policy_params: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, str]]:
-    """
-    Build (extra_policy_types, extra_loop_dispatch) for TMNF-specific policy
-    types so train_rl() can construct and route them. Mirrors main.py's setup
-    so `policy_type: cmaes | neural_dqn | reinforce | lstm` works from grid
-    search and distributed workers, not just from main.py.
-    """
-
-    def _make_neural_dqn() -> NeuralDQNPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f)
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
-                return NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-        return NeuralDQNPolicy(
-            hidden_sizes=policy_params.get("hidden_sizes", [64, 64]),
-            replay_buffer_size=policy_params.get("replay_buffer_size", 10000),
-            batch_size=policy_params.get("batch_size", 64),
-            min_replay_size=policy_params.get("min_replay_size", 500),
-            target_update_freq=policy_params.get("target_update_freq", 200),
-            learning_rate=policy_params.get("learning_rate", 0.001),
-            epsilon_start=policy_params.get("epsilon_start", 1.0),
-            epsilon_end=policy_params.get("epsilon_end", 0.05),
-            epsilon_decay_steps=policy_params.get("epsilon_decay_steps", 5000),
-            gamma=policy_params.get("gamma", 0.99),
-            n_lidar_rays=n_lidar_rays,
-        )
-
-    def _make_cmaes() -> CMAESPolicy:
-        policy = CMAESPolicy(
-            population_size=policy_params.get("population_size", 20),
-            initial_sigma=policy_params.get("initial_sigma", 0.3),
-            n_lidar_rays=n_lidar_rays,
-            eval_episodes=policy_params.get("eval_episodes", 1),
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                champion = WeightedLinearPolicy.from_cfg(
-                    yaml.safe_load(_f) or {}, n_lidar_rays=n_lidar_rays
-                )
-            policy.initialize_from_champion(champion)
-        else:
-            policy.initialize_random()
-        return policy
-
-    def _make_reinforce() -> REINFORCEPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                return REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-        return REINFORCEPolicy(
-            hidden_sizes=policy_params.get("hidden_sizes", [64, 64]),
-            learning_rate=policy_params.get("learning_rate", 0.001),
-            gamma=policy_params.get("gamma", 0.99),
-            entropy_coeff=policy_params.get("entropy_coeff", 0.01),
-            baseline=policy_params.get("baseline", "running_mean"),
-            n_lidar_rays=n_lidar_rays,
-        )
-
-    def _make_lstm() -> LSTMEvolutionPolicy:
-        hidden_size = policy_params.get("hidden_size", 32)
-        policy = LSTMEvolutionPolicy(
-            hidden_size=hidden_size,
-            population_size=policy_params.get("population_size", 20),
-            initial_sigma=policy_params.get("initial_sigma", 0.05),
-            n_lidar_rays=n_lidar_rays,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
-                saved_hidden = _cfg.get("hidden_size")
-                saved_lidar = _cfg.get("n_lidar_rays")
-                if saved_hidden is not None and saved_hidden != hidden_size:
-                    raise ValueError(
-                        "Saved LSTM champion hidden_size does not match current run: "
-                        f"saved={saved_hidden}, current={hidden_size}"
-                    )
-                if saved_lidar is not None and saved_lidar != n_lidar_rays:
-                    raise ValueError(
-                        "Saved LSTM champion n_lidar_rays does not match current run: "
-                        f"saved={saved_lidar}, current={n_lidar_rays}"
-                    )
-                policy.initialize_from_champion(LSTMPolicy.from_cfg(_cfg))
-        return policy
-
-    extras = {
-        "neural_dqn": _make_neural_dqn,
-        "cmaes": _make_cmaes,
-        "reinforce": _make_reinforce,
-        "lstm": _make_lstm,
-    }
-    dispatch = {
-        "neural_dqn": "q_learning",
-        "cmaes": "cmaes",
-        "reinforce": "q_learning",
-        "lstm": "cmaes",
-    }
-    return extras, dispatch
-
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -425,22 +304,22 @@ def _build_tmnf_extras(
 
 
 def _setup_experiment_dir(
-    name: str, track: str, t: dict[str, Any], r: dict[str, Any]
+    adapter, name: str, t: dict[str, Any], r: dict[str, Any],
+    track_override: str | None,
 ) -> tuple[str, str, str]:
     """Create experiment dir, write config files. Returns (experiment_dir, weights_file, reward_cfg_file)."""
-    centerline_path = f"games/tmnf/tracks/{track}.npy"
-    experiment_dir = f"games/tmnf/experiments/{track}/{name}"
+    experiment_dir = adapter.experiment_dir(name, t, track_override)
     weights_file = f"{experiment_dir}/policy_weights.yaml"
     reward_cfg_file = f"{experiment_dir}/reward_config.yaml"
     training_params_file = f"{experiment_dir}/training_params.yaml"
 
     os.makedirs(experiment_dir, exist_ok=True)
 
-    with open("games/tmnf/config/reward_config.yaml") as f:
+    reward_master = os.path.join(adapter.config_dir, "reward_config.yaml")
+    with open(reward_master) as f:
         reward_cfg = yaml.safe_load(f) or {}
     reward_cfg.update(r)
-    reward_cfg["track_name"] = track
-    reward_cfg["centerline_path"] = centerline_path
+    adapter.decorate_reward_cfg(reward_cfg, t, track_override)
     with open(reward_cfg_file, "w") as f:
         yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
     with open(training_params_file, "w") as f:
@@ -450,16 +329,15 @@ def _setup_experiment_dir(
 
 
 def _run_local(
+    adapter,
     combos: list[dict[str, Any]],
     names: list[str],
-    track: str,
+    track_override: str | None,
     no_interrupt: bool,
     re_initialize: bool,
 ) -> list[tuple[str, Any]]:
     """Run all combos sequentially on this machine. Returns list of (name, ExperimentData)."""
-    # Local import: pulls in tminterface; only needed when actually running
-    # training, not when grid_search is imported for unit tests.
-    from games.tmnf.env import make_env
+    from framework.analytics import save_experiment_data_json
 
     all_runs = []
     n = len(combos)
@@ -469,59 +347,28 @@ def _run_local(
         logger.info("=== Run %d/%d: %s ===", i, n, name)
 
         experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(
-            name, track, t, r
-        )
-        n_lidar_rays = t.get("n_lidar_rays", 0)
-        obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
-        policy_params = _build_policy_params(t)
-        extras, dispatch = _build_tmnf_extras(
-            weights_file=weights_file,
-            n_lidar_rays=n_lidar_rays,
-            re_initialize=re_initialize,
-            policy_params=policy_params,
+            adapter, name, t, r, track_override
         )
 
+        # Merge promoted policy params so grid axes like `epsilon: [0.5, 1.0]` work.
+        t_with_pp = dict(t)
+        t_with_pp["policy_params"] = _build_policy_params(t)
+
+        game_spec = adapter.build_game_spec(
+            name, experiment_dir, weights_file, reward_cfg_file, t_with_pp, track_override,
+        )
         data = train_rl(
-            experiment_name=name,
-            make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t[
-                "in_game_episode_s"
-            ], _lr=n_lidar_rays, _aw=t.get("action_window_ticks", 1): make_env(
-                experiment_dir=_dir,
-                speed=_sp,
-                in_game_episode_s=_ep,
-                n_lidar_rays=_lr,
-                action_window_ticks=_aw,
-            ),
-            obs_spec=obs_spec,
-            head_names=["steer", "accel", "brake"],
-            discrete_actions=DISCRETE_ACTIONS,
-            speed=t["speed"],
-            n_sims=t["n_sims"],
-            in_game_episode_s=t["in_game_episode_s"],
-            weights_file=weights_file,
-            reward_config_file=reward_cfg_file,
-            mutation_scale=t.get("mutation_scale", 0.05),
-            mutation_share=t.get("mutation_share", 1.0),
-            probe_actions=PROBE_ACTIONS,
-            probe_in_game_s=t.get("probe_s", 0),
-            cold_start_restarts=t.get("cold_restarts", 0),
-            cold_start_sims=t.get("cold_sims", 0),
-            warmup_action=WARMUP_ACTION,
-            warmup_steps=5,
-            training_params=t,
+            game=game_spec,
+            config=RunConfig.from_training_params(t_with_pp),
+            probe=adapter.build_probe(t_with_pp),
+            warmup=adapter.build_warmup(t_with_pp),
+            extras=adapter.build_extras(weights_file, t_with_pp, re_initialize),
             no_interrupt=no_interrupt or i > 1,
             re_initialize=re_initialize,
-            policy_type=t.get("policy_type", "hill_climbing"),
-            policy_params=policy_params,
-            extra_policy_types=extras,
-            extra_loop_dispatch=dispatch,
-            track=track,
-            do_pretrain=t.get("do_pretrain", False),
-            patience=t.get("patience", 0),
         )
 
-        save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-        from framework.analytics import save_experiment_data_json
+        if game_spec.save_results_fn is not None:
+            game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
@@ -532,12 +379,14 @@ def _run_local(
 
 
 def _run_distributed(
+    adapter,
     combos: list[dict[str, Any]],
     names: list[str],
-    track: str,
+    track_override: str | None,
     token: str,
     port: int,
     heartbeat_timeout: float,
+    game_name: str,
 ) -> list[tuple[str, Any]]:
     """Start coordinator, write local config files, block until all results arrive."""
 
@@ -547,9 +396,11 @@ def _run_distributed(
     for combo, name in zip(combos, names):
         t = combo["training_params"]
         r = combo["reward_params"]
-        _setup_experiment_dir(name, track, t, r)
+        _setup_experiment_dir(adapter, name, t, r, track_override)
+        track = adapter.track_label(t, track_override)
         combo_specs.append(
-            ComboSpec(name=name, track=track, training_params=t, reward_params=r)
+            ComboSpec(name=name, track=track, training_params=t,
+                      reward_params=r, game=game_name)
         )
 
     coord = Coordinator(
@@ -569,10 +420,17 @@ def _run_distributed(
     # Override reward_config_file to the local path written above, then save results.
     all_runs = []
     for name, data in raw_runs:
-        experiment_dir = f"experiments/{track}/{name}"
+        experiment_dir = adapter.experiment_dir(name, data.training_params, track_override)
         data.reward_config_file = f"{experiment_dir}/reward_config.yaml"
         data.weights_file = f"{experiment_dir}/policy_weights.yaml"
-        save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+        if hasattr(adapter, 'build_game_spec'):
+            # Use adapter's save_results_fn via build_game_spec
+            game_spec = adapter.build_game_spec(
+                name, experiment_dir, data.weights_file, data.reward_config_file,
+                data.training_params, track_override,
+            )
+            if game_spec.save_results_fn is not None:
+                game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         from framework.analytics import save_experiment_data_json
         save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
@@ -627,16 +485,28 @@ def _consolidate(
     logger.info(
         "Consolidating %d experiment(s) into %s", len(all_runs), summary_dir
     )
+    from framework.analytics import save_grid_summary
     save_grid_summary(all_runs, varied_keys, summary_dir, summary_name)
     logger.info("Summary report: %s/summary.md", summary_dir)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Grid search over TMNF training/reward params"
+        description="Grid search over training/reward params (multi-game)"
     )
     parser.add_argument("config", nargs="?", default=None,
                         help="Path to grid search YAML config (not needed with --consolidate)")
+    parser.add_argument(
+        "--game",
+        default=None,
+        choices=["tmnf", "beamng", "car_racing", "torcs", "sc2"],
+        help="Override game (default: from YAML 'game:' field, or tmnf)",
+    )
+    parser.add_argument(
+        "--track",
+        default=None,
+        help="Override the track / map name from the config.",
+    )
     parser.add_argument(
         "--no-interrupt",
         action="store_true",
@@ -718,15 +588,22 @@ def main() -> None:
     if args.config is None:
         parser.error("config is required when not using --consolidate")
 
-    base_name, track, training_spec, reward_spec, distribute_cfg = _load_grid_config(
+    base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg = _load_grid_config(
         args.config
     )
+
+    # CLI --game / --track override YAML values
+    game_name = getattr(args, "game", None) or game_name
+    track_override = getattr(args, "track", None) or track_override
+
+    adapter = GAME_ADAPTERS[game_name]()
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
 
     n = len(combos)
     logger.info("  Grid search:       %d combination(s)", n)
     logger.info("  Base name:         %s", base_name)
-    logger.info("  Track:             %s", track)
+    logger.info("  Game:              %s", game_name)
+    logger.info("  Track override:    %s", track_override or "(default)")
     logger.info("  Training config:")
     for k, v in training_spec.items():
         logger.info("    %s: %s", k, v)
@@ -760,13 +637,16 @@ def main() -> None:
                 token_preview,
             )
         all_runs = _run_distributed(
-            combos, names, track, token=token, port=port, heartbeat_timeout=hb_timeout
+            adapter, combos, names, track_override,
+            token=token, port=port, heartbeat_timeout=hb_timeout,
+            game_name=game_name,
         )
     else:
         all_runs = _run_local(
+            adapter,
             combos,
             names,
-            track,
+            track_override=track_override,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
         )
@@ -782,9 +662,19 @@ def main() -> None:
         logger.info("  %-50s  %+12.1f", exp_name, best)
 
     # Cross-experiment summary report
-
-    summary_dir = f"games/tmnf/experiments/{track}/{base_name}__summary" # TODO needs to be game adapted
-    save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
+    summary_root = adapter.experiment_dir_root(training_spec, track_override)
+    summary_dir = f"{summary_root}/{base_name}__summary"
+    # Lazy import — save_grid_summary is game-specific analytics
+    try:
+        game_spec = adapter.build_game_spec(
+            base_name, summary_dir, "", "", training_spec, track_override,
+        )
+        # Import the game-specific save_grid_summary via its analytics module
+        _analytics_mod = __import__(f"games.{game_name}.analytics", fromlist=["save_grid_summary"])
+        _analytics_mod.save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
+    except (ImportError, AttributeError):
+        from framework.analytics import save_grid_summary
+        save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     logger.info("Summary report: %s/summary.md", summary_dir)
 
 

@@ -18,10 +18,13 @@ try:
     import matplotlib.cm as cm
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+    import matplotlib.pyplot as plt
+    import sys
+    if 'plt' not in sys.modules:
+        matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
     _HAS_MPL = True
 except ImportError:
     _HAS_MPL = False
-
 
 from framework.analytics import (
     ExperimentData,

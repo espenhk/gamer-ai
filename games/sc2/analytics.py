@@ -1,4 +1,9 @@
-"""Assetto Corsa-specific analytics.
+"""SC2-specific analytics entry point.
+
+SC2 minigames don't have throttle / steering / centerline concepts, so
+this module is intentionally thin — it delegates to the framework's
+generic reward-trajectory and probe/cold-start/greedy plots and writes
+a minimal Markdown summary.
 
 Entry point called by main.py:
     save_experiment_results(data: ExperimentData, results_dir: str) -> None
@@ -7,6 +12,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+
+import matplotlib
+if 'matplotlib.pyplot' not in sys.modules:
+    matplotlib.use('Agg')
 
 from framework.analytics import (
     ExperimentData,
@@ -19,17 +29,18 @@ from framework.analytics import (
     _greedy_table_md,
     _timings_md,
     _summary_md,
+    save_grid_summary as _framework_save_grid_summary,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
-    """Generate all plots and write a results.md report to *results_dir*."""
+    """Generate generic plots and write a results.md report to *results_dir*."""
     os.makedirs(results_dir, exist_ok=True)
 
     sections = [
-        f"# Experiment: {data.experiment_name}\n\n**Game:** Assetto Corsa\n\n",
+        f"# Experiment: {data.experiment_name}\n\n**Game:** StarCraft 2\n\n",
         _timings_md(data),
         _summary_md(data),
     ]
@@ -50,8 +61,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         sections.append("\n![Greedy rewards](greedy_rewards.png)\n\n")
 
     plot_reward_trajectory(data, results_dir)
-    sections.append("## Additional Plots\n\n")
-    sections.append("![Reward trajectory](reward_trajectory.png)\n\n")
+    sections.append("\n![Reward trajectory](reward_trajectory.png)\n\n")
 
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
@@ -59,3 +69,13 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
 
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)
+
+
+def save_grid_summary(
+    runs: list[tuple[str, ExperimentData]],
+    varied_keys: list[str],
+    summary_dir: str,
+    base_name: str,
+) -> None:
+    """Grid search cross-experiment summary using framework defaults."""
+    _framework_save_grid_summary(runs, varied_keys, summary_dir, base_name)

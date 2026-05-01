@@ -1,0 +1,30 @@
+# Reward configuration for SC2 RL training.
+# Edit these values freely — no code changes required.
+# See games/sc2/reward.py for full documentation of each parameter.
+#
+# Defaults below are tuned for MoveToBeacon (score increments by 1 per beacon
+# touched).  Other minigames may want different weights:
+#   - CollectMineralShards / CollectMineralsAndGas → score_weight=1.0,
+#       optionally economy_weight≈0.001 (already double-counts via score)
+#   - DefeatRoaches / DefeatZerglingsAndBanelings   → score_weight=0.05
+#       (raw kill score is large), idle_penalty=0
+#   - BuildMarines                                  → score_weight=1.0,
+#       idle_penalty=-0.05 (push away from doing nothing)
+#   - 1v1 ladder (Simple64)                         → score_weight=0.0,
+#       win_bonus=100, loss_penalty=-100, economy_weight=0.001
+
+# --- Primary signal ---
+score_weight: 1.0
+
+# --- Terminal outcome (ladder maps) ---
+win_bonus: 100.0
+loss_penalty: -100.0
+
+# --- Time cost ---
+step_penalty: -0.001
+
+# --- Idle penalty (BuildMarines / economy maps) ---
+idle_penalty: 0.0
+
+# --- Economy delta (mineral + vespene) ---
+economy_weight: 0.0

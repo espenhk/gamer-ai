@@ -2,7 +2,10 @@
 
 Trackmania Nations Forever RL agent. Drives autonomously via hill-climbing / evolutionary / CMA-ES / Q-learning trained against live TMInterface session.
 
-**Runtime Windows-only**: `pywin32`, `mss` window grab, `tminterface` bind to live game process.
+**Runtime per game**:
+- TMNF: Windows-only (`pywin32`, `mss` window grab, `tminterface` bind to live game process).
+- TORCS: Linux/Windows via `gym_torcs`.
+- SC2: Linux/Windows/Mac via PySC2; runs headless on Linux against the Blizzard SC2 binary.
 
 ---
 
@@ -19,7 +22,9 @@ tmnf-ai/
 ├── pyproject.toml
 ├── framework/              # Game-agnostic training loop, obs spec, analytics, base policies
 ├── games/
-│   └── tmnf/               # TMNF-specific env, reward, lidar, steering, policies, clients, tools
+│   ├── tmnf/               # TMNF-specific env, reward, lidar, steering, policies, clients, tools
+│   ├── torcs/              # TORCS racing simulator integration
+│   └── sc2/                # StarCraft 2 integration via PySC2 (Linux-friendly, headless)
 ├── clients/                # Backward-compat shim → games/tmnf/clients
 ├── rl/                     # Backward-compat shim + PPO/pretrain experiments
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
@@ -36,8 +41,12 @@ tmnf-ai/
 ## Running
 
 ```bash
-# Single experiment
+# Single experiment (TMNF — default)
 python main.py <experiment_name> [--no-interrupt] [--re-initialize]
+
+# Run on a different game
+python main.py <experiment_name> --game torcs
+python main.py <experiment_name> --game sc2
 
 # Grid search over param combinations
 python grid_search.py config/my_grid.yaml [--no-interrupt]
@@ -322,6 +331,52 @@ Daemon keepalive thread keeps `iface.running` alive. `on_registered` sets event 
 
 ---
 
+## StarCraft 2 (`games/sc2/`)
+
+**MVP scope** (issue #90): the 7 standard PySC2 minigames + a 1v1-vs-builtin-bot env stub. Fog-of-war + belief machinery comes in #91.
+
+### Setup
+
+1. Install the Blizzard StarCraft 2 binary. On Linux use the [headless build](https://github.com/Blizzard/s2client-proto#linux-packages); on Windows/Mac the regular client works.
+2. Set `SC2PATH` to the install root (Linux), or place the install in `~/StarCraftII/` (the PySC2 default).
+3. Download the [PySC2 maps](https://github.com/Blizzard/s2client-proto#downloads) (mini-games + ladder maps) and unzip them into `Maps/` under the install root.
+4. Install the optional sc2 dependency group:
+   ```bash
+   poetry install --with sc2
+   ```
+
+### Running
+
+```bash
+# Default minigame (MoveToBeacon)
+python main.py myrun --game sc2
+
+# Choose a different minigame: edit games/sc2/config/training_params.yaml
+# (or the per-experiment copy under experiments/) and set map_name.
+```
+
+The first run creates `experiments/sc2_<map>/<name>/` and copies both master configs in. Edit the experiment-local copies to tune without affecting other runs.
+
+### Config knobs
+
+| Key | Default | Notes |
+|---|---|---|
+| `map_name` | `MoveToBeacon` | Any of the 7 minigame names or a ladder map (e.g. `Simple64`). |
+| `agent_race` | `random` | `protoss` / `terran` / `zerg` / `random`. |
+| `bot_difficulty` | `very_easy` | Only for ladder maps. |
+| `step_mul` | `8` | Game ticks per env step (~0.5 s real-time). |
+| `screen_size`, `minimap_size` | `64` | Square feature-layer resolutions. |
+
+### Action space
+
+Continuous `Box([fn_idx, x, y, queue], shape=(4,))` with a 9-cell discrete grid in `games/sc2/actions.py`. `fn_idx` cell 4 (centre) selects the army; the other 8 cells emit `Move_screen` to one of the directional cells. Sufficient for `MoveToBeacon` / `CollectMineralShards`; extension to economy/build minigames is via richer reward shaping rather than a wider action set in this MVP.
+
+### Observation space
+
+13-dim flat vector for minigames (see `games/sc2/obs_spec.py::SC2_MINIGAME_OBS_SPEC`): player totals, selected-unit summary, screen player_relative pixel counts and centroids. Ladder maps add 8 more dims for economy + minimap visibility. Issue #91 will extend this with belief / staleness features for fog-of-war play.
+
+---
+
 ## Dependencies
 
 Managed by Poetry. Run `poetry install` from repo root.
@@ -329,3 +384,7 @@ Managed by Poetry. Run `poetry install` from repo root.
 `tminterface` and `pygbx` not on PyPI — install from source before `poetry install`.
 
 Core runtime deps: `numpy`, `scipy`, `gymnasium`, `pyyaml`, `matplotlib`, `opencv-python`, `mss`, `pywin32`, `tminterface`, `pygbx`.
+
+Optional groups:
+- `--with torcs` — `gym_torcs` for TORCS support.
+- `--with sc2` — `pysc2` for StarCraft 2 support.

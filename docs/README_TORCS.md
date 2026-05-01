@@ -25,7 +25,7 @@ brew install torcs
 ```
 
 **Windows:**
-Download the installer from [torcs.sourceforge.net](http://torcs.sourceforge.net/index.php?artid=3&caession=download).
+Download the installer from [torcs.sourceforge.net](http://torcs.sourceforge.net/index.php?artid=3&catid=download).
 
 ### 2. Install the Python wrapper
 

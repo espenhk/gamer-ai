@@ -163,7 +163,7 @@ class TorcsClient:
         steer = float(np.clip(action[0], -1.0, 1.0))
         accel = float(np.clip(action[1], 0.0, 1.0))
         brake = float(np.clip(action[2], 0.0, 1.0))
-        # gym_torcs uses a single accel dimension: positive = throttle, we
-        # subtract brake to produce a net throttle/brake signal.
+        # gym_torcs uses a single accel dimension: positive = throttle,
+        # negative = brake.  Subtract brake to produce a net signal.
         net_accel = accel - brake
         return np.array([steer, net_accel], dtype=np.float32)

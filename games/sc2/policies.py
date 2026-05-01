@@ -184,7 +184,7 @@ class NeuralDQNPolicy(BasePolicy):
             if loaded_w[0].shape[1] != obj._obs_dim:
                 raise ValueError(
                     f"NeuralDQNPolicy.from_cfg: weight shape mismatch — "
-                    f"first layer expects input dim {loaded_w[0].shape[1]}, "
+                    f"first layer has input dim {loaded_w[0].shape[1]}, "
                     f"but obs_dim is {obj._obs_dim}"
                 )
             obj._online["weights"] = loaded_w
@@ -1016,11 +1016,14 @@ class LSTMPolicy(BasePolicy):
         self._c = f * self._c + i * g
         self._h = o * np.tanh(self._c)
 
-        # Map hidden state to 4-vector action [fn_idx, x, y, queue]
+        # Map hidden state to 4-vector action [fn_idx, x, y, queue].
+        # fn_idx is a continuous value in [0, n_funcs-1]; SC2Client converts
+        # it to an integer via int(action[0]) in action_to_function_call.
         fn_idx = float(_sigmoid(np.dot(self._W_fn, self._h)) * (self._n_funcs - 1))
         x_out  = float(_sigmoid(np.dot(self._W_x, self._h)))
         y_out  = float(_sigmoid(np.dot(self._W_y, self._h)))
-        queue  = float(_sigmoid(np.dot(self._W_queue, self._h)) > 0.5)
+        # queue is 0.0 or 1.0 — kept as float for array dtype consistency.
+        queue  = float(int(_sigmoid(np.dot(self._W_queue, self._h)) > 0.5))
         return np.array([fn_idx, x_out, y_out, queue], dtype=np.float32)
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,

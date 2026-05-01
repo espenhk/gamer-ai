@@ -439,6 +439,7 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
             )
             self.assertIsNotNone(best_policy)
             self.assertIsInstance(best_reward, float)
+            self.assertEqual(len(sims), 2)
         finally:
             os.unlink(wf)
             env.close()

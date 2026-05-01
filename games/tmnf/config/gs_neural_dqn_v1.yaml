@@ -1,0 +1,58 @@
+# Grid search: NeuralDQNPolicy (Deep Q-Network with replay buffer + target network)
+#
+# Primary axes:
+#   learning_rate       — controls how aggressively the Q-network updates on
+#                         each sampled batch. Too high → unstable value estimates;
+#                         too low → slow convergence within the episode budget.
+#   batch_size          — transitions sampled per gradient step. Larger batches
+#                         give more stable gradient estimates but are slower per
+#                         step; smaller batches explore the buffer more frequently.
+#   target_update_freq  — steps between syncing the online network to the target
+#                         network. More frequent updates can destabilise training
+#                         (moving target); less frequent means the target lags.
+#   epsilon_decay_steps — steps over which ε decays from 1.0 → 0.05. Faster
+#                         decay commits to exploitation sooner; slower keeps
+#                         exploration active longer relative to episode count.
+#
+# n_sims controls total training steps (not episode count directly — DQN trains
+# step-by-step inside each episode). 100 sims with 90 s episodes at 10x speed
+# gives a large step budget for replay learning to kick in.
+#
+# Combos: 2 x 2 x 2 x 2 = 16
+
+base_name: "gs_neural_dqn_v1"
+track: a03_centerline
+
+training_params:
+  speed: 10.0
+  n_sims: 100
+  in_game_episode_s: 90.0
+  n_lidar_rays: 8
+  policy_type: neural_dqn
+
+  # --- Search axes ---
+  learning_rate: [0.0005, 0.001]
+  batch_size: [32, 64]
+  target_update_freq: [100, 200]
+  epsilon_decay_steps: [2000, 5000]
+
+  # Fixed policy params (nested to avoid being treated as sweep axes)
+  gamma: 0.99
+  policy_params:
+    hidden_sizes: [64, 64]
+    replay_buffer_size: 10000
+    min_replay_size: 500
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+
+reward_params:
+  progress_weight: 10000.0
+  centerline_weight: 0.0
+  centerline_exp: 0.0
+  finish_bonus: 5000.0
+  finish_time_weight: -5.0
+  par_time_s: 60.0
+  accel_bonus: 1.0
+  airborne_penalty: -1.0
+  crash_threshold_m: 25.0
+  lidar_wall_weight: -5.0

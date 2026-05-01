@@ -120,7 +120,7 @@ class TestTorcsEnvActions(unittest.TestCase):
 
     def test_discrete_actions_shape(self):
         from games.torcs.actions import DISCRETE_ACTIONS
-        self.assertEqual(DISCRETE_ACTIONS.shape, (9, 3))
+        self.assertEqual(DISCRETE_ACTIONS.shape, (25, 3))
 
     def test_probe_actions_count(self):
         from games.torcs.actions import PROBE_ACTIONS

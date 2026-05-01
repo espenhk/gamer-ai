@@ -1,0 +1,20 @@
+# CarRacing training parameters.
+
+game: car_racing              # game module to use
+speed: 1.0
+in_game_episode_s: 20.0       # CarRacing default is 1000 steps (~20 s at 50 fps)
+n_sims: 100
+mutation_scale: 0.05
+mutation_share: 1.0
+adaptive_mutation: true
+probe_s: 10.0
+cold_restarts: 20
+cold_sims: 5
+n_lidar_rays: 0
+patience: 0
+
+policy_type: genetic
+
+policy_params:
+  population_size: 20
+  elite_k: 3

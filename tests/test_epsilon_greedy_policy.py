@@ -19,13 +19,13 @@ class TestEpsilonGreedyPolicy(unittest.TestCase):
 
     def test_action_in_range(self):
         p = EpsilonGreedyPolicy(epsilon=1.0)
-        self.assertIn(_action_to_idx(p(_zero_obs())), range(9))
+        self.assertIn(_action_to_idx(p(_zero_obs())), range(25))
 
     def test_greedy_picks_best_q_action(self):
         p = EpsilonGreedyPolicy(epsilon=0.0)
         obs = _zero_obs()
         key = _state_key(obs)
-        p._q_table[key] = np.zeros(9, dtype=np.float32)
+        p._q_table[key] = np.zeros(25, dtype=np.float32)
         p._q_table[key][1] = 10.0
         for _ in range(10):
             self.assertEqual(_action_to_idx(p(obs)), 1)
@@ -50,7 +50,7 @@ class TestEpsilonGreedyPolicy(unittest.TestCase):
         s  = _state_key(obs)
         s_ = _state_key(next_obs)
         # Seed Q(s', 2) = 5 → max_Q(s') = 5
-        p._q_table[s_] = np.zeros(9, dtype=np.float32)
+        p._q_table[s_] = np.zeros(25, dtype=np.float32)
         p._q_table[s_][2] = 5.0
         p.update(obs, action=0, reward=2.0, next_obs=next_obs, done=False)
         # Expected: Q(s,0) += 0.5 * (2 + 0.9*5 - 0) = 0.5 * 6.5 = 3.25

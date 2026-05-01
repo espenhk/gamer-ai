@@ -46,6 +46,15 @@ logger = logging.getLogger(__name__)
 _TRACE_SAMPLE_EVERY = 2   # record position every N steps
 
 
+def _trainer_state_path(weights_file: str) -> str:
+    """Return the trainer-state checkpoint path alongside the weights file.
+
+    e.g. experiments/a03/my_run/policy_weights.yaml
+         → experiments/a03/my_run/trainer_state.npz
+    """
+    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "trainer_state.npz")
+
+
 # ---------------------------------------------------------------------------
 # Constant-action policy (probe phase)
 # ---------------------------------------------------------------------------
@@ -459,6 +468,7 @@ def _greedy_loop(
                     best_reward = reward
                     best_policy = candidate
                     best_policy.save(weights_file)
+                    best_policy.save_trainer_state(_trainer_state_path(weights_file))
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                 else:
                     verdict = f"no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
@@ -544,6 +554,7 @@ def _greedy_loop(
                 best_reward = best_r
                 best_policy = best_cand
                 best_policy.save(weights_file)
+                best_policy.save_trainer_state(_trainer_state_path(weights_file))
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
@@ -653,6 +664,7 @@ def _greedy_loop_cmaes(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
             else:
@@ -720,6 +732,7 @@ def _greedy_loop_q_learning(
                 prev_best   = best_reward
                 best_reward = reward
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
                 verdict = f"no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
@@ -801,6 +814,7 @@ def _greedy_loop_genetic(
                 best_reward = gen_best
             if improved:
                 policy.save(weights_file)
+                policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
             else:
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"

@@ -400,5 +400,52 @@ class TestLSTMEvolutionConvergence(unittest.TestCase):
                         f"final={final_dist:.3f}")
 
 
+class TestLSTMEvolutionTrainerState(unittest.TestCase):
+
+    def _make_trained_policy(self) -> "LSTMEvolutionPolicy":
+        policy = LSTMEvolutionPolicy(hidden_size=4, population_size=6,
+                                     initial_sigma=0.1, seed=42)
+        for _ in range(2):
+            policy.sample_population()
+            policy.update_distribution([float(i) for i in range(6)])
+        return policy
+
+    def test_save_load_roundtrip(self):
+        """save_trainer_state → load_trainer_state preserves mean and sigma."""
+        import tempfile, os
+        policy = self._make_trained_policy()
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = LSTMEvolutionPolicy(hidden_size=4, population_size=6,
+                                          initial_sigma=0.99, seed=99)
+            policy2.load_trainer_state(path)
+
+            np.testing.assert_array_equal(policy._mean, policy2._mean)
+            self.assertAlmostEqual(policy._sigma, policy2._sigma)
+        finally:
+            os.unlink(path)
+
+    def test_load_wrong_flat_dim_raises(self):
+        """Loading state with mismatched flat_dim raises ValueError."""
+        import tempfile, os
+        policy1 = LSTMEvolutionPolicy(hidden_size=4, population_size=4, n_lidar_rays=0)
+        policy1.sample_population()
+        policy1.update_distribution([float(i) for i in range(4)])
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy1.save_trainer_state(path)
+            policy2 = LSTMEvolutionPolicy(hidden_size=8, population_size=4, n_lidar_rays=0)
+            with self.assertRaises(ValueError):
+                policy2.load_trainer_state(path)
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

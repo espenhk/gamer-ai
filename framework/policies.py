@@ -63,6 +63,14 @@ class BasePolicy(ABC):
         with open(path, "w") as f:
             yaml.dump(self.to_cfg(), f, default_flow_style=False, sort_keys=False)
 
+    def save_trainer_state(self, path: str) -> None:
+        """Persist trainer-internal state (e.g. CMA-ES distribution, DQN replay buffer).
+        No-op for policies with no persistent trainer state beyond the champion weights."""
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore trainer-internal state from *path*.
+        No-op for policies with no persistent trainer state."""
+
 
 # ---------------------------------------------------------------------------
 # WeightedLinearPolicy

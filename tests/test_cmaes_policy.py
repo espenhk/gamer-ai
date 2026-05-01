@@ -1,4 +1,5 @@
 """Tests for CMAESPolicy in policies.py."""
+import os
 import unittest
 
 import numpy as np
@@ -229,6 +230,61 @@ class TestCMAESConvergence(unittest.TestCase):
             f"CMA-ES failed to converge: initial_dist={initial_dist:.3f}, "
             f"final_dist={final_dist:.3f}",
         )
+
+
+class TestCMAESTrainerState(unittest.TestCase):
+
+    def _make_trained_policy(self, n_gens: int = 3) -> CMAESPolicy:
+        policy = CMAESPolicy(population_size=10, initial_sigma=0.5, seed=42)
+        policy.initialize_random()
+        for _ in range(n_gens):
+            policy.sample_population()
+            policy.update_distribution([float(i) for i in range(10)])
+        return policy
+
+    def test_save_load_roundtrip_all_arrays(self):
+        """save_trainer_state → load_trainer_state preserves all distribution arrays."""
+        import tempfile
+        policy = self._make_trained_policy()
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+
+            policy2 = CMAESPolicy(population_size=10, initial_sigma=0.99, seed=99)
+            policy2.initialize_random()
+            policy2.load_trainer_state(path)
+
+            np.testing.assert_array_equal(policy._mean,     policy2._mean)
+            np.testing.assert_array_equal(policy._C,        policy2._C)
+            np.testing.assert_array_equal(policy._B,        policy2._B)
+            np.testing.assert_array_equal(policy._D,        policy2._D)
+            np.testing.assert_array_equal(policy._invsqrtC, policy2._invsqrtC)
+            np.testing.assert_array_equal(policy._ps,       policy2._ps)
+            np.testing.assert_array_equal(policy._pc,       policy2._pc)
+            self.assertAlmostEqual(policy._sigma, policy2._sigma)
+            self.assertEqual(policy._gen,         policy2._gen)
+        finally:
+            os.unlink(path)
+
+    def test_load_wrong_dimension_raises(self):
+        """Loading state whose n differs from current obs space raises ValueError."""
+        import tempfile
+        policy1 = CMAESPolicy(population_size=6, n_lidar_rays=0)
+        policy1.initialize_random()
+        policy1.sample_population()
+        policy1.update_distribution([float(i) for i in range(6)])
+
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy1.save_trainer_state(path)
+            policy2 = CMAESPolicy(population_size=6, n_lidar_rays=4)  # different n
+            with self.assertRaises(ValueError):
+                policy2.load_trainer_state(path)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

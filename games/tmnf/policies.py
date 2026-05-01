@@ -1144,16 +1144,16 @@ class REINFORCEPolicy(BasePolicy):
 
         Raises ValueError if the saved obs_dim does not match (e.g. n_lidar_rays changed).
         """
-        data = np.load(path)
-        saved_obs_dim = int(data["obs_dim"])
-        if saved_obs_dim != self._obs_dim:
-            raise ValueError(
-                f"REINFORCEPolicy: trainer state obs_dim mismatch — "
-                f"saved={saved_obs_dim}, current={self._obs_dim}. "
-                f"The observation space (n_lidar_rays) may have changed. "
-                f"Use --re-initialize to restart from scratch."
-            )
-        self._baseline_val = float(data["baseline_val"])
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
+                raise ValueError(
+                    f"REINFORCEPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"The observation space (n_lidar_rays) may have changed. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._baseline_val = float(data["baseline_val"])
         logger.info("[REINFORCEPolicy] trainer state loaded from %s (baseline=%.4f)",
                     path, self._baseline_val)
 

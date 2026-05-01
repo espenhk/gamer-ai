@@ -182,6 +182,12 @@ class TMNFEnv(BaseGameEnv):
         self._ep_max_overrun_ticks: int = 0     # worst overrun beyond action_window_ticks
         self._total_rl_steps: int = 0           # lifetime step counter (for periodic log)
 
+        # Per-episode reward component totals (Option C: reward decomposition).
+        self._ep_reward_components: dict[str, float] = {}
+        # Per-episode lateral offset accumulator (for mean |lateral_offset|).
+        self._ep_lateral_sum: float = 0.0
+        self._ep_lateral_count: int = 0
+
     # ------------------------------------------------------------------
     # Gymnasium interface
     # ------------------------------------------------------------------
@@ -203,6 +209,10 @@ class TMNFEnv(BaseGameEnv):
         self._laps_completed = 0
         self._ep_rl_steps = 0
         self._ep_total_ticks = 0
+        self._ep_max_skip = 0
+        self._ep_reward_components = {}
+        self._ep_lateral_sum = 0.0
+        self._ep_lateral_count = 0
         self._ep_max_window_ticks = 0
         self._ep_max_overrun_ticks = 0
 
@@ -240,7 +250,7 @@ class TMNFEnv(BaseGameEnv):
         # per step (avoids a second screenshot and ensures reward + obs agree).
         curr_obs = self._build_obs(step, lidar_rays=lidar_rays)
 
-        reward = self._reward_calc.compute(
+        reward, step_components = self._reward_calc.compute_with_components(
             prev_state = self._prev_state,
             curr_state = data,
             finished   = finished,
@@ -254,6 +264,13 @@ class TMNFEnv(BaseGameEnv):
             },
             n_ticks    = step.ticks_this_step,
         )
+
+        # Accumulate per-component totals and lateral offset for this episode.
+        for k, v in step_components.items():
+            self._ep_reward_components[k] = self._ep_reward_components.get(k, 0.0) + v
+        if data.lateral_offset is not None:
+            self._ep_lateral_sum   += abs(data.lateral_offset)
+            self._ep_lateral_count += 1
 
         time_over = self._elapsed_s > self._max_episode_time_s
 
@@ -270,6 +287,10 @@ class TMNFEnv(BaseGameEnv):
             self._prev_state = init_step.state_data
             obs = self._build_obs(init_step)
             self._prev_obs = obs
+            mean_lat_lap = (
+                self._ep_lateral_sum / self._ep_lateral_count
+                if self._ep_lateral_count > 0 else None
+            )
             info = {
                 "track_progress": 0.0,
                 "lateral_offset": 0.0,
@@ -279,6 +300,9 @@ class TMNFEnv(BaseGameEnv):
                 "pos_x": init_step.state_data.position.x,
                 "pos_z": init_step.state_data.position.z,
                 "termination_reason": None,  # episode continues after lap
+                # Cumulative task metrics up to this lap completion.
+                "mean_abs_lateral_offset": mean_lat_lap,
+                "episode_reward_components": dict(self._ep_reward_components),
             }
             return obs, reward, False, False, info
 
@@ -311,6 +335,10 @@ class TMNFEnv(BaseGameEnv):
         self._prev_state = data
         obs = curr_obs
         self._prev_obs = obs
+        mean_lat = (
+            self._ep_lateral_sum / self._ep_lateral_count
+            if self._ep_lateral_count > 0 else None
+        )
         info = {
             "track_progress": data.track_progress or 0.0,
             "lateral_offset": data.lateral_offset or 0.0,
@@ -328,6 +356,10 @@ class TMNFEnv(BaseGameEnv):
             "ep_max_overrun_ticks": self._ep_max_overrun_ticks,
             "ep_max_skip": self._ep_max_window_ticks,  # back-compat alias
             "termination_reason": termination_reason,
+            # Config-independent task metrics (Option A).
+            "mean_abs_lateral_offset": mean_lat,
+            # Per-component reward totals for this episode (Option C).
+            "episode_reward_components": dict(self._ep_reward_components),
         }
 
         return obs, reward, terminated, truncated, info

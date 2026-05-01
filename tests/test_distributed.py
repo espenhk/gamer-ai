@@ -139,6 +139,40 @@ class TestExperimentDataSerialization:
         assert recovered.timings["greedy_s"] == pytest.approx(42.0)
         assert recovered.track == "a03_centerline"
 
+    def test_round_trip_task_metric_fields(self):
+        """finish_time_s, mean_abs_lateral_offset, reward_components survive round-trip."""
+        from framework.analytics import ExperimentData, GreedySimResult
+        comps = {"progress": 8.5, "step_penalty": -0.1, "finish_bonus": 100.0}
+        data = ExperimentData(
+            experiment_name="task_metric_test",
+            probe_results=[], cold_start_restarts=[],
+            greedy_sims=[
+                GreedySimResult(
+                    sim=1, reward=99.0, improved=True,
+                    throttle_counts=[0, 0, 100], total_steps=50,
+                    finish_time_s=42.5,
+                    mean_abs_lateral_offset=1.23,
+                    reward_components=comps,
+                ),
+                GreedySimResult(
+                    sim=2, reward=10.0, improved=False,
+                    throttle_counts=[0, 50, 50], total_steps=50,
+                    # None fields: ensure they round-trip as None
+                ),
+            ],
+            probe_floor=None, weights_file="", reward_config_file="",
+            training_params={}, timings={},
+        )
+        recovered = experiment_from_dict(json.loads(experiment_to_json(data)))
+        s0 = recovered.greedy_sims[0]
+        assert s0.finish_time_s == pytest.approx(42.5)
+        assert s0.mean_abs_lateral_offset == pytest.approx(1.23)
+        assert s0.reward_components == comps
+        s1 = recovered.greedy_sims[1]
+        assert s1.finish_time_s is None
+        assert s1.mean_abs_lateral_offset is None
+        assert s1.reward_components is None
+
     def test_numpy_arrays_serialised(self):
         """Numpy arrays in RunTrace should be serialised to lists without error."""
         try:

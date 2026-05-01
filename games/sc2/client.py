@@ -73,7 +73,6 @@ class SC2Client:
             LADDER_OBS_NAMES if self._is_ladder else OBS_NAMES
         )
         self._cumulative_score: float = 0.0
-        self._first_visible_mask: np.ndarray | None = None
         self._explored_mask: np.ndarray | None = None
 
     # ------------------------------------------------------------------

@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 try:
+    import matplotlib
+    matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     import matplotlib.cm as cm

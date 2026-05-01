@@ -19,6 +19,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import shutil
+
+import yaml
 
 from framework.training import train_rl
 
@@ -317,6 +321,13 @@ def _run_tmnf(args: argparse.Namespace) -> None:
 # ======================================================================
 
 def _run_beamng(args: argparse.Namespace) -> None:
+    experiment_dir       = f"experiments/beamng/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+
     try:
         from games.beamng.obs_spec import BEAMNG_OBS_SPEC
         from games.beamng.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
@@ -328,13 +339,6 @@ def _run_beamng(args: argparse.Namespace) -> None:
             "Install the BeamNG Python bridge and BeamNG.drive, then:\n"
             "    pip install beamng-gym"
         ) from exc
-
-    experiment_dir       = f"experiments/beamng/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
     if not os.path.exists(reward_cfg_file):
         shutil.copy("games/beamng/config/reward_config.yaml", reward_cfg_file)
         logger.info("Copied BeamNG reward config → %s", reward_cfg_file)
@@ -408,6 +412,13 @@ def _run_assetto(args: argparse.Namespace) -> None:
 # ======================================================================
 
 def _run_car_racing(args: argparse.Namespace) -> None:
+    experiment_dir       = f"experiments/car_racing/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+
     try:
         from games.car_racing.obs_spec import CAR_RACING_OBS_SPEC
         from games.car_racing.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
@@ -419,13 +430,6 @@ def _run_car_racing(args: argparse.Namespace) -> None:
             "Install the gymnasium box2d extras:\n"
             "    pip install gymnasium[box2d]"
         ) from exc
-
-    experiment_dir       = f"experiments/car_racing/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
     if not os.path.exists(reward_cfg_file):
         shutil.copy("games/car_racing/config/reward_config.yaml", reward_cfg_file)
         logger.info("Copied CarRacing reward config → %s", reward_cfg_file)
@@ -482,6 +486,13 @@ def _run_car_racing(args: argparse.Namespace) -> None:
 # ======================================================================
 
 def _run_torcs(args: argparse.Namespace) -> None:
+    experiment_dir       = f"experiments/torcs/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+
     from games.torcs.obs_spec import TORCS_OBS_SPEC
     from games.torcs.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
     from games.torcs.env import make_env
@@ -490,13 +501,6 @@ def _run_torcs(args: argparse.Namespace) -> None:
     # Read TORCS master config.
     with open("games/torcs/config/training_params.yaml") as f:
         master_p = yaml.safe_load(f)
-
-    experiment_dir       = f"experiments/torcs/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
     if not os.path.exists(reward_cfg_file):
         shutil.copy("games/torcs/config/reward_config.yaml", reward_cfg_file)
         logger.info("Copied TORCS reward config → %s", reward_cfg_file)

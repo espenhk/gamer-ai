@@ -368,20 +368,13 @@ class RLClient(PhaseAwareClient):
                 and abs(data.lateral_offset) > _HARD_CRASH_THRESHOLD_M
             )
 
-            # Action windowing: only emit a state to the RL thread every
-            # _action_window_ticks game ticks.  The same action is held
-            # for the entire window, simulating human reaction time.
-            # Always emit immediately on done/finished so the episode ends
-            # without delay.
-            self._window_tick += 1
-            window_complete = self._window_tick >= self._action_window_ticks
+            # Action windowing (issue #65):
+            #   Observation phase (tick 0 .. _decision_idx-1): emit StepState
+            #   Transit phase (tick _decision_idx .. window-1): suppress emit
+            # Commit (set_input_state) fires only at window tick 0.
+            # When action_window_ticks == 1, every tick commits and emits.
+            window_tick = self._window_tick
             episode_ending = finished or hard_crash
-
-            if not window_complete and not episode_ending:
-                return
-
-            ticks_elapsed = self._window_tick
-            self._window_tick = 0
 
             if finished:
                 logger.info(
@@ -392,11 +385,11 @@ class RLClient(PhaseAwareClient):
                     self._state_queue.qsize(),
                 )
 
-            # --- Commit boundary: copy pending → committed and apply to game.
-            # Fires at the start of every window, on the very first running
-            # tick, and whenever termination forces an immediate commit.
-            is_window_start = (self._window_tick == 0) or self._force_commit_next_tick
-            if is_window_start or finished or hard_crash:
+            is_window_start = (self._action_window_ticks == 1) or (window_tick == 0)
+            in_observation_phase = (self._action_window_ticks == 1) or (window_tick < self._decision_idx)
+
+            # --- Commit boundary: apply pending action to the game.
+            if is_window_start or self._force_commit_next_tick or episode_ending:
                 with self._action_lock:
                     self._committed_action = self._pending_action.copy()
                 steer_norm = float(np.clip(self._committed_action[0], -1.0, 1.0))
@@ -410,37 +403,31 @@ class RLClient(PhaseAwareClient):
                 self._force_commit_next_tick = False
 
             if finished and self._auto_respawn_on_finish:
-                # Deliver the finish step with done=False; respawn next tick.
                 self._finish_respawn_pending = True
                 done = False
                 logger.info("[RLClient] on_run_step t=%d: auto-respawn pending set", _time)
             else:
                 done = finished or hard_crash
 
-            # --- StepState gating: emit during the observation phase only.
+            # --- StepState gating: emit during observation phase only.
             # Always emit on termination so the env sees the final state.
-            in_observation_phase = self._window_tick < self._decision_idx or self._action_window_ticks == 1
-            if in_observation_phase or finished or hard_crash:
+            if in_observation_phase or episode_ending:
+                ticks_this_step = 1 + self._pending_transit_ticks
+                self._pending_transit_ticks = 0
                 step_state = StepState(
                     state_data=data,
                     yaw_error=self._compute_yaw_error(data),
                     done=done,
                     finished=finished,
+                    ticks_this_step=ticks_this_step,
                 )
-                # Carry forward any ticks that were suppressed during the
-                # transit phase so cumulative totals are never undercounted.
-                step_state.ticks_this_step += self._pending_transit_ticks
-                self._pending_transit_ticks = 0
                 self._drain_and_put(step_state)
             else:
-                # Transit phase: StepState suppressed — count the tick so it
-                # can be attributed to the next emitted StepState.
+                # Transit phase: suppress StepState, accumulate tick count.
                 self._pending_transit_ticks += 1
 
             # --- Advance window pointer.
-            self._window_tick += 1
-            if self._window_tick >= self._action_window_ticks:
-                self._window_tick = 0
+            self._window_tick = (window_tick + 1) % self._action_window_ticks
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int) -> None:
         logger.info(

@@ -214,6 +214,6 @@ policy_params:
   mutation_share: 0.3      # sparse mutation — mutate 30% of weights per step
 ```
 
-With `eval_episodes: 2`, total episodes per generation = `population_size × eval_episodes = 60`. At `n_sims: 50` generations that is 3,000 episodes.
+With `population_size: 30` and `eval_episodes: 2`, total episodes per generation = `population_size × eval_episodes = 60`. At `n_sims: 50` generations that is 3,000 episodes.
 
 Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format (compatible with `SC2CMAESPolicy`).

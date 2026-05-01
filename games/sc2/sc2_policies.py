@@ -227,14 +227,17 @@ class SC2MultiHeadLinearPolicy:
             Probability ``[0, 1]`` that each individual weight is perturbed.
             ``1.0`` mutates every weight.
         """
-        rng       = np.random.default_rng()
-        flat      = self.to_flat()
+        rng      = np.random.default_rng()
+        flat     = self.to_flat()
+        new_flat = flat.copy()
         if share >= 1.0:
-            mask = np.ones(len(flat), dtype=bool)
+            new_flat += rng.normal(0.0, scale, len(flat)).astype(np.float32)
         else:
-            mask = rng.random(len(flat)) < share
-        noise     = rng.normal(0.0, scale, len(flat)).astype(np.float32)
-        new_flat  = flat + noise * mask
+            mask  = rng.random(len(flat)) < share
+            idx   = np.where(mask)[0]
+            if len(idx) > 0:
+                noise = rng.normal(0.0, scale, len(idx)).astype(np.float32)
+                new_flat[idx] += noise
         return self.with_flat(new_flat)
 
     # ------------------------------------------------------------------

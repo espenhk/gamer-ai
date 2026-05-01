@@ -191,7 +191,6 @@ class TestSC2MultiHeadLinearPolicySerialization(unittest.TestCase):
 
     def test_from_cfg_missing_features_default_to_zero(self):
         """Graceful migration when obs_spec grows."""
-        p   = SC2MultiHeadLinearPolicy.load.__func__  # just use from_cfg directly
         cfg = {}   # empty → all zeros
         p2  = SC2MultiHeadLinearPolicy.from_cfg(cfg, SC2_MINIGAME_OBS_SPEC)
         np.testing.assert_array_equal(p2._fn_weights, 0.0)

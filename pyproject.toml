@@ -7,16 +7,16 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
+numpy = ">=1.26"
+gymnasium = ">=0.29"
+pyyaml = ">=6.0"
+matplotlib = ">=3.8"
 
 [tool.poetry.group.tmnf.dependencies]
 pandas = ">=2.0"
-numpy = ">=1.26"
 scipy = ">=1.12"
-gymnasium = ">=0.29"
 stable-baselines3 = ">=2.0"
-pyyaml = ">=6.0"
 tensorboard = ">=2.0"
-matplotlib = ">=3.8"
 opencv-python = ">=4.8"
 mss = ">=9.0"
 pywin32 = ">=306"
@@ -25,30 +25,29 @@ pygbx = ">=0.3"
 
 [tool.poetry.group.tmnf-test.dependencies]
 pytest = ">=8.0"
-numpy = ">=1.26"
 scipy = ">=1.12"
-pyyaml = ">=6.0"
 
 [tool.poetry.group.assetto_corsa]
+# Optional: the wrapper is imported lazily by
+# games.assetto_corsa.clients.ac_client so Linux CI works without it.
 optional = true
 
 [tool.poetry.group.assetto_corsa.dependencies]
-# Per issue #79. The wrapper is imported lazily by
-# games.assetto_corsa.clients.ac_client so the rest of the codebase (and
-# Linux CI) work fine without this group installed.
-# Keep the Assetto Corsa install path self-contained so
-# `poetry install --with assetto_corsa` includes the common runtime
-# dependencies used by the integration and analytics code paths.
 assetto-corsa-rl = ">=0.1"
-gymnasium = ">=0.29"
-numpy = ">=1.26"
-pyyaml = ">=6.0"
-matplotlib = ">=3.8"
 
 [tool.poetry.group.torcs.dependencies]
+
+[tool.poetry.group.sc2]
+optional = true
+
+[tool.poetry.group.sc2.dependencies]
+# PySC2 brings in absl-py and the SC2 protocol stack; keep it optional so
+# Windows-only TMNF setups don't pull it in. Requires a separate Blizzard
+# SC2 binary install — see CLAUDE.md.
 numpy = ">=1.26"
 gymnasium = ">=0.29"
 pyyaml = ">=6.0"
+pysc2 = ">=4.0"
 
 [build-system]
 requires = ["poetry-core"]

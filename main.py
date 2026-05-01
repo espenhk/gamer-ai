@@ -18,16 +18,9 @@ Game-specific logic lives in games/<name>/.
 from __future__ import annotations
 
 import argparse
-import importlib
 import logging
 
 from framework.training import train_rl
-
-# Per-game entry modules. Each module exposes ``run(args)``.
-GAMES: dict[str, str] = {
-    "tmnf":    "games.tmnf.entry",
-    "assetto": "games.assetto_corsa.entry",
-}
 
 
 def main() -> None:
@@ -35,10 +28,6 @@ def main() -> None:
     parser.add_argument(
         "experiment",
         help="Experiment name — files stored in experiments/<...>/<name>/",
-    )
-    parser.add_argument(
-        "--game", default="tmnf", choices=sorted(GAMES.keys()),
-        help="Game integration to train against (default: tmnf)",
     )
     parser.add_argument(
         "--game",
@@ -403,72 +392,15 @@ def _run_beamng(args: argparse.Namespace) -> None:
 
 def _run_assetto(args: argparse.Namespace) -> None:
     try:
-        from games.assetto.obs_spec import ASSETTO_OBS_SPEC
-        from games.assetto.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-        from games.assetto.env import AssettoCorsaEnv, make_env  # noqa: F401
-        from games.assetto.analytics import save_experiment_results
+        from games.assetto_corsa.entry import run as _ac_run  # noqa: PLC0415
     except ImportError as exc:
         raise ValueError(
             f"Cannot import Assetto Corsa dependencies: {exc}\n"
-            "Install the Assetto Corsa Python bridge and Assetto Corsa, then:\n"
-            "    pip install assettocorsa"
+            "Install the assetto-corsa-rl package, then:\n"
+            "    poetry install --with assetto_corsa"
         ) from exc
 
-    experiment_dir       = f"experiments/assetto/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
-    if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/assetto/config/reward_config.yaml", reward_cfg_file)
-        logger.info("Copied Assetto Corsa reward config → %s", reward_cfg_file)
-    if not os.path.exists(training_params_file):
-        shutil.copy("games/assetto/config/training_params.yaml", training_params_file)
-        logger.info("Copied Assetto Corsa training params → %s", training_params_file)
-
-    with open(training_params_file) as f:
-        p = yaml.safe_load(f)
-
-    obs_spec      = ASSETTO_OBS_SPEC
-    policy_type   = p.get("policy_type", "hill_climbing")
-    policy_params = p.get("policy_params") or {}
-
-    data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir    = experiment_dir,
-            max_episode_time_s = p["in_game_episode_s"],
-        ),
-        obs_spec            = obs_spec,
-        head_names          = ["steer", "accel", "brake"],
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p.get("speed", 1.0),
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = args.re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = "assetto",
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        patience            = p.get("patience", 0),
-    )
-
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-    logger.info("Assetto Corsa training complete. Results saved to %s", experiment_dir)
+    _ac_run(args)
 
 
 # ======================================================================

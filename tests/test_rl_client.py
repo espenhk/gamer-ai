@@ -167,7 +167,7 @@ class TestActionWindow(unittest.TestCase):
         self.client._running = True
         self.client._finish_respawn_pending = False
         self.client._simulation_finish_delivered = False
-        # Start mid-window so we don't auto-commit on tick 0.
+        # Start at window_tick=0 (window start); only disable any forced extra commit.
         self.client._force_commit_next_tick = False
         self.state_data = _make_state_data()
 

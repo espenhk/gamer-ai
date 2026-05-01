@@ -20,10 +20,8 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 try:
-    import sys
     import matplotlib
-    if 'matplotlib.pyplot' not in sys.modules:
-        matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
+    matplotlib.use('Agg', force=True)  # prevent TkAgg GC-from-daemon-thread crashes (issue #73)
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     import matplotlib.cm as cm
@@ -485,4 +483,7 @@ def save_grid_summary(
     report_path = os.path.join(summary_dir, "summary.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(lines)
+    # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
+    if _HAS_MPL:
+        plt.close('all')
     logger.info("Saved grid summary → %s", report_path)

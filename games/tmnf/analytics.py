@@ -13,10 +13,8 @@ import os
 import numpy as np
 import yaml
 
-import sys
 import matplotlib
-if 'matplotlib.pyplot' not in sys.modules:
-    matplotlib.use('Agg')  # prevent TkAgg GC-from-daemon-thread crashes between experiments
+matplotlib.use('Agg', force=True)  # prevent TkAgg GC-from-daemon-thread crashes (issue #73)
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.axes import Axes
@@ -510,6 +508,9 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.writelines(sections)
+
+    # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
+    plt.close('all')
 
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)

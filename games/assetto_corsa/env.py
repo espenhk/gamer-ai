@@ -164,15 +164,15 @@ class AssettoCorsaEnv(BaseGameEnv):
         else:
             termination_reason = None
 
-        info = self._get_game_info()
+        self._prev_state = step
+
+        info = self._get_game_info(step)
         info.update({
             "finished":        finished,
             "laps_completed":  self._laps_completed,
             "elapsed_s":       self._elapsed_s,
             "termination_reason": termination_reason,
         })
-
-        self._prev_state = step
         obs = self._build_obs(step)
         return obs, reward, terminated, truncated, info
 
@@ -189,8 +189,8 @@ class AssettoCorsaEnv(BaseGameEnv):
     def set_episode_time_limit(self, seconds: float) -> None:
         self._max_episode_time_s = seconds
 
-    def _get_game_info(self) -> dict:
-        s = self._prev_state
+    def _get_game_info(self, state: ACStepState | None = None) -> dict:
+        s = state if state is not None else self._prev_state
         if s is None:
             return {}
         return {

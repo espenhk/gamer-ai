@@ -111,6 +111,26 @@ def test_env_step_returns_5_tuple_with_finite_reward():
         env.close()
 
 
+def test_info_reflects_current_step_not_previous():
+    """info dict must contain the current step's state, not _prev_state."""
+    env = AssettoCorsaEnv(env_factory=_factory)
+    episode_len = 8
+    try:
+        env.reset()
+        action = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        for t in range(1, episode_len + 1):
+            _, _, terminated, _, info = env.step(action)
+            expected_progress = min(1.0, t / float(episode_len))
+            assert info["track_progress"] == pytest.approx(expected_progress), (
+                f"step {t}: info['track_progress'] should be current step's "
+                f"progress {expected_progress}, got {info['track_progress']}"
+            )
+            if terminated:
+                break
+    finally:
+        env.close()
+
+
 def test_env_terminates_on_finish():
     env = AssettoCorsaEnv(env_factory=_factory)
     try:

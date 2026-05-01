@@ -37,7 +37,7 @@ class SC2RewardConfig:
     step_penalty :
         Tiny negative reward every tick — discourages indefinite no-op.
     idle_penalty :
-        Per-step penalty when ``army_count == 0 and food_used <= food_cap``;
+        Per-step penalty when ``army_count == 0 and food_used < food_cap``;
         used by ``BuildMarines`` to discourage doing nothing.
     economy_weight :
         Coefficient on (minerals + vespene) delta.  Useful for economy

@@ -10,25 +10,31 @@ Supports multiple games via the ``--game`` flag:
 All algorithm logic lives in framework/training.py.
 Game-specific logic lives in games/<name>/.
 """
+
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
-import os
-import shutil
-
-import yaml
 
 from framework.training import train_rl
 
-logger = logging.getLogger(__name__)
+# Per-game entry modules. Each module exposes ``run(args)``.
+GAMES: dict[str, str] = {
+    "tmnf":    "games.tmnf.entry",
+    "assetto": "games.assetto_corsa.entry",
+}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="RL training")
+    parser = argparse.ArgumentParser(description="RL training (multi-game)")
     parser.add_argument(
         "experiment",
-        help="Experiment name — files stored in experiments/<track>/<name>/",
+        help="Experiment name — files stored in experiments/<...>/<name>/",
+    )
+    parser.add_argument(
+        "--game", default="tmnf", choices=sorted(GAMES.keys()),
+        help="Game integration to train against (default: tmnf)",
     )
     parser.add_argument(
         "--game", default="tmnf", choices=["tmnf", "torcs"],
@@ -56,6 +62,8 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    module = importlib.import_module(GAMES[args.game])
+    module.run(args)
     if args.game == "torcs":
         _run_torcs(args)
     else:

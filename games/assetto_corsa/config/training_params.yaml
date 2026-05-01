@@ -1,0 +1,23 @@
+# Assetto Corsa training parameters.
+# Defaults are taken from issue #79 ("default speed=5.0, max_episode_time_s=150,
+# enable_vision=False"); tune freely.
+
+track: assetto_default      # informational; AC env doesn't load a track .npy
+speed: 5.0                  # retained for config/API parity; may not affect AC env
+in_game_episode_s: 150.0    # episode time-limit in seconds
+n_sims: 100                 # greedy simulations / generations after cold-start
+mutation_scale: 0.05
+mutation_share: 1.0
+adaptive_mutation: true
+probe_s: 15.0
+cold_restarts: 5
+cold_sims: 5
+n_vision: 0                 # vision features appended to obs (0 = disabled)
+patience: 0
+
+# Default to genetic policy — same default as TMNF.
+policy_type: genetic
+
+policy_params:
+  population_size: 20
+  elite_k: 3

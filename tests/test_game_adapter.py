@@ -64,7 +64,9 @@ class TestTMNFAdapter:
         assert warmup.steps == 5
 
     def test_build_extras_returns_policy_extras(self):
-        import tempfile, os
+        import os
+        import tempfile
+
         a = self._adapter()
         with tempfile.TemporaryDirectory() as tmpdir:
             wf = os.path.join(tmpdir, "policy_weights.yaml")

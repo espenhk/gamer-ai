@@ -40,6 +40,7 @@ from framework.policies import (
     GeneticPolicy,
 )
 from framework.obs_spec import ObsSpec
+from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
 
 logger = logging.getLogger(__name__)
 
@@ -886,12 +887,12 @@ def _greedy_loop_genetic(
 # ---------------------------------------------------------------------------
 
 def train_rl(
-    game: Any = None,
-    config: Any = None,
+    game: GameSpec | None = None,
+    config: RunConfig | None = None,
     *,
-    probe: Any | None = None,
-    warmup: Any | None = None,
-    extras: Any | None = None,
+    probe: ProbeSpec | None = None,
+    warmup: WarmupSpec | None = None,
+    extras: PolicyExtras | None = None,
     no_interrupt: bool = False,
     re_initialize: bool = False,
     # --- legacy positional / keyword args (deprecated, back-compat) ---

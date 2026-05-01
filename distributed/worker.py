@@ -171,12 +171,13 @@ def run_worker(
         logger.info("Running experiment: %s", spec.name)
 
         # --- prepare local experiment dir ---
-        track = spec.track
         t = spec.training_params
         r = spec.reward_params
         game_name = getattr(spec, "game", "tmnf")
         adapter = GAME_ADAPTERS[game_name]()
-        track_override = track if game_name != "tmnf" else None
+        # For TMNF the track comes from training_params["track"]; for other
+        # games spec.track carries an explicit override (may be None).
+        track_override = spec.track if spec.track else None
         experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(
             adapter, spec.name, t, r, track_override
         )

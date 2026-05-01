@@ -423,14 +423,12 @@ def _run_distributed(
         experiment_dir = adapter.experiment_dir(name, data.training_params, track_override)
         data.reward_config_file = f"{experiment_dir}/reward_config.yaml"
         data.weights_file = f"{experiment_dir}/policy_weights.yaml"
-        if hasattr(adapter, 'build_game_spec'):
-            # Use adapter's save_results_fn via build_game_spec
-            game_spec = adapter.build_game_spec(
-                name, experiment_dir, data.weights_file, data.reward_config_file,
-                data.training_params, track_override,
-            )
-            if game_spec.save_results_fn is not None:
-                game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
+        game_spec = adapter.build_game_spec(
+            name, experiment_dir, data.weights_file, data.reward_config_file,
+            data.training_params, track_override,
+        )
+        if game_spec.save_results_fn is not None:
+            game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         from framework.analytics import save_experiment_data_json
         save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
@@ -664,15 +662,12 @@ def main() -> None:
     # Cross-experiment summary report
     summary_root = adapter.experiment_dir_root(training_spec, track_override)
     summary_dir = f"{summary_root}/{base_name}__summary"
-    # Lazy import — save_grid_summary is game-specific analytics
     try:
-        game_spec = adapter.build_game_spec(
-            base_name, summary_dir, "", "", training_spec, track_override,
-        )
-        # Import the game-specific save_grid_summary via its analytics module
         _analytics_mod = __import__(f"games.{game_name}.analytics", fromlist=["save_grid_summary"])
         _analytics_mod.save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     except (ImportError, AttributeError):
+        logger.debug("Game-specific save_grid_summary not available for %s; using framework fallback.",
+                      game_name)
         from framework.analytics import save_grid_summary
         save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     logger.info("Summary report: %s/summary.md", summary_dir)

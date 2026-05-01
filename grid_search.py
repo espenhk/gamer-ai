@@ -41,7 +41,9 @@ from games.tmnf.analytics import save_experiment_results, save_grid_summary
 from framework.training import train_rl
 from games.tmnf.obs_spec import TMNF_OBS_SPEC
 from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-from games.tmnf.env import make_env
+# games.tmnf.env is imported lazily inside _run_combo() because it pulls in
+# tminterface (Windows-only, not on PyPI) which breaks pure-logic test imports
+# of this module on Linux CI.
 from games.tmnf.policies import (
     CMAESPolicy,
     LSTMEvolutionPolicy,
@@ -104,6 +106,13 @@ _ABBREV = {
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
+    # curiosity params (issue #24)
+    "curiosity_type": "ck",
+    "curiosity_weight": "cwgt",
+    "curiosity_feature_dim": "cfd",
+    "curiosity_hidden_size": "chs",
+    "curiosity_lr": "clr",
+    "curiosity_beta": "cbeta",
 }
 
 # Top-level training_params keys that should be forwarded into policy_params.
@@ -383,6 +392,9 @@ def _run_local(
     re_initialize: bool,
 ) -> list[tuple[str, Any]]:
     """Run all combos sequentially on this machine. Returns list of (name, ExperimentData)."""
+    # Local import: pulls in tminterface; only needed when actually running
+    # training, not when grid_search is imported for unit tests.
+    from games.tmnf.env import make_env
 
     all_runs = []
     n = len(combos)

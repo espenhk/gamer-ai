@@ -77,6 +77,7 @@ _ABBREV = {
     "policy_type": "pt",
     "do_pretrain": "dpt",
     "patience": "pat",
+    "action_window_ticks": "awt",
     # neural_net policy params
     "hidden_sizes": "hs",
     # genetic policy params
@@ -420,11 +421,12 @@ def _run_local(
             experiment_name=name,
             make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t[
                 "in_game_episode_s"
-            ], _lr=n_lidar_rays: make_env(
+            ], _lr=n_lidar_rays, _aw=t.get("action_window_ticks", 1): make_env(
                 experiment_dir=_dir,
                 speed=_sp,
                 in_game_episode_s=_ep,
                 n_lidar_rays=_lr,
+                action_window_ticks=_aw,
             ),
             obs_spec=obs_spec,
             head_names=["steer", "accel", "brake"],

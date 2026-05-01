@@ -43,7 +43,7 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default="tmnf",
-        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs"],
+        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"],
         help=(
             "Select which racing simulator to use. "
             "Choices: tmnf (default), beamng, assetto, car_racing, torcs. "
@@ -78,6 +78,7 @@ def main() -> None:
         "assetto":    _run_assetto,
         "car_racing": _run_car_racing,
         "torcs":      _run_torcs,
+        "sc2":        _run_sc2,
     }
     _GAME_RUNNERS[args.game](args)
 
@@ -613,6 +614,87 @@ def _run_torcs(args: argparse.Namespace) -> None:
 
     save_experiment_results(data, results_dir=f"{experiment_dir}/results")
     logger.info("TORCS training complete. Results saved to %s", experiment_dir)
+
+
+# ======================================================================
+# StarCraft 2 entry point
+# ======================================================================
+
+def _run_sc2(args: argparse.Namespace) -> None:
+    from games.sc2.obs_spec import get_spec
+    from games.sc2.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
+    from games.sc2.env import make_env
+    from games.sc2.analytics import save_experiment_results
+
+    # Read SC2 master config.
+    with open("games/sc2/config/training_params.yaml") as f:
+        master_p = yaml.safe_load(f)
+
+    map_name = master_p.get("map_name", "MoveToBeacon")
+    experiment_dir       = f"experiments/sc2_{map_name}/{args.experiment}"
+    weights_file         = f"{experiment_dir}/policy_weights.yaml"
+    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    if not os.path.exists(reward_cfg_file):
+        shutil.copy("games/sc2/config/reward_config.yaml", reward_cfg_file)
+        logger.info("Copied SC2 reward config → %s", reward_cfg_file)
+    if not os.path.exists(training_params_file):
+        shutil.copy("games/sc2/config/training_params.yaml", training_params_file)
+        logger.info("Copied SC2 training params → %s", training_params_file)
+
+    with open(training_params_file) as f:
+        p = yaml.safe_load(f)
+
+    # Pick obs spec by map. Re-read map_name from per-experiment config so
+    # users can change maps without touching the master config.
+    map_name      = p.get("map_name", map_name)
+    obs_spec      = get_spec(map_name)
+    policy_type   = p.get("policy_type", "genetic")
+    policy_params = p.get("policy_params") or {}
+
+    data = train_rl(
+        experiment_name     = args.experiment,
+        make_env_fn         = lambda: make_env(
+            experiment_dir     = experiment_dir,
+            map_name           = map_name,
+            max_episode_time_s = p["in_game_episode_s"],
+            step_mul           = p.get("step_mul", 8),
+            screen_size        = p.get("screen_size", 64),
+            minimap_size       = p.get("minimap_size", 64),
+            agent_race         = p.get("agent_race", "random"),
+            bot_difficulty     = p.get("bot_difficulty", "very_easy"),
+        ),
+        obs_spec            = obs_spec,
+        head_names          = ["fn_idx", "x", "y", "queue"],
+        discrete_actions    = DISCRETE_ACTIONS,
+        speed               = p.get("speed", 1.0),
+        n_sims              = p["n_sims"],
+        in_game_episode_s   = p["in_game_episode_s"],
+        weights_file        = weights_file,
+        reward_config_file  = reward_cfg_file,
+        mutation_scale      = p["mutation_scale"],
+        mutation_share      = p.get("mutation_share", 1.0),
+        probe_actions       = PROBE_ACTIONS,
+        probe_in_game_s     = p["probe_s"],
+        cold_start_restarts = p["cold_restarts"],
+        cold_start_sims     = p["cold_sims"],
+        warmup_action       = WARMUP_ACTION,
+        warmup_steps        = 5,
+        training_params     = p,
+        no_interrupt        = args.no_interrupt,
+        re_initialize       = args.re_initialize,
+        do_pretrain         = p.get("do_pretrain", False),
+        policy_type         = policy_type,
+        policy_params       = policy_params,
+        track               = f"sc2_{map_name}",
+        adaptive_mutation   = p.get("adaptive_mutation", True),
+        patience            = p.get("patience", 0),
+    )
+
+    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
+    logger.info("SC2 training complete. Results saved to %s", experiment_dir)
 
 
 if __name__ == "__main__":

@@ -37,6 +37,18 @@ assetto-corsa-rl = ">=0.1"
 
 [tool.poetry.group.torcs.dependencies]
 
+[tool.poetry.group.sc2]
+optional = true
+
+[tool.poetry.group.sc2.dependencies]
+# PySC2 brings in absl-py and the SC2 protocol stack; keep it optional so
+# Windows-only TMNF setups don't pull it in. Requires a separate Blizzard
+# SC2 binary install — see CLAUDE.md.
+numpy = ">=1.26"
+gymnasium = ">=0.29"
+pyyaml = ">=6.0"
+pysc2 = ">=4.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

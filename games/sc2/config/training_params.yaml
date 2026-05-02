@@ -40,5 +40,8 @@ patience: 0                  # stop greedy loop if no improvement for this many 
 policy_type: sc2_genetic
 
 policy_params:
-  population_size: 20
-  elite_k: 3
+  population_size: 30      # larger search space needs bigger population
+  elite_k: 5
+  eval_episodes: 2         # average fitness over 2 noisy episodes per individual
+  mutation_scale: 0.1
+  mutation_share: 0.3      # sparse mutation — mutate 30% of weights per individual

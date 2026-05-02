@@ -124,7 +124,7 @@ class SC2Adapter:
             from games.sc2.policies import NeuralDQNPolicy as SC2NeuralDQNPolicy
             if os.path.exists(weights_file) and not re_initialize:
                 with open(weights_file) as _f:
-                    _cfg = yaml.safe_load(_f)
+                    _cfg = yaml.safe_load(_f) or {}
                 if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
                     policy = SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
                     if os.path.exists(trainer_state_file):

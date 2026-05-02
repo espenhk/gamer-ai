@@ -65,6 +65,12 @@ class SC2Env(BaseGameEnv):
         Bot difficulty for 1v1 maps; ignored for minigames.
     visualize :
         If True, render the PySC2 visualizer.
+    screen_layers :
+        PySC2 feature_screen layer names to stack as spatial obs channels.
+        When non-empty the observation space becomes a ``Dict`` with keys
+        ``"flat"`` (the existing vector) and ``"spatial"`` (C × H × W).
+    minimap_layers :
+        PySC2 feature_minimap layer names appended after screen_layers.
     """
 
     metadata = {"render_modes": []}
@@ -80,6 +86,8 @@ class SC2Env(BaseGameEnv):
         agent_race: str = "random",
         bot_difficulty: str = "very_easy",
         visualize: bool = False,
+        screen_layers: list[str] | None = None,
+        minimap_layers: list[str] | None = None,
     ) -> None:
         super().__init__()
 
@@ -89,14 +97,32 @@ class SC2Env(BaseGameEnv):
         self._max_episode_time_s = max_episode_time_s
         self._step_mul = step_mul
         self._reward_calc = SC2RewardCalculator(self._reward_config)
+        self._screen_layers: list[str] = list(screen_layers or [])
+        self._minimap_layers: list[str] = list(minimap_layers or [])
+        self._use_spatial = bool(self._screen_layers or self._minimap_layers)
 
         spec = get_spec(map_name)
-        self.observation_space = spaces.Box(
+        flat_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
             shape=(spec.dim,),
             dtype=np.float32,
         )
+        if self._use_spatial:
+            n_channels = len(self._screen_layers) + len(self._minimap_layers)
+            self.observation_space = spaces.Dict({
+                "flat": flat_space,
+                "spatial": spaces.Box(
+                    low=0.0, high=1.0,
+                    shape=(n_channels, screen_size, screen_size),
+                    dtype=np.float32,
+                ),
+            })
+            self._spatial_shape = (n_channels, screen_size, screen_size)
+        else:
+            self.observation_space = flat_space
+            self._spatial_shape = None
+
         n_funcs = max(FUNCTION_IDS) + 1
         self.action_space = spaces.Box(
             low=np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32),
@@ -112,6 +138,8 @@ class SC2Env(BaseGameEnv):
             agent_race=agent_race,
             bot_difficulty=bot_difficulty,
             visualize=visualize,
+            screen_layers=self._screen_layers,
+            minimap_layers=self._minimap_layers,
         )
 
         # Episode tracking
@@ -132,10 +160,11 @@ class SC2Env(BaseGameEnv):
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
-    ) -> tuple[np.ndarray, dict]:
+    ) -> tuple[np.ndarray | dict, dict]:
         super().reset(seed=seed)
 
-        obs, info = self._client.reset()
+        flat_obs, info = self._client.reset()
+        obs = self._make_obs(flat_obs, info)
 
         self._prev_obs = obs
         self._prev_minerals = info.get("minerals", 0.0)
@@ -148,8 +177,9 @@ class SC2Env(BaseGameEnv):
 
         return obs, info
 
-    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
-        obs, _raw_reward, done, info = self._client.step(action)
+    def step(self, action: np.ndarray) -> tuple[np.ndarray | dict, float, bool, bool, dict]:
+        flat_obs, _raw_reward, done, info = self._client.step(action)
+        obs = self._make_obs(flat_obs, info)
 
         self._step_count += 1
         self._elapsed_s = time.monotonic() - self._episode_start_s
@@ -199,11 +229,28 @@ class SC2Env(BaseGameEnv):
         self._client.close()
 
     # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _make_obs(self, flat_obs: np.ndarray, info: dict) -> np.ndarray | dict:
+        """Wrap flat_obs into a dict observation when spatial layers are active."""
+        if not self._use_spatial:
+            return flat_obs
+        spatial = info.get("spatial_obs")
+        if spatial is None:
+            spatial = np.zeros(self._spatial_shape, dtype=np.float32)
+        return {"flat": flat_obs, "spatial": spatial}
+
+    # ------------------------------------------------------------------
     # BaseGameEnv API
     # ------------------------------------------------------------------
 
     def _build_obs(self, step: Any) -> np.ndarray:
         """Not used directly — obs comes from the client's reset/step."""
+        if self._use_spatial:
+            return np.zeros(
+                self.observation_space["flat"].shape, dtype=np.float32
+            )
         return np.zeros(self.observation_space.shape, dtype=np.float32)
 
     def _get_game_info(self) -> dict:
@@ -231,6 +278,8 @@ def make_env(
     agent_race: str = "random",
     bot_difficulty: str = "very_easy",
     visualize: bool = False,
+    screen_layers: list[str] | None = None,
+    minimap_layers: list[str] | None = None,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -252,4 +301,6 @@ def make_env(
         agent_race=agent_race,
         bot_difficulty=bot_difficulty,
         visualize=visualize,
+        screen_layers=screen_layers,
+        minimap_layers=minimap_layers,
     )

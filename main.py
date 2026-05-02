@@ -63,6 +63,15 @@ def main() -> None:
              "including probe and cold-start phases.",
     )
     parser.add_argument(
+        "--play", action="store_true",
+        help=(
+            "Human-vs-AI interactive play mode (SC2 only).  "
+            "Loads the champion policy from the experiment and launches a "
+            "two-player PySC2 session where you play via the SC2 UI against "
+            "the trained agent.  No weight updates occur."
+        ),
+    )
+    parser.add_argument(
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
@@ -77,6 +86,12 @@ def main() -> None:
 
     if args.game == "assetto":
         _run_assetto(args)
+        return
+
+    if args.play:
+        if args.game != "sc2":
+            raise SystemExit("--play is only supported with --game sc2")
+        _run_play_sc2(args)
         return
 
     adapter = GAME_ADAPTERS[args.game]()
@@ -141,6 +156,22 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
         no_interrupt=args.no_interrupt,
         re_initialize=re_initialize,
     )
+
+
+# ======================================================================
+# SC2 play entry point
+# ======================================================================
+
+def _run_play_sc2(args: argparse.Namespace) -> None:
+    try:
+        from games.sc2.play import play_sc2  # noqa: PLC0415
+    except ImportError as exc:
+        raise SystemExit(
+            f"Cannot import SC2 play dependencies: {exc}\n"
+            "Install pysc2 with:  poetry install --with sc2"
+        ) from exc
+
+    play_sc2(args.experiment, args)
 
 
 # ======================================================================

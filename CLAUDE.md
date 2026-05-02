@@ -333,7 +333,7 @@ Daemon keepalive thread keeps `iface.running` alive. `on_registered` sets event 
 
 ## StarCraft 2 (`games/sc2/`)
 
-**MVP scope** (issue #90): the 7 standard PySC2 minigames + a 1v1-vs-builtin-bot env stub. Fog-of-war + belief machinery comes in #91.
+**Scope**: 7 standard PySC2 minigames and full 1v1 RL training against a built-in bot on any ladder map (e.g. `Simple64`). Fog-of-war belief machinery is deferred to a future issue.
 
 ### Setup
 
@@ -353,6 +353,17 @@ python main.py myrun --game sc2
 
 # Choose a different minigame: edit games/sc2/config/training_params.yaml
 # (or the per-experiment copy under experiments/) and set map_name.
+
+# 1v1 ladder training against a very_easy bot on Simple64:
+#   1. Edit experiments/sc2_Simple64/<name>/training_params.yaml:
+#        map_name: Simple64
+#        in_game_episode_s: 600.0
+#        policy_type: sc2_genetic    # or cmaes, neural_dqn, reinforce, lstm
+#   2. Edit experiments/sc2_Simple64/<name>/reward_config.yaml:
+#        score_weight: 0.0
+#        economy_weight: 0.001
+#   3. Run:
+python main.py myrun --game sc2 --no-interrupt
 ```
 
 The first run creates `experiments/sc2_<map>/<name>/` and copies both master configs in. Edit the experiment-local copies to tune without affecting other runs.
@@ -366,6 +377,39 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 | `bot_difficulty` | `very_easy` | Only for ladder maps. |
 | `step_mul` | `8` | Game ticks per env step (~0.5 s real-time). |
 | `screen_size`, `minimap_size` | `64` | Square feature-layer resolutions. |
+| `in_game_episode_s` | `120.0` | Seconds before truncation; use `600.0` for ladder maps. |
+
+### Supported policies
+
+SC2-specific policies and tabular framework policies work on both the 13-dim
+minigame and 21-dim ladder observation spaces.  The framework's generic linear
+policies (`hill_climbing`, `neural_net`, and the base `genetic`) are **not**
+compatible with SC2 because their output encoding clips `fn_idx` to `[-1, 1]`
+and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
+
+| `policy_type` | Algorithm | Notes |
+|---|---|---|
+| `sc2_genetic` | Evolutionary (population of `SC2LinearPolicy`) | Default; recommended for first runs. |
+| `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | |
+| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | |
+| `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights | `games/sc2/policies.py` |
+| `neural_dqn` | Deep Q-network with experience replay | `games/sc2/policies.py` |
+| `reinforce` | Monte Carlo policy gradient | `games/sc2/policies.py` |
+| `lstm` | LSTM policy trained by evolutionary search | `games/sc2/policies.py` |
+
+### Ladder reward tuning (`reward_config.yaml`)
+
+For ladder maps (`Simple64` etc.) the recommended reward preset is:
+
+```yaml
+score_weight: 0.0        # cumulative game score is noisy for ladder; disable it
+win_bonus: 100.0         # applied on terminal win  (player_outcome = +1)
+loss_penalty: -100.0     # applied on terminal loss (player_outcome = -1)
+step_penalty: -0.001     # small time cost encourages decisive play
+economy_weight: 0.001    # per-step mineral+vespene delta; guides early-game economy
+```
+
+`win_bonus` and `loss_penalty` are always active for ladder maps regardless of `score_weight`.
 
 ### Action space
 
@@ -373,7 +417,7 @@ Continuous `Box([fn_idx, x, y, queue], shape=(4,))` with a 9-cell discrete grid 
 
 ### Observation space
 
-13-dim flat vector for minigames (see `games/sc2/obs_spec.py::SC2_MINIGAME_OBS_SPEC`): player totals, selected-unit summary, screen player_relative pixel counts and centroids. Ladder maps add 8 more dims for economy + minimap visibility. Issue #91 will extend this with belief / staleness features for fog-of-war play.
+13-dim flat vector for minigames (see `games/sc2/obs_spec.py::SC2_MINIGAME_OBS_SPEC`): player totals, selected-unit summary, screen player_relative pixel counts and centroids. Ladder maps use the 21-dim `SC2_LADDER_OBS_SPEC` which adds economy and minimap visibility features.
 
 ---
 

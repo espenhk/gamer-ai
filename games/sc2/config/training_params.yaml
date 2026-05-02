@@ -35,6 +35,9 @@ patience: 0                  # stop greedy loop if no improvement for this many 
 # and x/y to screen corners — use sc2_genetic instead.
 policy_type: sc2_genetic
 
+screen_layers: [player_relative, selected]  # spatial feature layers to stack; [] disables CNN obs
+minimap_layers: []                          # optional minimap channels to append
+
 policy_params:
   population_size: 30      # larger search space needs bigger population
   elite_k: 5

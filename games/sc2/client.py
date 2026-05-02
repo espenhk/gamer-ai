@@ -25,6 +25,29 @@ from games.sc2.obs_spec import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Spatial feature layer normalisation scales
+# ---------------------------------------------------------------------------
+# Values taken from PySC2 feature layer documentation.  Unknown layers default
+# to 1.0 (no normalisation), so 0–max values map to ~[0, 1].
+_LAYER_SCALE: dict[str, float] = {
+    "player_relative":    4.0,
+    "selected":           1.0,
+    "unit_type":       1917.0,
+    "height_map":       255.0,
+    "unit_hit_points":  255.0,
+    "unit_shields":     255.0,
+    "unit_density":      16.0,
+    "unit_density_aa":  255.0,
+    "effects":           16.0,
+    "visibility_map":     2.0,
+    "unit_energy":      255.0,
+    "creep":              1.0,
+    "power":              1.0,
+    "pathable":           1.0,
+    "buildable":          1.0,
+}
+
 
 class SC2Client:
     """Manages a ``pysc2.env.sc2_env.SC2Env`` session.
@@ -56,6 +79,8 @@ class SC2Client:
         agent_race: str = "random",
         bot_difficulty: str = "very_easy",
         visualize: bool = False,
+        screen_layers: list[str] | None = None,
+        minimap_layers: list[str] | None = None,
     ) -> None:
         self._map_name = map_name
         self._step_mul = step_mul
@@ -64,6 +89,8 @@ class SC2Client:
         self._agent_race = agent_race
         self._bot_difficulty = bot_difficulty
         self._visualize = visualize
+        self._screen_layers: list[str] = list(screen_layers or [])
+        self._minimap_layers: list[str] = list(minimap_layers or [])
         self._sc2_env: Any = None
         self._is_ladder = self._detect_ladder(map_name)
         self._spec = (
@@ -321,6 +348,33 @@ class SC2Client:
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
         }
+
+        # Spatial obs: stack selected screen + minimap layers into (C, H, W).
+        if self._screen_layers or self._minimap_layers:
+            channels: list[np.ndarray] = []
+            for name in self._screen_layers:
+                layer = self._extract_named_layer(feat_screen, name)
+                scale = _LAYER_SCALE.get(name, 1.0)
+                if layer is not None:
+                    channels.append((layer / scale).astype(np.float32))
+                else:
+                    channels.append(
+                        np.zeros((self._screen_size, self._screen_size), dtype=np.float32)
+                    )
+            if self._minimap_layers:
+                feat_minimap = self._safe_array(ob, "feature_minimap")
+                for name in self._minimap_layers:
+                    layer = self._extract_named_layer(feat_minimap, name)
+                    scale = _LAYER_SCALE.get(name, 1.0)
+                    if layer is not None:
+                        channels.append((layer / scale).astype(np.float32))
+                    else:
+                        channels.append(
+                            np.zeros((self._minimap_size, self._minimap_size), dtype=np.float32)
+                        )
+            if channels:
+                info["spatial_obs"] = np.stack(channels, axis=0)
+
         return flat, info
 
     # ------------------------------------------------------------------
@@ -399,6 +453,16 @@ class SC2Client:
         if feat.ndim == 3 and feat.shape[0] > 1:
             return np.asarray(feat[1])
         return None
+
+    @staticmethod
+    def _extract_named_layer(feat: np.ndarray | None, name: str) -> np.ndarray | None:
+        """Extract a named feature layer from a PySC2 NamedNumpyArray."""
+        if feat is None:
+            return None
+        try:
+            return np.asarray(feat[name], dtype=np.float32)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
 
     @staticmethod
     def _centroid(mask: np.ndarray) -> tuple[float, float]:

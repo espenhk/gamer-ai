@@ -58,6 +58,9 @@ class SC2Adapter:
         map_name = self._map_name(training_params, track_override)
         obs_spec = get_spec(map_name)
 
+        screen_layers   = training_params.get("screen_layers") or []
+        minimap_layers  = training_params.get("minimap_layers") or []
+
         def _make_env():
             from games.sc2.env import make_env
             return make_env(
@@ -69,6 +72,8 @@ class SC2Adapter:
                 minimap_size=training_params.get("minimap_size", 64),
                 agent_race=training_params.get("agent_race", "random"),
                 bot_difficulty=training_params.get("bot_difficulty", "very_easy"),
+                screen_layers=screen_layers,
+                minimap_layers=minimap_layers,
             )
 
         return GameSpec(
@@ -249,6 +254,41 @@ class SC2Adapter:
                         )
             return policy
 
+        screen_layers_extras  = training_params.get("screen_layers") or []
+        minimap_layers_extras = training_params.get("minimap_layers") or []
+
+        def _make_sc2_cnn():
+            from games.sc2.cnn_policy import SC2CNNEvolutionPolicy
+            n_channels = len(screen_layers_extras) + len(minimap_layers_extras)
+            if n_channels == 0:
+                raise ValueError(
+                    "sc2_cnn requires at least one spatial layer.  "
+                    "Set screen_layers in training_params.yaml."
+                )
+            pop_size = policy_params.get("population_size", 20)
+            sigma    = policy_params.get("initial_sigma", 0.01)
+            policy   = SC2CNNEvolutionPolicy(
+                n_channels      = n_channels,
+                obs_spec        = obs_spec,
+                population_size = pop_size,
+                initial_sigma   = sigma,
+                eval_episodes   = policy_params.get("eval_episodes", 1),
+            )
+            champion_path = weights_file.replace(".yaml", ".npz")
+            if os.path.exists(champion_path) and not re_initialize:
+                try:
+                    policy.load_champion(champion_path)
+                    if os.path.exists(trainer_state_file):
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[SC2CNNEvolutionPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[SC2CNNEvolutionPolicy] could not load saved state — %s; "
+                        "starting from random.", exc,
+                    )
+            return policy
+
         return PolicyExtras(
             factories={
                 "sc2_genetic": _make_sc2_genetic,
@@ -256,6 +296,7 @@ class SC2Adapter:
                 "cmaes": _make_cmaes,
                 "reinforce": _make_reinforce,
                 "lstm": _make_lstm,
+                "sc2_cnn": _make_sc2_cnn,
             },
             loop_dispatch={
                 "sc2_genetic": "genetic",
@@ -263,6 +304,7 @@ class SC2Adapter:
                 "cmaes": "cmaes",
                 "reinforce": "q_learning",
                 "lstm": "cmaes",
+                "sc2_cnn": "cmaes",
             },
         )
 

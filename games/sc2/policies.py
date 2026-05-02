@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 _N_DISCRETE_ACTIONS = len(DISCRETE_ACTIONS)
 # Number of distinct SC2 function IDs exposed by this MVP.
-_N_FUNCS = len(FUNCTION_IDS)  # 6
+_N_FUNCS = len(FUNCTION_IDS)  # currently 6: no_op, select_army, Move_screen, Attack_screen, select_idle_worker, Harvest_Gather_screen
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +574,7 @@ class CMAESPolicy(BasePolicy):
         self._mean = np.zeros(self._n, dtype=np.float64)
         logger.info("[SC2 CMAESPolicy] initialised with zero mean, sigma=%.3f", self._sigma)
 
-    def initialize_from_champion(self, champion: "SC2LinearPolicy | WeightedLinearPolicy") -> None:
+    def initialize_from_champion(self, champion: "WeightedLinearPolicy") -> None:
         seeded_reward = None
         for attr_name in ("champion_reward", "reward"):
             reward_value = getattr(champion, attr_name, None)

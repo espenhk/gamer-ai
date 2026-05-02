@@ -20,9 +20,8 @@ from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_model(n_channels: int = 2, obs_dim: int | None = None) -> SC2CNNModel:
-    spec = SC2_MINIGAME_OBS_SPEC
-    return SC2CNNModel(n_channels=n_channels, obs_spec=spec, seed=0)
+def _make_model(n_channels: int = 2) -> SC2CNNModel:
+    return SC2CNNModel(n_channels=n_channels, obs_spec=SC2_MINIGAME_OBS_SPEC, seed=0)
 
 
 def _dict_obs(n_channels: int = 2, h: int = 64, w: int = 64) -> dict:
@@ -188,7 +187,7 @@ class TestSC2CNNEvolutionPolicy(unittest.TestCase):
         self.policy.update_distribution([100.0, 100.0, 100.0, 100.0])
         self.assertNotEqual(self.policy.sigma, sigma_before)
 
-    def test_trainer_state_roundtrip(self, tmp_path: str | None = None):
+    def test_trainer_state_roundtrip(self):
         import tempfile, os
         with tempfile.TemporaryDirectory() as d:
             state_path = os.path.join(d, "trainer_state.npz")

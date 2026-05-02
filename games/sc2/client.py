@@ -367,10 +367,13 @@ class SC2Client:
                     layer = self._extract_named_layer(feat_minimap, name)
                     scale = _LAYER_SCALE.get(name, 1.0)
                     if layer is not None:
-                        channels.append((layer / scale).astype(np.float32))
+                        layer = (layer / scale).astype(np.float32)
+                        if layer.shape != (self._screen_size, self._screen_size):
+                            layer = self._resize_layer(layer, self._screen_size)
+                        channels.append(layer)
                     else:
                         channels.append(
-                            np.zeros((self._minimap_size, self._minimap_size), dtype=np.float32)
+                            np.zeros((self._screen_size, self._screen_size), dtype=np.float32)
                         )
             if channels:
                 info["spatial_obs"] = np.stack(channels, axis=0)
@@ -463,6 +466,32 @@ class SC2Client:
             return np.asarray(feat[name], dtype=np.float32)
         except (KeyError, IndexError, TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _resize_layer(layer: np.ndarray, target_size: int) -> np.ndarray:
+        """Bilinear resize a 2-D feature layer to (target_size, target_size).
+
+        Used to bring minimap layers to the same resolution as screen layers
+        when ``minimap_size != screen_size``.
+        """
+        h, w = layer.shape
+        if h == target_size and w == target_size:
+            return layer
+        row_idx = np.linspace(0, h - 1, target_size)
+        col_idx = np.linspace(0, w - 1, target_size)
+        r0 = np.floor(row_idx).astype(int).clip(0, h - 2)
+        r1 = (r0 + 1).clip(0, h - 1)
+        c0 = np.floor(col_idx).astype(int).clip(0, w - 2)
+        c1 = (c0 + 1).clip(0, w - 1)
+        dr = (row_idx - r0).astype(np.float32)
+        dc = (col_idx - c0).astype(np.float32)
+        out = (
+            layer[np.ix_(r0, c0)] * np.outer(1 - dr, 1 - dc)
+            + layer[np.ix_(r0, c1)] * np.outer(1 - dr, dc)
+            + layer[np.ix_(r1, c0)] * np.outer(dr, 1 - dc)
+            + layer[np.ix_(r1, c1)] * np.outer(dr, dc)
+        )
+        return out.astype(np.float32)
 
     @staticmethod
     def _centroid(mask: np.ndarray) -> tuple[float, float]:

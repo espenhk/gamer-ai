@@ -58,8 +58,17 @@ class SC2Adapter:
         map_name = self._map_name(training_params, track_override)
         obs_spec = get_spec(map_name)
 
-        screen_layers   = training_params.get("screen_layers") or []
-        minimap_layers  = training_params.get("minimap_layers") or []
+        policy_type = training_params.get("policy_type", "sc2_genetic")
+        # Spatial obs (dict observation space) is only supported by sc2_cnn.
+        # All other SC2 policies operate on flat np.ndarray observations; if
+        # the user accidentally left non-empty screen_layers in their config
+        # we silently ignore them to avoid crashing those policies.
+        if policy_type == "sc2_cnn":
+            screen_layers  = training_params.get("screen_layers") or []
+            minimap_layers = training_params.get("minimap_layers") or []
+        else:
+            screen_layers  = []
+            minimap_layers = []
 
         def _make_env():
             from games.sc2.env import make_env

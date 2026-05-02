@@ -2,21 +2,28 @@
 # Edit these values freely — no code changes required.
 # See games/sc2/reward.py for full documentation of each parameter.
 #
-# Defaults below are tuned for MoveToBeacon (score increments by 1 per beacon
-# touched).  Other minigames may want different weights:
+# MoveToBeacon (default): score_weight=1.0, win_bonus/loss_penalty unused.
+#
+# Other minigame presets:
 #   - CollectMineralShards / CollectMineralsAndGas → score_weight=1.0,
 #       optionally economy_weight≈0.001 (already double-counts via score)
 #   - DefeatRoaches / DefeatZerglingsAndBanelings   → score_weight=0.05
 #       (raw kill score is large), idle_penalty=0
 #   - BuildMarines                                  → score_weight=1.0,
 #       idle_penalty=-0.05 (push away from doing nothing)
-#   - 1v1 ladder (Simple64)                         → score_weight=0.0,
-#       win_bonus=100, loss_penalty=-100, economy_weight=0.001
+#
+# 1v1 ladder preset (Simple64 / any ladder map):
+#   Set score_weight: 0.0 and economy_weight: 0.001 for ladder play so the
+#   agent is guided by economy growth during the game and win/loss at episode
+#   end.  The win_bonus and loss_penalty below are always active for ladder
+#   maps regardless of score_weight.
 
 # --- Primary signal ---
 score_weight: 1.0
 
 # --- Terminal outcome (ladder maps) ---
+# These are applied whenever player_outcome != None (terminal ladder step).
+# For minigames player_outcome is always None, so these have no effect.
 win_bonus: 100.0
 loss_penalty: -100.0
 
@@ -27,4 +34,5 @@ step_penalty: -0.001
 idle_penalty: 0.0
 
 # --- Economy delta (mineral + vespene) ---
+# Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.0

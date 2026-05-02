@@ -590,6 +590,31 @@ def _run_sc2(args: argparse.Namespace) -> None:
     policy_type   = p.get("policy_type", "genetic")
     policy_params = p.get("policy_params") or {}
 
+    # ---- SC2-specific extra policy types --------------------------------
+    from games.sc2.sc2_policies import SC2GeneticPolicy
+
+    def _make_sc2_genetic():
+        pop_size = policy_params.get("population_size", 30)
+        elite_k  = policy_params.get("elite_k", 5)
+        policy   = SC2GeneticPolicy(
+            obs_spec        = obs_spec,
+            population_size = pop_size,
+            elite_k         = elite_k,
+            mutation_scale  = policy_params.get("mutation_scale", 0.1),
+            mutation_share  = policy_params.get("mutation_share", 0.3),
+            eval_episodes   = policy_params.get("eval_episodes", 2),
+        )
+        if os.path.exists(weights_file) and not args.re_initialize:
+            policy.initialize_from_file(weights_file)
+        else:
+            policy.initialize_random()
+            logger.info("[SC2GeneticPolicy] random population of %d", pop_size)
+        return policy
+
+    extra_policy_types = {"sc2_genetic": _make_sc2_genetic}
+    extra_loop_dispatch = {"sc2_genetic": "genetic"}
+    # ---------------------------------------------------------------------
+
     data = train_rl(
         experiment_name     = args.experiment,
         make_env_fn         = lambda: make_env(
@@ -627,6 +652,8 @@ def _run_sc2(args: argparse.Namespace) -> None:
         track               = f"sc2_{map_name}",
         adaptive_mutation   = p.get("adaptive_mutation", True),
         patience            = p.get("patience", 0),
+        extra_policy_types  = extra_policy_types,
+        extra_loop_dispatch = extra_loop_dispatch,
     )
 
     save_experiment_results(data, results_dir=f"{experiment_dir}/results")

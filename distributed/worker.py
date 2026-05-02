@@ -213,8 +213,6 @@ def run_worker(
             hb.join(timeout=2)
 
         # --- save local results ---
-        if game_spec.save_results_fn is not None:
-            game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
         logger.info("Finished %s  best_reward=%+.1f", spec.name, best)
 

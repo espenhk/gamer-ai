@@ -110,6 +110,13 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
 
+    # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
+    with open(reward_cfg_file) as f:
+        reward_cfg = yaml.safe_load(f) or {}
+    adapter.decorate_reward_cfg(reward_cfg, p, args.track)
+    with open(reward_cfg_file, "w") as f:
+        yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
+
     re_initialize = args.re_initialize
     if re_initialize:
         if os.path.exists(trainer_state_file):
@@ -134,8 +141,6 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
         no_interrupt=args.no_interrupt,
         re_initialize=re_initialize,
     )
-    if game_spec.save_results_fn is not None:
-        game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
 
 
 # ======================================================================

@@ -32,12 +32,10 @@ class TestTrainRLSignature:
         assert "no_interrupt" in param_names
         assert "re_initialize" in param_names
 
-    def test_legacy_params_still_accepted(self):
-        """Back-compat: the legacy flat parameter list should still work."""
+    def test_no_legacy_flat_params(self):
+        """Legacy flat parameter list has been removed."""
         sig = inspect.signature(train_rl)
-        param_names = list(sig.parameters.keys())
-        assert "experiment_name" in param_names
-        assert "make_env_fn" in param_names
-        assert "obs_spec" in param_names
-        assert "weights_file" in param_names
-        assert "policy_type" in param_names
+        param_names = set(sig.parameters.keys())
+        expected = {"game", "config", "probe", "warmup", "extras",
+                    "no_interrupt", "re_initialize"}
+        assert param_names == expected

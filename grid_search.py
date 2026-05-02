@@ -367,8 +367,6 @@ def _run_local(
             re_initialize=re_initialize,
         )
 
-        if game_spec.save_results_fn is not None:
-            game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))

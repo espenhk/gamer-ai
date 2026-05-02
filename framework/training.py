@@ -887,50 +887,17 @@ def _greedy_loop_genetic(
 # ---------------------------------------------------------------------------
 
 def train_rl(
-    game: GameSpec | None = None,
-    config: RunConfig | None = None,
+    game: GameSpec,
+    config: RunConfig,
     *,
     probe: ProbeSpec | None = None,
     warmup: WarmupSpec | None = None,
     extras: PolicyExtras | None = None,
     no_interrupt: bool = False,
     re_initialize: bool = False,
-    # --- legacy positional / keyword args (deprecated, back-compat) ---
-    experiment_name: str | None = None,
-    make_env_fn: Callable | None = None,
-    obs_spec: ObsSpec | None = None,
-    head_names: list[str] | None = None,
-    discrete_actions: np.ndarray | None = None,
-    speed: float = 1.0,
-    n_sims: int = 10,
-    in_game_episode_s: float = 20.0,
-    weights_file: str = "config/policy_weights.yaml",
-    reward_config_file: str = "config/reward_config.yaml",
-    mutation_scale: float = 0.1,
-    mutation_share: float = 1.0,
-    probe_actions: list[tuple[np.ndarray, str]] | None = None,
-    probe_in_game_s: float = 8.0,
-    cold_start_restarts: int = 5,
-    cold_start_sims: int = 10,
-    warmup_action: np.ndarray | None = None,
-    warmup_steps: int = 0,
-    training_params: dict | None = None,
-    do_pretrain: bool = False,
-    policy_type: str = "hill_climbing",
-    policy_params: dict | None = None,
-    track: str = "",
-    adaptive_mutation: bool = True,
-    save_results_fn: Callable[[ExperimentData, str], None] | None = None,
-    extra_policy_types: dict[str, Callable[[], BasePolicy]] | None = None,
-    extra_loop_dispatch: dict[str, str] | None = None,
-    patience: int = 0,
 ) -> ExperimentData:
     """
     Train a policy via the selected algorithm.
-
-    Accepts either the new bundle-based arguments (game, config, probe,
-    warmup, extras) or the legacy flat parameter list for backwards
-    compatibility.
 
     Parameters
     ----------
@@ -946,55 +913,53 @@ def train_rl(
         Game-specific extra policy types and loop dispatch.
     """
 
-    # ── unpack bundles or fall back to legacy args ────────────────────
-    if game is not None and config is not None:
-        # New bundle-based call
-        experiment_name  = game.experiment_name
-        make_env_fn      = game.make_env_fn
-        obs_spec         = game.obs_spec
-        head_names       = game.head_names
-        discrete_actions = game.discrete_actions
-        weights_file     = game.weights_file
-        reward_config_file = game.reward_config_file
-        save_results_fn  = game.save_results_fn
-        track            = game.track
+    # ── unpack bundles into local scalars for internal helpers ────────
+    experiment_name  = game.experiment_name
+    make_env_fn      = game.make_env_fn
+    obs_spec         = game.obs_spec
+    head_names       = game.head_names
+    discrete_actions = game.discrete_actions
+    weights_file     = game.weights_file
+    reward_config_file = game.reward_config_file
+    save_results_fn  = game.save_results_fn
+    track            = game.track
 
-        speed             = config.speed
-        n_sims            = config.n_sims
-        in_game_episode_s = config.in_game_episode_s
-        mutation_scale    = config.mutation_scale
-        mutation_share    = config.mutation_share
-        adaptive_mutation = config.adaptive_mutation
-        do_pretrain       = config.do_pretrain
-        patience          = config.patience
-        policy_type       = config.policy_type
-        policy_params     = dict(config.policy_params)
-        training_params   = config.training_params
+    speed             = config.speed
+    n_sims            = config.n_sims
+    in_game_episode_s = config.in_game_episode_s
+    mutation_scale    = config.mutation_scale
+    mutation_share    = config.mutation_share
+    adaptive_mutation = config.adaptive_mutation
+    do_pretrain       = config.do_pretrain
+    patience          = config.patience
+    policy_type       = config.policy_type
+    policy_params     = dict(config.policy_params)
+    training_params   = config.training_params
 
-        if probe is not None:
-            probe_actions       = probe.actions
-            probe_in_game_s     = probe.probe_in_game_s
-            cold_start_restarts = probe.cold_start_restarts
-            cold_start_sims     = probe.cold_start_sims
-        else:
-            probe_actions       = []
-            probe_in_game_s     = 0.0
-            cold_start_restarts = 0
-            cold_start_sims     = 0
+    if probe is not None:
+        probe_actions       = probe.actions
+        probe_in_game_s     = probe.probe_in_game_s
+        cold_start_restarts = probe.cold_start_restarts
+        cold_start_sims     = probe.cold_start_sims
+    else:
+        probe_actions       = []
+        probe_in_game_s     = 0.0
+        cold_start_restarts = 0
+        cold_start_sims     = 0
 
-        if warmup is not None:
-            warmup_action = warmup.action
-            warmup_steps  = warmup.steps
-        else:
-            warmup_action = None
-            warmup_steps  = 0
+    if warmup is not None:
+        warmup_action = warmup.action
+        warmup_steps  = warmup.steps
+    else:
+        warmup_action = None
+        warmup_steps  = 0
 
-        if extras is not None:
-            extra_policy_types  = extras.factories
-            extra_loop_dispatch = extras.loop_dispatch
-        else:
-            extra_policy_types  = None
-            extra_loop_dispatch = None
+    if extras is not None:
+        extra_policy_types  = extras.factories
+        extra_loop_dispatch = extras.loop_dispatch
+    else:
+        extra_policy_types  = None
+        extra_loop_dispatch = None
 
     policy_params = policy_params or {}
     probe_actions = probe_actions or []

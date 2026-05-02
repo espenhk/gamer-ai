@@ -1,17 +1,28 @@
-"""SC2-specific policies: NeuralDQNPolicy, CMAESPolicy, REINFORCEPolicy,
-LSTMPolicy, LSTMEvolutionPolicy.
+"""SC2-specific policies: SC2LinearPolicy, SC2GeneticPolicy, NeuralDQNPolicy,
+CMAESPolicy, REINFORCEPolicy, LSTMPolicy, LSTMEvolutionPolicy.
 
 These policies are adapted from the TMNF equivalents in games/tmnf/policies.py
 but are parameterised by an :class:`framework.obs_spec.ObsSpec` instance and
 the SC2 9-element discrete action set instead of the TMNF-specific obs space
 and 25-element action set.
 
-The CMAESPolicy operates over the flat weight vector of a framework
-:class:`framework.policies.WeightedLinearPolicy`, exactly as it does in TMNF,
-but the weight vector dimension is ``obs_spec.dim × len(head_names)`` rather
-than the TMNF-fixed ``(BASE_OBS_DIM + n_lidar_rays) × 3``.
+Action encoding for SC2's ``[fn_idx, x, y, queue]`` 4-vector:
+    The framework's :class:`~framework.policies.WeightedLinearPolicy` uses
+    ``clip(score, -1, 1)`` for head 0 and ``score > 0`` binary for the rest.
+    This is unsuitable for SC2 because ``fn_idx`` needs values up to 5 and
+    ``x``/``y`` need continuous coverage of ``[0, 1]``.
+
+    :class:`SC2LinearPolicy` replaces the encoding with sigmoid-based heads:
+        fn_idx  → σ(score) × (N_FUNCS−1)   ∈ [0, 5]   (float; client casts to int)
+        x, y    → σ(score)                  ∈ [0, 1]
+        queue   → int(σ(score) > 0.5)       ∈ {0, 1}
+
+    All other SC2 policies (CMAESPolicy, SC2GeneticPolicy) use SC2LinearPolicy
+    as their population/offspring type; NeuralDQNPolicy, REINFORCEPolicy, and
+    LSTMPolicy select directly from DISCRETE_ACTIONS so are unaffected.
 
 Training-loop dispatch:
+    sc2_genetic → ``_greedy_loop_genetic``
     neural_dqn  → ``_greedy_loop_q_learning``
     cmaes       → ``_greedy_loop_cmaes``
     reinforce   → ``_greedy_loop_q_learning``
@@ -26,12 +37,14 @@ from collections import deque
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from framework.policies import BasePolicy, WeightedLinearPolicy
-from games.sc2.actions import DISCRETE_ACTIONS
+from framework.policies import BasePolicy, WeightedLinearPolicy, GeneticPolicy
+from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
 
 logger = logging.getLogger(__name__)
 
 _N_DISCRETE_ACTIONS = len(DISCRETE_ACTIONS)
+# Number of distinct SC2 function IDs exposed by this MVP.
+_N_FUNCS = len(FUNCTION_IDS)  # 6
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +62,61 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# ReplayBuffer
+# SC2LinearPolicy — SC2-aware linear policy with sigmoid output encoding
 # ---------------------------------------------------------------------------
+
+class SC2LinearPolicy(WeightedLinearPolicy):
+    """Linear policy with sigmoid-based output encoding for SC2 actions.
+
+    Overrides the output convention of :class:`~framework.policies.WeightedLinearPolicy`
+    (which clips head[0] to ``[-1, 1]`` and thresholds the rest to binary) with
+    a sigmoid-based encoding that covers the full SC2 ``[fn_idx, x, y, queue]``
+    action range:
+
+        fn_idx  → σ(score) × (N_FUNCS−1)   ∈ [0, 5.0]
+        x, y    → σ(score)                  ∈ [0, 1]
+        queue   → int(σ(score) > 0.5)       ∈ {0, 1}
+
+    Weight storage, serialisation, ``to_flat()``/``with_flat()``/``mutated()``
+    all inherit from :class:`~framework.policies.WeightedLinearPolicy` and use
+    the same YAML format, so weight files are interchangeable.
+    """
+
+    _N_FUNCS: int = _N_FUNCS  # 6 SC2 function IDs
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        norm_obs  = obs / self._obs_spec.scales
+        fn_score  = float(np.dot(self._weights["fn_idx"], norm_obs))
+        x_score   = float(np.dot(self._weights["x"],      norm_obs))
+        y_score   = float(np.dot(self._weights["y"],      norm_obs))
+        q_score   = float(np.dot(self._weights["queue"],  norm_obs))
+        fn_idx = _sigmoid(fn_score) * (self._N_FUNCS - 1)
+        x      = _sigmoid(x_score)
+        y      = _sigmoid(y_score)
+        queue  = float(int(_sigmoid(q_score) > 0.5))
+        return np.array([fn_idx, x, y, queue], dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
+# SC2GeneticPolicy — GeneticPolicy using SC2LinearPolicy population members
+# ---------------------------------------------------------------------------
+
+class SC2GeneticPolicy(GeneticPolicy):
+    """Genetic policy for SC2 — population members are :class:`SC2LinearPolicy`.
+
+    Inherits all of the framework :class:`~framework.policies.GeneticPolicy`
+    behaviour (selection, crossover, mutation, champion tracking) but overrides
+    ``_make_member`` so offspring use the sigmoid-based SC2 action encoding
+    instead of the incompatible clip/binary encoding of the base class.
+
+    Registered in ``_run_sc2`` as policy_type ``sc2_genetic`` and dispatched to
+    ``_greedy_loop_genetic`` via ``extra_loop_dispatch``.
+    """
+
+    def _make_member(self, cfg: dict) -> SC2LinearPolicy:
+        return SC2LinearPolicy.from_cfg(cfg, self._obs_spec, self._head_names)
+
+
 
 class _ReplayBuffer:
     """Fixed-size circular buffer of (obs, action_idx, reward, next_obs, done)."""
@@ -508,7 +574,7 @@ class CMAESPolicy(BasePolicy):
         self._mean = np.zeros(self._n, dtype=np.float64)
         logger.info("[SC2 CMAESPolicy] initialised with zero mean, sigma=%.3f", self._sigma)
 
-    def initialize_from_champion(self, champion: WeightedLinearPolicy) -> None:
+    def initialize_from_champion(self, champion: "SC2LinearPolicy | WeightedLinearPolicy") -> None:
         seeded_reward = None
         for attr_name in ("champion_reward", "reward"):
             reward_value = getattr(champion, attr_name, None)
@@ -533,15 +599,15 @@ class CMAESPolicy(BasePolicy):
             "" if seeded_reward is None else f" (baseline reward={self._champion_reward:.6f})",
         )
 
-    def _flat_to_policy(self, flat: np.ndarray) -> WeightedLinearPolicy:
-        """Build a WeightedLinearPolicy from a flat [head0|head1|…] weight vector."""
+    def _flat_to_policy(self, flat: np.ndarray) -> SC2LinearPolicy:
+        """Build an SC2LinearPolicy from a flat [head0|head1|…] weight vector."""
         n     = self._obs_spec.dim
         names = self._obs_spec.names
         cfg   = {
             f"{head}_weights": {names[i]: float(flat[k * n + i]) for i in range(n)}
             for k, head in enumerate(self._head_names)
         }
-        return WeightedLinearPolicy.from_cfg(cfg, self._obs_spec, self._head_names)
+        return SC2LinearPolicy.from_cfg(cfg, self._obs_spec, self._head_names)
 
     def _update_eigen(self) -> None:
         self._C = np.triu(self._C) + np.triu(self._C, 1).T
@@ -551,7 +617,7 @@ class CMAESPolicy(BasePolicy):
         self._invsqrtC   = self._B @ np.diag(1.0 / self._D) @ self._B.T
         self._eigengen   = self._gen
 
-    def sample_population(self) -> list[WeightedLinearPolicy]:
+    def sample_population(self) -> list[SC2LinearPolicy]:
         n = self._n
         if self._gen - self._eigengen >= max(1, self._lam // max(1, 10 * n)):
             self._update_eigen()

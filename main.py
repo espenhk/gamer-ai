@@ -562,6 +562,8 @@ def _run_sc2(args: argparse.Namespace) -> None:
     from games.sc2.env import make_env
     from games.sc2.analytics import save_experiment_results
     from games.sc2.policies import (
+        SC2LinearPolicy,
+        SC2GeneticPolicy,
         NeuralDQNPolicy as SC2NeuralDQNPolicy,
         CMAESPolicy as SC2CMAESPolicy,
         REINFORCEPolicy as SC2REINFORCEPolicy,
@@ -569,21 +571,20 @@ def _run_sc2(args: argparse.Namespace) -> None:
         LSTMEvolutionPolicy as SC2LSTMEvolutionPolicy,
     )
 
-    # Read SC2 master config.
+    # Read SC2 master config to locate the per-experiment config file.
     with open("games/sc2/config/training_params.yaml") as f:
         master_p = yaml.safe_load(f)
 
-    map_name = master_p.get("map_name", "MoveToBeacon")
-    experiment_dir       = f"experiments/sc2_{map_name}/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    trainer_state_file   = f"{experiment_dir}/trainer_state.npz"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
+    # Use master config map_name as a staging namespace to find/create configs.
+    _staging_map     = master_p.get("map_name", "MoveToBeacon")
+    _staging_dir     = f"experiments/sc2_{_staging_map}/{args.experiment}"
+    training_params_file = f"{_staging_dir}/training_params.yaml"
 
-    os.makedirs(experiment_dir, exist_ok=True)
-    if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/sc2/config/reward_config.yaml", reward_cfg_file)
-        logger.info("Copied SC2 reward config → %s", reward_cfg_file)
+    os.makedirs(_staging_dir, exist_ok=True)
+    if not os.path.exists(f"{_staging_dir}/reward_config.yaml"):
+        shutil.copy("games/sc2/config/reward_config.yaml",
+                    f"{_staging_dir}/reward_config.yaml")
+        logger.info("Copied SC2 reward config → %s/reward_config.yaml", _staging_dir)
     if not os.path.exists(training_params_file):
         shutil.copy("games/sc2/config/training_params.yaml", training_params_file)
         logger.info("Copied SC2 training params → %s", training_params_file)
@@ -591,13 +592,26 @@ def _run_sc2(args: argparse.Namespace) -> None:
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
 
-    # Pick obs spec by map. Re-read map_name from per-experiment config so
-    # users can change maps without touching the master config.
-    map_name      = p.get("map_name", map_name)
+    # Re-read map_name from per-experiment config, then derive ALL experiment
+    # paths from the final map_name so resume/save always targets the correct
+    # sc2_{map}/ subdirectory (even when the per-experiment config was changed).
+    map_name      = p.get("map_name", _staging_map)
     obs_spec      = get_spec(map_name)
-    policy_type   = p.get("policy_type", "genetic")
+    policy_type   = p.get("policy_type", "sc2_genetic")
     policy_params = p.get("policy_params") or {}
     re_initialize = args.re_initialize
+
+    experiment_dir     = f"experiments/sc2_{map_name}/{args.experiment}"
+    weights_file       = f"{experiment_dir}/policy_weights.yaml"
+    trainer_state_file = f"{experiment_dir}/trainer_state.npz"
+    reward_cfg_file    = f"{experiment_dir}/reward_config.yaml"
+
+    # Ensure final directory and reward config exist (may differ from _staging_dir).
+    if experiment_dir != _staging_dir:
+        os.makedirs(experiment_dir, exist_ok=True)
+        if not os.path.exists(reward_cfg_file):
+            shutil.copy("games/sc2/config/reward_config.yaml", reward_cfg_file)
+            logger.info("Copied SC2 reward config → %s", reward_cfg_file)
 
     # Remove persisted state when re-initializing.
     if re_initialize:
@@ -606,8 +620,27 @@ def _run_sc2(args: argparse.Namespace) -> None:
                 os.remove(stale)
                 logger.info("Removed existing %s for re-initialization", stale)
 
-    # Factory callables for SC2-specific advanced policy types.
+    # Factory callables for SC2-specific policy types.
     _head_names = ["fn_idx", "x", "y", "queue"]
+
+    def _make_sc2_genetic() -> SC2GeneticPolicy:
+        pop_size = policy_params.get("population_size", 20)
+        elite_k  = policy_params.get("elite_k",         3)
+        policy   = SC2GeneticPolicy(
+            obs_spec        = obs_spec,
+            head_names      = _head_names,
+            population_size = pop_size,
+            elite_k         = elite_k,
+            mutation_scale  = policy_params.get("mutation_scale",  0.1),
+            mutation_share  = policy_params.get("mutation_share",  1.0),
+            eval_episodes   = policy_params.get("eval_episodes",   1),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            champion = SC2LinearPolicy(obs_spec, _head_names, weights_file)
+            policy.initialize_from_champion(champion)
+        else:
+            policy.initialize_random()
+        return policy
 
     def _make_neural_dqn() -> SC2NeuralDQNPolicy:
         if os.path.exists(weights_file) and not re_initialize:
@@ -651,8 +684,7 @@ def _run_sc2(args: argparse.Namespace) -> None:
             eval_episodes   = policy_params.get("eval_episodes", 1),
         )
         if os.path.exists(weights_file) and not re_initialize:
-            from framework.policies import WeightedLinearPolicy as _WLP
-            champion = _WLP(obs_spec, _head_names, weights_file)
+            champion = SC2LinearPolicy(obs_spec, _head_names, weights_file)
             policy.initialize_from_champion(champion)
             if os.path.exists(trainer_state_file):
                 try:
@@ -729,16 +761,18 @@ def _run_sc2(args: argparse.Namespace) -> None:
         return policy
 
     extra_policy_types = {
-        "neural_dqn": _make_neural_dqn,
-        "cmaes":      _make_cmaes,
-        "reinforce":  _make_reinforce,
-        "lstm":       _make_lstm,
+        "sc2_genetic": _make_sc2_genetic,
+        "neural_dqn":  _make_neural_dqn,
+        "cmaes":       _make_cmaes,
+        "reinforce":   _make_reinforce,
+        "lstm":        _make_lstm,
     }
     extra_loop_dispatch = {
-        "neural_dqn": "q_learning",
-        "cmaes":      "cmaes",
-        "reinforce":  "q_learning",
-        "lstm":       "cmaes",
+        "sc2_genetic": "genetic",
+        "neural_dqn":  "q_learning",
+        "cmaes":       "cmaes",
+        "reinforce":   "q_learning",
+        "lstm":        "cmaes",
     }
 
     data = train_rl(

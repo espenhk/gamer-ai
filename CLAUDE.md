@@ -358,7 +358,7 @@ python main.py myrun --game sc2
 #   1. Edit experiments/sc2_Simple64/<name>/training_params.yaml:
 #        map_name: Simple64
 #        in_game_episode_s: 600.0
-#        policy_type: genetic        # or cmaes, neural_dqn, reinforce, lstm
+#        policy_type: sc2_genetic    # or cmaes, neural_dqn, reinforce, lstm
 #   2. Edit experiments/sc2_Simple64/<name>/reward_config.yaml:
 #        score_weight: 0.0
 #        economy_weight: 0.001
@@ -381,16 +381,18 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 
 ### Supported policies
 
-All framework policies and SC2-specific advanced policies work on both the 13-dim minigame and 21-dim ladder observation spaces:
+SC2-specific policies and tabular framework policies work on both the 13-dim
+minigame and 21-dim ladder observation spaces.  The framework's generic linear
+policies (`hill_climbing`, `neural_net`, and the base `genetic`) are **not**
+compatible with SC2 because their output encoding clips `fn_idx` to `[-1, 1]`
+and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
-| `genetic` | Evolutionary (population of linear policies) | Default; recommended for first runs. |
-| `hill_climbing` | Mutate-and-keep (WeightedLinearPolicy) | Probe + cold-start phases apply. |
-| `neural_net` | MLP hill-climbing | |
-| `epsilon_greedy` | Tabular Q-learning | |
-| `mcts` | UCT-style Q-learning | |
-| `cmaes` | (μ/μ_w, λ)-CMA-ES over linear policy weights | `games/sc2/policies.py` |
+| `sc2_genetic` | Evolutionary (population of `SC2LinearPolicy`) | Default; recommended for first runs. |
+| `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | |
+| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | |
+| `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights | `games/sc2/policies.py` |
 | `neural_dqn` | Deep Q-network with experience replay | `games/sc2/policies.py` |
 | `reinforce` | Monte Carlo policy gradient | `games/sc2/policies.py` |
 | `lstm` | LSTM policy trained by evolutionary search | `games/sc2/policies.py` |

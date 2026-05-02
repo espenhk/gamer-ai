@@ -15,6 +15,8 @@ from games.sc2.env import SC2Env
 from games.sc2.obs_spec import LADDER_OBS_DIM, SC2_LADDER_OBS_SPEC
 from games.sc2.reward import SC2RewardConfig
 from games.sc2.policies import (
+    SC2LinearPolicy,
+    SC2GeneticPolicy,
     NeuralDQNPolicy,
     CMAESPolicy,
     REINFORCEPolicy,
@@ -22,14 +24,10 @@ from games.sc2.policies import (
     LSTMEvolutionPolicy,
 )
 from framework.policies import (
-    WeightedLinearPolicy,
-    GeneticPolicy,
-    NeuralNetPolicy,
     EpsilonGreedyPolicy,
     MCTSPolicy,
 )
 from framework.training import (
-    _greedy_loop,
     _greedy_loop_genetic,
     _greedy_loop_cmaes,
     _greedy_loop_q_learning,
@@ -209,22 +207,100 @@ class TestSC2Simple64EnvIntegration(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Framework policy compatibility on 21-dim ladder obs
+# SC2LinearPolicy action encoding verification
 # ---------------------------------------------------------------------------
 
-class TestFrameworkPoliciesOnLadderObs(unittest.TestCase):
-    """Verify all framework policies accept and produce actions on the 21-dim obs."""
+class TestSC2LinearPolicyActionEncoding(unittest.TestCase):
+    """Verify SC2LinearPolicy uses sigmoid-based output, not clip/binary."""
 
     def _obs(self) -> np.ndarray:
         return np.ones(_OBS_DIM, dtype=np.float32)
 
-    def test_weighted_linear_policy(self):
-        policy = WeightedLinearPolicy(_OBS_SPEC, _HEAD_NAMES)
+    def test_fn_idx_in_valid_range(self):
+        """fn_idx must be in [0, N_FUNCS-1] = [0, 5], not clipped to [-1,1]."""
+        rng = np.random.default_rng(0)
+        for _ in range(20):
+            policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
+            # Set large positive weights so sigmoid output is near 1 → fn_idx ≈ 5
+            for head in _HEAD_NAMES:
+                policy._weights[head] = rng.standard_normal(_OBS_DIM).astype(np.float32) * 5.0
+            action = policy(self._obs())
+            self.assertGreaterEqual(float(action[0]), 0.0)
+            self.assertLessEqual(float(action[0]), 5.0)
+
+    def test_x_y_are_continuous_not_binary(self):
+        """x and y must be in (0, 1), not forced to {0, 1} extremes."""
+        # With moderate weights, sigmoid gives interior values
+        policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
+        n_interior = 0
+        for seed in range(30):
+            rng = np.random.default_rng(seed)
+            for head in _HEAD_NAMES:
+                policy._weights[head] = rng.standard_normal(_OBS_DIM).astype(np.float32) * 0.5
+            action = policy(self._obs())
+            # x and y should not be stuck at exactly 0.0 or 1.0
+            if 0.01 < float(action[1]) < 0.99 and 0.01 < float(action[2]) < 0.99:
+                n_interior += 1
+        self.assertGreater(n_interior, 10,
+                           "SC2LinearPolicy x/y should produce interior values, not just 0 or 1")
+
+    def test_queue_is_binary(self):
+        """queue must be 0.0 or 1.0 (binary)."""
+        rng = np.random.default_rng(42)
+        for _ in range(20):
+            policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
+            for head in _HEAD_NAMES:
+                policy._weights[head] = rng.standard_normal(_OBS_DIM).astype(np.float32)
+            action = policy(self._obs())
+            self.assertIn(float(action[3]), (0.0, 1.0))
+
+    def test_action_shape(self):
+        policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
+        self.assertEqual(policy(self._obs()).shape, (4,))
+
+    def test_sc2_genetic_population_uses_sc2_linear(self):
+        """SC2GeneticPolicy population members must be SC2LinearPolicy instances."""
+        policy = SC2GeneticPolicy(
+            obs_spec=_OBS_SPEC, head_names=_HEAD_NAMES,
+            population_size=4, elite_k=2,
+        )
+        policy.initialize_random()
+        for member in policy.population:
+            self.assertIsInstance(member, SC2LinearPolicy)
+
+    def test_cmaes_offspring_use_sc2_linear(self):
+        """CMAESPolicy offspring must be SC2LinearPolicy instances."""
+        policy = CMAESPolicy(obs_spec=_OBS_SPEC, head_names=_HEAD_NAMES, population_size=4)
+        offspring = policy.sample_population()
+        for ind in offspring:
+            self.assertIsInstance(ind, SC2LinearPolicy)
+            # Also verify the fn_idx range is valid
+            action = ind(self._obs())
+            self.assertGreaterEqual(float(action[0]), 0.0)
+            self.assertLessEqual(float(action[0]), 5.0)
+
+
+# ---------------------------------------------------------------------------
+# SC2-specific advanced policy compatibility on 21-dim ladder obs
+# ---------------------------------------------------------------------------
+
+class TestSC2PoliciesOnLadderObs(unittest.TestCase):
+    """Verify SC2-specific advanced policies work with the 21-dim ladder obs."""
+
+    def _obs(self) -> np.ndarray:
+        return np.ones(_OBS_DIM, dtype=np.float32)
+
+    def test_sc2_linear_policy_action_shape(self):
+        policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
 
-    def test_neural_net_policy(self):
-        policy = NeuralNetPolicy(_OBS_SPEC, action_dim=4, hidden_sizes=[8])
+    def test_sc2_genetic_policy_action_shape(self):
+        policy = SC2GeneticPolicy(
+            obs_spec=_OBS_SPEC, head_names=_HEAD_NAMES,
+            population_size=4, elite_k=2,
+        )
+        policy.initialize_random()
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
 
@@ -246,28 +322,6 @@ class TestFrameworkPoliciesOnLadderObs(unittest.TestCase):
         )
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
-
-    def test_genetic_policy(self):
-        policy = GeneticPolicy(
-            obs_spec=_OBS_SPEC,
-            head_names=_HEAD_NAMES,
-            population_size=4,
-            elite_k=2,
-        )
-        policy.initialize_random()
-        action = policy(self._obs())
-        self.assertEqual(action.shape, (4,))
-
-
-# ---------------------------------------------------------------------------
-# SC2-specific advanced policy compatibility on 21-dim ladder obs
-# ---------------------------------------------------------------------------
-
-class TestSC2PoliciesOnLadderObs(unittest.TestCase):
-    """Verify SC2-specific advanced policies work with the 21-dim ladder obs."""
-
-    def _obs(self) -> np.ndarray:
-        return np.ones(_OBS_DIM, dtype=np.float32)
 
     def test_neural_dqn_policy_action_shape(self):
         policy = NeuralDQNPolicy(obs_spec=_OBS_SPEC, hidden_sizes=[16])
@@ -363,9 +417,9 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         # clean up any leftover weight files
         pass
 
-    def test_genetic_training_loop(self):
+    def test_sc2_genetic_training_loop(self):
         env = self._env()
-        policy = GeneticPolicy(
+        policy = SC2GeneticPolicy(
             obs_spec=_OBS_SPEC,
             head_names=_HEAD_NAMES,
             population_size=4,
@@ -380,6 +434,8 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
             self.assertIsNotNone(best_policy)
             self.assertIsInstance(best_reward, float)
             self.assertEqual(len(sims), 2)
+            # Champion must be an SC2LinearPolicy (correct action encoding)
+            self.assertIsInstance(best_policy._champion, SC2LinearPolicy)
         finally:
             os.unlink(wf)
             env.close()
@@ -455,22 +511,6 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         try:
             best_policy, best_reward, sims, _, _ = _greedy_loop_cmaes(
                 env=env, policy=policy, n_generations=2, weights_file=wf,
-            )
-            self.assertIsNotNone(best_policy)
-            self.assertIsInstance(best_reward, float)
-            self.assertEqual(len(sims), 2)
-        finally:
-            os.unlink(wf)
-            env.close()
-
-    def test_hill_climbing_training_loop(self):
-        env = self._env()
-        policy = WeightedLinearPolicy(_OBS_SPEC, _HEAD_NAMES)
-        wf = self._tmpfile()
-        try:
-            best_policy, best_reward, sims, _, _ = _greedy_loop(
-                env=env, policy=policy, n_sims=2,
-                mutation_scale=0.1, weights_file=wf,
             )
             self.assertIsNotNone(best_policy)
             self.assertIsInstance(best_reward, float)

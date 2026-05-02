@@ -30,10 +30,14 @@ n_lidar_rays: 0              # not applicable for SC2
 patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
 
 # Policy algorithm for the greedy training phase.
-# All framework policies work with both minigame (13-dim) and ladder (21-dim) obs.
-# Advanced policies available for SC2: genetic (default), cmaes, neural_dqn,
-# reinforce, lstm, hill_climbing, neural_net, epsilon_greedy, mcts.
-policy_type: genetic
+# SC2-specific policies (correct action encoding for [fn_idx, x, y, queue]):
+#   sc2_genetic (default), cmaes, neural_dqn, reinforce, lstm
+# Framework tabular policies also work (select from DISCRETE_ACTIONS directly):
+#   epsilon_greedy, mcts
+# Note: hill_climbing, neural_net, and the framework's genetic policy are NOT
+# compatible with SC2 because their output encoding collapses fn_idx to {0,1}
+# and x/y to screen corners — use sc2_genetic instead.
+policy_type: sc2_genetic
 
 policy_params:
   population_size: 20

@@ -123,13 +123,11 @@ def run_worker(
         "X-Worker-Id": worker_id,
     }
 
+    from framework.game_adapter import GAME_ADAPTERS
+    from framework.run_config import RunConfig
     from framework.training import train_rl
-    from games.tmnf.obs_spec import TMNF_OBS_SPEC
-    from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-    from games.tmnf.env import make_env
-    from games.tmnf.analytics import save_experiment_results
 
-    from grid_search import _build_policy_params, _build_tmnf_extras, _setup_experiment_dir
+    from grid_search import _build_policy_params, _setup_experiment_dir
 
     logger.info("Worker %s connecting to %s", worker_id, base)
 
@@ -173,60 +171,37 @@ def run_worker(
         logger.info("Running experiment: %s", spec.name)
 
         # --- prepare local experiment dir ---
-        track = spec.track
         t = spec.training_params
         r = spec.reward_params
-        experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(spec.name, track, t, r)
+        game_name = getattr(spec, "game", "tmnf")
+        adapter = GAME_ADAPTERS[game_name]()
+        # For TMNF the track comes from training_params["track"]; for other
+        # games spec.track carries an explicit override (may be None).
+        track_override = spec.track if spec.track else None
+        experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(
+            adapter, spec.name, t, r, track_override
+        )
 
         # --- start heartbeat ---
         hb = _HeartbeatThread(base, spec.name, worker_id, heartbeat_interval, auth_headers)
         hb.start()
 
         # --- run training ---
-        n_lidar_rays = t.get("n_lidar_rays", 0)
-        obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
-        policy_params = _build_policy_params(t)
-        extras, dispatch = _build_tmnf_extras(
-            weights_file=weights_file,
-            n_lidar_rays=n_lidar_rays,
-            re_initialize=re_initialize,
-            policy_params=policy_params,
-        )
+        t_with_pp = dict(t)
+        t_with_pp["policy_params"] = _build_policy_params(t)
         try:
+            game_spec = adapter.build_game_spec(
+                spec.name, experiment_dir, weights_file, reward_cfg_file,
+                t_with_pp, track_override,
+            )
             data = train_rl(
-                experiment_name=spec.name,
-                make_env_fn=lambda _dir=experiment_dir, _sp=t["speed"], _ep=t["in_game_episode_s"], _lr=n_lidar_rays: make_env(
-                    experiment_dir=_dir,
-                    speed=_sp,
-                    in_game_episode_s=_ep,
-                    n_lidar_rays=_lr,
-                ),
-                obs_spec=obs_spec,
-                head_names=["steer", "accel", "brake"],
-                discrete_actions=DISCRETE_ACTIONS,
-                speed=t["speed"],
-                n_sims=t["n_sims"],
-                in_game_episode_s=t["in_game_episode_s"],
-                weights_file=weights_file,
-                reward_config_file=reward_cfg_file,
-                mutation_scale=t["mutation_scale"],
-                mutation_share=t.get("mutation_share", 1.0),
-                probe_actions=PROBE_ACTIONS,
-                probe_in_game_s=t.get("probe_s", 0),
-                cold_start_restarts=t.get("cold_restarts", 0),
-                cold_start_sims=t.get("cold_sims", 0),
-                warmup_action=WARMUP_ACTION,
-                warmup_steps=100,
-                training_params=t,
+                game=game_spec,
+                config=RunConfig.from_training_params(t_with_pp),
+                probe=adapter.build_probe(t_with_pp),
+                warmup=adapter.build_warmup(t_with_pp),
+                extras=adapter.build_extras(weights_file, t_with_pp, re_initialize),
                 no_interrupt=no_interrupt,
                 re_initialize=re_initialize,
-                policy_type=t.get("policy_type", "hill_climbing"),
-                policy_params=policy_params,
-                extra_policy_types=extras,
-                extra_loop_dispatch=dispatch,
-                track=track,
-                do_pretrain=t.get("do_pretrain", False),
-                patience=t.get("patience", 0),
             )
         except Exception as exc:
             logger.error("train_rl failed for %s: %s", spec.name, exc, exc_info=True)
@@ -238,7 +213,6 @@ def run_worker(
             hb.join(timeout=2)
 
         # --- save local results ---
-        save_experiment_results(data, results_dir=f"{experiment_dir}/results")
         best = max((s.reward for s in data.greedy_sims), default=float("-inf"))
         logger.info("Finished %s  best_reward=%+.1f", spec.name, best)
 

@@ -10,6 +10,7 @@ Supports multiple games via the ``--game`` flag:
     python main.py <experiment> --game assetto
     python main.py <experiment> --game car_racing
     python main.py <experiment> --game torcs
+    python main.py <experiment> --game sc2
 
 All algorithm logic lives in framework/training.py.
 Game-specific logic lives in games/<name>/.
@@ -24,7 +25,11 @@ import shutil
 
 import yaml
 
+from framework.game_adapter import GAME_ADAPTERS
+from framework.run_config import RunConfig
 from framework.training import train_rl
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -38,10 +43,15 @@ def main() -> None:
         default="tmnf",
         choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"],
         help=(
-            "Select which racing simulator to use. "
-            "Choices: tmnf (default), beamng, assetto, car_racing, torcs. "
+            "Select which simulator to use. "
+            "Choices: tmnf (default), beamng, assetto, car_racing, torcs, sc2. "
             "beamng and assetto require optional simulator dependencies."
         ),
+    )
+    parser.add_argument(
+        "--track",
+        default=None,
+        help="Override the track / map name from the config (e.g. aalborg, CollectMineralShards).",
     )
     parser.add_argument(
         "--no-interrupt", action="store_true",
@@ -65,62 +75,49 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    _GAME_RUNNERS = {
-        "tmnf":       _run_tmnf,
-        "beamng":     _run_beamng,
-        "assetto":    _run_assetto,
-        "car_racing": _run_car_racing,
-        "torcs":      _run_torcs,
-        "sc2":        _run_sc2,
-    }
-    _GAME_RUNNERS[args.game](args)
+    if args.game == "assetto":
+        _run_assetto(args)
+        return
+
+    adapter = GAME_ADAPTERS[args.game]()
+    _run_one(adapter, args)
 
 
 # ======================================================================
-# TMNF entry point (original logic, unchanged)
+# Unified runner (all games except assetto)
 # ======================================================================
 
-def _run_tmnf(args: argparse.Namespace) -> None:
-    from games.tmnf.obs_spec import TMNF_OBS_SPEC
-    from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-    from games.tmnf.env import make_env
-    from games.tmnf.policies import NeuralDQNPolicy, CMAESPolicy, REINFORCEPolicy, LSTMPolicy, LSTMEvolutionPolicy
-    from games.tmnf.analytics import save_experiment_results
-
-    # Bootstrap: read track from master config before the experiment dir exists,
-    # then re-read the experiment-local copy once it has been created.
-    with open("games/tmnf/config/training_params.yaml") as f:
+def _run_one(adapter, args: argparse.Namespace) -> None:
+    # Read master config to learn the track before the experiment dir exists.
+    master_cfg = os.path.join(adapter.config_dir, "training_params.yaml")
+    with open(master_cfg) as f:
         master_p = yaml.safe_load(f)
-    track = master_p.get("track", "a03_centerline")
 
-    experiment_dir       = f"experiments/{track}/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    trainer_state_file   = f"{experiment_dir}/trainer_state.npz"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
+    experiment_dir = adapter.experiment_dir(args.experiment, master_p, args.track)
+    weights_file = f"{experiment_dir}/policy_weights.yaml"
+    trainer_state_file = f"{experiment_dir}/trainer_state.npz"
+    reward_cfg_file = f"{experiment_dir}/reward_config.yaml"
     training_params_file = f"{experiment_dir}/training_params.yaml"
 
     os.makedirs(experiment_dir, exist_ok=True)
     if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/tmnf/config/reward_config.yaml", reward_cfg_file)
+        shutil.copy(os.path.join(adapter.config_dir, "reward_config.yaml"), reward_cfg_file)
         logger.info("Copied master reward config → %s", reward_cfg_file)
     if not os.path.exists(training_params_file):
-        shutil.copy("games/tmnf/config/training_params.yaml", training_params_file)
+        shutil.copy(master_cfg, training_params_file)
         logger.info("Copied master training params → %s", training_params_file)
 
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
-    track = p.get("track", track)
 
-    n_lidar_rays = p.get("n_lidar_rays", 0)
-    obs_spec     = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
-    policy_type  = p.get("policy_type", "hill_climbing")
-    policy_params = p.get("policy_params") or {}
-    action_window_ticks = p.get("action_window_ticks", 1)
-    decision_offset_pct = p.get("decision_offset_pct", 0.75)
+    # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
+    with open(reward_cfg_file) as f:
+        reward_cfg = yaml.safe_load(f) or {}
+    adapter.decorate_reward_cfg(reward_cfg, p, args.track)
+    with open(reward_cfg_file, "w") as f:
+        yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
+
     re_initialize = args.re_initialize
-
-    # Delete persisted state when re-initializing so stale policy/trainer state
-    # doesn't survive the restart.
     if re_initialize:
         if os.path.exists(trainer_state_file):
             os.remove(trainer_state_file)
@@ -131,267 +128,23 @@ def _run_tmnf(args: argparse.Namespace) -> None:
             logger.info("Removed existing policy weights for re-initialization: %s",
                         weights_file)
 
-    # Factory callables for TMNF-specific policy types (injected into framework).
-    def _make_neural_dqn() -> NeuralDQNPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f)
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
-                policy = NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[NeuralDQNPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[NeuralDQNPolicy] could not load trainer state from %s — %s; "
-                            "continuing with default state.",
-                            trainer_state_file, exc,
-                        )
-                return policy
-        return NeuralDQNPolicy(
-            hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
-            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
-            batch_size          = policy_params.get("batch_size",          64),
-            min_replay_size     = policy_params.get("min_replay_size",     500),
-            target_update_freq  = policy_params.get("target_update_freq",  200),
-            learning_rate       = policy_params.get("learning_rate",       0.001),
-            epsilon_start       = policy_params.get("epsilon_start",       1.0),
-            epsilon_end         = policy_params.get("epsilon_end",         0.05),
-            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
-            gamma               = policy_params.get("gamma",               0.99),
-            n_lidar_rays        = n_lidar_rays,
-        )
-
-    def _make_cmaes() -> CMAESPolicy:
-        pop_size = policy_params.get("population_size", 20)
-        sigma    = policy_params.get("initial_sigma",   0.3)
-        policy   = CMAESPolicy(
-            population_size = pop_size,
-            initial_sigma   = sigma,
-            n_lidar_rays    = n_lidar_rays,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            from games.tmnf.policies import WeightedLinearPolicy as _WLP
-            champion = _WLP.from_cfg(
-                yaml.safe_load(open(weights_file)) or {}, n_lidar_rays=n_lidar_rays
-            )
-            policy.initialize_from_champion(champion)
-            if os.path.exists(trainer_state_file):
-                try:
-                    policy.load_trainer_state(trainer_state_file)
-                    logger.info("[CMAESPolicy] loaded trainer state from %s",
-                                trainer_state_file)
-                except (ValueError, KeyError) as exc:
-                    logger.warning(
-                        "[CMAESPolicy] could not load trainer state from %s — %s; "
-                        "continuing with champion weights and default distribution.",
-                        trainer_state_file, exc,
-                    )
-        else:
-            policy.initialize_random()
-        return policy
-
-    def _make_reinforce() -> REINFORCEPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                policy = REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[REINFORCEPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[REINFORCEPolicy] could not load trainer state from %s — %s; "
-                            "continuing with default state.",
-                            trainer_state_file, exc,
-                        )
-                return policy
-        return REINFORCEPolicy(
-            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
-            learning_rate = policy_params.get("learning_rate", 0.001),
-            gamma         = policy_params.get("gamma",         0.99),
-            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
-            baseline      = policy_params.get("baseline",      "running_mean"),
-            n_lidar_rays  = n_lidar_rays,
-        )
-
-    def _make_lstm() -> LSTMEvolutionPolicy:
-        hidden_size = policy_params.get("hidden_size",     32)
-        pop_size    = policy_params.get("population_size", 20)
-        sigma       = policy_params.get("initial_sigma",   0.05)
-        policy      = LSTMEvolutionPolicy(
-            hidden_size     = hidden_size,
-            population_size = pop_size,
-            initial_sigma   = sigma,
-            n_lidar_rays    = n_lidar_rays,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
-                saved_hidden_size = _cfg.get("hidden_size")
-                saved_n_lidar_rays = _cfg.get("n_lidar_rays")
-                if saved_hidden_size is not None and saved_hidden_size != hidden_size:
-                    raise ValueError(
-                        "Saved LSTM champion hidden_size does not match current run: "
-                        f"saved={saved_hidden_size}, current={hidden_size}"
-                    )
-                if saved_n_lidar_rays is not None and saved_n_lidar_rays != n_lidar_rays:
-                    raise ValueError(
-                        "Saved LSTM champion n_lidar_rays does not match current run: "
-                        f"saved={saved_n_lidar_rays}, current={n_lidar_rays}"
-                    )
-                champion = LSTMPolicy.from_cfg(_cfg)
-                policy.initialize_from_champion(champion)
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[LSTMEvolutionPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[LSTMEvolutionPolicy] could not load trainer state from %s — %s; "
-                            "continuing with champion weights and default distribution.",
-                            trainer_state_file, exc,
-                        )
-        return policy
-
-    extra_policy_types = {
-        "neural_dqn": _make_neural_dqn,
-        "cmaes":      _make_cmaes,
-        "reinforce":  _make_reinforce,
-        "lstm":       _make_lstm,
-    }
-    extra_loop_dispatch = {
-        "neural_dqn": "q_learning",
-        "cmaes":      "cmaes",
-        "reinforce":  "q_learning",
-        "lstm":       "cmaes",
-    }
-
+    game_spec = adapter.build_game_spec(
+        args.experiment, experiment_dir, weights_file, reward_cfg_file,
+        p, args.track,
+    )
     data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir      = experiment_dir,
-            speed               = p["speed"],
-            in_game_episode_s   = p["in_game_episode_s"],
-            n_lidar_rays        = n_lidar_rays,
-            decision_offset_pct = decision_offset_pct,
-            action_window_ticks = p.get("action_window_ticks", 1),
-        ),
-        obs_spec            = obs_spec,
-        head_names          = ["steer", "accel", "brake"],
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p["speed"],
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = track,
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        extra_policy_types  = extra_policy_types,
-        extra_loop_dispatch = extra_loop_dispatch,
-        patience            = p.get("patience", 0),
+        game=game_spec,
+        config=RunConfig.from_training_params(p),
+        probe=adapter.build_probe(p),
+        warmup=adapter.build_warmup(p),
+        extras=adapter.build_extras(weights_file, p, re_initialize),
+        no_interrupt=args.no_interrupt,
+        re_initialize=re_initialize,
     )
 
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-
 
 # ======================================================================
-# BeamNG entry point
-# ======================================================================
-
-def _run_beamng(args: argparse.Namespace) -> None:
-    experiment_dir       = f"experiments/beamng/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
-
-    try:
-        from games.beamng.obs_spec import BEAMNG_OBS_SPEC
-        from games.beamng.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-        from games.beamng.env import BeamNGEnv, make_env  # noqa: F401
-        from games.beamng.analytics import save_experiment_results
-    except ImportError as exc:
-        raise ValueError(
-            f"Cannot import BeamNG dependencies: {exc}\n"
-            "Install the BeamNG Python bridge and BeamNG.drive, then:\n"
-            "    pip install beamng-gym"
-        ) from exc
-    if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/beamng/config/reward_config.yaml", reward_cfg_file)
-        logger.info("Copied BeamNG reward config → %s", reward_cfg_file)
-    if not os.path.exists(training_params_file):
-        shutil.copy("games/beamng/config/training_params.yaml", training_params_file)
-        logger.info("Copied BeamNG training params → %s", training_params_file)
-
-    with open(training_params_file) as f:
-        p = yaml.safe_load(f)
-
-    obs_spec      = BEAMNG_OBS_SPEC
-    policy_type   = p.get("policy_type", "hill_climbing")
-    policy_params = p.get("policy_params") or {}
-
-    data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir    = experiment_dir,
-            max_episode_time_s = p["in_game_episode_s"],
-        ),
-        obs_spec            = obs_spec,
-        head_names          = ["steer", "accel", "brake"],
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p.get("speed", 1.0),
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = args.re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = "beamng",
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        patience            = p.get("patience", 0),
-    )
-
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-    logger.info("BeamNG training complete. Results saved to %s", experiment_dir)
-
-
-# ======================================================================
-# Assetto Corsa entry point
+# Assetto Corsa entry point (separate — uses its own runner)
 # ======================================================================
 
 def _run_assetto(args: argparse.Namespace) -> None:
@@ -405,444 +158,6 @@ def _run_assetto(args: argparse.Namespace) -> None:
         ) from exc
 
     _ac_run(args)
-
-
-# ======================================================================
-# CarRacing entry point
-# ======================================================================
-
-def _run_car_racing(args: argparse.Namespace) -> None:
-    experiment_dir       = f"experiments/car_racing/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
-
-    try:
-        from games.car_racing.obs_spec import CAR_RACING_OBS_SPEC
-        from games.car_racing.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-        from games.car_racing.env import CarRacingEnv, make_env  # noqa: F401
-        from games.car_racing.analytics import save_experiment_results
-    except ImportError as exc:
-        raise ValueError(
-            f"Cannot import CarRacing dependencies: {exc}\n"
-            "Install the gymnasium box2d extras:\n"
-            "    pip install gymnasium[box2d]"
-        ) from exc
-    if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/car_racing/config/reward_config.yaml", reward_cfg_file)
-        logger.info("Copied CarRacing reward config → %s", reward_cfg_file)
-    if not os.path.exists(training_params_file):
-        shutil.copy("games/car_racing/config/training_params.yaml", training_params_file)
-        logger.info("Copied CarRacing training params → %s", training_params_file)
-
-    with open(training_params_file) as f:
-        p = yaml.safe_load(f)
-
-    obs_spec      = CAR_RACING_OBS_SPEC
-    policy_type   = p.get("policy_type", "hill_climbing")
-    policy_params = p.get("policy_params") or {}
-
-    data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir    = experiment_dir,
-            max_episode_time_s = p["in_game_episode_s"],
-        ),
-        obs_spec            = obs_spec,
-        head_names          = ["steer", "accel", "brake"],
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p.get("speed", 1.0),
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = args.re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = "car_racing",
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        patience            = p.get("patience", 0),
-    )
-
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-    logger.info("CarRacing training complete. Results saved to %s", experiment_dir)
-
-
-# ======================================================================
-# TORCS entry point
-# ======================================================================
-
-def _run_torcs(args: argparse.Namespace) -> None:
-    experiment_dir       = f"experiments/torcs/{args.experiment}"
-    weights_file         = f"{experiment_dir}/policy_weights.yaml"
-    reward_cfg_file      = f"{experiment_dir}/reward_config.yaml"
-    training_params_file = f"{experiment_dir}/training_params.yaml"
-
-    os.makedirs(experiment_dir, exist_ok=True)
-
-    from games.torcs.obs_spec import TORCS_OBS_SPEC
-    from games.torcs.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-    from games.torcs.env import make_env
-    from games.torcs.analytics import save_experiment_results
-
-    # Read TORCS master config.
-    with open("games/torcs/config/training_params.yaml") as f:
-        master_p = yaml.safe_load(f)
-    if not os.path.exists(reward_cfg_file):
-        shutil.copy("games/torcs/config/reward_config.yaml", reward_cfg_file)
-        logger.info("Copied TORCS reward config → %s", reward_cfg_file)
-    if not os.path.exists(training_params_file):
-        shutil.copy("games/torcs/config/training_params.yaml", training_params_file)
-        logger.info("Copied TORCS training params → %s", training_params_file)
-
-    with open(training_params_file) as f:
-        p = yaml.safe_load(f)
-
-    obs_spec     = TORCS_OBS_SPEC
-    policy_type  = p.get("policy_type", "hill_climbing")
-    policy_params = p.get("policy_params") or {}
-
-    data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir    = experiment_dir,
-            max_episode_time_s = p["in_game_episode_s"],
-        ),
-        obs_spec            = obs_spec,
-        head_names          = ["steer", "accel", "brake"],
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p.get("speed", 1.0),
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = args.re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = "torcs",
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        patience            = p.get("patience", 0),
-    )
-
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-    logger.info("TORCS training complete. Results saved to %s", experiment_dir)
-
-
-# ======================================================================
-# StarCraft 2 entry point
-# ======================================================================
-
-def _run_sc2(args: argparse.Namespace) -> None:
-    from games.sc2.obs_spec import get_spec
-    from games.sc2.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
-    from games.sc2.env import make_env
-    from games.sc2.analytics import save_experiment_results
-    from games.sc2.policies import (
-        SC2LinearPolicy,
-        SC2GeneticPolicy,
-        NeuralDQNPolicy as SC2NeuralDQNPolicy,
-        CMAESPolicy as SC2CMAESPolicy,
-        REINFORCEPolicy as SC2REINFORCEPolicy,
-        LSTMPolicy as SC2LSTMPolicy,
-        LSTMEvolutionPolicy as SC2LSTMEvolutionPolicy,
-    )
-
-    # Read SC2 master config to locate the per-experiment config file.
-    with open("games/sc2/config/training_params.yaml") as f:
-        master_p = yaml.safe_load(f)
-
-    # Use master config map_name as a staging namespace to find/create configs.
-    _staging_map     = master_p.get("map_name", "MoveToBeacon")
-    _staging_dir     = f"experiments/sc2_{_staging_map}/{args.experiment}"
-    training_params_file = f"{_staging_dir}/training_params.yaml"
-
-    os.makedirs(_staging_dir, exist_ok=True)
-    if not os.path.exists(f"{_staging_dir}/reward_config.yaml"):
-        shutil.copy("games/sc2/config/reward_config.yaml",
-                    f"{_staging_dir}/reward_config.yaml")
-        logger.info("Copied SC2 reward config → %s/reward_config.yaml", _staging_dir)
-    if not os.path.exists(training_params_file):
-        shutil.copy("games/sc2/config/training_params.yaml", training_params_file)
-        logger.info("Copied SC2 training params → %s", training_params_file)
-
-    with open(training_params_file) as f:
-        p = yaml.safe_load(f)
-
-    # Re-read map_name from per-experiment config, then derive ALL experiment
-    # paths from the final map_name so resume/save always targets the correct
-    # sc2_{map}/ subdirectory (even when the per-experiment config was changed).
-    map_name      = p.get("map_name", _staging_map)
-    obs_spec      = get_spec(map_name)
-    policy_type   = p.get("policy_type", "sc2_genetic")
-    policy_params = p.get("policy_params") or {}
-    re_initialize = args.re_initialize
-
-    experiment_dir     = f"experiments/sc2_{map_name}/{args.experiment}"
-    weights_file       = f"{experiment_dir}/policy_weights.yaml"
-    trainer_state_file = f"{experiment_dir}/trainer_state.npz"
-    reward_cfg_file    = f"{experiment_dir}/reward_config.yaml"
-
-    # Ensure final directory and reward config exist (may differ from _staging_dir).
-    if experiment_dir != _staging_dir:
-        os.makedirs(experiment_dir, exist_ok=True)
-        if not os.path.exists(reward_cfg_file):
-            shutil.copy("games/sc2/config/reward_config.yaml", reward_cfg_file)
-            logger.info("Copied SC2 reward config → %s", reward_cfg_file)
-
-    # Remove persisted state when re-initializing.
-    if re_initialize:
-        for stale in (trainer_state_file, weights_file):
-            if os.path.exists(stale):
-                os.remove(stale)
-                logger.info("Removed existing %s for re-initialization", stale)
-
-    # Factory callables for SC2-specific policy types.
-    _head_names = ["fn_idx", "x", "y", "queue"]
-
-    def _make_sc2_genetic() -> SC2GeneticPolicy:
-        pop_size = policy_params.get("population_size", 20)
-        elite_k  = policy_params.get("elite_k",         3)
-        policy   = SC2GeneticPolicy(
-            obs_spec        = obs_spec,
-            head_names      = _head_names,
-            population_size = pop_size,
-            elite_k         = elite_k,
-            mutation_scale  = policy_params.get("mutation_scale",  0.1),
-            mutation_share  = policy_params.get("mutation_share",  1.0),
-            eval_episodes   = policy_params.get("eval_episodes",   1),
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            champion = SC2LinearPolicy(obs_spec, _head_names, weights_file)
-            policy.initialize_from_champion(champion)
-        else:
-            policy.initialize_random()
-        return policy
-
-    def _make_neural_dqn() -> SC2NeuralDQNPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f)
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
-                policy = SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[SC2 NeuralDQNPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[SC2 NeuralDQNPolicy] could not load trainer state — %s; "
-                            "continuing with default state.", exc,
-                        )
-                return policy
-        return SC2NeuralDQNPolicy(
-            obs_spec            = obs_spec,
-            hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
-            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
-            batch_size          = policy_params.get("batch_size",          64),
-            min_replay_size     = policy_params.get("min_replay_size",     500),
-            target_update_freq  = policy_params.get("target_update_freq",  200),
-            learning_rate       = policy_params.get("learning_rate",       0.001),
-            epsilon_start       = policy_params.get("epsilon_start",       1.0),
-            epsilon_end         = policy_params.get("epsilon_end",         0.05),
-            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
-            gamma               = policy_params.get("gamma",               0.99),
-        )
-
-    def _make_cmaes() -> SC2CMAESPolicy:
-        pop_size = policy_params.get("population_size", 20)
-        sigma    = policy_params.get("initial_sigma",   0.3)
-        policy   = SC2CMAESPolicy(
-            obs_spec        = obs_spec,
-            head_names      = _head_names,
-            population_size = pop_size,
-            initial_sigma   = sigma,
-            eval_episodes   = policy_params.get("eval_episodes", 1),
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            champion = SC2LinearPolicy(obs_spec, _head_names, weights_file)
-            policy.initialize_from_champion(champion)
-            if os.path.exists(trainer_state_file):
-                try:
-                    policy.load_trainer_state(trainer_state_file)
-                    logger.info("[SC2 CMAESPolicy] loaded trainer state from %s",
-                                trainer_state_file)
-                except (ValueError, KeyError) as exc:
-                    logger.warning(
-                        "[SC2 CMAESPolicy] could not load trainer state — %s; "
-                        "continuing with champion weights and default distribution.", exc,
-                    )
-        else:
-            policy.initialize_random()
-        return policy
-
-    def _make_reinforce() -> SC2REINFORCEPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                policy = SC2REINFORCEPolicy.from_cfg(_cfg, obs_spec)
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[SC2 REINFORCEPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[SC2 REINFORCEPolicy] could not load trainer state — %s; "
-                            "continuing with default state.", exc,
-                        )
-                return policy
-        return SC2REINFORCEPolicy(
-            obs_spec      = obs_spec,
-            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
-            learning_rate = policy_params.get("learning_rate", 0.001),
-            gamma         = policy_params.get("gamma",         0.99),
-            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
-            baseline      = policy_params.get("baseline",      "running_mean"),
-        )
-
-    def _make_lstm() -> SC2LSTMEvolutionPolicy:
-        hidden_size = policy_params.get("hidden_size",     32)
-        pop_size    = policy_params.get("population_size", 20)
-        sigma       = policy_params.get("initial_sigma",   0.05)
-        policy      = SC2LSTMEvolutionPolicy(
-            obs_spec        = obs_spec,
-            hidden_size     = hidden_size,
-            population_size = pop_size,
-            initial_sigma   = sigma,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
-                champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec)
-                try:
-                    policy.initialize_from_champion(champion)
-                except ValueError as exc:
-                    logger.warning(
-                        "[SC2 LSTMEvolutionPolicy] incompatible saved champion — %s; "
-                        "starting from random.", exc,
-                    )
-            if os.path.exists(trainer_state_file):
-                try:
-                    policy.load_trainer_state(trainer_state_file)
-                    logger.info("[SC2 LSTMEvolutionPolicy] loaded trainer state from %s",
-                                trainer_state_file)
-                except (ValueError, KeyError) as exc:
-                    logger.warning(
-                        "[SC2 LSTMEvolutionPolicy] could not load trainer state — %s; "
-                        "continuing.", exc,
-                    )
-        return policy
-
-    extra_policy_types = {
-        "sc2_genetic": _make_sc2_genetic,
-        "neural_dqn":  _make_neural_dqn,
-        "cmaes":       _make_cmaes,
-        "reinforce":   _make_reinforce,
-        "lstm":        _make_lstm,
-    }
-    extra_loop_dispatch = {
-        "sc2_genetic": "genetic",
-        "neural_dqn":  "q_learning",
-        "cmaes":       "cmaes",
-        "reinforce":   "q_learning",
-        "lstm":        "cmaes",
-    }
-
-    # ---- SC2-specific extra policy types --------------------------------
-    from games.sc2.sc2_policies import SC2GeneticPolicy
-
-    def _make_sc2_genetic():
-        pop_size = policy_params.get("population_size", 30)
-        elite_k  = policy_params.get("elite_k", 5)
-        policy   = SC2GeneticPolicy(
-            obs_spec        = obs_spec,
-            population_size = pop_size,
-            elite_k         = elite_k,
-            mutation_scale  = policy_params.get("mutation_scale", 0.1),
-            mutation_share  = policy_params.get("mutation_share", 0.3),
-            eval_episodes   = policy_params.get("eval_episodes", 2),
-        )
-        if os.path.exists(weights_file) and not args.re_initialize:
-            policy.initialize_from_file(weights_file)
-        else:
-            policy.initialize_random()
-            logger.info("[SC2GeneticPolicy] random population of %d", pop_size)
-        return policy
-
-    extra_policy_types = {"sc2_genetic": _make_sc2_genetic}
-    extra_loop_dispatch = {"sc2_genetic": "genetic"}
-    # ---------------------------------------------------------------------
-
-    data = train_rl(
-        experiment_name     = args.experiment,
-        make_env_fn         = lambda: make_env(
-            experiment_dir     = experiment_dir,
-            map_name           = map_name,
-            max_episode_time_s = p["in_game_episode_s"],
-            step_mul           = p.get("step_mul", 8),
-            screen_size        = p.get("screen_size", 64),
-            minimap_size       = p.get("minimap_size", 64),
-            agent_race         = p.get("agent_race", "random"),
-            bot_difficulty     = p.get("bot_difficulty", "very_easy"),
-        ),
-        obs_spec            = obs_spec,
-        head_names          = _head_names,
-        discrete_actions    = DISCRETE_ACTIONS,
-        speed               = p.get("speed", 1.0),
-        n_sims              = p["n_sims"],
-        in_game_episode_s   = p["in_game_episode_s"],
-        weights_file        = weights_file,
-        reward_config_file  = reward_cfg_file,
-        mutation_scale      = p["mutation_scale"],
-        mutation_share      = p.get("mutation_share", 1.0),
-        probe_actions       = PROBE_ACTIONS,
-        probe_in_game_s     = p["probe_s"],
-        cold_start_restarts = p["cold_restarts"],
-        cold_start_sims     = p["cold_sims"],
-        warmup_action       = WARMUP_ACTION,
-        warmup_steps        = 5,
-        training_params     = p,
-        no_interrupt        = args.no_interrupt,
-        re_initialize       = re_initialize,
-        do_pretrain         = p.get("do_pretrain", False),
-        policy_type         = policy_type,
-        policy_params       = policy_params,
-        track               = f"sc2_{map_name}",
-        adaptive_mutation   = p.get("adaptive_mutation", True),
-        patience            = p.get("patience", 0),
-        extra_policy_types  = extra_policy_types,
-        extra_loop_dispatch = extra_loop_dispatch,
-    )
-
-    save_experiment_results(data, results_dir=f"{experiment_dir}/results")
-    logger.info("SC2 training complete. Results saved to %s", experiment_dir)
 
 
 if __name__ == "__main__":

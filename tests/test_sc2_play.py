@@ -157,7 +157,7 @@ class TestLoadChampionPolicy(unittest.TestCase):
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
         ) as f:
-            yaml.dump({}, f)
+            yaml.dump({"policy_type": "cmaes"}, f)
             tmp = f.name
 
         try:

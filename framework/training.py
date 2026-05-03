@@ -1076,6 +1076,11 @@ def train_rl(
             env=env, policy=best_policy,
             n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
         )
+    elif _extra_dispatch.get(policy_type) == "genetic":
+        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
+            env=env, policy=best_policy,  # type: ignore[arg-type]
+            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,  # type: ignore[arg-type]
+        )
     else:
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
             env=env, policy=best_policy, n_sims=n_sims,

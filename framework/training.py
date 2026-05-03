@@ -456,6 +456,7 @@ def _greedy_loop(
 
     if isinstance(best_policy, NeuralNetPolicy):
         # Single-candidate hill-climbing for neural_net
+        full_episode_time_s = env.get_episode_time_limit()
         no_improve_streak = 0
         early_stopped     = False
         early_stop_sim    = None
@@ -463,6 +464,10 @@ def _greedy_loop(
             for sim in range(1, n_sims + 1):
                 candidate = best_policy.mutated(scale=current_scale)
                 logger.info("--- Sim %d/%d ---", sim, n_sims)
+                if full_episode_time_s is not None:
+                    env.set_episode_time_limit(
+                        _scaled_episode_time(sim, n_sims, full_episode_time_s)
+                    )
                 obs, _ = env.reset()
                 reward, info, tc, total_steps, trace = _run_episode(
                     env, candidate, obs,

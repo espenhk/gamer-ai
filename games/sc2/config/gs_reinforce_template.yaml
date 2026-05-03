@@ -1,0 +1,41 @@
+# Grid search template: reinforce — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_reinforce_template.yaml --game sc2
+#
+# REINFORCE collects full episodes, computes discounted returns, subtracts a
+# running-mean baseline, then updates the softmax MLP via gradient ascent.
+# One gradient update per episode (averaged over all steps in the episode).
+#
+# MoveToBeacon episodes are short and low-variance, so a running-mean baseline
+# helps but normalisation inside on_episode_end() already handles most of it.
+#
+# Good first sweep: learning_rate × entropy_coeff.
+# learning_rate drives convergence speed; entropy_coeff prevents premature
+# commitment to a single action (too high → noisy forever, too low → collapses
+# early).
+
+base_name: "gs_sc2_reinforce_v1"
+game: sc2
+
+training_params:
+  map_name: MoveToBeacon
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: random
+  n_sims: 200                 # 200 episodes; REINFORCE needs more episodes than evolutionary methods
+  policy_type: reinforce
+  learning_rate: [0.001, 0.003, 0.005]
+  entropy_coeff: [0.01, 0.05]
+  policy_params:
+    hidden_sizes: [64, 64]
+    gamma: 0.99
+    baseline: running_mean    # "none" disables baseline; rarely better for minigames
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0

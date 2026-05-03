@@ -9,7 +9,7 @@
 
 game: sc2
 map_name: MoveToBeacon       # PySC2 map; one of MINIGAME_NAMES or a ladder map (e.g. Simple64)
-agent_race: random           # protoss | terran | zerg | random
+agent_race: terran           # protoss | terran | zerg | random
 bot_difficulty: very_easy    # only used on ladder maps; ignored for minigames
 step_mul: 8                  # game ticks per env step (~0.5 s real-time at default speed)
 screen_size: 64              # square feature-screen resolution

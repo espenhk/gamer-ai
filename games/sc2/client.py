@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from games.sc2.actions import action_to_function_call
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call
 from games.sc2.obs_spec import (
     LADDER_OBS_NAMES,
     OBS_NAMES,
@@ -164,6 +164,10 @@ class SC2Client:
                 "see CLAUDE.md for setup instructions)."
             ) from exc
 
+        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+        if not _absl_flags.FLAGS.is_parsed():
+            _absl_flags.FLAGS([''])
+
         if self._play_mode:
             # Human (via SC2 UI) vs AI agent.  PySC2 only takes step actions
             # for Agent slots; Human actions come from the game client directly.
@@ -217,17 +221,32 @@ class SC2Client:
 
         fn_call = action_to_function_call(action, self._screen_size)
 
+        fn_idx = int(action[0])
+        fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
+
         if (
             self._available_actions is not None
             and int(fn_call.function) not in self._available_actions
         ):
             logger.debug(
-                "Function %d not in available_actions; substituting no_op.",
-                int(fn_call.function),
+                "Action %s blocked (not in available_actions); substituting no_op.",
+                fn_name,
             )
             return pysc2_actions.FunctionCall(
                 int(pysc2_actions.FUNCTIONS.no_op.id), []
             )
+
+        if fn_name != "no_op":
+            x_screen = int(np.clip(action[1], 0.0, 1.0) * (self._screen_size - 1))
+            y_screen = int(np.clip(action[2], 0.0, 1.0) * (self._screen_size - 1))
+            queue = int(np.clip(round(float(action[3])), 0, 1))
+            if fn_name in ("select_army", "select_idle_worker"):
+                logger.debug("Action: %s", fn_name)
+            else:
+                logger.debug(
+                    "Action: %s  screen=(%d, %d)  queue=%d",
+                    fn_name, x_screen, y_screen, queue,
+                )
 
         return fn_call
 

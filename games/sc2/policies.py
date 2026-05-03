@@ -363,7 +363,7 @@ class NeuralDQNPolicy(BasePolicy):
         return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
         self._replay.push(obs, action_idx, reward, next_obs, done)
         self._total_steps += 1
@@ -512,8 +512,11 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         mask = self._current_mask()
+        valid = np.where(mask)[0]
+        if len(valid) == 0:
+            mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+            valid = np.arange(_N_DISCRETE_ACTIONS)
         if np.random.random() < self._eps:
-            valid = np.where(mask)[0]
             return DISCRETE_ACTIONS[np.random.choice(valid)].copy()
         obs_norm = (obs / self._scales).astype(np.float32)
         q = self._q_values(self._online, obs_norm).copy()
@@ -942,7 +945,7 @@ class REINFORCEPolicy(BasePolicy):
         return DISCRETE_ACTIONS[action_idx].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         self._ep_rewards.append(float(reward))
 
     def on_episode_end(self) -> None:
@@ -1196,7 +1199,7 @@ class LSTMPolicy(BasePolicy):
         return np.array([fn_idx, x_out, y_out, queue], dtype=np.float32)
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         pass  # trained via outer evolutionary optimiser
 
     def to_cfg(self) -> dict:

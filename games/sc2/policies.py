@@ -537,7 +537,8 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
 
         q_next = self._q_values(self._target, next_norm)
         mask = self._current_mask()
-        q_next[:, ~mask] = -np.inf
+        if mask.any():
+            q_next[:, ~mask] = -np.inf
         targets = rew_b + self._gamma * np.max(q_next, axis=1) * (1.0 - done_b)
 
         q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)

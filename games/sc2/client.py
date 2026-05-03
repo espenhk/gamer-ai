@@ -380,7 +380,7 @@ class SC2Client:
             "army_count": army_count,
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
-            "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else set(),
+            "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else None,
             "game_loop": game_loop,
         }
 

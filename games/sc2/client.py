@@ -380,12 +380,8 @@ class SC2Client:
             "army_count": army_count,
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
-<<<<<<< HEAD
-            "available_fn_ids": set(self._available_actions) if self._available_actions is not None else set(),
-            "game_loop": game_loop,
-=======
             "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else set(),
->>>>>>> 39dbbe5 (fix: correct Copilot review issues in SC2NeuralDQNPolicy)
+            "game_loop": game_loop,
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

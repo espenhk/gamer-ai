@@ -1,0 +1,43 @@
+# Grid search template: epsilon_greedy — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_epsilon_greedy_template.yaml --game sc2
+#
+# Tabular Q-learning with ε-greedy exploration.  State is a discretised bin
+# tuple of the 13-dim observation; Q-values are stored in a dict keyed by
+# that tuple.  ε decays multiplicatively each episode.
+#
+# n_bins=3 gives 3^13 ≈ 1.6 M possible states; in practice far fewer are
+# visited in MoveToBeacon.  Increasing n_bins beyond 3 slows Q-table lookup
+# without much benefit given the episode budget here.
+#
+# Good first sweep: alpha × epsilon_decay.
+# alpha (learning rate) and epsilon_decay jointly control speed vs. stability:
+# high alpha + slow decay (→ 0.99) converges fast but can oscillate;
+# low alpha + fast decay (→ 0.995) is more stable but slower.
+
+base_name: "gs_sc2_eps_greedy_v1"
+game: sc2
+
+training_params:
+  map_name: MoveToBeacon
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: random
+  n_sims: 300                 # 300 episodes; tabular Q-learning needs many episodes to build the table
+  policy_type: epsilon_greedy
+  epsilon_decay: [0.99, 0.995]
+  alpha: [0.05, 0.1, 0.2]
+  policy_params:
+    n_bins: 3
+    epsilon: 1.0
+    epsilon_min: 0.05
+    gamma: 0.99
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0

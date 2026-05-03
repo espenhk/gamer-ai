@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from games.sc2.actions import action_to_function_call
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call
 from games.sc2.obs_spec import (
     LADDER_OBS_NAMES,
     OBS_NAMES,
@@ -68,6 +68,9 @@ class SC2Client:
         Bot difficulty for 1v1 maps; ignored for minigames.
     visualize :
         If True, render the PySC2 visualizer window.
+    play_mode :
+        If True, set up a Human + Agent session instead of Agent (+ Bot).
+        The human plays via the standard SC2 UI; the agent acts via PySC2.
     """
 
     def __init__(
@@ -81,6 +84,7 @@ class SC2Client:
         visualize: bool = False,
         screen_layers: list[str] | None = None,
         minimap_layers: list[str] | None = None,
+        play_mode: bool = False,
     ) -> None:
         self._map_name = map_name
         self._step_mul = step_mul
@@ -89,6 +93,7 @@ class SC2Client:
         self._agent_race = agent_race
         self._bot_difficulty = bot_difficulty
         self._visualize = visualize
+        self._play_mode = play_mode
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
         self._sc2_env: Any = None
@@ -159,14 +164,26 @@ class SC2Client:
                 "see CLAUDE.md for setup instructions)."
             ) from exc
 
-        agents = [sc2_env.Agent(self._race(sc2_env), "rl_agent")]
-        if self._is_ladder:
-            agents.append(
-                sc2_env.Bot(
-                    self._race(sc2_env),
-                    self._difficulty(sc2_env),
+        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+        if not _absl_flags.FLAGS.is_parsed():
+            _absl_flags.FLAGS([''])
+
+        if self._play_mode:
+            # Human (via SC2 UI) vs AI agent.  PySC2 only takes step actions
+            # for Agent slots; Human actions come from the game client directly.
+            agents = [
+                sc2_env.Human(self._race(sc2_env)),
+                sc2_env.Agent(self._race(sc2_env), "ai_agent"),
+            ]
+        else:
+            agents = [sc2_env.Agent(self._race(sc2_env), "rl_agent")]
+            if self._is_ladder:
+                agents.append(
+                    sc2_env.Bot(
+                        self._race(sc2_env),
+                        self._difficulty(sc2_env),
+                    )
                 )
-            )
 
         return sc2_env.SC2Env(
             map_name=self._map_name,
@@ -204,17 +221,32 @@ class SC2Client:
 
         fn_call = action_to_function_call(action, self._screen_size)
 
+        fn_idx = int(action[0])
+        fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
+
         if (
             self._available_actions is not None
             and int(fn_call.function) not in self._available_actions
         ):
             logger.debug(
-                "Function %d not in available_actions; substituting no_op.",
-                int(fn_call.function),
+                "Action %s blocked (not in available_actions); substituting no_op.",
+                fn_name,
             )
             return pysc2_actions.FunctionCall(
                 int(pysc2_actions.FUNCTIONS.no_op.id), []
             )
+
+        if fn_name != "no_op":
+            x_screen = int(np.clip(action[1], 0.0, 1.0) * (self._screen_size - 1))
+            y_screen = int(np.clip(action[2], 0.0, 1.0) * (self._screen_size - 1))
+            queue = int(np.clip(round(float(action[3])), 0, 1))
+            if fn_name in ("select_army", "select_idle_worker"):
+                logger.debug("Action: %s", fn_name)
+            else:
+                logger.debug(
+                    "Action: %s  screen=(%d, %d)  queue=%d",
+                    fn_name, x_screen, y_screen, queue,
+                )
 
         return fn_call
 
@@ -281,6 +313,9 @@ class SC2Client:
             screen_enemy_cx, screen_enemy_cy,
         ]
 
+        game_loop_arr = self._safe_array(ob, "game_loop")
+        game_loop = float(game_loop_arr[0]) if game_loop_arr is not None and game_loop_arr.size > 0 else 0.0
+
         if not self._is_ladder:
             flat = np.array(minigame_features, dtype=np.float32)
         else:
@@ -300,8 +335,6 @@ class SC2Client:
                 else:
                     self._explored_mask |= (visible_mm > 0)
                 explored_frac = float(self._explored_mask.sum()) / max(self._explored_mask.size, 1)
-            game_loop_arr = self._safe_array(ob, "game_loop")
-            game_loop = float(game_loop_arr[0]) if game_loop_arr is not None and game_loop_arr.size > 0 else 0.0
 
             ladder_features = minigame_features + [
                 idle_workers, warp_gates, larva,
@@ -348,6 +381,7 @@ class SC2Client:
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "available_fn_ids": set(self._available_actions) if self._available_actions is not None else set(),
+            "game_loop": game_loop,
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

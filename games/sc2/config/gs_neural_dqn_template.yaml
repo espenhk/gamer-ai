@@ -1,0 +1,46 @@
+# Grid search template: neural_dqn — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_neural_dqn_template.yaml --game sc2
+#
+# DQN selects from the 9-element DISCRETE_ACTIONS set.  Training starts only
+# after min_replay_size transitions are collected; ε decays linearly from 1.0
+# to epsilon_end over epsilon_decay_steps environment steps.
+#
+# At step_mul=8 a 120 s episode yields ~240 steps.  n_sims=200 gives ~48 000
+# total steps, comfortably covering a 5 000–10 000 step ε-decay schedule.
+#
+# Good first sweep: learning_rate × epsilon_decay_steps.
+# learning_rate is the most sensitive knob; epsilon_decay_steps controls how
+# long the agent explores before committing — too short → premature convergence,
+# too long → slow learning.
+
+base_name: "gs_sc2_dqn_v1"
+game: sc2
+
+training_params:
+  map_name: MoveToBeacon
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: random
+  n_sims: 200                 # 200 episodes; ~48 000 env steps total
+  policy_type: neural_dqn
+  learning_rate: [0.0005, 0.001, 0.003]
+  epsilon_decay_steps: [3000, 8000]
+  policy_params:
+    hidden_sizes: [64, 64]
+    replay_buffer_size: 15000
+    batch_size: 64
+    min_replay_size: 500
+    target_update_freq: 200
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    gamma: 0.99
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0

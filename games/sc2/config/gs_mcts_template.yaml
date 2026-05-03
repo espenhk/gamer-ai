@@ -1,0 +1,41 @@
+# Grid search template: mcts — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_mcts_template.yaml --game sc2
+#
+# UCT-style online Q-learner.  Action selection uses UCB1:
+#   score(s, a) = Q(s,a) + c × sqrt(ln(N(s)+1) / (N(s,a)+ε))
+# No env cloning — value tables are built incrementally over real episodes.
+#
+# c controls the exploration–exploitation tradeoff: c=1.41 (√2) is the
+# theoretical UCB constant; lower c (→ 1.0) is more exploitative once a
+# state is well-visited; higher c (→ 2.0) keeps exploring longer.
+#
+# Good first sweep: c × alpha.
+# c is the primary knob: larger values are better early when the Q-table is
+# sparse, but hurt once values converge.  alpha controls how fast Q-values
+# update — too high causes oscillation, too low leaves stale estimates.
+
+base_name: "gs_sc2_mcts_v1"
+game: sc2
+
+training_params:
+  map_name: MoveToBeacon
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: random
+  n_sims: 300                 # 300 episodes; UCT needs a dense Q-table before exploitation is reliable
+  policy_type: mcts
+  mcts_c: [1.0, 1.41, 2.0]
+  alpha: [0.05, 0.1, 0.2]
+  policy_params:
+    n_bins: 3
+    gamma: 0.99
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0

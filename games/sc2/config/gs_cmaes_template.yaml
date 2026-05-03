@@ -1,0 +1,37 @@
+# Grid search template: cmaes — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_cmaes_template.yaml --game sc2
+#
+# CMA-ES adapts both step size (σ) and the full covariance matrix over 52
+# parameters (13-dim minigame obs × 4 action heads).  σ is self-adapting, so
+# initial_sigma is mainly a warm-start hint: too large → early divergence,
+# too small → slow initial exploration.
+#
+# Good first sweep: initial_sigma × population_size.
+# population_size (λ) controls how many offspring are evaluated per generation;
+# larger λ is more robust but costs more episodes.
+# Rule of thumb: λ ≈ 4 + floor(3 × ln(n)) ≈ 16 for n=52 params.
+
+base_name: "gs_sc2_cmaes_v1"
+game: sc2
+
+training_params:
+  map_name: MoveToBeacon
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: random
+  n_sims: 50                  # 50 generations; total episodes = n_sims × population_size × eval_episodes
+  policy_type: cmaes
+  population_size: [15, 25]
+  initial_sigma: [0.1, 0.3, 0.5]
+  policy_params:
+    eval_episodes: 1
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0

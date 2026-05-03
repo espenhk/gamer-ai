@@ -101,6 +101,21 @@ PROBE_ACTIONS: list[tuple[np.ndarray, str]] = [
 WARMUP_ACTION = np.array([1, 0.5, 0.5, 0], dtype=np.float32)
 
 
+def discrete_action_to_fn_id(cell_idx: int) -> int:
+    """Return the FUNCTION_IDS key for grid cell *cell_idx*."""
+    return int(DISCRETE_ACTIONS[cell_idx, 0])
+
+
+def build_available_actions_mask(
+    available_fn_ids: set[int], n_cells: int = len(DISCRETE_ACTIONS)
+) -> np.ndarray:
+    """Boolean mask of shape (n_cells,) — True where the action is legal."""
+    return np.array(
+        [discrete_action_to_fn_id(i) in available_fn_ids for i in range(n_cells)],
+        dtype=bool,
+    )
+
+
 def action_to_function_call(action: np.ndarray, screen_size: int):
     """Translate a 4-vector action row into a PySC2 ``FunctionCall``.
 

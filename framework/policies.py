@@ -52,7 +52,7 @@ class BasePolicy(ABC):
         """Return a YAML-serializable dict representing this policy's state."""
 
     def update(self, obs: np.ndarray, action: np.ndarray, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         """Per-step feedback from the environment.  No-op for non-online policies."""
 
     def on_episode_start(self) -> None:

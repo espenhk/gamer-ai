@@ -347,6 +347,7 @@ class SC2Client:
             "army_count": army_count,
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
+            "available_fn_ids": set(self._available_actions) if self._available_actions is not None else set(),
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

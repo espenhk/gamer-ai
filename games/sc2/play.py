@@ -122,7 +122,7 @@ def _run_episode(client: SC2Client, policy) -> None:
     try:
         while True:
             action = policy(obs)
-            obs, _raw_reward, done, info = client.step(action)
+            obs, _, done, info = client.step(action)
             step_count += 1
 
             if done:
@@ -143,15 +143,20 @@ def _run_episode(client: SC2Client, policy) -> None:
 def _load_champion_policy(weights_file: str, map_name: str):
     """Return the champion policy loaded from *weights_file*.
 
-    Detects the policy type from the YAML ``policy_type`` key and instantiates
-    the matching class:
+    Detection order:
 
-    * ``sc2_genetic`` — :class:`~games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`
-      (row-per-head format: ``fn_idx_0_weights``, ``spatial_0_weights``, …)
-    * ``cmaes`` — :class:`~games.sc2.policies.SC2LinearPolicy`
-      (per-head format: ``fn_idx_weights``, ``x_weights``, …)
-    * ``neural_dqn`` / ``reinforce`` / ``lstm`` — neural policies reconstructed
-      from their serialised state
+    1. ``policy_type: sc2_genetic`` — explicit tag →
+       :class:`~games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`
+    2. ``policy_type: neural_dqn / reinforce / lstm`` — neural policies
+       reconstructed from their serialised state
+    3. No ``policy_type`` key — structural detection:
+
+       * ``fn_idx_0_weights`` present → multi-head format →
+         :class:`~games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`
+         (SC2GeneticPolicy champion files)
+       * otherwise → per-head format →
+         :class:`~games.sc2.policies.SC2LinearPolicy`
+         (CMA-ES champion files: ``fn_idx_weights``, ``x_weights``, …)
     """
     if not os.path.exists(weights_file):
         raise SystemExit(
@@ -165,7 +170,7 @@ def _load_champion_policy(weights_file: str, map_name: str):
     with open(weights_file) as f:
         cfg = yaml.safe_load(f) or {}
 
-    policy_type = cfg.get("policy_type", "sc2_genetic")
+    policy_type = cfg.get("policy_type")
     logger.info("[Play] Loading champion policy (type=%s) from %s", policy_type, weights_file)
 
     if policy_type == "sc2_genetic":
@@ -184,7 +189,15 @@ def _load_champion_policy(weights_file: str, map_name: str):
         from games.sc2.policies import LSTMPolicy
         return LSTMPolicy.from_cfg(cfg, obs_spec)
 
-    # cmaes champion is saved in SC2LinearPolicy YAML format.
+    # No explicit policy_type — detect format by key structure.
+    # SC2GeneticPolicy saves champions via SC2MultiHeadLinearPolicy.save(), which writes
+    # fn_idx_0_weights / spatial_0_weights keys (no policy_type key in the file).
+    # CMA-ES saves champions via SC2LinearPolicy.save(), which writes fn_idx_weights /
+    # x_weights / y_weights / queue_weights keys (also no policy_type key).
+    if "fn_idx_0_weights" in cfg:
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+        return SC2MultiHeadLinearPolicy.load(weights_file, obs_spec)
+
     from games.sc2.policies import SC2LinearPolicy
     return SC2LinearPolicy(obs_spec, _HEAD_NAMES, weights_file)
 

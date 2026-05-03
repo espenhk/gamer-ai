@@ -149,6 +149,31 @@ class TestLoadChampionPolicy(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
+    def test_cmaes_no_policy_type_key_loads_sc2_linear_policy(self):
+        """CMA-ES champion files have no policy_type key — detected by key structure."""
+        from games.sc2.play import _load_champion_policy
+        from games.sc2.policies import SC2LinearPolicy
+        from games.sc2.obs_spec import get_spec
+
+        obs_spec = get_spec("MoveToBeacon")
+        head_names = ["fn_idx", "x", "y", "queue"]
+        original = SC2LinearPolicy(obs_spec, head_names)
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            tmp = f.name
+
+        try:
+            original.save(tmp)
+            policy = _load_champion_policy(tmp, "MoveToBeacon")
+            self.assertIsInstance(policy, SC2LinearPolicy)
+            np.testing.assert_array_almost_equal(
+                original.to_flat(), policy.to_flat()
+            )
+        finally:
+            os.unlink(tmp)
+
     def test_unknown_policy_type_loads_sc2_linear_policy(self):
         """Unknown/cmaes types fall back to SC2LinearPolicy (per-head YAML)."""
         from games.sc2.play import _load_champion_policy

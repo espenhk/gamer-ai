@@ -84,13 +84,14 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    if args.play and args.game != "sc2":
+        raise SystemExit("--play is only supported with --game sc2")
+
     if args.game == "assetto":
         _run_assetto(args)
         return
 
     if args.play:
-        if args.game != "sc2":
-            raise SystemExit("--play is only supported with --game sc2")
         _run_play_sc2(args)
         return
 
@@ -165,13 +166,12 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
 def _run_play_sc2(args: argparse.Namespace) -> None:
     try:
         from games.sc2.play import play_sc2  # noqa: PLC0415
+        play_sc2(args.experiment, args)
     except ImportError as exc:
         raise SystemExit(
             f"Cannot import SC2 play dependencies: {exc}\n"
             "Install pysc2 with:  poetry install --with sc2"
         ) from exc
-
-    play_sc2(args.experiment, args)
 
 
 # ======================================================================

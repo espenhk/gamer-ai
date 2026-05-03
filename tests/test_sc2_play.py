@@ -48,36 +48,49 @@ class TestLoadChampionPolicy(unittest.TestCase):
         with self.assertRaises(SystemExit):
             _load_champion_policy("/nonexistent/path/policy_weights.yaml", "MoveToBeacon")
 
-    def test_loads_sc2_linear_policy_for_sc2_genetic(self):
+    def test_loads_sc2_multi_head_policy_for_sc2_genetic(self):
+        """sc2_genetic champion is saved in SC2MultiHeadLinearPolicy format."""
         from games.sc2.play import _load_champion_policy
-        from games.sc2.policies import SC2LinearPolicy
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
 
+        # Write a minimal sc2_genetic champion YAML (keys follow to_cfg() format).
+        cfg = {"policy_type": "sc2_genetic"}
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
         ) as f:
-            yaml.dump({"policy_type": "sc2_genetic"}, f)
+            yaml.dump(cfg, f)
             tmp = f.name
 
         try:
             policy = _load_champion_policy(tmp, "MoveToBeacon")
-            self.assertIsInstance(policy, SC2LinearPolicy)
+            self.assertIsInstance(policy, SC2MultiHeadLinearPolicy)
         finally:
             os.unlink(tmp)
 
-    def test_loads_sc2_linear_policy_when_no_policy_type_key(self):
-        """A weights file without a policy_type key defaults to sc2_genetic path."""
+    def test_sc2_genetic_loads_correct_weights(self):
+        """Weights written by SC2MultiHeadLinearPolicy.save() round-trip correctly."""
         from games.sc2.play import _load_champion_policy
-        from games.sc2.policies import SC2LinearPolicy
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+        from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
+
+        obs_spec = SC2_MINIGAME_OBS_SPEC
+        original = SC2MultiHeadLinearPolicy(obs_spec)
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
         ) as f:
-            yaml.dump({}, f)
             tmp = f.name
 
         try:
-            policy = _load_champion_policy(tmp, "MoveToBeacon")
-            self.assertIsInstance(policy, SC2LinearPolicy)
+            original.save(tmp)
+            loaded = _load_champion_policy(tmp, "MoveToBeacon")
+            self.assertIsInstance(loaded, SC2MultiHeadLinearPolicy)
+            np.testing.assert_array_almost_equal(
+                original._fn_weights, loaded._fn_weights
+            )
+            np.testing.assert_array_almost_equal(
+                original._sp_weights, loaded._sp_weights
+            )
         finally:
             os.unlink(tmp)
 
@@ -136,6 +149,23 @@ class TestLoadChampionPolicy(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
+    def test_unknown_policy_type_loads_sc2_linear_policy(self):
+        """Unknown/cmaes types fall back to SC2LinearPolicy (per-head YAML)."""
+        from games.sc2.play import _load_champion_policy
+        from games.sc2.policies import SC2LinearPolicy
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump({}, f)
+            tmp = f.name
+
+        try:
+            policy = _load_champion_policy(tmp, "MoveToBeacon")
+            self.assertIsInstance(policy, SC2LinearPolicy)
+        finally:
+            os.unlink(tmp)
+
 
 # ---------------------------------------------------------------------------
 # _print_summary
@@ -143,9 +173,9 @@ class TestLoadChampionPolicy(unittest.TestCase):
 
 class TestPrintSummary(unittest.TestCase):
 
-    def _call(self, info: dict, step_count: int = 10, reward: float = 5.0) -> None:
+    def _call(self, info: dict, step_count: int = 10) -> None:
         from games.sc2.play import _print_summary
-        _print_summary(info, step_count, reward)
+        _print_summary(info, step_count)
 
     def test_win_outcome(self):
         info = _make_fake_info(done=True, outcome=1.0)
@@ -215,13 +245,15 @@ class TestRunEpisode(unittest.TestCase):
         policy.on_episode_end.assert_called_once()
 
     def test_episode_works_without_lifecycle_hooks(self):
-        """Policies without on_episode_start/end should not crash."""
+        """Policies that lack on_episode_start/end should not crash."""
         from games.sc2.play import _run_episode
+
+        class _SimplePolicy:
+            def __call__(self, obs):
+                return np.zeros(4, dtype=np.float32)
+
         client = self._make_client(n_steps=1)
-        policy = self._make_policy()
-        del policy.on_episode_start
-        del policy.on_episode_end
-        _run_episode(client, policy)   # must not raise AttributeError
+        _run_episode(client, _SimplePolicy())   # must not raise AttributeError
 
 
 # ---------------------------------------------------------------------------
@@ -241,32 +273,26 @@ class TestSC2ClientPlayMode(unittest.TestCase):
         self.assertFalse(client._play_mode)
 
     @patch("games.sc2.client.SC2Client._make_sc2_env")
-    def test_play_mode_uses_human_and_agent(self, mock_make):
-        """_make_sc2_env is called with the Human+Agent player list in play mode."""
+    def test_make_sc2_env_called_lazily_on_reset(self, mock_make):
+        """_make_sc2_env must not be called at __init__, only on first reset."""
         from games.sc2.client import SC2Client
 
-        captured: list = []
-
-        def _fake_make_env():
-            from unittest.mock import MagicMock
+        def _fake_env():
             env = MagicMock()
-            env.reset.return_value = [
-                MagicMock(observation={}, reward=0.0, last=lambda: True)
-            ]
+            env.reset.return_value = [MagicMock()]
             return env
 
-        mock_make.side_effect = _fake_make_env
+        mock_make.side_effect = _fake_env
 
         client = SC2Client(map_name="MoveToBeacon", play_mode=True)
-        mock_make.assert_not_called()  # lazy: only called on first reset
+        mock_make.assert_not_called()
 
-        # Calling reset triggers _make_sc2_env
-        with patch.object(client, "_timestep_to_obs_info",
-                          return_value=(np.zeros(13, dtype=np.float32), {})):
-            try:
-                client.reset()
-            except Exception:
-                pass
+        with patch.object(
+            client, "_timestep_to_obs_info",
+            return_value=(np.zeros(13, dtype=np.float32), {}),
+        ):
+            client.reset()
+
         mock_make.assert_called_once()
 
 
@@ -286,8 +312,6 @@ class TestGameLoopInInfo(unittest.TestCase):
                 return None
             def __getitem__(self, key):
                 raise KeyError(key)
-            def __contains__(self, key):
-                return False
 
         class _FakeTimestep:
             observation = _FakeOb()

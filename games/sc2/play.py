@@ -117,14 +117,12 @@ def _run_episode(client: SC2Client, policy) -> None:
     if hasattr(policy, "on_episode_start"):
         policy.on_episode_start()
 
-    total_raw_reward = 0.0
     step_count = 0
 
     try:
         while True:
             action = policy(obs)
-            obs, raw_reward, done, info = client.step(action)
-            total_raw_reward += float(raw_reward)
+            obs, _raw_reward, done, info = client.step(action)
             step_count += 1
 
             if done:
@@ -135,7 +133,7 @@ def _run_episode(client: SC2Client, policy) -> None:
     if hasattr(policy, "on_episode_end"):
         policy.on_episode_end()
 
-    _print_summary(info, step_count, total_raw_reward)
+    _print_summary(info, step_count)
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +144,14 @@ def _load_champion_policy(weights_file: str, map_name: str):
     """Return the champion policy loaded from *weights_file*.
 
     Detects the policy type from the YAML ``policy_type`` key and instantiates
-    the matching class.  Linear-policy champions (``sc2_genetic``, ``cmaes``)
-    are saved in :class:`~games.sc2.policies.SC2LinearPolicy` YAML format and
-    loaded directly.  Neural policies (``neural_dqn``, ``reinforce``, ``lstm``)
-    are reconstructed from their serialised state.
+    the matching class:
+
+    * ``sc2_genetic`` — :class:`~games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`
+      (row-per-head format: ``fn_idx_0_weights``, ``spatial_0_weights``, …)
+    * ``cmaes`` — :class:`~games.sc2.policies.SC2LinearPolicy`
+      (per-head format: ``fn_idx_weights``, ``x_weights``, …)
+    * ``neural_dqn`` / ``reinforce`` / ``lstm`` — neural policies reconstructed
+      from their serialised state
     """
     if not os.path.exists(weights_file):
         raise SystemExit(
@@ -166,6 +168,10 @@ def _load_champion_policy(weights_file: str, map_name: str):
     policy_type = cfg.get("policy_type", "sc2_genetic")
     logger.info("[Play] Loading champion policy (type=%s) from %s", policy_type, weights_file)
 
+    if policy_type == "sc2_genetic":
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+        return SC2MultiHeadLinearPolicy.load(weights_file, obs_spec)
+
     if policy_type == "neural_dqn":
         from games.sc2.policies import NeuralDQNPolicy
         return NeuralDQNPolicy.from_cfg(cfg, obs_spec)
@@ -178,7 +184,7 @@ def _load_champion_policy(weights_file: str, map_name: str):
         from games.sc2.policies import LSTMPolicy
         return LSTMPolicy.from_cfg(cfg, obs_spec)
 
-    # sc2_genetic and cmaes save champions in SC2LinearPolicy YAML format.
+    # cmaes champion is saved in SC2LinearPolicy YAML format.
     from games.sc2.policies import SC2LinearPolicy
     return SC2LinearPolicy(obs_spec, _HEAD_NAMES, weights_file)
 
@@ -187,7 +193,7 @@ def _load_champion_policy(weights_file: str, map_name: str):
 # Summary printer
 # ---------------------------------------------------------------------------
 
-def _print_summary(info: dict, step_count: int, total_raw_reward: float) -> None:
+def _print_summary(info: dict, step_count: int) -> None:
     outcome = info.get("player_outcome")
     if outcome is not None and outcome > 0:
         result = "WIN  (AI)"

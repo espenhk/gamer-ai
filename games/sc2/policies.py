@@ -517,9 +517,11 @@ class _MaskedReplayBuffer(_ReplayBuffer):
 
     Extends :class:`_ReplayBuffer` by adding a ``mask`` column (boolean array
     of shape ``(_N_DISCRETE_ACTIONS,)``) to each stored tuple.  The mask
-    represents which actions were legal in the state where the transition was
-    observed; it is used by :class:`SC2NeuralDQNPolicy` to prevent the target
-    network from bootstrapping through illegal Q-values.
+    represents which actions are legal in the **next** state ``s'`` of the
+    transition, matching the ``available_fn_ids`` received from the environment
+    step that produced ``next_obs``.  It is used by :class:`SC2NeuralDQNPolicy`
+    to restrict ``max_a' Q_target(s', a')`` to legal next-state actions so that
+    the target network never bootstraps through unavailable Q-values.
     """
 
     def push(  # type: ignore[override]
@@ -767,6 +769,111 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
         cfg = super().to_cfg()
         cfg["policy_type"] = "sc2_neural_dqn"
         return cfg
+
+    def save_trainer_state(self, path: str) -> None:
+        """Persist replay buffer (with masks), Adam moments, and counters.
+
+        Extends :meth:`NeuralDQNPolicy.save_trainer_state` to also serialise
+        the per-transition masks stored by :class:`_MaskedReplayBuffer`.
+        """
+        buf = list(self._replay._buf)
+        n   = len(buf)
+        if n > 0:
+            obs_arr  = np.stack([t[0] for t in buf]).astype(np.float32)
+            act_arr  = np.array([t[1] for t in buf], dtype=np.int32)
+            rew_arr  = np.array([t[2] for t in buf], dtype=np.float32)
+            next_arr = np.stack([t[3] for t in buf]).astype(np.float32)
+            done_arr = np.array([t[4] for t in buf], dtype=np.float32)
+            mask_arr = np.stack([t[5] for t in buf])  # (n, n_actions) bool
+        else:
+            obs_arr  = np.empty((0, self._obs_dim), dtype=np.float32)
+            act_arr  = np.empty(0, dtype=np.int32)
+            rew_arr  = np.empty(0, dtype=np.float32)
+            next_arr = np.empty((0, self._obs_dim), dtype=np.float32)
+            done_arr = np.empty(0, dtype=np.float32)
+            mask_arr = np.empty((0, _N_DISCRETE_ACTIONS), dtype=bool)
+
+        n_layers = len(self._m_w)
+        arrays: dict = dict(
+            replay_obs  = obs_arr,
+            replay_act  = act_arr,
+            replay_rew  = rew_arr,
+            replay_next = next_arr,
+            replay_done = done_arr,
+            replay_mask = mask_arr,
+            total_steps = np.int64(self._total_steps),
+            grad_steps  = np.int64(self._grad_steps),
+            adam_t      = np.int64(self._adam_t),
+            epsilon     = np.float32(self._eps),
+            obs_dim     = np.int64(self._obs_dim),
+            n_layers    = np.int64(n_layers),
+        )
+        for i in range(n_layers):
+            arrays[f"m_w_{i}"] = self._m_w[i]
+            arrays[f"m_b_{i}"] = self._m_b[i]
+            arrays[f"v_w_{i}"] = self._v_w[i]
+            arrays[f"v_b_{i}"] = self._v_b[i]
+        np.savez(path, **arrays)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore replay buffer (with masks), Adam moments, and counters.
+
+        Keeps ``self._replay`` as a :class:`_MaskedReplayBuffer`.  If the
+        saved file was written by :class:`NeuralDQNPolicy` (no ``replay_mask``
+        key), each restored transition gets an all-True mask for backward
+        compatibility.
+        """
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
+                raise ValueError(
+                    f"SC2NeuralDQNPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            n_layers = int(data["n_layers"])
+            if n_layers != len(self._m_w):
+                raise ValueError(
+                    f"SC2NeuralDQNPolicy: trainer state n_layers mismatch — "
+                    f"saved={n_layers}, current={len(self._m_w)}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            for i in range(n_layers):
+                mw = data[f"m_w_{i}"]
+                if mw.shape != self._m_w[i].shape:
+                    raise ValueError(
+                        f"SC2NeuralDQNPolicy: Adam moment m_w[{i}] shape mismatch — "
+                        f"saved={mw.shape}, current={self._m_w[i].shape}. "
+                        f"Use --re-initialize to restart from scratch."
+                    )
+            n_buf = len(data["replay_obs"])
+            has_masks = "replay_mask" in data
+            self._replay = _MaskedReplayBuffer(self._buf_maxlen)
+            for i in range(n_buf):
+                mask = (
+                    data["replay_mask"][i].astype(bool)
+                    if has_masks
+                    else np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+                )
+                self._replay.push(
+                    data["replay_obs"][i], int(data["replay_act"][i]),
+                    float(data["replay_rew"][i]), data["replay_next"][i],
+                    bool(data["replay_done"][i]), mask,
+                )
+            self._total_steps = int(data["total_steps"])
+            self._grad_steps  = int(data["grad_steps"])
+            self._adam_t      = int(data["adam_t"])
+            self._eps         = float(data["epsilon"])
+            for i in range(n_layers):
+                self._m_w[i] = data[f"m_w_{i}"]
+                self._m_b[i] = data[f"m_b_{i}"]
+                self._v_w[i] = data[f"v_w_{i}"]
+                self._v_b[i] = data[f"v_b_{i}"]
+        logger.info(
+            "[SC2NeuralDQNPolicy] trainer state loaded from %s "
+            "(buf=%d, steps=%d, eps=%.4f)",
+            path, len(self._replay), self._total_steps, self._eps,
+        )
 
 class CMAESPolicy(BasePolicy):
     """(μ/μ_w, λ)-CMA-ES over the flat weight vector of a WeightedLinearPolicy.

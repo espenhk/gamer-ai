@@ -349,17 +349,22 @@ class TestSC2NeuralDQNGradientMasked(unittest.TestCase):
             policy.update(obs, action_idx, r, next_obs, done=True,
                           info={"available_fn_ids": available})
 
-        # Greedy evaluation with mask
+        # Assert on raw Q-values directly (unmasked) so this test catches
+        # regressions in _gradient_step_masked, not just the masking of __call__.
         policy._eps = 0.0
-        policy._cached_mask = mask
-        greedy_action = policy(obs)
-        greedy_idx = int(np.argmin(
-            np.abs(DISCRETE_ACTIONS - greedy_action[np.newaxis, :]).sum(axis=1)
-        ))
+        obs_norm = (obs / policy._scales).astype(np.float32)
+        q_vals = policy._q_values(policy._online, obs_norm)
+        greedy_idx = int(np.argmax(q_vals))
         self.assertEqual(
             greedy_idx, BEST,
             f"Expected greedy action {BEST} (select_army), got {greedy_idx}. "
-            f"Q-values: {policy._q_values(policy._online, obs / policy._scales).tolist()}"
+            f"Q-values: {q_vals.tolist()}"
+        )
+        # The best action must have a clearly higher Q-value than all others.
+        self.assertGreater(
+            float(q_vals[BEST]),
+            float(np.max(np.delete(q_vals, BEST))),
+            f"Q[{BEST}] should be the unique maximum. Q-values: {q_vals.tolist()}"
         )
 
 
@@ -390,7 +395,11 @@ class TestSC2NeuralDQNPolicySerialization(unittest.TestCase):
         np.testing.assert_array_equal(policy(obs), policy2(obs))
 
     def test_trainer_state_roundtrip(self):
-        """Replay buffer and Adam moments survive save/load."""
+        """Replay buffer (with masks), Adam moments, and counters survive save/load.
+
+        Also verifies that the restored replay buffer is a _MaskedReplayBuffer
+        and that training can resume after load (6-tuple unpack in update()).
+        """
         policy = self._make_trained()
         with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
             path = f.name
@@ -398,8 +407,71 @@ class TestSC2NeuralDQNPolicySerialization(unittest.TestCase):
             policy.save_trainer_state(path)
             policy2 = _make_policy(epsilon_start=1.0)
             policy2.load_trainer_state(path)
+
+            # Buffer length and step counter preserved.
             self.assertEqual(len(policy2._replay), len(policy._replay))
             self.assertEqual(policy2._total_steps, policy._total_steps)
+
+            # Replay buffer must stay a _MaskedReplayBuffer after load.
+            self.assertIsInstance(policy2._replay, _MaskedReplayBuffer)
+
+            # sample() must return 6 values (not 5 from base _ReplayBuffer).
+            result = policy2._replay.sample(4)
+            self.assertEqual(len(result), 6,
+                             "sample() should return 6-tuple for _MaskedReplayBuffer")
+
+            # Training must be able to resume without unpack errors.
+            obs = _zero_obs()
+            policy2.update(obs, 0, 1.0, obs, False)
+        finally:
+            os.unlink(path)
+
+    def test_trainer_state_masks_preserved(self):
+        """Masks stored in the replay buffer survive save/load."""
+        policy = _make_policy(min_replay_size=1000)
+        obs = _zero_obs()
+        # Push a transition with only select_army (cell 4) available.
+        partial_mask = _build_available_actions_mask({1}, _N_DISCRETE_ACTIONS)
+        policy.update(obs, 4, 1.0, obs, False,
+                      info={"available_fn_ids": {1}})
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            policy.save_trainer_state(path)
+            policy2 = _make_policy(epsilon_start=1.0)
+            policy2.load_trainer_state(path)
+
+            stored = policy2._replay._buf[0]
+            restored_mask = stored[5]  # index 5 = mask
+            np.testing.assert_array_equal(restored_mask, partial_mask)
+        finally:
+            os.unlink(path)
+
+    def test_trainer_state_backward_compat_no_masks(self):
+        """Loading a state file without replay_mask restores all-True masks."""
+        from games.sc2.policies import NeuralDQNPolicy as _BaseDQN
+        base_policy = _BaseDQN(
+            obs_spec=_OBS_SPEC,
+            hidden_sizes=[8, 8],
+            replay_buffer_size=500,
+            batch_size=16,
+            min_replay_size=32,
+            epsilon_start=1.0,
+        )
+        obs = _zero_obs()
+        for i in range(5):
+            base_policy.update(obs, i, float(i), obs, False)
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
+            path = f.name
+        try:
+            base_policy.save_trainer_state(path)
+            # Load into SC2NeuralDQNPolicy — should not crash; masks → all-True.
+            policy2 = _make_policy(epsilon_start=1.0)
+            policy2.load_trainer_state(path)
+            self.assertIsInstance(policy2._replay, _MaskedReplayBuffer)
+            for entry in policy2._replay._buf:
+                self.assertTrue(np.all(entry[5]),
+                                "Backward-compat mask should be all-True")
         finally:
             os.unlink(path)
 

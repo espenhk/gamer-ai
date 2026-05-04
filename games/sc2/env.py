@@ -41,6 +41,8 @@ from games.sc2.client import SC2Client
 from games.sc2.obs_spec import MINIGAME_NAMES, get_spec
 from games.sc2.reward import SC2RewardCalculator, SC2RewardConfig
 
+VALID_OBS_PRESETS = ("minigame", "ladder", "rich")
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,6 +90,7 @@ class SC2Env(BaseGameEnv):
         visualize: bool = False,
         screen_layers: list[str] | None = None,
         minimap_layers: list[str] | None = None,
+        obs_spec_preset: str | None = None,
     ) -> None:
         super().__init__()
 
@@ -100,8 +103,9 @@ class SC2Env(BaseGameEnv):
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
         self._use_spatial = bool(self._screen_layers or self._minimap_layers)
+        self._obs_spec_preset = obs_spec_preset
 
-        spec = get_spec(map_name)
+        spec = get_spec(map_name, preset=obs_spec_preset)
         flat_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -140,6 +144,7 @@ class SC2Env(BaseGameEnv):
             visualize=visualize,
             screen_layers=self._screen_layers,
             minimap_layers=self._minimap_layers,
+            obs_spec_preset=obs_spec_preset,
         )
 
         # Episode tracking
@@ -282,6 +287,7 @@ def make_env(
     visualize: bool = False,
     screen_layers: list[str] | None = None,
     minimap_layers: list[str] | None = None,
+    obs_spec_preset: str | None = None,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -305,4 +311,5 @@ def make_env(
         visualize=visualize,
         screen_layers=screen_layers,
         minimap_layers=minimap_layers,
+        obs_spec_preset=obs_spec_preset,
     )

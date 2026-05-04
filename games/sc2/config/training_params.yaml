@@ -38,6 +38,14 @@ policy_type: sc2_genetic
 screen_layers: []                           # spatial feature layers for sc2_cnn policy; [] = disabled (required for sc2_genetic and other flat-obs policies)
 minimap_layers: []                          # optional minimap channels (sc2_cnn only; requires screen_size == minimap_size)
 
+# Observation spec preset (issue #126).  Leave unset to use the default
+# mapping: minigame names → "minigame" (13 dims), ladder maps → "ladder"
+# (~40 dims).  Override with "rich" (~70 dims) for the research-tier
+# superset that adds per-unit-type counts, screen quadrants, top-3 nearest
+# enemies and available-actions / last-action features.  Existing weight
+# files migrate via the standard "missing key → 0.0" path.
+# obs_spec_preset: minigame
+
 policy_params:
   population_size: 30      # larger search space needs bigger population
   elite_k: 5

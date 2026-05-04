@@ -25,6 +25,11 @@ from games.sc2.obs_spec import (
 
 logger = logging.getLogger(__name__)
 
+# Reverse mapping from FUNCTION_IDS name → our fn_idx key.
+# Used in _timestep_to_obs_info() to convert PySC2 available_actions IDs
+# into our fn_idx values (0-5); built once at import time.
+_FN_NAME_TO_IDX: dict[str, int] = {v: k for k, v in FUNCTION_IDS.items()}
+
 # ---------------------------------------------------------------------------
 # Spatial feature layer normalisation scales
 # ---------------------------------------------------------------------------
@@ -357,6 +362,23 @@ class SC2Client:
         avail_arr = self._safe_array(ob, "available_actions")
         if avail_arr is not None:
             self._available_actions = set(avail_arr.tolist())
+            # Convert PySC2 function IDs → our fn_idx values (0-5 in FUNCTION_IDS)
+            # so policies can build masks without importing pysc2.
+            try:
+                from pysc2.lib import actions as _pysc2_acts  # lazy import
+                available_fn_idx: set[int] = set()
+                for pysc2_fn_id in self._available_actions:
+                    try:
+                        fn_name = _pysc2_acts.FUNCTIONS[pysc2_fn_id].name
+                        if fn_name in _FN_NAME_TO_IDX:
+                            available_fn_idx.add(_FN_NAME_TO_IDX[fn_name])
+                    except (IndexError, KeyError):
+                        pass
+                available_fn_ids: set[int] | None = available_fn_idx
+            except ImportError:
+                available_fn_ids = None
+        else:
+            available_fn_ids = None
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -381,6 +403,7 @@ class SC2Client:
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "game_loop": game_loop,
+            "available_fn_ids": available_fn_ids,
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

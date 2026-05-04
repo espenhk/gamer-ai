@@ -263,5 +263,56 @@ class TestSC2IdleBonus(unittest.TestCase):
         self.assertAlmostEqual(r, 6.0)
 
 
+class TestSC2RewardComponents(unittest.TestCase):
+    """Issue #128/2b: per-component reward breakdown."""
+
+    def _calc(self, **kwargs) -> SC2RewardCalculator:
+        return SC2RewardCalculator(SC2RewardConfig(**kwargs))
+
+    def test_components_keys_present(self):
+        calc = self._calc(score_weight=1.0, economy_weight=0.001,
+                          step_penalty=-0.001)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_minerals": 0.0, "minerals": 0.0,
+                  "prev_vespene": 0.0, "vespene": 0.0},
+        )
+        for key in ("score", "economy", "idle_penalty", "idle_bonus",
+                    "step_penalty", "terminal"):
+            self.assertIn(key, comp)
+
+    def test_components_sum_equals_total(self):
+        calc = self._calc(score_weight=2.0, economy_weight=0.01,
+                          step_penalty=-0.5, win_bonus=200.0)
+        info = {
+            "prev_score": 5.0, "score": 8.0,
+            "prev_minerals": 100.0, "minerals": 200.0,
+            "prev_vespene": 0.0, "vespene": 0.0,
+            "player_outcome": 1.0,
+        }
+        total, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=True, elapsed_s=1.0,
+            info=info, n_ticks=2,
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+        # Spot-check individual contributions.
+        self.assertAlmostEqual(comp["score"],        6.0)    # 2.0 * (8 - 5)
+        self.assertAlmostEqual(comp["economy"],      1.0)    # 0.01 * 100
+        self.assertAlmostEqual(comp["step_penalty"], -1.0)   # -0.5 * 2
+        self.assertAlmostEqual(comp["terminal"],     200.0)  # win_bonus
+
+    def test_compute_default_delegates_to_with_components(self):
+        calc = self._calc(score_weight=3.0, step_penalty=0.0)
+        info = {"prev_score": 1.0, "score": 4.0}
+        r = calc.compute(prev_state=None, curr_state=None, finished=False,
+                         elapsed_s=1.0, info=info)
+        r2, _ = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0, info=info,
+        )
+        self.assertAlmostEqual(r, r2)
+
+
 if __name__ == "__main__":
     unittest.main()

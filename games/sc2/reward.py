@@ -111,13 +111,32 @@ class SC2RewardCalculator(RewardCalculatorBase):
         info: dict,
         n_ticks: int = 1,
     ) -> float:
+        return self.compute_with_components(
+            prev_state, curr_state, finished, elapsed_s, info, n_ticks,
+        )[0]
+
+    def compute_with_components(
+        self,
+        prev_state: Any,
+        curr_state: Any,
+        finished: bool,
+        elapsed_s: float,
+        info: dict,
+        n_ticks: int = 1,
+    ) -> tuple[float, dict[str, float]]:
+        """Return ``(reward, components)`` for this step (issue #128/2b).
+
+        ``components`` exposes a per-term breakdown so analytics can
+        attribute reward to ``score``, ``economy``, ``idle_penalty``,
+        ``idle_bonus``, ``step_penalty`` and ``terminal`` separately.
+        """
         cfg = self.config
-        reward = 0.0
+        components: dict[str, float] = {}
 
         # Score delta — primary signal for minigames.
         prev_score = info.get("prev_score", 0.0)
         curr_score = info.get("score", 0.0)
-        reward += cfg.score_weight * (curr_score - prev_score)
+        components["score"] = float(cfg.score_weight * (curr_score - prev_score))
 
         # Economy delta (optional — typically 0 for pure-combat minigames).
         if cfg.economy_weight != 0.0:
@@ -125,22 +144,25 @@ class SC2RewardCalculator(RewardCalculatorBase):
             curr_min = info.get("minerals", 0.0)
             prev_vesp = info.get("prev_vespene", 0.0)
             curr_vesp = info.get("vespene", 0.0)
-            reward += cfg.economy_weight * (
+            components["economy"] = float(cfg.economy_weight * (
                 (curr_min - prev_min) + (curr_vesp - prev_vesp)
-            )
+            ))
+        else:
+            components["economy"] = 0.0
 
         # Idle penalty: nothing built and supply slack — encourages building.
+        idle_pen = 0.0
         if cfg.idle_penalty != 0.0:
             army = info.get("army_count", 0.0)
             food_used = info.get("food_used", 0.0)
             food_cap = info.get("food_cap", 0.0)
             if army == 0 and food_used < food_cap:
-                reward += cfg.idle_penalty * n_ticks
+                idle_pen = cfg.idle_penalty * n_ticks
+        components["idle_penalty"] = float(idle_pen)
 
         # Idle bonus (issue #127): reward standing still when units are in
-        # combat range of an enemy.  Encourages letting units shoot rather
-        # than chasing.  Requires fn_idx == 0 (no_op) AND non-zero friendly
-        # and enemy presence on screen with their centroids close together.
+        # combat range of an enemy.
+        idle_bonus = 0.0
         if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
             self_count  = info.get("screen_self_count", 0.0)
             enemy_count = info.get("screen_enemy_count", 0.0)
@@ -149,17 +171,21 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
                 dist = (dx * dx + dy * dy) ** 0.5
                 if dist <= self._COMBAT_RANGE_PX:
-                    reward += cfg.idle_bonus * n_ticks
+                    idle_bonus = cfg.idle_bonus * n_ticks
+        components["idle_bonus"] = float(idle_bonus)
 
         # Time cost.
-        reward += cfg.step_penalty * n_ticks
+        components["step_penalty"] = float(cfg.step_penalty * n_ticks)
 
         # Terminal win/loss bonus (only set when the env signals an outcome).
+        terminal = 0.0
         outcome = info.get("player_outcome")
         if finished and outcome is not None:
             if outcome > 0:
-                reward += cfg.win_bonus
+                terminal = cfg.win_bonus
             elif outcome < 0:
-                reward += cfg.loss_penalty
+                terminal = cfg.loss_penalty
+        components["terminal"] = float(terminal)
 
-        return reward
+        reward = float(sum(components.values()))
+        return reward, components

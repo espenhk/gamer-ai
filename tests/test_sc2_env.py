@@ -148,6 +148,44 @@ class TestSC2EnvStepLogic(unittest.TestCase):
                      "termination_reason"):
             self.assertIn(key, info, f"missing key {key}")
 
+    def test_step_info_carries_reward_components(self):
+        """Issue #128/2b: env populates info['episode_reward_components']."""
+        self.env.reset()
+        _, _, _, _, info = self.env.step(np.array([0, 0.5, 0.5, 0], dtype=np.float32))
+        self.assertIn("episode_reward_components", info)
+        comp = info["episode_reward_components"]
+        for key in ("score", "economy", "idle_penalty", "idle_bonus",
+                    "step_penalty", "terminal"):
+            self.assertIn(key, comp)
+
+    def test_reward_components_accumulate_across_steps(self):
+        """Repeated steps add their per-step contributions to the totals."""
+        self.env.reset()
+        action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
+        _, _, _, _, info1 = self.env.step(action)
+        _, _, _, _, info2 = self.env.step(action)
+        # step_penalty is non-zero by default; second step's accumulator must
+        # be at least as negative as the first step's contribution.
+        self.assertLessEqual(
+            info2["episode_reward_components"]["step_penalty"],
+            info1["episode_reward_components"]["step_penalty"],
+        )
+
+    def test_reward_components_reset_on_episode_start(self):
+        """reset() clears the accumulator so each episode starts fresh."""
+        self.env.reset()
+        action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
+        self.env.step(action)
+        self.env.step(action)
+        # Now reset and confirm a single step's totals are smaller than
+        # accumulated two steps' worth.
+        self.env.reset()
+        _, _, _, _, info = self.env.step(action)
+        self.assertAlmostEqual(
+            info["episode_reward_components"]["step_penalty"],
+            self.env._reward_config.step_penalty * self.env._step_mul,
+        )
+
     def test_prev_score_threaded_through(self):
         """prev_score in step N+1 should equal score from step N."""
         # Step 1 returns score=10

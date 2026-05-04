@@ -155,6 +155,7 @@ class SC2Env(BaseGameEnv):
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._step_count: int = 0
+        self._ep_reward_components: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -178,6 +179,7 @@ class SC2Env(BaseGameEnv):
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
         self._step_count = 0
+        self._ep_reward_components = {}
         self._reward_calc.reset()
 
         return obs, info
@@ -200,7 +202,7 @@ class SC2Env(BaseGameEnv):
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done
 
-        reward = self._reward_calc.compute(
+        reward, step_components = self._reward_calc.compute_with_components(
             prev_state=None,
             curr_state=None,
             finished=finished,
@@ -208,6 +210,14 @@ class SC2Env(BaseGameEnv):
             info=info,
             n_ticks=self._step_mul,
         )
+        # Accumulate per-component totals across the episode so analytics
+        # can attribute reward to score / economy / penalties separately
+        # (issue #128/2b).
+        for k, v in step_components.items():
+            self._ep_reward_components[k] = (
+                self._ep_reward_components.get(k, 0.0) + float(v)
+            )
+        info["episode_reward_components"] = dict(self._ep_reward_components)
 
         terminated = finished
         truncated = time_over and not terminated

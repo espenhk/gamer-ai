@@ -26,6 +26,7 @@ SC2GeneticPolicy
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 import numpy as np
 import yaml
@@ -372,6 +373,18 @@ class SC2GeneticPolicy(GeneticPolicy):
 # SC2REINFORCEPolicy — two-head REINFORCE for StarCraft 2
 # ---------------------------------------------------------------------------
 
+class _GradEntry(NamedTuple):
+    """Per-step trajectory entry stored by SC2REINFORCEPolicy during an episode."""
+    trunk_layer_inputs: list       # input to each trunk layer for backprop
+    trunk_pre_relu:     list       # pre-activation values in trunk (for ReLU mask)
+    h_last:             np.ndarray # shared trunk output (h_dim,)
+    fn_probs:           np.ndarray # softmax fn probabilities after masking (N_FUNCTION_IDS,)
+    fn_idx:             int        # sampled function index
+    sp_probs:           np.ndarray # softmax spatial probabilities (N_GRID_CELLS,)
+    cell_idx:           int        # sampled spatial cell index
+    fn_mask:            np.ndarray # bool mask: True = available fn (N_FUNCTION_IDS,)
+
+
 class SC2REINFORCEPolicy(BasePolicy):
     """REINFORCE (Monte Carlo Policy Gradient) with a two-head MLP for SC2.
 
@@ -569,8 +582,16 @@ class SC2REINFORCEPolicy(BasePolicy):
         cell_idx  = int(np.random.choice(N_GRID_CELLS, p=sp_probs))
 
         self._ep_grads.append(
-            (l_in, pre_r, h_last.copy(), fn_probs.copy(), fn_idx,
-             sp_probs.copy(), cell_idx, fn_mask.copy())
+            _GradEntry(
+                trunk_layer_inputs=l_in,
+                trunk_pre_relu=pre_r,
+                h_last=h_last.copy(),
+                fn_probs=fn_probs.copy(),
+                fn_idx=fn_idx,
+                sp_probs=sp_probs.copy(),
+                cell_idx=cell_idx,
+                fn_mask=fn_mask.copy(),
+            )
         )
 
         x, y = _GRID_XY[cell_idx]
@@ -629,10 +650,17 @@ class SC2REINFORCEPolicy(BasePolicy):
         dB_sp    = np.zeros_like(self._sp_b, dtype=np.float64)
 
         for t in range(T):
-            l_in, pre_r, h_last, fn_probs, fn_idx, sp_probs, cell_idx, fn_mask = (
-                self._ep_grads[t]
-            )
+            entry     = self._ep_grads[t]
             advantage = float(G_norm[t])
+
+            l_in     = entry.trunk_layer_inputs
+            pre_r    = entry.trunk_pre_relu
+            h_last   = entry.h_last
+            fn_probs = entry.fn_probs
+            fn_idx   = entry.fn_idx
+            sp_probs = entry.sp_probs
+            cell_idx = entry.cell_idx
+            fn_mask  = entry.fn_mask
 
             # --- fn head gradient ---
             # Only include log-probs for available actions in the policy gradient.

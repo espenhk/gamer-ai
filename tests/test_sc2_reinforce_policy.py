@@ -22,6 +22,7 @@ from games.sc2.sc2_policies import (
     N_GRID_CELLS,
     SC2REINFORCEPolicy,
     _GRID_XY,
+    _GradEntry,
 )
 
 
@@ -346,13 +347,8 @@ class TestSC2REINFORCEGradients(unittest.TestCase):
         for _ in range(50):
             policy(obs)
             # Override the cached fn_idx to always be target_fn.
-            l_in, pre_r, h_last, fn_probs, _, sp_probs, cell_idx, fn_mask = (
-                policy._ep_grads[-1]
-            )
-            policy._ep_grads[-1] = (
-                l_in, pre_r, h_last, fn_probs, target_fn,
-                sp_probs, cell_idx, fn_mask,
-            )
+            entry = policy._ep_grads[-1]
+            policy._ep_grads[-1] = entry._replace(fn_idx=target_fn)
             policy.update(obs, np.zeros(4), 10.0, obs, True)
             policy.on_episode_end()
 

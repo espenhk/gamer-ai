@@ -17,7 +17,7 @@ into one of three preset specs (issue #126):
     split, screen unit-density / mean-HP summaries, top-K enemy features and
     minimap-camera position.  Default for 1v1 ladder play.
 
-``SC2_RICH_OBS_SPEC``     (~70 dims)
+``SC2_RICH_OBS_SPEC``     (80 dims)
     Full superset for research experiments: everything in the ladder spec plus
     8 per-unit-type counts, per-quadrant screen counts of self / enemy,
     top-3 closest enemies (rel_x, rel_y, hp_ratio), available-actions binary
@@ -120,15 +120,18 @@ _TOPK_ENEMY_COUNTS_DIMS: list[ObsDim] = [
 #: Top-3 closest enemies relative to friendly centroid (rich spec only).
 _TOPK_ENEMY_FEATURES_DIMS: list[ObsDim] = [
     *(
-        ObsDim(f"topk_enemy_{i}_rel_x", 64.0, f"Top-{i} closest enemy: rel x to friendly centroid")
+        ObsDim(f"topk_enemy_{i}_rel_x", 64.0,
+               f"Top-{i + 1} closest enemy: rel x to friendly centroid")
         for i in range(3)
     ),
     *(
-        ObsDim(f"topk_enemy_{i}_rel_y", 64.0, f"Top-{i} closest enemy: rel y to friendly centroid")
+        ObsDim(f"topk_enemy_{i}_rel_y", 64.0,
+               f"Top-{i + 1} closest enemy: rel y to friendly centroid")
         for i in range(3)
     ),
     *(
-        ObsDim(f"topk_enemy_{i}_hp_ratio", 1.0, f"Top-{i} closest enemy: HP / max HP")
+        ObsDim(f"topk_enemy_{i}_hp_ratio", 1.0,
+               f"Top-{i + 1} closest enemy: HP / max HP")
         for i in range(3)
     ),
 ]

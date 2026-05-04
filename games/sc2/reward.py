@@ -94,10 +94,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
             ``screen_enemy_cy`` — centroids in screen pixels
     """
 
-    # Maximum centroid-distance (in screen pixels) for friendly units to be
-    # considered "in combat range" for the ``idle_bonus`` shaping reward.
-    # 0.4 of the 64-pixel default screen ≈ 25 pixels — roughly Marine range.
-    _COMBAT_RANGE_PX: float = 25.0
+    # Maximum centroid-distance for friendly units to be considered
+    # "in combat range" for the ``idle_bonus`` shaping reward.  Expressed
+    # as a fraction of the screen feature-layer side so the threshold
+    # scales with non-default screen_size values (~Marine range at the
+    # 64-pixel default ≈ 25 px).
+    _COMBAT_RANGE_FRAC: float = 25.0 / 64.0
 
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
@@ -161,7 +163,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         components["idle_penalty"] = float(idle_pen)
 
         # Idle bonus (issue #127): reward standing still when units are in
-        # combat range of an enemy.
+        # combat range of an enemy.  The pixel threshold scales with the
+        # screen feature-layer size so non-default screen_size resolutions
+        # behave consistently.
         idle_bonus = 0.0
         if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
             self_count  = info.get("screen_self_count", 0.0)
@@ -170,7 +174,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
                 dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
                 dist = (dx * dx + dy * dy) ** 0.5
-                if dist <= self._COMBAT_RANGE_PX:
+                screen_size = float(info.get("screen_size", 64))
+                if dist <= self._COMBAT_RANGE_FRAC * screen_size:
                     idle_bonus = cfg.idle_bonus * n_ticks
         components["idle_bonus"] = float(idle_bonus)
 

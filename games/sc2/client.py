@@ -17,13 +17,7 @@ import numpy as np
 
 from framework.obs_spec import ObsSpec
 from games.sc2.actions import FUNCTION_IDS, action_to_function_call
-from games.sc2.obs_spec import (
-    LADDER_OBS_NAMES,
-    OBS_NAMES,
-    SC2_LADDER_OBS_SPEC,
-    SC2_MINIGAME_OBS_SPEC,
-    get_spec,
-)
+from games.sc2.obs_spec import get_spec
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +235,6 @@ class SC2Client:
 
         fn_idx = int(action[0])
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
-        self._last_fn_idx = fn_idx
 
         if (
             self._available_actions is not None
@@ -255,14 +248,20 @@ class SC2Client:
                 logger.debug(
                     "Action %s blocked; auto-selecting army (#124).", fn_name,
                 )
+                # Reflect the executed action, not the requested one, so the
+                # rich preset's last_fn_* one-hot stays consistent.
+                self._last_fn_idx = 1  # FUNCTION_IDS index for select_army
                 return pysc2_actions.FunctionCall(select_army_id, [[0]])
             logger.debug(
                 "Action %s blocked (not in available_actions); substituting no_op.",
                 fn_name,
             )
+            self._last_fn_idx = 0      # FUNCTION_IDS index for no_op
             return pysc2_actions.FunctionCall(
                 int(pysc2_actions.FUNCTIONS.no_op.id), []
             )
+
+        self._last_fn_idx = fn_idx
 
         if fn_name != "no_op":
             x_screen = int(np.clip(action[1], 0.0, 1.0) * (self._screen_size - 1))

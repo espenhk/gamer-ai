@@ -40,7 +40,7 @@ minimap_layers: []                          # optional minimap channels (sc2_cnn
 
 # Observation spec preset (issue #126).  Leave unset to use the default
 # mapping: minigame names → "minigame" (13 dims), ladder maps → "ladder"
-# (~40 dims).  Override with "rich" (~70 dims) for the research-tier
+# (43 dims).  Override with "rich" (80 dims) for the research-tier
 # superset that adds per-unit-type counts, screen quadrants, top-3 nearest
 # enemies and available-actions / last-action features.  Existing weight
 # files migrate via the standard "missing key → 0.0" path.

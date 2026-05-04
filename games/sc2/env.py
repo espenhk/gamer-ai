@@ -41,8 +41,6 @@ from games.sc2.client import SC2Client
 from games.sc2.obs_spec import MINIGAME_NAMES, get_spec
 from games.sc2.reward import SC2RewardCalculator, SC2RewardConfig
 
-VALID_OBS_PRESETS = ("minigame", "ladder", "rich")
-
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +97,7 @@ class SC2Env(BaseGameEnv):
         self._reward_config = reward_config or SC2RewardConfig()
         self._max_episode_time_s = max_episode_time_s
         self._step_mul = step_mul
+        self._screen_size = screen_size
         self._reward_calc = SC2RewardCalculator(self._reward_config)
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
@@ -198,6 +197,9 @@ class SC2Env(BaseGameEnv):
         info["elapsed_s"] = self._elapsed_s
         # Action fn_idx — required by reward shaping (e.g. idle_bonus, #127).
         info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
+        # Screen size threading — reward shaping uses it to scale pixel-based
+        # thresholds for non-default screen resolutions.
+        info["screen_size"] = self._screen_size
 
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done

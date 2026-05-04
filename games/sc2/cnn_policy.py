@@ -288,6 +288,7 @@ class SC2CNNModel:
         reward: float,
         next_obs: dict | np.ndarray,
         done: bool,
+        **kwargs,
     ) -> None:
         pass  # trained via outer evolutionary optimiser
 
@@ -443,6 +444,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         reward: float,
         next_obs: dict | np.ndarray,
         done: bool,
+        **kwargs,
     ) -> None:
         pass
 

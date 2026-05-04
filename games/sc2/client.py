@@ -48,6 +48,31 @@ _LAYER_SCALE: dict[str, float] = {
     "buildable":          1.0,
 }
 
+# Lazy cache: maps PySC2 native function ID → our fn_idx (0-5 in FUNCTION_IDS).
+# Built on first use when pysc2 is available.
+_FN_NAME_TO_IDX: dict[str, int] = {name: idx for idx, name in FUNCTION_IDS.items()}
+_pysc2_id_to_fn_idx: dict[int, int] | None = None
+
+
+def _get_pysc2_id_to_fn_idx() -> dict[int, int]:
+    """Build and cache a mapping from PySC2 native function ID → our fn_idx.
+
+    Imports ``pysc2.lib.actions`` lazily so that callers without PySC2
+    installed (unit tests) can import this module without errors.
+    """
+    global _pysc2_id_to_fn_idx
+    if _pysc2_id_to_fn_idx is None:
+        try:
+            from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
+            _pysc2_id_to_fn_idx = {}
+            for fn_idx, name in FUNCTION_IDS.items():
+                fn_obj = getattr(pysc2_actions.FUNCTIONS, name, None)
+                if fn_obj is not None:
+                    _pysc2_id_to_fn_idx[int(fn_obj.id)] = fn_idx
+        except Exception:
+            _pysc2_id_to_fn_idx = {}
+    return _pysc2_id_to_fn_idx
+
 
 class SC2Client:
     """Manages a ``pysc2.env.sc2_env.SC2Env`` session.
@@ -355,8 +380,16 @@ class SC2Client:
 
         # Track available actions for precondition checking in _action_to_call.
         avail_arr = self._safe_array(ob, "available_actions")
+        available_fn_ids: set[int] | None = None
         if avail_arr is not None:
             self._available_actions = set(avail_arr.tolist())
+            id_map = _get_pysc2_id_to_fn_idx()
+            if id_map:
+                available_fn_ids = {
+                    id_map[pid]
+                    for pid in self._available_actions
+                    if pid in id_map
+                }
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -381,6 +414,7 @@ class SC2Client:
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "game_loop": game_loop,
+            "available_fn_ids": available_fn_ids,
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

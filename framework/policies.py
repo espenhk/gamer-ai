@@ -52,7 +52,7 @@ class BasePolicy(ABC):
         """Return a YAML-serializable dict representing this policy's state."""
 
     def update(self, obs: np.ndarray, action: np.ndarray, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         """Per-step feedback from the environment.  No-op for non-online policies."""
 
     def on_episode_start(self) -> None:
@@ -407,7 +407,7 @@ class QTablePolicy(BasePolicy):
         return self._discrete_actions[action_idx].copy()
 
     def update(self, obs: np.ndarray, action, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         action_idx = int(action) if np.isscalar(action) else self._nearest_action(action)
         s  = _discretize_obs(obs,      self._scales, self._n_bins)
         s_ = _discretize_obs(next_obs, self._scales, self._n_bins)

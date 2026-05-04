@@ -27,7 +27,7 @@ patience: 0                  # stop greedy loop if no improvement for this many 
 
 # Policy algorithm for the greedy training phase.
 # SC2-specific policies (correct action encoding for [fn_idx, x, y, queue]):
-#   sc2_genetic (default), cmaes, neural_dqn, reinforce, lstm
+#   sc2_genetic (default), sc2_reinforce, cmaes, neural_dqn, reinforce, lstm
 # Framework tabular policies also work (select from DISCRETE_ACTIONS directly):
 #   epsilon_greedy, mcts
 # Note: hill_climbing, neural_net, and the framework's genetic policy are NOT
@@ -44,3 +44,11 @@ policy_params:
   eval_episodes: 2         # average fitness over 2 noisy episodes per individual
   mutation_scale: 0.1
   mutation_share: 0.3      # sparse mutation — mutate 30% of weights per individual
+
+# Recommended sc2_reinforce hyperparams (uncomment policy_type: sc2_reinforce above):
+# policy_params:
+#   hidden_sizes: [128, 64]
+#   learning_rate: 0.0003
+#   gamma: 0.995
+#   entropy_coeff: 0.05
+#   baseline: running_mean

@@ -359,7 +359,7 @@ class NeuralDQNPolicy(BasePolicy):
         return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
         self._replay.push(obs, action_idx, reward, next_obs, done)
         self._total_steps += 1
@@ -839,7 +839,7 @@ class REINFORCEPolicy(BasePolicy):
         return DISCRETE_ACTIONS[action_idx].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         self._ep_rewards.append(float(reward))
 
     def on_episode_end(self) -> None:
@@ -1093,7 +1093,7 @@ class LSTMPolicy(BasePolicy):
         return np.array([fn_idx, x_out, y_out, queue], dtype=np.float32)
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         pass  # trained via outer evolutionary optimiser
 
     def to_cfg(self) -> dict:

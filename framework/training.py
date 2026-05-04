@@ -66,7 +66,7 @@ class _ConstantPolicy:
         self._action = action
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         return self._action
-    def update(self, *_) -> None:
+    def update(self, *_, **__) -> None:
         pass
     def on_episode_start(self) -> None:
         pass
@@ -220,7 +220,8 @@ def _run_episode(
         steps += 1
 
         if not in_warmup:
-            policy.update(prev_obs, action, reward, next_obs, terminated or truncated)
+            policy.update(prev_obs, action, reward, next_obs, terminated or truncated,
+                          info=info)
 
         prev_obs = next_obs
         obs      = next_obs

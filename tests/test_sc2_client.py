@@ -347,5 +347,115 @@ class TestSC2ClientFeatureExtractors(unittest.TestCase):
         self.assertEqual(flat.shape, (BASE_OBS_DIM,))
 
 
+# ---------------------------------------------------------------------------
+# Issue #124 / #121: Move_screen blocked by selection precondition should
+# fall back to select_army rather than silently no-op'ing.
+# ---------------------------------------------------------------------------
+
+class _FakeFn:
+    def __init__(self, fn_id: int):
+        self.id = fn_id
+
+
+class _FakeFunctions:
+    no_op       = _FakeFn(0)
+    select_army = _FakeFn(7)
+    Move_screen = _FakeFn(331)
+
+
+class _FakeFunctionCall:
+    def __init__(self, function: int, args: list):
+        self.function = function
+        self.args = args
+
+
+class _FakeActionsModule:
+    FUNCTIONS = _FakeFunctions
+    FunctionCall = _FakeFunctionCall
+
+
+class _FakeLib:
+    actions = _FakeActionsModule
+
+
+class _FakePySc2:
+    lib = _FakeLib
+
+
+class TestSC2ClientActionFallback(unittest.TestCase):
+    """Verify the auto-select-army fallback (#121, #124)."""
+
+    def setUp(self):
+        from unittest.mock import patch
+        # Patch pysc2 + the games.sc2.actions.action_to_function_call helper so
+        # _action_to_call can be exercised without a real pysc2 install.
+        patcher_pysc2 = patch.dict("sys.modules", {
+            "pysc2":         _FakePySc2,
+            "pysc2.lib":     _FakePySc2.lib,
+            "pysc2.lib.actions": _FakeActionsModule,
+        })
+        patcher_pysc2.start()
+        self.addCleanup(patcher_pysc2.stop)
+
+        from games.sc2 import client as client_mod
+        # action_to_function_call also imports pysc2 internally; replace it
+        # with a stub that returns a FakeFunctionCall with the obvious mapping.
+        def _fake_action_to_call(action, screen_size):
+            fn_idx = int(action[0])
+            fn_id = {
+                0: _FakeFunctions.no_op.id,
+                1: _FakeFunctions.select_army.id,
+                2: _FakeFunctions.Move_screen.id,
+            }.get(fn_idx, _FakeFunctions.no_op.id)
+            return _FakeFunctionCall(fn_id, [])
+
+        patcher_helper = patch.object(
+            client_mod, "action_to_function_call", _fake_action_to_call,
+        )
+        patcher_helper.start()
+        self.addCleanup(patcher_helper.stop)
+
+        from games.sc2.client import SC2Client
+        self.client = SC2Client(map_name="MoveToBeacon")
+
+    def test_move_screen_with_no_army_selected_substitutes_select_army(self):
+        """Issue #124: blocked Move_screen → auto-select-army (not no_op)."""
+        # Available actions: no_op (0) + select_army (7).  Move_screen (331) is NOT.
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id, _FakeFunctions.select_army.id,
+        }
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.select_army.id)
+
+    def test_blocked_no_op_when_select_army_also_unavailable(self):
+        """If select_army is also blocked, fall back to no_op as before."""
+        self.client._available_actions = {_FakeFunctions.no_op.id}
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.no_op.id)
+
+    def test_legal_move_screen_passes_through(self):
+        """When Move_screen IS available, the original action is preserved."""
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id,
+            _FakeFunctions.select_army.id,
+            _FakeFunctions.Move_screen.id,
+        }
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.Move_screen.id)
+
+    def test_no_op_action_not_redirected(self):
+        """A policy emitting no_op should pass through unchanged."""
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id,
+            _FakeFunctions.select_army.id,
+        }
+        action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.no_op.id)
+
+
 if __name__ == "__main__":
     unittest.main()

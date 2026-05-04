@@ -222,8 +222,18 @@ class SC2Client:
     def _action_to_call(self, action: np.ndarray) -> Any:
         """Translate a 4-vector action to a PySC2 ``FunctionCall``.
 
-        Falls back to ``no_op`` if the requested function is not currently
-        available (PySC2 enforces preconditions like "have units selected").
+        When the requested function is not available (PySC2 enforces
+        preconditions like "have units selected"), substitute either
+        ``select_army`` or ``no_op`` depending on context.
+
+        Issues #121 / #124: if the policy issues a unit-targeted action
+        (``Move_screen`` / ``Attack_screen`` / ``Harvest_Gather_screen``)
+        but no army is selected, fall back to ``select_army`` rather than
+        ``no_op``.  Otherwise the agent appears to "idle" — the next step
+        has the same observation, the policy emits the same blocked
+        action, and PySC2 keeps no-op'ing it until the policy stochastically
+        elects ``select_army`` itself.  Auto-selecting closes that gap and
+        ensures the very next step can actually move.
         """
         from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
@@ -237,6 +247,15 @@ class SC2Client:
             self._available_actions is not None
             and int(fn_call.function) not in self._available_actions
         ):
+            select_army_id = int(pysc2_actions.FUNCTIONS.select_army.id)
+            unit_targeted = fn_name in (
+                "Move_screen", "Attack_screen", "Harvest_Gather_screen",
+            )
+            if unit_targeted and select_army_id in self._available_actions:
+                logger.debug(
+                    "Action %s blocked; auto-selecting army (#124).", fn_name,
+                )
+                return pysc2_actions.FunctionCall(select_army_id, [[0]])
             logger.debug(
                 "Action %s blocked (not in available_actions); substituting no_op.",
                 fn_name,

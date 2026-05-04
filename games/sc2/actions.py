@@ -101,6 +101,24 @@ PROBE_ACTIONS: list[tuple[np.ndarray, str]] = [
 WARMUP_ACTION = np.array([1, 0.5, 0.5, 0], dtype=np.float32)
 
 
+def discrete_action_to_fn_id(grid_idx: int) -> int:
+    """Return the FUNCTION_IDS index (fn_idx) for a discrete grid action.
+
+    Parameters
+    ----------
+    grid_idx :
+        Index into :data:`DISCRETE_ACTIONS` (0–8).
+
+    Returns
+    -------
+    int
+        The ``fn_idx`` key in :data:`FUNCTION_IDS` used by that grid cell.
+        For the default 9-cell grid: cell 4 → 1 (select_army), all others
+        → 2 (Move_screen).
+    """
+    return int(DISCRETE_ACTIONS[grid_idx, 0])
+
+
 def action_to_function_call(action: np.ndarray, screen_size: int):
     """Translate a 4-vector action row into a PySC2 ``FunctionCall``.
 

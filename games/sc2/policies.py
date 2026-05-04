@@ -714,7 +714,7 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
 
         q_next = self._q_values(self._target, next_norm)      # (B, 9)
         # Mask illegal next-state actions to -inf before max().
-        q_next_masked = q_next.copy().astype(np.float64)
+        q_next_masked = q_next.copy()
         q_next_masked[~mask_b] = -np.inf
         # Per-row max: fall back to unmasked max if every action is masked.
         all_masked = np.all(~mask_b, axis=1)

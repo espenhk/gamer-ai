@@ -381,6 +381,13 @@ class SC2Client:
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "game_loop": game_loop,
+            # Screen summary used by reward shaping (idle_bonus, #127).
+            "screen_self_count":  screen_self_count,
+            "screen_enemy_count": screen_enemy_count,
+            "screen_self_cx":     screen_self_cx,
+            "screen_self_cy":     screen_self_cy,
+            "screen_enemy_cx":    screen_enemy_cx,
+            "screen_enemy_cy":    screen_enemy_cy,
         }
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).

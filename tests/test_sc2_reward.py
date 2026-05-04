@@ -175,5 +175,93 @@ class TestSC2RewardCalculator(unittest.TestCase):
         self.assertAlmostEqual(r, 0.0)
 
 
+class TestSC2IdleBonus(unittest.TestCase):
+    """Tests for the idle_bonus reward (issue #127)."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg_kwargs = {"score_weight": 0.0, "step_penalty": 0.0,
+                      "win_bonus": 0.0, "loss_penalty": 0.0,
+                      "economy_weight": 0.0}
+        cfg_kwargs.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
+
+    def _combat_info(self, fn_idx: int, dist: float = 5.0) -> dict:
+        """Info dict with a friendly unit at (10, 10) and enemy near it."""
+        return {
+            "prev_score": 0.0, "score": 0.0,
+            "action_fn_idx": fn_idx,
+            "screen_self_count":  1.0,
+            "screen_enemy_count": 1.0,
+            "screen_self_cx":  10.0,
+            "screen_self_cy":  10.0,
+            "screen_enemy_cx": 10.0 + dist,
+            "screen_enemy_cy": 10.0,
+        }
+
+    def test_idle_bonus_fires_on_no_op_in_combat_range(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(fn_idx=0, dist=5.0),
+        )
+        self.assertAlmostEqual(r, 2.0)
+
+    def test_idle_bonus_skipped_when_action_is_not_no_op(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(fn_idx=2, dist=5.0),  # Move_screen
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_idle_bonus_skipped_when_enemy_out_of_range(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(fn_idx=0, dist=60.0),  # far away
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_idle_bonus_skipped_when_no_enemy_present(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        info = self._combat_info(fn_idx=0)
+        info["screen_enemy_count"] = 0.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=info,
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_idle_bonus_skipped_when_no_self_present(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        info = self._combat_info(fn_idx=0)
+        info["screen_self_count"] = 0.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=info,
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_idle_bonus_disabled_by_default(self):
+        """idle_bonus default is 0.0 — existing experiments unaffected."""
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.idle_bonus, 0.0)
+
+    def test_idle_bonus_scales_with_n_ticks(self):
+        calc = self._make_calc(idle_bonus=1.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(fn_idx=0, dist=5.0),
+            n_ticks=4,
+        )
+        self.assertAlmostEqual(r, 6.0)
+
+
 if __name__ == "__main__":
     unittest.main()

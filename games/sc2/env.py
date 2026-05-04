@@ -189,6 +189,8 @@ class SC2Env(BaseGameEnv):
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
         info["elapsed_s"] = self._elapsed_s
+        # Action fn_idx — required by reward shaping (e.g. idle_bonus, #127).
+        info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
 
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done

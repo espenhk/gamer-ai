@@ -33,6 +33,13 @@ step_penalty: -0.001
 # --- Idle penalty (BuildMarines / economy maps) ---
 idle_penalty: 0.0
 
+# --- Idle bonus (issue #127) ---
+# Per-step bonus when the agent issues no_op AND friendly units are within
+# combat range of an enemy.  Off by default; enable on combat minigames
+# (DefeatRoaches, DefeatZerglingsAndBanelings) to make "stand still and shoot"
+# learnable rather than only discoverable through luck.
+idle_bonus: 0.0
+
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.0

@@ -39,6 +39,14 @@ class SC2RewardConfig:
     idle_penalty :
         Per-step penalty when ``army_count == 0 and food_used < food_cap``;
         used by ``BuildMarines`` to discourage doing nothing.
+    idle_bonus :
+        Per-step bonus awarded when the agent issues ``no_op`` *and* friendly
+        units are within combat range of an enemy on the screen (issue #127).
+        Default ``0.0`` — opt-in.  Makes the "stand still so units can shoot"
+        lesson learnable rather than only discoverable through luck.  Requires
+        the screen summary features (``screen_self_count`` / ``screen_enemy_count``
+        / centroids) populated by the client; with the default obs preset
+        these are always present.
     economy_weight :
         Coefficient on (minerals + vespene) delta.  Useful for economy
         minigames.  Set to 0 for pure-combat minigames.
@@ -49,6 +57,7 @@ class SC2RewardConfig:
     loss_penalty:    float = -100.0
     step_penalty:    float = -0.001
     idle_penalty:    float = 0.0
+    idle_bonus:      float = 0.0
     economy_weight:  float = 0.0
 
     @classmethod
@@ -78,7 +87,17 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``prev_minerals``, ``prev_vespene`` — previous totals
         ``army_count``, ``food_used``, ``food_cap``
         ``player_outcome`` — None / +1 / -1 (only set on the final step)
+        ``action_fn_idx`` — fn_idx of the action issued this step (for ``idle_bonus``)
+        ``screen_self_count`` / ``screen_enemy_count`` — friendly / enemy
+            pixel counts on screen (for ``idle_bonus`` combat-range check)
+        ``screen_self_cx`` / ``screen_self_cy`` / ``screen_enemy_cx`` /
+            ``screen_enemy_cy`` — centroids in screen pixels
     """
+
+    # Maximum centroid-distance (in screen pixels) for friendly units to be
+    # considered "in combat range" for the ``idle_bonus`` shaping reward.
+    # 0.4 of the 64-pixel default screen ≈ 25 pixels — roughly Marine range.
+    _COMBAT_RANGE_PX: float = 25.0
 
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
@@ -117,6 +136,20 @@ class SC2RewardCalculator(RewardCalculatorBase):
             food_cap = info.get("food_cap", 0.0)
             if army == 0 and food_used < food_cap:
                 reward += cfg.idle_penalty * n_ticks
+
+        # Idle bonus (issue #127): reward standing still when units are in
+        # combat range of an enemy.  Encourages letting units shoot rather
+        # than chasing.  Requires fn_idx == 0 (no_op) AND non-zero friendly
+        # and enemy presence on screen with their centroids close together.
+        if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
+            self_count  = info.get("screen_self_count", 0.0)
+            enemy_count = info.get("screen_enemy_count", 0.0)
+            if self_count > 0 and enemy_count > 0:
+                dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist <= self._COMBAT_RANGE_PX:
+                    reward += cfg.idle_bonus * n_ticks
 
         # Time cost.
         reward += cfg.step_penalty * n_ticks

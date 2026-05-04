@@ -5,8 +5,10 @@ SC2MultiHeadLinearPolicy
 
     * **fn_idx head** — shape ``(N_FUNCTION_IDS, obs_dim)`` → 6 scores, one per
       available function ID.  ``argmax`` gives the selected function.
-    * **spatial head** — shape ``(N_GRID_CELLS, obs_dim)`` → 9 scores, one per
-      cell in the 3×3 action grid.  ``argmax`` gives the target screen cell.
+    * **spatial head** — shape ``(2, obs_dim)`` → two scalar scores fed
+      through a sigmoid to produce continuous ``(x, y) ∈ [0, 1]²`` screen
+      coordinates (issue #122).  Continuous output lets the policy target
+      arbitrary screen pixels rather than collapsing onto a fixed grid.
 
     The resulting action is a 4-vector ``[fn_idx, x, y, 0]`` compatible with
     :data:`games.sc2.actions.DISCRETE_ACTIONS` and the ``SC2Env`` action space.
@@ -32,7 +34,7 @@ import yaml
 
 from framework.obs_spec import ObsSpec
 from framework.policies import GeneticPolicy
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import FUNCTION_IDS
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
 logger = logging.getLogger(__name__)
@@ -44,19 +46,25 @@ logger = logging.getLogger(__name__)
 #: Number of function IDs exposed by the SC2 action set.
 N_FUNCTION_IDS: int = len(FUNCTION_IDS)   # 6
 
-#: Number of spatial grid cells in the 3×3 action grid.
-N_GRID_CELLS: int = len(DISCRETE_ACTIONS)  # 9
+#: Number of rows in the spatial (x, y) sigmoid head.
+N_SPATIAL_ROWS: int = 2
+
+#: Backwards-compat alias — pre-#122 code referred to the old 9-cell grid as
+#: ``N_GRID_CELLS``.  After issue #122 the spatial head emits continuous
+#: ``(x, y)`` coordinates instead, so this is now the size of the new
+#: 2-row spatial weight matrix.  Kept under the historic name so external
+#: imports continue to work.
+N_GRID_CELLS: int = N_SPATIAL_ROWS
 
 #: Head-name prefixes — one row per output neuron stored as a separate YAML key.
 _FN_HEAD_NAMES: list[str]      = [f"fn_idx_{i}" for i in range(N_FUNCTION_IDS)]
-_SPATIAL_HEAD_NAMES: list[str] = [f"spatial_{i}" for i in range(N_GRID_CELLS)]
+_SPATIAL_HEAD_NAMES: list[str] = ["x", "y"]
 _ALL_ROW_NAMES: list[str]      = _FN_HEAD_NAMES + _SPATIAL_HEAD_NAMES
 
-# Pre-build the (x, y) coordinate for each grid cell from DISCRETE_ACTIONS.
-_GRID_XY: list[tuple[float, float]] = [
-    (float(DISCRETE_ACTIONS[i, 1]), float(DISCRETE_ACTIONS[i, 2]))
-    for i in range(N_GRID_CELLS)
-]
+
+def _sigmoid(x: float) -> float:
+    """Stable scalar sigmoid."""
+    return 1.0 / (1.0 + float(np.exp(-np.clip(x, -20.0, 20.0))))
 
 
 # ---------------------------------------------------------------------------
@@ -74,8 +82,9 @@ class SC2MultiHeadLinearPolicy:
         Weight matrix of shape ``(N_FUNCTION_IDS, obs_dim)``.  If *None* a
         random initialisation is used.
     spatial_weights :
-        Weight matrix of shape ``(N_GRID_CELLS, obs_dim)``.  If *None* a
-        random initialisation is used.
+        Weight matrix of shape ``(N_SPATIAL_ROWS, obs_dim)`` whose rows are
+        the linear-projection coefficients for ``x`` and ``y`` respectively.
+        If *None* a random initialisation is used.
     """
 
     def __init__(
@@ -96,7 +105,7 @@ class SC2MultiHeadLinearPolicy:
         self._sp_weights: np.ndarray = (
             spatial_weights.astype(np.float32)
             if spatial_weights is not None
-            else rng.standard_normal((N_GRID_CELLS, obs_dim)).astype(np.float32)
+            else rng.standard_normal((N_SPATIAL_ROWS, obs_dim)).astype(np.float32)
         )
 
     # ------------------------------------------------------------------
@@ -109,14 +118,16 @@ class SC2MultiHeadLinearPolicy:
         Returns
         -------
         np.ndarray
-            4-vector ``[fn_idx, x, y, 0]`` compatible with ``SC2Env``.
+            4-vector ``[fn_idx, x, y, 0]`` compatible with ``SC2Env``.  ``x``
+            and ``y`` are continuous in ``[0, 1]`` (sigmoid-encoded), so the
+            policy can target arbitrary screen pixels.
         """
         norm_obs  = obs / self._obs_spec.scales
-        fn_scores = self._fn_weights  @ norm_obs   # (N_FUNCTION_IDS,)
-        sp_scores = self._sp_weights  @ norm_obs   # (N_GRID_CELLS,)
+        fn_scores = self._fn_weights @ norm_obs   # (N_FUNCTION_IDS,)
+        sp_scores = self._sp_weights @ norm_obs   # (2,) — raw x and y logits
         fn_idx    = int(np.argmax(fn_scores))
-        cell_idx  = int(np.argmax(sp_scores))
-        x, y      = _GRID_XY[cell_idx]
+        x         = _sigmoid(float(sp_scores[0]))
+        y         = _sigmoid(float(sp_scores[1]))
         return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
 
     # ------------------------------------------------------------------
@@ -131,9 +142,8 @@ class SC2MultiHeadLinearPolicy:
             fn_idx_0_weights: {obs_name_0: float, ...}
             ...
             fn_idx_5_weights: {obs_name_0: float, ...}
-            spatial_0_weights: {obs_name_0: float, ...}
-            ...
-            spatial_8_weights: {obs_name_0: float, ...}
+            x_weights:        {obs_name_0: float, ...}
+            y_weights:        {obs_name_0: float, ...}
 
         Every key ends with ``_weights``, so
         :meth:`framework.policies.GeneticPolicy._crossover` works without
@@ -162,13 +172,17 @@ class SC2MultiHeadLinearPolicy:
 
         Unknown keys and missing observation features default to 0.0 so that
         the policy can load configs created with a different obs_spec dimension
-        (same migration behaviour as ``WeightedLinearPolicy``).
+        (same migration behaviour as ``WeightedLinearPolicy``).  Pre-#122
+        weight files (with ``spatial_{0..8}_weights`` keys) silently migrate
+        to all-zero ``x_weights`` / ``y_weights`` because the old 9-cell
+        argmax encoding has no meaningful projection onto the new continuous
+        head.
         """
         names   = obs_spec.names
         obs_dim = obs_spec.dim
 
         fn_weights = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
-        sp_weights = np.zeros((N_GRID_CELLS,   obs_dim), dtype=np.float32)
+        sp_weights = np.zeros((N_SPATIAL_ROWS,   obs_dim), dtype=np.float32)
 
         for i, row_name in enumerate(_FN_HEAD_NAMES):
             row_cfg = cfg.get(f"{row_name}_weights", {})
@@ -196,8 +210,8 @@ class SC2MultiHeadLinearPolicy:
     def to_flat(self) -> np.ndarray:
         """Return all weights as a single ``float32`` vector.
 
-        Layout: ``[fn_row_0 | fn_row_1 | … | fn_row_5 | sp_row_0 | … | sp_row_8]``
-        Total length: ``(N_FUNCTION_IDS + N_GRID_CELLS) × obs_dim``.
+        Layout: ``[fn_row_0 | … | fn_row_5 | x_row | y_row]``.
+        Total length: ``(N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim``.
         """
         return np.concatenate(
             [self._fn_weights.ravel(), self._sp_weights.ravel()]
@@ -208,7 +222,7 @@ class SC2MultiHeadLinearPolicy:
         obs_dim    = self._obs_spec.dim
         fn_size    = N_FUNCTION_IDS * obs_dim
         fn_weights = flat[:fn_size].reshape(N_FUNCTION_IDS, obs_dim).astype(np.float32)
-        sp_weights = flat[fn_size:].reshape(N_GRID_CELLS,   obs_dim).astype(np.float32)
+        sp_weights = flat[fn_size:].reshape(N_SPATIAL_ROWS, obs_dim).astype(np.float32)
         return SC2MultiHeadLinearPolicy(self._obs_spec, fn_weights, sp_weights)
 
     # ------------------------------------------------------------------
@@ -263,7 +277,7 @@ class SC2GeneticPolicy(GeneticPolicy):
     champion tracking) are inherited unchanged from the framework base class.
 
     The YAML format of each individual matches ``SC2MultiHeadLinearPolicy``
-    (``fn_idx_{i}_weights`` + ``spatial_{i}_weights`` keys), so
+    (``fn_idx_{i}_weights`` + ``x_weights`` + ``y_weights`` keys), so
     ``GeneticPolicy._crossover`` works without any modification.
 
     Parameters

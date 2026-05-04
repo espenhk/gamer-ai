@@ -2,8 +2,9 @@
 
 PySC2's full action space is parameterised: ``function_id`` + per-arg target
 coordinates.  That doesn't fit the existing ``Discrete(N)`` policies cleanly,
-so this MVP exposes a small flat discrete subset per minigame.  Continuous
-target coordinates are emitted for spatial actions (move-screen, attack-screen).
+so this MVP exposes a flat discrete subset for tabular / discrete-output
+policies.  Continuous target coordinates are emitted directly by the
+multi-head linear / CMA-ES / LSTM policies.
 
 Action representation
 ---------------------
@@ -18,9 +19,15 @@ The framework's discrete-action policies still see fixed-shape rows; the
 client (``games.sc2.client``) is responsible for translating each row into
 a real ``actions.FunctionCall`` at execution time.
 
-The 9-action grid below is sufficient for ``MoveToBeacon`` and
-``CollectMineralShards`` — both reduce to "select army, move to a screen
-cell".  Other minigames use the same grid plus a small extension elsewhere.
+Layout (issue #122 / #127)
+--------------------------
+- Row 0 is ``no_op`` (issue #127): tabular policies must be able to elect to
+  do nothing — necessary so units can shoot while standing still, etc.
+- Row 1 is ``select_army``: a near-universal precondition for issuing orders
+  to the player's army.  Also the warmup action.
+- Rows 2..N-1 are ``Move_screen`` calls at the centres of an N×N grid (where
+  N == ``SCREEN_GRID_RESOLUTION``).  At resolution 8 this gives 64 unique
+  cells covering the screen at one-cell-per-8-pixels granularity.
 """
 
 from __future__ import annotations
@@ -45,36 +52,41 @@ FUNCTION_IDS = {
 
 
 # ---------------------------------------------------------------------------
-# Discrete action grid for minigame policies — 9 cells
+# Discrete action grid for minigame / tabular policies
 # ---------------------------------------------------------------------------
-# fn_idx 1 = select_army (instant), fn_idx 2 = Move_screen at one of 8
-# directional cells.  This is the minimum action set needed for MoveToBeacon
-# and is reused for the other minigames.
-#
-# Cells are arranged as a 3×3 grid over the screen.  The centre cell (4)
-# selects the army instead of moving — this gives the policy a way to issue
-# the prerequisite selection.
+# Resolution N gives an N×N grid of Move_screen targets at cell centres.
+# Default 8×8 = 64 cells; combined with no_op + select_army the discrete
+# action set has ``2 + N*N`` rows.
 
-_GRID = [
-    (0.20, 0.20),  # 0: top-left
-    (0.50, 0.20),  # 1: top
-    (0.80, 0.20),  # 2: top-right
-    (0.20, 0.50),  # 3: left
-    (0.50, 0.50),  # 4: centre  (select_army)
-    (0.80, 0.50),  # 5: right
-    (0.20, 0.80),  # 6: bottom-left
-    (0.50, 0.80),  # 7: bottom
-    (0.80, 0.80),  # 8: bottom-right
-]
+SCREEN_GRID_RESOLUTION: int = 8
 
-DISCRETE_ACTIONS = np.array(
-    [
-        [1, _GRID[i][0], _GRID[i][1], 0] if i == 4
-        else [2, _GRID[i][0], _GRID[i][1], 0]
-        for i in range(9)
-    ],
-    dtype=np.float32,
-)
+
+def _grid_centres(resolution: int) -> list[tuple[float, float]]:
+    """Return cell centres for an N×N grid over the unit square."""
+    step = 1.0 / resolution
+    centres = [(j * step + step / 2.0, i * step + step / 2.0)
+               for i in range(resolution)
+               for j in range(resolution)]
+    return centres
+
+
+def _build_discrete_actions(resolution: int) -> np.ndarray:
+    """Construct the [fn_idx, x, y, queue] table for a given grid resolution.
+
+    Layout: ``[no_op, select_army, Move_screen × resolution^2]``.
+    """
+    rows: list[list[float]] = []
+    # Row 0 — no_op (issue #127).  x/y unused; carry centre coords for sanity.
+    rows.append([0, 0.5, 0.5, 0])
+    # Row 1 — select_army (warmup precondition).
+    rows.append([1, 0.5, 0.5, 0])
+    # Rows 2..N²+1 — Move_screen at each cell centre.
+    for x, y in _grid_centres(resolution):
+        rows.append([2, x, y, 0])
+    return np.array(rows, dtype=np.float32)
+
+
+DISCRETE_ACTIONS: np.ndarray = _build_discrete_actions(SCREEN_GRID_RESOLUTION)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +94,8 @@ DISCRETE_ACTIONS = np.array(
 # ---------------------------------------------------------------------------
 # Each entry is (action_array, description_string).  Probes establish a
 # reward floor before random-restart hill-climbing kicks in.
+# Issue #127: keep no_op as the first probe so the cold-start search learns
+# whether idling is competitive on the chosen map.
 
 PROBE_ACTIONS: list[tuple[np.ndarray, str]] = [
     (np.array([0, 0.5, 0.5, 0], dtype=np.float32), "no_op"),
@@ -97,6 +111,8 @@ PROBE_ACTIONS: list[tuple[np.ndarray, str]] = [
 # ---------------------------------------------------------------------------
 # select_army is a near-universal precondition; running it on step 0 means
 # subsequent moves can target individual units without first re-selecting.
+# Even with no_op now reachable post-warmup, select_army remains the right
+# warmup so the first real policy step has units selected.
 
 WARMUP_ACTION = np.array([1, 0.5, 0.5, 0], dtype=np.float32)
 

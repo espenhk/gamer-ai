@@ -83,11 +83,12 @@ class TestSC2CNNModelShape(unittest.TestCase):
         self.assertLess(m1.flat_dim, m2.flat_dim)
 
     def test_forward_output_shapes(self):
+        from games.sc2.actions import DISCRETE_ACTIONS
         model  = _make_model(n_channels=2)
         obs    = _dict_obs(n_channels=2)
         fn_sc, sp_sc = model.forward(obs["spatial"], obs["flat"])
         self.assertEqual(fn_sc.shape, (6,))
-        self.assertEqual(sp_sc.shape, (9,))
+        self.assertEqual(sp_sc.shape, (len(DISCRETE_ACTIONS),))
 
     def test_callable_returns_4vector(self):
         model  = _make_model(n_channels=2)
@@ -114,12 +115,13 @@ class TestSC2CNNModelShape(unittest.TestCase):
 
     def test_flat_concat_dimension(self):
         """Flat obs and spatial features must be correctly concatenated."""
+        from games.sc2.actions import DISCRETE_ACTIONS
         model = _make_model(n_channels=2)
         obs   = _dict_obs(n_channels=2)
         # Just check no shape error occurs in forward.
         fn_sc, sp_sc = model.forward(obs["spatial"], obs["flat"])
         self.assertEqual(fn_sc.shape[0], 6)
-        self.assertEqual(sp_sc.shape[0], 9)
+        self.assertEqual(sp_sc.shape[0], len(DISCRETE_ACTIONS))
 
 
 # ---------------------------------------------------------------------------

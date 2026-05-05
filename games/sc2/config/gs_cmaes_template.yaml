@@ -28,7 +28,7 @@ training_params:
   population_size: [15, 25]
   initial_sigma: [0.1, 0.3, 0.5]
   policy_params:
-    eval_episodes: 1
+    eval_episodes: 2
 
 reward_params:
   score_weight: 1.0

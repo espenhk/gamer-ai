@@ -16,7 +16,7 @@
 # high alpha + slow decay (→ 0.99) converges fast but can oscillate;
 # low alpha + fast decay (→ 0.995) is more stable but slower.
 
-base_name: "gs_sc2_eps_greedy_v1"
+base_name: "gs_sc2_eps_greedy_v2"
 game: sc2
 
 training_params:

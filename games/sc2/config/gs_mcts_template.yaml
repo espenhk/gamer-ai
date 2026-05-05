@@ -20,7 +20,7 @@ base_name: "gs_sc2_mcts_v1"
 game: sc2
 
 training_params:
-  map_name: MoveToBeacon
+  map_name: DefeatRoaches
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
@@ -35,7 +35,7 @@ training_params:
     gamma: 0.99
 
 reward_params:
-  score_weight: 1.0
+  score_weight: 0.1
   step_penalty: -0.001
   win_bonus: 0.0
   loss_penalty: 0.0

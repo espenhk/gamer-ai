@@ -15,12 +15,33 @@
 # c is the primary knob: larger values are better early when the Q-table is
 # sparse, but hurt once values converge.  alpha controls how fast Q-values
 # update — too high causes oscillation, too low leaves stale estimates.
+#
+# obs_spec_preset for tabular policies
+# --------------------------------------
+# The tabular state key is a discretised bin-tuple of the full observation.
+# Theoretical max states with n_bins=3:
+#   minigame (13 dims):  3^13  ≈  1.6 M   — manageable
+#   ladder   (43 dims):  3^43  ≈  10^20   — intractable; Q-table rarely revisits states
+#   rich     (95 dims):  3^95  ≈  10^45   — deeply intractable
+# In practice only visited states are stored, so the Q-table stays small.
+# But generalisation degrades sharply as obs_dim grows: with 300 episodes the
+# agent sees ~72 000 unique states at most, giving almost no revisits under
+# a 43-dim or 95-dim obs.  Expect ladder/rich runs to converge more slowly
+# than the minigame default; this sweep is primarily diagnostic.
+#
+# Belief system: NOT compatible with tabular policies
+# ---------------------------------------------------
+# enable_belief is fixed to false.  Adding 192 belief dims on top of 43–95
+# obs dims gives 3^235–3^287 ≈ 10^112–10^137 possible states — no state
+# would ever be revisited.  Use neural_dqn for belief + Q-learning.
 
 base_name: "gs_sc2_mcts_v1"
 game: sc2
 
 training_params:
-  map_name: MoveToBeacon
+  obs_spec_preset: [ladder, rich]   # see state-space note above; ladder/rich runs are diagnostic
+  enable_belief: false              # tabular state-space explosion; see comment above
+  map_name: DefeatRoaches
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
@@ -35,7 +56,7 @@ training_params:
     gamma: 0.99
 
 reward_params:
-  score_weight: 1.0
+  score_weight: 0.1
   step_penalty: -0.001
   win_bonus: 0.0
   loss_penalty: 0.0

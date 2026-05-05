@@ -14,6 +14,21 @@
 # learning_rate is the most sensitive knob; epsilon_decay_steps controls how
 # long the agent explores before committing — too short → premature convergence,
 # too long → slow learning.
+#
+# obs_spec_preset / belief interaction
+# -------------------------------------
+# Input dim and replay memory per transition:
+#   ladder + no belief:  43 dims  →  43×4 = 688 B per transition
+#   rich   + no belief:  95 dims  →  95×4 = 1520 B per transition
+#   ladder + belief:    235 dims  → 235×4 = 3760 B per transition
+#   rich   + belief:    287 dims  → 287×4 = 4592 B per transition
+# replay_buffer_size=15 000 stays well under 70 MB for all combinations.
+#
+# Scout reward interacts with epsilon_decay_steps: during high-ε exploration
+# the scout bonus is large (many unseen regions), shaping the Q-table before
+# the task reward dominates.  Consider adding 5 000 to epsilon_decay_steps
+# when enable_belief=true so exploitation starts after the scout bonus has
+# faded to near-zero.
 
 base_name: "gs_sc2_dqn_v1"
 game: sc2
@@ -27,6 +42,8 @@ training_params:
   agent_race: random
   n_sims: 200                 # 200 episodes; ~48 000 env steps total
   policy_type: neural_dqn
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: [0.0005, 0.001, 0.003]
   epsilon_decay_steps: [3000, 8000]
   policy_params:

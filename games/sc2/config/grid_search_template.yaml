@@ -12,6 +12,25 @@
 # share gives sparse large steps; small scale + large share gives dense small
 # steps.  The sweet spot for the 52-param MoveToBeacon space is usually
 # mutation_scale ~0.1 with mutation_share ~0.3–0.5.
+#
+# obs_spec_preset / belief interaction
+# -------------------------------------
+# Obs dims grow with each axis:
+#   ladder (43) + no belief  →  43×4 = 172 SC2LinearPolicy params
+#   rich   (95) + no belief  →  95×4 = 380 params
+#   ladder (43) + belief     → 235×4 = 940 params
+#   rich   (95) + belief     → 287×4 = 1148 params
+#
+# On MoveToBeacon the map is tiny and fully revealed quickly, so the scout
+# reward fires once and the staleness dims converge fast.  The comparison is
+# still informative: does giving the agent explicit "where have I been?"
+# signal help it learn the beacon-chase policy faster, or does it add noise?
+# For larger maps (Simple64) belief is much more impactful — see
+# gs_rich_obs_template.yaml.
+#
+# mutation_share=0.3 (sparse) is recommended for the larger presets to avoid
+# large random steps through the belief-weight subspace before the policy
+# has learned which dims are informative.
 
 base_name: "gs_sc2_genetic_v1"
 game: sc2
@@ -25,6 +44,8 @@ training_params:
   agent_race: random
   n_sims: 5
   policy_type: sc2_genetic
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich; minigame (13-dim) excluded
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout reward
   policy_params:
     population_size: 5
     elite_k: 5

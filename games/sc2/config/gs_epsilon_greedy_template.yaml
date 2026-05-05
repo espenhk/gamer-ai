@@ -4,23 +4,38 @@
 #   python grid_search.py games/sc2/config/gs_epsilon_greedy_template.yaml --game sc2
 #
 # Tabular Q-learning with ε-greedy exploration.  State is a discretised bin
-# tuple of the 13-dim observation; Q-values are stored in a dict keyed by
-# that tuple.  ε decays multiplicatively each episode.
+# tuple of the observation; Q-values are stored in a dict keyed by that tuple.
+# ε decays multiplicatively each episode.
 #
-# n_bins=3 gives 3^13 ≈ 1.6 M possible states; in practice far fewer are
-# visited in MoveToBeacon.  Increasing n_bins beyond 3 slows Q-table lookup
-# without much benefit given the episode budget here.
+# obs_spec_preset for tabular policies
+# --------------------------------------
+# n_bins=3 max states by preset:
+#   ladder (43 dims):  3^43 ≈ 10^20  — intractable; included for diagnostic comparison
+#   rich   (95 dims):  3^95 ≈ 10^45  — deeply intractable
+# In practice the Q-table only stores visited states (~72 000 max for 300
+# episodes).  The problem isn't table size but generalisation: with 43–95 dims,
+# almost every state is unique so ε-greedy never transfers value from one visit
+# to another nearby state.  Expect slower convergence than the minigame default.
+# Increasing n_bins beyond 3 is counterproductive at these obs dims.
 #
 # Good first sweep: alpha × epsilon_decay.
 # alpha (learning rate) and epsilon_decay jointly control speed vs. stability:
 # high alpha + slow decay (→ 0.99) converges fast but can oscillate;
 # low alpha + fast decay (→ 0.995) is more stable but slower.
+#
+# Belief system: NOT compatible with tabular policies
+# ---------------------------------------------------
+# enable_belief is fixed to false.  Belief adds 192 dims on top of 43–95, giving
+# 3^235–3^287 ≈ 10^112 possible states — no state is ever revisited.  Use
+# neural_dqn (gs_neural_dqn_template.yaml) for belief + Q-learning.
 
-base_name: "gs_sc2_eps_greedy_v1"
+base_name: "gs_sc2_eps_greedy_v2"
 game: sc2
 
 training_params:
   map_name: MoveToBeacon
+  obs_spec_preset: [ladder, rich]   # see state-space note above; both runs are diagnostic
+  enable_belief: false              # tabular state-space explosion; see comment above
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64

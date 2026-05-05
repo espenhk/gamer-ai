@@ -540,5 +540,169 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
 
+# ---------------------------------------------------------------------------
+# Issue #135: new rich-preset feature extractors
+# ---------------------------------------------------------------------------
+
+class TestSC2ClientRichExtractors(unittest.TestCase):
+    """Targeted tests for the per-block extractors added in #135."""
+
+    def setUp(self):
+        self.client = SC2Client(map_name="Simple64", obs_spec_preset="rich")
+
+    def _screen_with_pr(self, friendly_yx=None, enemy_yx=None, n_layers=17):
+        """Build a fake feature_screen with player_relative set at given pixels."""
+        screen = np.zeros((n_layers, 64, 64), dtype=np.int32)
+        if friendly_yx:
+            for y, x in friendly_yx:
+                screen[5, y, x] = 1
+        if enemy_yx:
+            for y, x in enemy_yx:
+                screen[5, y, x] = 4
+        return screen
+
+    # --- enemy unit type counts ---
+
+    def test_enemy_unit_type_features_counts_enemy_only(self):
+        """Rows with owner != 1 are counted; owner == 1 rows are skipped."""
+        # Inject a synthetic unit_type_id_to_name mapping.
+        self.client._unit_type_id_to_name = {1: "Marine", 2: "Zergling"}
+        # feature_units: columns [unit_type, owner]
+        feat_units = np.array([
+            [1, 1],  # friendly Marine → skip
+            [2, 4],  # enemy Zergling → count
+            [2, 4],  # enemy Zergling → count
+        ], dtype=np.int32)
+        ob = {"feature_units": feat_units}
+        feats = self.client._enemy_unit_type_features(ob)
+        self.assertEqual(feats["enemy_count_Zergling"], 2.0)
+        self.assertEqual(feats["enemy_count_Marine"],   0.0)
+
+    def test_enemy_unit_type_features_missing_feature_units(self):
+        out = self.client._enemy_unit_type_features({})
+        self.assertTrue(all(v == 0.0 for v in out.values()))
+
+    def test_enemy_unit_type_features_unknown_unit_type_ignored(self):
+        self.client._unit_type_id_to_name = {1: "Marine"}
+        feat_units = np.array([[999, 4]], dtype=np.int32)  # unknown unit type
+        ob = {"feature_units": feat_units}
+        feats = self.client._enemy_unit_type_features(ob)
+        self.assertTrue(all(v == 0.0 for v in feats.values()))
+
+    # --- shield / energy summaries ---
+
+    def test_shield_energy_features_self_shield(self):
+        """shield layer pixels at friendly positions are averaged for self_shield."""
+        screen = self._screen_with_pr(friendly_yx=[(10, 10), (10, 11)])
+        # Channel index for unit_shields: look it up via named access — fake it
+        # by building a _NamedArr-style screen stub.
+        screen_named = np.zeros((17, 64, 64), dtype=np.int32)
+        screen_named[5, 10, 10] = 1  # player_relative = friendly
+        screen_named[5, 10, 11] = 1
+
+        # Build a dict-accessible screen object so _extract_named_layer works.
+        class _NamedScreen:
+            def __init__(self, arr):
+                self._arr = arr
+                self._extra = {}
+
+            def __getitem__(self, key):
+                if key == "player_relative":
+                    return self._arr[5]
+                if key in self._extra:
+                    return self._extra[key]
+                raise KeyError(key)
+
+        named = _NamedScreen(screen_named)
+        shield_layer = np.zeros((64, 64), dtype=np.float32)
+        shield_layer[10, 10] = 80.0
+        shield_layer[10, 11] = 40.0
+        named._extra["unit_shields"] = shield_layer
+        named._extra["unit_energy"] = np.zeros((64, 64), dtype=np.float32)
+
+        feats = self.client._shield_energy_features(named)
+        self.assertAlmostEqual(feats["screen_self_shield_mean"], 60.0)  # (80+40)/2
+        self.assertAlmostEqual(feats["screen_enemy_shield_mean"], 0.0)
+
+    def test_shield_energy_features_no_units_returns_zeros(self):
+        screen = np.zeros((17, 64, 64), dtype=np.int32)
+        feats = self.client._shield_energy_features(screen)
+        self.assertEqual(feats["screen_self_shield_mean"],  0.0)
+        self.assertEqual(feats["screen_enemy_shield_mean"], 0.0)
+        self.assertEqual(feats["screen_self_energy_mean"],  0.0)
+
+    def test_shield_energy_features_none_screen(self):
+        feats = self.client._shield_energy_features(None)
+        self.assertTrue(all(v == 0.0 for v in feats.values()))
+
+    # --- creep coverage ---
+
+    def test_creep_features_half_coverage(self):
+        """A minimap with half creep should yield frac ≈ 0.25 for a quadrant."""
+
+        class _NamedMinimap:
+            def __getitem__(self, key):
+                if key == "creep":
+                    arr = np.zeros((64, 64), dtype=np.int32)
+                    arr[:32, :32] = 1  # top-left quadrant = creep
+                    return arr
+                raise KeyError(key)
+
+        feats = self.client._creep_features(_NamedMinimap())
+        expected = (32 * 32) / (64 * 64)
+        self.assertAlmostEqual(feats["minimap_creep_frac"], expected, places=5)
+
+    def test_creep_features_no_creep(self):
+        mmap = np.zeros((11, 64, 64), dtype=np.int32)
+        feats = self.client._creep_features(mmap)
+        self.assertEqual(feats["minimap_creep_frac"], 0.0)
+
+    def test_creep_features_none_minimap(self):
+        feats = self.client._creep_features(None)
+        self.assertEqual(feats["minimap_creep_frac"], 0.0)
+
+    # --- economy pipeline ---
+
+    def test_economy_pipeline_upgrade_count(self):
+        ob = {"upgrades": np.array([3, 7, 12], dtype=np.int32)}
+        feats = self.client._economy_pipeline_features(ob)
+        self.assertEqual(feats["upgrade_count"], 3.0)
+
+    def test_economy_pipeline_build_queue_size(self):
+        # 2-row build queue (2 units under construction)
+        ob = {"build_queue": np.zeros((2, 7), dtype=np.int32)}
+        feats = self.client._economy_pipeline_features(ob)
+        self.assertEqual(feats["build_queue_size"], 2.0)
+
+    def test_economy_pipeline_cargo_count(self):
+        ob = {"cargo": np.zeros((4, 7), dtype=np.int32)}
+        feats = self.client._economy_pipeline_features(ob)
+        self.assertEqual(feats["cargo_count"], 4.0)
+
+    def test_economy_pipeline_all_missing_returns_zeros(self):
+        feats = self.client._economy_pipeline_features({})
+        self.assertEqual(feats["upgrade_count"],    0.0)
+        self.assertEqual(feats["build_queue_size"], 0.0)
+        self.assertEqual(feats["cargo_count"],      0.0)
+
+    # --- integration: new dims appear in flat rich obs ---
+
+    def test_rich_obs_includes_new_feature_names(self):
+        """The rich spec should contain all 15 new feature names from issue #135."""
+        from games.sc2.obs_spec import RICH_OBS_NAMES
+        for name in ("enemy_count_Marine", "screen_self_shield_mean",
+                     "minimap_creep_frac", "upgrade_count",
+                     "build_queue_size", "cargo_count"):
+            self.assertIn(name, RICH_OBS_NAMES, f"{name!r} missing from rich spec")
+
+    def test_ladder_spec_unchanged_by_issue_135(self):
+        """Ladder spec must NOT contain the new rich-only features."""
+        from games.sc2.obs_spec import LADDER_OBS_NAMES
+        for name in ("enemy_count_Marine", "screen_self_shield_mean",
+                     "minimap_creep_frac", "upgrade_count"):
+            self.assertNotIn(name, LADDER_OBS_NAMES,
+                             f"{name!r} should not be in ladder spec")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,21 @@
 # learning_rate drives convergence speed; entropy_coeff prevents premature
 # commitment to a single action (too high → noisy forever, too low → collapses
 # early).
+#
+# obs_spec_preset / belief interaction
+# -------------------------------------
+# Input dims and their effect on REINFORCE:
+#   ladder + no belief:  43 dims  — economy + army state, no spatial memory
+#   rich   + no belief:  95 dims  — adds shields, energy, creep, upgrades
+#   ladder + belief:    235 dims  — adds 192-dim spatial belief grid + scout reward
+#   rich   + belief:    287 dims  — full combination
+#
+# Scout reward (when belief=true) is embedded in each step's discounted return.
+# On MoveToBeacon it fires once then fades — likely noise; on Simple64 it
+# sustains an exploration gradient throughout the opening.
+# Entropy regularisation (entropy_coeff) already encourages exploration, so
+# the scout reward may be redundant on small maps.  The sweep lets you
+# measure the overlap empirically.
 
 base_name: "gs_sc2_reinforce_v1"
 game: sc2
@@ -27,6 +42,8 @@ training_params:
   agent_race: random
   n_sims: 200                 # 200 episodes; REINFORCE needs more episodes than evolutionary methods
   policy_type: reinforce
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout return
   learning_rate: [0.001, 0.003, 0.005]
   entropy_coeff: [0.01, 0.05]
   policy_params:

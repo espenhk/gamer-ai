@@ -173,6 +173,37 @@ _LAST_ACTION_DIMS: list[ObsDim] = [
     for i in range(len(FUNCTION_IDS))
 ]
 
+# --- Enemy unit-type counts (rich) -------------------------------------------
+# Mirrors _PER_UNIT_TYPE_DIMS but counts visible enemy units from feature_units.
+_ENEMY_UNIT_TYPE_DIMS: list[ObsDim] = [
+    ObsDim(f"enemy_count_{name}", 50.0, f"Enemy count of unit type {name}")
+    for name in _RICH_UNIT_TYPES
+]
+
+# --- Shield and energy screen summaries (rich) --------------------------------
+# PySC2 exposes unit_shields and unit_energy as spatial feature layers on
+# the screen.  Summing over player_relative masks gives per-side mean values.
+_SHIELD_ENERGY_DIMS: list[ObsDim] = [
+    ObsDim("screen_self_shield_mean",  100.0, "Mean shield of friendly units on screen"),
+    ObsDim("screen_enemy_shield_mean", 100.0, "Mean shield of enemy units on screen"),
+    ObsDim("screen_self_energy_mean",  200.0, "Mean energy of friendly units on screen"),
+]
+
+# --- Creep coverage (rich) ---------------------------------------------------
+# PySC2 minimap has a binary creep layer (0 = no creep, 1 = creep).
+_CREEP_DIMS: list[ObsDim] = [
+    ObsDim("minimap_creep_frac", 1.0, "Fraction of minimap covered by Zerg creep"),
+]
+
+# --- Economy pipeline (rich) --------------------------------------------------
+# PySC2 exposes upgrades (completed list), build_queue (units under
+# construction), and cargo (units in transports).
+_ECONOMY_PIPELINE_DIMS: list[ObsDim] = [
+    ObsDim("upgrade_count",    30.0, "Number of completed upgrades"),
+    ObsDim("build_queue_size", 20.0, "Units/structures currently under construction"),
+    ObsDim("cargo_count",      10.0, "Units currently in transports"),
+]
+
 
 # ---------------------------------------------------------------------------
 # Preset assembly
@@ -211,9 +242,13 @@ _RICH_DIMS: list[ObsDim] = (
     + _TOPK_ENEMY_FEATURES_DIMS
     + _AVAILABLE_ACTIONS_DIMS
     + _LAST_ACTION_DIMS
+    + _ENEMY_UNIT_TYPE_DIMS
+    + _SHIELD_ENERGY_DIMS
+    + _CREEP_DIMS
+    + _ECONOMY_PIPELINE_DIMS
 )
 
-#: ~70-dim research preset.
+#: ~95-dim research preset.
 SC2_RICH_OBS_SPEC: ObsSpec = ObsSpec(_RICH_DIMS)
 
 

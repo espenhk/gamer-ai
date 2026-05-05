@@ -7,14 +7,25 @@
 # (1/5 success rule for σ adaptation).  n_sims = generations;
 # total episodes = n_sims × population_size.
 #
-# Flat parameter dimension:
-#   hidden_size=16: 4×(16×(16+13)+16) + 4×16 = 4×480+64 = 1984 params
-#   hidden_size=32: 4×(32×(32+13)+32) + 4×32 = 4×1472+128 = 6016 params
-# The larger the space, the smaller initial_sigma should be to avoid diverging.
+# Flat parameter counts — 4×(h×(h+obs)+h) + 4×h  where h=hidden_size
+# -----------------------------------------------------------------------
+#                      h=16        h=32
+#   ladder  (43):     3904        9856   params
+#   rich    (95):     7232       16512   params
+#   ladder+belief(235):16192     39936   params
+#   rich+belief  (287):19520     48128   params
+#
+# The larger the space, the smaller initial_sigma must be to avoid diverging.
+# Use initial_sigma ≤ 0.03 for the belief combinations; 0.05–0.1 is safe for
+# the no-belief ladder/rich presets.
 #
 # Good first sweep: hidden_size × initial_sigma.
 # Larger hidden_size gives more expressive memory but much larger search space;
 # start with hidden_size=16 to validate the setup before scaling.
+#
+# LSTM hidden state vs belief: both encode "what has the agent seen recently?"
+# If LSTM+belief beats LSTM alone, the explicit spatial grid provides
+# information the recurrence does not learn to represent on its own.
 
 base_name: "gs_sc2_lstm_v1"
 game: sc2
@@ -28,6 +39,8 @@ training_params:
   agent_race: random
   n_sims: 50                  # 50 generations; total episodes = n_sims × population_size
   policy_type: lstm
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims (up to 48k params)
   hidden_size: [16, 32]
   initial_sigma: [0.03, 0.05, 0.1]
   policy_params:

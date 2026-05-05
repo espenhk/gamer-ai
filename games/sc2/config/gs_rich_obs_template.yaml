@@ -1,0 +1,96 @@
+# Grid search template: rich observation preset on Simple64 (#135)
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_rich_obs_template.yaml --game sc2
+#
+# Purpose
+# -------
+# Compares the "ladder" (43-dim) and "rich" (95-dim) observation presets on
+# Simple64.  The 15 extra dims added in #135 are race-sensitive:
+#
+#   screen_self/enemy_shield_mean    — Protoss shield state (useless for Terran/Zerg)
+#   screen_self_energy_mean          — caster energy (Medivac, Queen, Ghost, …)
+#   minimap_creep_frac               — Zerg creep spread (useless for T/P)
+#   enemy_count_{type} ×8           — visible enemy unit-type counts; useful for
+#                                      all races but noise if the agent plays race=random
+#   upgrade_count                    — completed upgrades; relevant once the build
+#                                      order reaches upgrade structures
+#   build_queue_size, cargo_count    — army production pipeline and drop-ship load
+#
+# Sweeping agent_race × obs_spec_preset (2 × 2 = 4 runs) lets you see whether
+# the richer obs actually helps, and for which race.  Terran and Protoss are the
+# most informative choices: Terran has energy (Medivac) and upgrades; Protoss has
+# shields, energy (Sentry/High Templar) and upgrades.
+#
+# Episode budget
+# --------------
+# Each run: n_sims=30 generations × population_size=20 individuals × eval_episodes=1
+# = 600 episodes.  At step_mul=8 and in_game_episode_s=600 that is heavy —
+# reduce n_sims to 10 for a quick smoke test.  The default 30 is the minimum
+# for CMA-ES to see meaningful covariance adaptation on a 95-dim space.
+#
+# Rule of thumb for population_size with CMA-ES:
+#   λ ≈ 4 + floor(3 × ln(n))  →  95 dims → λ ≈ 18;  round up to 20.
+#
+# Belief system (enable_belief)
+# ------------------------------
+# Simple64 is the natural home for the belief system: the map is large, fog
+# covers most of it at game start, and scouting decisions (when to expand,
+# where the opponent is building) are strategically important.
+#
+# With enable_belief=true the obs grows by 192 dims on top of whatever preset
+# is active:  43+192=235 (ladder),  95+192=287 (rich).
+# Parameter count for CMA-ES at those dims:
+#   ladder+belief: 235 × 4 heads = 940 params  → λ ≈ 4+3·ln(940) ≈ 25
+#   rich+belief:   287 × 4 heads = 1148 params → λ ≈ 4+3·ln(1148) ≈ 25
+# population_size=25 covers both; initial_sigma drops to 0.1 to stay stable
+# in the larger space.
+#
+# Scout reward fires whenever a minimap region transitions from unseen →
+# visible; the scout_drive_weight in belief_config.yaml controls its
+# magnitude (default 0.1).  On Simple64 this provides sustained exploration
+# pressure throughout the opening: early scouting is rewarded directly, which
+# helps policies that might otherwise sit idle on their starting base.
+#
+# Interpreting results
+# --------------------
+# Primary comparison: same agent_race + same obs_spec_preset, belief=false vs
+# true.  If belief helps, the scout reward is providing a useful exploration
+# curriculum.  Cross with obs_spec_preset: if "rich+belief" wins but
+# "ladder+belief" does not, the extra obs dims (shields/energy/creep) and the
+# belief signal are complementary rather than redundant.
+# 2 presets × 2 races × 2 belief settings = 8 runs total.
+
+base_name: "gs_rich_obs_v1"
+game: sc2
+
+training_params:
+  map_name: Simple64
+  in_game_episode_s: 600.0           # full ladder game; 10-minute cap
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  bot_difficulty: very_easy
+
+  n_sims: 30                         # CMA-ES generations; each costs population_size episodes
+  policy_type: cmaes
+  population_size: 25                # λ ≈ 25 covers both the 940-dim (ladder+belief) and
+                                     # 380-dim (rich, no belief) parameter spaces comfortably
+  initial_sigma: 0.1                 # conservative start — belief adds high-dim weight subspace
+  policy_params:
+    eval_episodes: 1                 # keep at 1 — comparisons only make sense across same budget
+
+  # Primary sweep axes — 2 × 2 × 2 = 8 runs
+  obs_spec_preset: [ladder, rich]    # compare 43-dim baseline vs 95-dim rich
+  agent_race: [terran, protoss]      # terran: energy+upgrades; protoss: shields+energy+upgrades
+  enable_belief: [false, true]       # false: obs-only; true: obs + 192 belief dims + scout reward
+
+reward_params:
+  # Ladder preset: economy signal during the game, win/loss at terminal step.
+  score_weight: 0.0
+  economy_weight: 0.001              # mineral+vespene delta per step
+  win_bonus: 100.0
+  loss_penalty: -100.0
+  step_penalty: -0.001
+  idle_penalty: 0.0
+  idle_bonus: 0.0

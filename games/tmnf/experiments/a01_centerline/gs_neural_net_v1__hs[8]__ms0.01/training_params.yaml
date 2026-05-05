@@ -1,0 +1,11 @@
+speed: 4.0
+n_sims: 50
+in_game_episode_s: 120.0
+probe_s: 8.0
+cold_restarts: 10
+cold_sims: 5
+n_lidar_rays: 8
+policy_type: neural_net
+hidden_sizes:
+- 8
+mutation_scale: 0.01

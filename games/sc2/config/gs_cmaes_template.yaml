@@ -12,6 +12,20 @@
 # population_size (λ) controls how many offspring are evaluated per generation;
 # larger λ is more robust but costs more episodes.
 # Rule of thumb: λ ≈ 4 + floor(3 × ln(n)) ≈ 16 for n=52 params.
+#
+# obs_spec_preset / belief / population_size interaction
+# -------------------------------------------------------
+# SC2LinearPolicy has obs_dim × 4 parameters.  CMA-ES rule of thumb: λ ≈ 4+3·ln(n).
+#
+#   ladder + no belief:  43×4 = 172 params  → λ ≈ 20
+#   rich   + no belief:  95×4 = 380 params  → λ ≈ 22
+#   ladder + belief:    235×4 = 940 params  → λ ≈ 25
+#   rich   + belief:    287×4 = 1148 params → λ ≈ 25
+#
+# population_size: [15, 25] spans this range.  CMA-ES adapts the covariance
+# matrix automatically, so it handles the belief-weight subspace well; the
+# main risk is early divergence if initial_sigma is too large — [0.1, 0.3]
+# is the safe window for these parameter counts.
 
 base_name: "gs_sc2_cmaes_v1"
 game: sc2
@@ -25,10 +39,12 @@ training_params:
   agent_race: random
   n_sims: 50                  # 50 generations; total episodes = n_sims × population_size × eval_episodes
   policy_type: cmaes
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout reward
   population_size: [15, 25]
   initial_sigma: [0.1, 0.3, 0.5]
   policy_params:
-    eval_episodes: 1
+    eval_episodes: 2
 
 reward_params:
   score_weight: 1.0

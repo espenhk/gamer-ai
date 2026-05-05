@@ -1,6 +1,12 @@
-"""Tests for SC2NeuralDQNPolicy — available-actions masking."""
+"""Tests for SC2NeuralDQNPolicy — available-actions masking and helper utilities.
+
+All tests run without PySC2 installed; observations are fabricated numpy arrays
+and available_fn_ids are set directly as FUNCTION_IDS key sets (0-5).
+"""
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 
 import numpy as np
@@ -11,12 +17,20 @@ from games.sc2.actions import (
     build_available_actions_mask,
     discrete_action_to_fn_id,
 )
-from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
-from games.sc2.policies import SC2NeuralDQNPolicy
 
+from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
+from games.sc2.policies import (
+    SC2NeuralDQNPolicy,
+    _MaskedReplayBuffer,
+    _N_DISCRETE_ACTIONS,
+    _build_available_actions_mask,
+)
+
+_OBS_SPEC = SC2_MINIGAME_OBS_SPEC
 _OBS_DIM = SC2_MINIGAME_OBS_SPEC.dim
 _N = len(DISCRETE_ACTIONS)  # 9
-
+    discrete_action_to_fn_id,
+)
 
 def _make_policy(**kw) -> SC2NeuralDQNPolicy:
     defaults = dict(

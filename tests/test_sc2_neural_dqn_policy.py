@@ -5,8 +5,6 @@ and available_fn_ids are set directly as FUNCTION_IDS key sets (0-5).
 """
 from __future__ import annotations
 
-import os
-import tempfile
 import unittest
 
 import numpy as np
@@ -21,9 +19,7 @@ from games.sc2.actions import (
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 from games.sc2.policies import (
     SC2NeuralDQNPolicy,
-    _MaskedReplayBuffer,
     _N_DISCRETE_ACTIONS,
-    _build_available_actions_mask,
 )
 
 _OBS_SPEC = SC2_MINIGAME_OBS_SPEC
@@ -158,7 +154,7 @@ class TestUpdateStoresAvailableFnIds(unittest.TestCase):
         policy = _make_policy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False, info={"available_fn_ids": {1, 2}})
-        expected = _build_available_actions_mask({1, 2}, _N_DISCRETE_ACTIONS)
+        expected = build_available_actions_mask({1, 2})
         np.testing.assert_array_equal(policy._cached_mask, expected)
 
     def test_update_without_info_resets_mask_to_all_true(self):
@@ -182,11 +178,11 @@ class TestUpdateStoresAvailableFnIds(unittest.TestCase):
         policy = _make_policy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False, info={"available_fn_ids": {1}})
-        expected_first = _build_available_actions_mask({1}, _N_DISCRETE_ACTIONS)
+        expected_first = build_available_actions_mask({1})
         np.testing.assert_array_equal(policy._cached_mask, expected_first)
 
         policy.update(obs, 0, 1.0, obs, False, info={"available_fn_ids": {2}})
-        expected_second = _build_available_actions_mask({2}, _N_DISCRETE_ACTIONS)
+        expected_second = build_available_actions_mask({2})
         np.testing.assert_array_equal(policy._cached_mask, expected_second)
 
 

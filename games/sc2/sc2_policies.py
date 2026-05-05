@@ -717,9 +717,10 @@ class SC2REINFORCEPolicy(BasePolicy):
 
             # --- spatial head gradient (issue #122: sigmoid continuous head) ---
             # Deterministic policy gradient: δ = advantage × σ'(logit) where
-            # σ'(logit) = σ(logit) × (1 − σ(logit)).  Positive advantage pushes
-            # x/y toward 1; negative advantage pushes toward 0.  Entropy bonus is
-            # omitted for the spatial head since there is no discrete distribution.
+            # σ'(logit) = σ(logit) × (1 − σ(logit)) = sp_sig × (1 − sp_sig).
+            # Positive advantage pushes x/y toward 1; negative advantage pushes
+            # toward 0.  Entropy bonus is omitted for the spatial head since
+            # there is no discrete distribution to regularise.
             delta_sp = advantage * (sp_sig * (1.0 - sp_sig))  # (2,)
 
             # Update head weight gradients.

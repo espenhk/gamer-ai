@@ -59,6 +59,18 @@ First run with new name: `experiments/<track>/<name>/` created, both master conf
 
 ---
 
+## Test suite README
+
+`tests/README.md` documents every test (one line each, grouped by file and
+area) plus a per-area "what is and isn't tested" summary and a runtime
+explanation. **Whenever tests are added, removed or substantially changed,
+update `tests/README.md` in the same change.** At minimum: bump the
+total count in the header, add/remove the file's section, and revise the
+relevant area's tested/not-tested paragraph if the boundary between
+unit-tested logic and mocked integration shifts.
+
+---
+
 ## Policies
 
 All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`.

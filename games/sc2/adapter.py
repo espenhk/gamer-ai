@@ -167,12 +167,12 @@ class SC2Adapter:
             )
 
         def _make_sc2_neural_dqn():
-            from games.sc2.policies import SC2NeuralDQNPolicy as _SC2NeuralDQNPolicy
+            from games.sc2.policies import SC2NeuralDQNPolicy
             if os.path.exists(weights_file) and not re_initialize:
                 with open(weights_file) as _f:
                     _cfg = yaml.safe_load(_f) or {}
                 if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_neural_dqn":
-                    policy = _SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
+                    policy = SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
                     if os.path.exists(trainer_state_file):
                         try:
                             policy.load_trainer_state(trainer_state_file)
@@ -184,7 +184,7 @@ class SC2Adapter:
                                 "continuing with default state.", exc,
                             )
                     return policy
-            return _SC2NeuralDQNPolicy(
+            return SC2NeuralDQNPolicy(
                 obs_spec=obs_spec,
                 hidden_sizes=policy_params.get("hidden_sizes", [64, 64]),
                 replay_buffer_size=policy_params.get("replay_buffer_size", 50000),

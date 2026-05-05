@@ -38,7 +38,11 @@ import numpy as np
 
 from framework.obs_spec import ObsSpec
 from framework.policies import BasePolicy, WeightedLinearPolicy, GeneticPolicy
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import (
+    DISCRETE_ACTIONS,
+    FUNCTION_IDS,
+    build_available_actions_mask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -478,7 +482,110 @@ class NeuralDQNPolicy(BasePolicy):
 
 
 # ---------------------------------------------------------------------------
-# SC2NeuralDQNPolicy helpers
+# SC2NeuralDQNPolicy
+# ---------------------------------------------------------------------------
+
+class SC2NeuralDQNPolicy(NeuralDQNPolicy):
+    """NeuralDQNPolicy with PySC2 available-actions masking.
+
+    At each step the policy receives ``info["available_fn_ids"]`` (a set of
+    FUNCTION_IDS keys that are currently legal) via the ``update()`` call.
+    The mask is applied in both action selection and the TD target computation
+    so gradients do not flow through illegal Q-values.
+
+    Step 0 of each episode starts with no mask (all actions assumed legal).
+    This is acceptable because the SC2 client falls back to ``no_op`` for
+    any actually illegal action.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._available_fn_ids: set[int] | None = None
+
+    def on_episode_start(self) -> None:
+        self._available_fn_ids = None
+
+    def _current_mask(self) -> np.ndarray:
+        if self._available_fn_ids is None:
+            return np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+        return build_available_actions_mask(self._available_fn_ids)
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        mask = self._current_mask()
+        valid = np.where(mask)[0]
+        if len(valid) == 0:
+            mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+            valid = np.arange(_N_DISCRETE_ACTIONS)
+        if np.random.random() < self._eps:
+            return DISCRETE_ACTIONS[np.random.choice(valid)].copy()
+        obs_norm = (obs / self._scales).astype(np.float32)
+        q = self._q_values(self._online, obs_norm).copy()
+        q[~mask] = -np.inf
+        return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
+
+    def update(self, obs: np.ndarray, action, reward: float,
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
+        info = kwargs.get("info") or {}
+        if "available_fn_ids" in info:
+            self._available_fn_ids = info["available_fn_ids"]
+        super().update(obs, action, reward, next_obs, done)
+
+    def _gradient_step(self, obs_b, act_b, rew_b, next_b, done_b) -> None:
+        obs_norm  = obs_b  / self._scales
+        next_norm = next_b / self._scales
+        B = len(act_b)
+
+        q_next = self._q_values(self._target, next_norm)
+        mask = self._current_mask()
+        if mask.any():
+            q_next[:, ~mask] = -np.inf
+        targets = rew_b + self._gamma * np.max(q_next, axis=1) * (1.0 - done_b)
+
+        q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)
+
+        grad_out = np.zeros_like(q_all)
+        grad_out[np.arange(B), act_b] = 2.0 * (q_all[np.arange(B), act_b] - targets) / B
+
+        g = grad_out
+        grad_params: list[tuple[np.ndarray, np.ndarray]] = []
+        for i in range(len(self._online["weights"]) - 1, -1, -1):
+            a_in = layer_inputs[i]
+            dW   = g.T @ a_in
+            db   = g.sum(axis=0)
+            grad_params.append((dW, db))
+            if i > 0:
+                g = (g @ self._online["weights"][i]) * (pre_relu[i - 1] > 0)
+        grad_params.reverse()
+
+        self._adam_t += 1
+        t      = self._adam_t
+        b1, b2 = 0.9, 0.999
+        eps_a  = 1e-8
+        for i, (dW, db) in enumerate(grad_params):
+            self._m_w[i] = b1 * self._m_w[i] + (1.0 - b1) * dW
+            self._v_w[i] = b2 * self._v_w[i] + (1.0 - b2) * dW ** 2
+            mw_hat = self._m_w[i] / (1.0 - b1 ** t)
+            vw_hat = self._v_w[i] / (1.0 - b2 ** t)
+            self._online["weights"][i] -= self._lr * mw_hat / (np.sqrt(vw_hat) + eps_a)
+
+            self._m_b[i] = b1 * self._m_b[i] + (1.0 - b1) * db
+            self._v_b[i] = b2 * self._v_b[i] + (1.0 - b2) * db ** 2
+            mb_hat = self._m_b[i] / (1.0 - b1 ** t)
+            vb_hat = self._v_b[i] / (1.0 - b2 ** t)
+            self._online["biases"][i] -= self._lr * mb_hat / (np.sqrt(vb_hat) + eps_a)
+
+        self._grad_steps += 1
+        if self._grad_steps % self._target_freq == 0:
+            self._sync_target()
+
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "sc2_neural_dqn"
+        return cfg
+
+
+# ---------------------------------------------------------------------------
+# CMAESPolicy
 # ---------------------------------------------------------------------------
 
 def _build_available_actions_mask(

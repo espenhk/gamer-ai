@@ -58,6 +58,16 @@ class SC2Adapter:
         map_name = self._map_name(training_params, track_override)
         obs_spec_preset = training_params.get("obs_spec_preset")
         obs_spec = get_spec(map_name, preset=obs_spec_preset)
+        enable_belief = training_params.get("enable_belief", False)
+        if enable_belief:
+            from pathlib import Path
+            from games.sc2.belief_schema import (
+                load_belief_config, extend_obs_spec as _extend_belief,
+            )
+            _bcfg = load_belief_config(
+                Path(__file__).parent / "config" / "belief_config.yaml"
+            )
+            obs_spec = _extend_belief(obs_spec, _bcfg)
 
         policy_type = training_params.get("policy_type", "sc2_genetic")
         # Spatial obs (dict observation space) is only supported by sc2_cnn.
@@ -85,6 +95,7 @@ class SC2Adapter:
                 screen_layers=screen_layers,
                 minimap_layers=minimap_layers,
                 obs_spec_preset=obs_spec_preset,
+                enable_belief=enable_belief,
             )
 
         return GameSpec(
@@ -114,6 +125,15 @@ class SC2Adapter:
         map_name = training_params.get("map_name", "MoveToBeacon")
         obs_spec_preset = training_params.get("obs_spec_preset")
         obs_spec = get_spec(map_name, preset=obs_spec_preset)
+        if training_params.get("enable_belief", False):
+            from pathlib import Path
+            from games.sc2.belief_schema import (
+                load_belief_config, extend_obs_spec as _extend_belief,
+            )
+            _bcfg = load_belief_config(
+                Path(__file__).parent / "config" / "belief_config.yaml"
+            )
+            obs_spec = _extend_belief(obs_spec, _bcfg)
         policy_params = training_params.get("policy_params") or {}
         trainer_state_file = os.path.join(
             os.path.dirname(weights_file), "trainer_state.npz",

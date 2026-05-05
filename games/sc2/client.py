@@ -400,6 +400,13 @@ class SC2Client:
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
         }
 
+        # Raw minimap visibility layer — used by the belief module in SC2Env when
+        # enable_belief=True.  Always included so the env can use it without
+        # changes to the client interface.
+        minimap_vis = self._extract_visibility(feat_minimap)
+        if minimap_vis is not None:
+            info["minimap_vis"] = minimap_vis
+
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).
         if self._screen_layers or self._minimap_layers:
             channels: list[np.ndarray] = []

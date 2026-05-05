@@ -1,6 +1,6 @@
 # Tests
 
-740 tests across 45 files. Runs in ~25 seconds via `python -m pytest tests/`.
+823 tests across 49 files. Runs in ~25 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -315,6 +315,14 @@ handful of iterations only).
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; custom reward config
+
+### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
+- obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps
+- `enable_belief=False` leaves obs shape unchanged
+- reset obs: belief enc all-zero, staleness all-ones; second reset clears prior state
+- step appends dims even when `minimap_vis` absent; enc non-zero + staleness drops after visible step
+- scout reward > 0 on first visit with fully-visible minimap; zero when no visible regions
+- `episode_reward_components` always contains `scout` key; accumulates across steps
 
 ### test_sc2_genetic_policy.py (53) — `SC2LinearPolicy` + genetic trainer
 - Weight shapes (fn / spatial × minigame / ladder); flat dim (mini/ladder); explicit weights stored

@@ -59,6 +59,7 @@ minimap_layers: []                          # optional minimap channels (sc2_cnn
 # enemies and available-actions / last-action features.  Existing weight
 # files migrate via the standard "missing key → 0.0" path.
 # obs_spec_preset: minigame
+enable_belief: false   # set true to activate fog-of-war belief obs + scouting reward
 
 policy_params:
   population_size: 30      # larger search space needs bigger population

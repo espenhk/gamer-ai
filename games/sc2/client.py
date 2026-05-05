@@ -16,10 +16,21 @@ from typing import Any
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call
-from games.sc2.obs_spec import get_spec
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call, pysc2_ids_to_internal_fn_idx
+from games.sc2.obs_spec import (
+    LADDER_OBS_NAMES,
+    OBS_NAMES,
+    SC2_LADDER_OBS_SPEC,
+    SC2_MINIGAME_OBS_SPEC,
+    get_spec
+)
 
 logger = logging.getLogger(__name__)
+
+# Reverse mapping from FUNCTION_IDS name → our fn_idx key.
+# Used in _timestep_to_obs_info() to convert PySC2 available_actions IDs
+# into our fn_idx values (0-5); built once at import time.
+_FN_NAME_TO_IDX: dict[str, int] = {v: k for k, v in FUNCTION_IDS.items()}
 
 # ---------------------------------------------------------------------------
 # Spatial feature layer normalisation scales
@@ -329,6 +340,23 @@ class SC2Client:
         avail_arr = self._safe_array(ob, "available_actions")
         if avail_arr is not None:
             self._available_actions = set(avail_arr.tolist())
+            # Convert PySC2 function IDs → our fn_idx values (0-5 in FUNCTION_IDS)
+            # so policies can build masks without importing pysc2.
+            try:
+                from pysc2.lib import actions as _pysc2_acts  # lazy import
+                available_fn_idx: set[int] = set()
+                for pysc2_fn_id in self._available_actions:
+                    try:
+                        fn_name = _pysc2_acts.FUNCTIONS[pysc2_fn_id].name
+                        if fn_name in _FN_NAME_TO_IDX:
+                            available_fn_idx.add(_FN_NAME_TO_IDX[fn_name])
+                    except (IndexError, KeyError):
+                        pass
+                available_fn_ids: set[int] | None = available_fn_idx
+            except ImportError:
+                available_fn_ids = None
+        else:
+            available_fn_ids = None
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -352,6 +380,7 @@ class SC2Client:
             "army_count": feats.get("army_count", 0.0),
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
+            "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else None,
             "game_loop": game_loop,
             # Screen summary used by reward shaping (idle_bonus, #127).
             "screen_self_count":  feats.get("screen_self_count", 0.0),

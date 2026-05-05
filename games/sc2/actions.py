@@ -117,6 +117,44 @@ PROBE_ACTIONS: list[tuple[np.ndarray, str]] = [
 WARMUP_ACTION = np.array([1, 0.5, 0.5, 0], dtype=np.float32)
 
 
+def discrete_action_to_fn_id(cell_idx: int) -> int:
+    """Return the FUNCTION_IDS key for grid cell *cell_idx*."""
+    return int(DISCRETE_ACTIONS[cell_idx, 0])
+
+
+def pysc2_ids_to_internal_fn_idx(pysc2_available_ids: set[int]) -> set[int]:
+    """Convert a set of raw PySC2 function IDs to internal fn_idx values (0-5).
+
+    PySC2's ``ob["available_actions"]`` contains PySC2 function IDs (e.g. 331
+    for Move_screen).  Our mask logic uses the repo-internal fn_idx keys that
+    index into FUNCTION_IDS (0..5).  This converts between the two so that
+    ``build_available_actions_mask()`` receives the correct values.
+
+    Imports PySC2 lazily so callers without it installed (framework code,
+    unit tests) can import this module freely.
+    """
+    try:
+        from pysc2.lib import actions as _pysc2_actions  # type: ignore[import-untyped]
+    except ModuleNotFoundError:
+        return set(FUNCTION_IDS.keys())
+    result: set[int] = set()
+    for fn_idx, name in FUNCTION_IDS.items():
+        fn = getattr(_pysc2_actions.FUNCTIONS, name, None)
+        if fn is not None and int(fn.id) in pysc2_available_ids:
+            result.add(fn_idx)
+    return result
+
+
+def build_available_actions_mask(
+    available_fn_ids: set[int], n_cells: int = len(DISCRETE_ACTIONS)
+) -> np.ndarray:
+    """Boolean mask of shape (n_cells,) — True where the action is legal."""
+    return np.array(
+        [discrete_action_to_fn_id(i) in available_fn_ids for i in range(n_cells)],
+        dtype=bool,
+    )
+
+
 def action_to_function_call(action: np.ndarray, screen_size: int):
     """Translate a 4-vector action row into a PySC2 ``FunctionCall``.
 

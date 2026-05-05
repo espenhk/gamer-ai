@@ -169,6 +169,38 @@ class SC2Adapter:
                 gamma=policy_params.get("gamma", 0.99),
             )
 
+        def _make_sc2_neural_dqn():
+            from games.sc2.policies import SC2NeuralDQNPolicy
+            if os.path.exists(weights_file) and not re_initialize:
+                with open(weights_file) as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_neural_dqn":
+                    policy = SC2NeuralDQNPolicy.from_cfg(_cfg, obs_spec)
+                    if os.path.exists(trainer_state_file):
+                        try:
+                            policy.load_trainer_state(trainer_state_file)
+                            logger.info("[SC2NeuralDQNPolicy] loaded trainer state from %s",
+                                        trainer_state_file)
+                        except (ValueError, KeyError) as exc:
+                            logger.warning(
+                                "[SC2NeuralDQNPolicy] could not load trainer state — %s; "
+                                "continuing with default state.", exc,
+                            )
+                    return policy
+            return SC2NeuralDQNPolicy(
+                obs_spec=obs_spec,
+                hidden_sizes=policy_params.get("hidden_sizes", [64, 64]),
+                replay_buffer_size=policy_params.get("replay_buffer_size", 50000),
+                batch_size=policy_params.get("batch_size", 64),
+                min_replay_size=policy_params.get("min_replay_size", 2000),
+                target_update_freq=policy_params.get("target_update_freq", 200),
+                learning_rate=policy_params.get("learning_rate", 0.001),
+                epsilon_start=policy_params.get("epsilon_start", 1.0),
+                epsilon_end=policy_params.get("epsilon_end", 0.05),
+                epsilon_decay_steps=policy_params.get("epsilon_decay_steps", 20000),
+                gamma=policy_params.get("gamma", 0.995),
+            )
+
         def _make_cmaes():
             from games.sc2.policies import (
                 CMAESPolicy as SC2CMAESPolicy,
@@ -305,6 +337,7 @@ class SC2Adapter:
             factories={
                 "sc2_genetic": _make_sc2_genetic,
                 "neural_dqn": _make_neural_dqn,
+                "sc2_neural_dqn": _make_sc2_neural_dqn,
                 "cmaes": _make_cmaes,
                 "reinforce": _make_reinforce,
                 "lstm": _make_lstm,
@@ -313,6 +346,7 @@ class SC2Adapter:
             loop_dispatch={
                 "sc2_genetic": "genetic",
                 "neural_dqn": "q_learning",
+                "sc2_neural_dqn": "q_learning",
                 "cmaes": "cmaes",
                 "reinforce": "q_learning",
                 "lstm": "cmaes",

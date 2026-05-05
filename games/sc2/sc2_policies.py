@@ -261,7 +261,7 @@ class SC2MultiHeadLinearPolicy:
         """No-op — required by training loop interface."""
 
     def update(self, obs: np.ndarray, action: np.ndarray, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         """No-op — evolutionary policy; updated between episodes."""
 
 

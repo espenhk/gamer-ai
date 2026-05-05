@@ -38,7 +38,11 @@ import numpy as np
 
 from framework.obs_spec import ObsSpec
 from framework.policies import BasePolicy, WeightedLinearPolicy, GeneticPolicy
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import (
+    DISCRETE_ACTIONS,
+    FUNCTION_IDS,
+    build_available_actions_mask,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +363,7 @@ class NeuralDQNPolicy(BasePolicy):
         return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
         self._replay.push(obs, action_idx, reward, next_obs, done)
         self._total_steps += 1
@@ -478,8 +482,505 @@ class NeuralDQNPolicy(BasePolicy):
 
 
 # ---------------------------------------------------------------------------
+# SC2NeuralDQNPolicy
+# ---------------------------------------------------------------------------
+
+class SC2NeuralDQNPolicy(NeuralDQNPolicy):
+    """NeuralDQNPolicy with PySC2 available-actions masking.
+
+    At each step the policy receives ``info["available_fn_ids"]`` (a set of
+    FUNCTION_IDS keys that are currently legal) via the ``update()`` call.
+    The mask is applied in both action selection and the TD target computation
+    so gradients do not flow through illegal Q-values.
+
+    Step 0 of each episode starts with no mask (all actions assumed legal).
+    This is acceptable because the SC2 client falls back to ``no_op`` for
+    any actually illegal action.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._available_fn_ids: set[int] | None = None
+
+    def on_episode_start(self) -> None:
+        self._available_fn_ids = None
+
+    def _current_mask(self) -> np.ndarray:
+        if self._available_fn_ids is None:
+            return np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+        return build_available_actions_mask(self._available_fn_ids)
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        mask = self._current_mask()
+        valid = np.where(mask)[0]
+        if len(valid) == 0:
+            mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+            valid = np.arange(_N_DISCRETE_ACTIONS)
+        if np.random.random() < self._eps:
+            return DISCRETE_ACTIONS[np.random.choice(valid)].copy()
+        obs_norm = (obs / self._scales).astype(np.float32)
+        q = self._q_values(self._online, obs_norm).copy()
+        q[~mask] = -np.inf
+        return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
+
+    def update(self, obs: np.ndarray, action, reward: float,
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
+        info = kwargs.get("info") or {}
+        if "available_fn_ids" in info:
+            self._available_fn_ids = info["available_fn_ids"]
+        super().update(obs, action, reward, next_obs, done)
+
+    def _gradient_step(self, obs_b, act_b, rew_b, next_b, done_b) -> None:
+        obs_norm  = obs_b  / self._scales
+        next_norm = next_b / self._scales
+        B = len(act_b)
+
+        q_next = self._q_values(self._target, next_norm)
+        mask = self._current_mask()
+        if mask.any():
+            q_next[:, ~mask] = -np.inf
+        targets = rew_b + self._gamma * np.max(q_next, axis=1) * (1.0 - done_b)
+
+        q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)
+
+        grad_out = np.zeros_like(q_all)
+        grad_out[np.arange(B), act_b] = 2.0 * (q_all[np.arange(B), act_b] - targets) / B
+
+        g = grad_out
+        grad_params: list[tuple[np.ndarray, np.ndarray]] = []
+        for i in range(len(self._online["weights"]) - 1, -1, -1):
+            a_in = layer_inputs[i]
+            dW   = g.T @ a_in
+            db   = g.sum(axis=0)
+            grad_params.append((dW, db))
+            if i > 0:
+                g = (g @ self._online["weights"][i]) * (pre_relu[i - 1] > 0)
+        grad_params.reverse()
+
+        self._adam_t += 1
+        t      = self._adam_t
+        b1, b2 = 0.9, 0.999
+        eps_a  = 1e-8
+        for i, (dW, db) in enumerate(grad_params):
+            self._m_w[i] = b1 * self._m_w[i] + (1.0 - b1) * dW
+            self._v_w[i] = b2 * self._v_w[i] + (1.0 - b2) * dW ** 2
+            mw_hat = self._m_w[i] / (1.0 - b1 ** t)
+            vw_hat = self._v_w[i] / (1.0 - b2 ** t)
+            self._online["weights"][i] -= self._lr * mw_hat / (np.sqrt(vw_hat) + eps_a)
+
+            self._m_b[i] = b1 * self._m_b[i] + (1.0 - b1) * db
+            self._v_b[i] = b2 * self._v_b[i] + (1.0 - b2) * db ** 2
+            mb_hat = self._m_b[i] / (1.0 - b1 ** t)
+            vb_hat = self._v_b[i] / (1.0 - b2 ** t)
+            self._online["biases"][i] -= self._lr * mb_hat / (np.sqrt(vb_hat) + eps_a)
+
+        self._grad_steps += 1
+        if self._grad_steps % self._target_freq == 0:
+            self._sync_target()
+
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "sc2_neural_dqn"
+        return cfg
+
+
+# ---------------------------------------------------------------------------
 # CMAESPolicy
 # ---------------------------------------------------------------------------
+
+def _build_available_actions_mask(
+    available_fn_ids: set[int] | None,
+    n_actions: int,
+) -> np.ndarray:
+    """Build a boolean mask over the discrete action grid.
+
+    Parameters
+    ----------
+    available_fn_ids :
+        Set of FUNCTION_IDS indices (fn_idx values 0-5) that are currently
+        available, as populated by :meth:`games.sc2.client.SC2Client._timestep_to_obs_info`.
+        ``None`` means no information is available → all actions are unmasked.
+    n_actions :
+        Number of discrete actions (typically :data:`_N_DISCRETE_ACTIONS` = 9).
+
+    Returns
+    -------
+    np.ndarray
+        Boolean array of shape ``(n_actions,)`` — ``True`` where the
+        corresponding discrete action is legal.
+    """
+    from games.sc2.actions import discrete_action_to_fn_id
+
+    mask = np.ones(n_actions, dtype=bool)
+    if available_fn_ids is None:
+        return mask
+    for i in range(n_actions):
+        mask[i] = discrete_action_to_fn_id(i) in available_fn_ids
+    return mask
+
+
+class _MaskedReplayBuffer(_ReplayBuffer):
+    """Replay buffer that stores an available-actions mask with each transition.
+
+    Extends :class:`_ReplayBuffer` by adding a ``mask`` column (boolean array
+    of shape ``(_N_DISCRETE_ACTIONS,)``) to each stored tuple.  The mask
+    represents which actions are legal in the **next** state ``s'`` of the
+    transition, matching the ``available_fn_ids`` received from the environment
+    step that produced ``next_obs``.  It is used by :class:`SC2NeuralDQNPolicy`
+    to restrict ``max_a' Q_target(s', a')`` to legal next-state actions so that
+    the target network never bootstraps through unavailable Q-values.
+    """
+
+    def push(  # type: ignore[override]
+        self,
+        obs: np.ndarray,
+        action_idx: int,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+        mask: np.ndarray | None = None,
+    ) -> None:
+        if mask is None:
+            mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+        self._buf.append((
+            obs.copy(), int(action_idx), float(reward),
+            next_obs.copy(), bool(done), mask.copy(),
+        ))
+
+    def sample(  # type: ignore[override]
+        self,
+        batch_size: int,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        replace = batch_size > len(self._buf)
+        idxs    = np.random.choice(len(self._buf), size=batch_size, replace=replace)
+        batch   = [self._buf[i] for i in idxs]
+        obs_b   = np.stack([t[0] for t in batch]).astype(np.float32)
+        act_b   = np.array([t[1] for t in batch], dtype=np.int32)
+        rew_b   = np.array([t[2] for t in batch], dtype=np.float32)
+        next_b  = np.stack([t[3] for t in batch]).astype(np.float32)
+        done_b  = np.array([t[4] for t in batch], dtype=np.float32)
+        mask_b  = np.stack([t[5] for t in batch])   # (B, n_actions) bool
+        return obs_b, act_b, rew_b, next_b, done_b, mask_b
+
+
+# ---------------------------------------------------------------------------
+# SC2NeuralDQNPolicy — NeuralDQNPolicy with available-actions masking
+# ---------------------------------------------------------------------------
+
+class SC2NeuralDQNPolicy(NeuralDQNPolicy):
+    """Deep Q-network for SC2 with available-actions masking.
+
+    Extends :class:`NeuralDQNPolicy` with PySC2-aware action masking:
+
+    * **Action selection** — illegal actions (those whose function is not in
+      the current ``available_fn_ids`` set) receive ``-inf`` Q-value so they
+      are never chosen greedily.  Random exploration is also restricted to
+      legal actions.
+    * **Replay buffer** — each transition stores the legal-action mask so that
+      the target-network bootstrap does not propagate through illegal Q-values.
+    * **Gradient step** — target ``max Q(s', a')`` is computed only over legal
+      next-state actions (same mask as stored in the transition).
+
+    The mask is threaded through the training loop via ``info["available_fn_ids"]``
+    (a set of FUNCTION_IDS indices, or ``None`` when unavailable).  The
+    training loop passes ``info`` to :meth:`update` as a keyword argument; the
+    policy caches the latest received ``available_fn_ids`` and applies it in
+    the next :meth:`__call__`.
+
+    Parameters
+    ----------
+    All parameters are forwarded to :class:`NeuralDQNPolicy`.
+
+    SC2-recommended defaults (pass via ``policy_params`` in the YAML config):
+
+    .. code-block:: yaml
+
+        policy_params:
+          replay_buffer_size: 50000
+          min_replay_size: 2000
+          epsilon_decay_steps: 20000
+          gamma: 0.995
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Replace base _ReplayBuffer with mask-aware variant.
+        self._replay = _MaskedReplayBuffer(self._buf_maxlen)
+        # Cache of the most recently received available-actions mask.
+        # Starts as all-True (no masking) until the first update() call.
+        self._cached_mask: np.ndarray = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, obs_spec: "ObsSpec") -> "SC2NeuralDQNPolicy":  # type: ignore[override]
+        obj = cls(
+            obs_spec            = obs_spec,
+            hidden_sizes        = cfg.get("hidden_sizes",        [64, 64]),
+            replay_buffer_size  = cfg.get("replay_buffer_size",  50000),
+            batch_size          = cfg.get("batch_size",          64),
+            min_replay_size     = cfg.get("min_replay_size",     2000),
+            target_update_freq  = cfg.get("target_update_freq",  200),
+            learning_rate       = cfg.get("learning_rate",       0.001),
+            epsilon_start       = cfg.get("epsilon_start",       1.0),
+            epsilon_end         = cfg.get("epsilon_end",         0.05),
+            epsilon_decay_steps = cfg.get("epsilon_decay_steps", 20000),
+            gamma               = cfg.get("gamma",               0.995),
+            seed                = cfg.get("seed",                None),
+        )
+        if "online_weights" in cfg:
+            required = ["online_weights", "online_biases", "target_weights", "target_biases"]
+            missing  = [k for k in required if k not in cfg]
+            if missing:
+                raise KeyError(f"SC2NeuralDQNPolicy.from_cfg: missing keys {missing}")
+            loaded_w = [np.array(w, dtype=np.float32) for w in cfg["online_weights"]]
+            if loaded_w[0].shape[1] != obj._obs_dim:
+                raise ValueError(
+                    f"SC2NeuralDQNPolicy.from_cfg: weight shape mismatch — "
+                    f"first layer has input dim {loaded_w[0].shape[1]}, "
+                    f"but obs_dim is {obj._obs_dim}"
+                )
+            obj._online["weights"] = loaded_w
+            obj._online["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["online_biases"]]
+            obj._target["weights"] = [np.array(w, dtype=np.float32) for w in cfg["target_weights"]]
+            obj._target["biases"]  = [np.array(b, dtype=np.float32) for b in cfg["target_biases"]]
+            obj._eps         = float(cfg.get("epsilon",     obj._eps_end))
+            obj._total_steps = int(cfg.get("total_steps",  0))
+            obj._grad_steps  = int(cfg.get("grad_steps",   0))
+            obj._m_w = [np.zeros_like(w) for w in obj._online["weights"]]
+            obj._m_b = [np.zeros_like(b) for b in obj._online["biases"]]
+            obj._v_w = [np.zeros_like(w) for w in obj._online["weights"]]
+            obj._v_b = [np.zeros_like(b) for b in obj._online["biases"]]
+        return obj
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        """Select action with illegal actions masked to -inf Q-value."""
+        mask = self._cached_mask
+        if np.random.random() < self._eps:
+            available = np.where(mask)[0]
+            if len(available) == 0:
+                available = np.arange(_N_DISCRETE_ACTIONS)
+            return DISCRETE_ACTIONS[np.random.choice(available)].copy()
+        obs_norm = (obs / self._scales).astype(np.float32)
+        q = self._q_values(self._online, obs_norm).copy()
+        q[~mask] = -np.inf
+        # If all masked (edge case), fall back to unmasked argmax.
+        if np.all(~mask):
+            q = self._q_values(self._online, obs_norm)
+        return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
+
+    def update(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray | int,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+        **kwargs,
+    ) -> None:
+        """Store transition (with mask) and optionally do a gradient step.
+
+        The ``info`` keyword argument (if present) is used to extract
+        ``available_fn_ids`` for the *next* state.  This mask is cached for
+        use in the subsequent :meth:`__call__` and is also stored in the
+        replay buffer alongside the transition.
+        """
+        info = kwargs.get("info") or {}
+        available_fn_ids = info.get("available_fn_ids", None)
+        mask = _build_available_actions_mask(available_fn_ids, _N_DISCRETE_ACTIONS)
+        # Cache mask for next __call__() — info describes the next state so the
+        # mask is valid for the state we will act in on the following step.
+        self._cached_mask = mask
+
+        action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
+        self._replay.push(obs, action_idx, reward, next_obs, done, mask)
+        self._total_steps += 1
+        self._eps = max(self._eps_end, self._eps - self._eps_delta)
+        if len(self._replay) >= self._min_replay:
+            obs_b, act_b, rew_b, next_b, done_b, mask_b = self._replay.sample(self._batch_size)
+            self._gradient_step_masked(obs_b, act_b, rew_b, next_b, done_b, mask_b)
+
+    def on_episode_start(self) -> None:
+        """Reset cached mask to all-True at episode start."""
+        self._cached_mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+
+    def _gradient_step_masked(
+        self,
+        obs_b: np.ndarray,
+        act_b: np.ndarray,
+        rew_b: np.ndarray,
+        next_b: np.ndarray,
+        done_b: np.ndarray,
+        mask_b: np.ndarray,
+    ) -> None:
+        """Adam gradient step with illegal-action masking on target Q-values.
+
+        The target for each transition uses ``max_a' Q_target(s', a')`` over
+        *legal* next-state actions only (as defined by the stored mask), so
+        gradients never flow through Q-values of unavailable actions.
+        """
+        obs_norm  = obs_b  / self._scales
+        next_norm = next_b / self._scales
+        B = len(act_b)
+
+        q_next = self._q_values(self._target, next_norm)      # (B, 9)
+        # Mask illegal next-state actions to -inf before max().
+        q_next_masked = q_next.copy()
+        q_next_masked[~mask_b] = -np.inf
+        # Per-row max: fall back to unmasked max if every action is masked.
+        all_masked = np.all(~mask_b, axis=1)
+        q_next_max = np.where(
+            all_masked,
+            np.max(q_next, axis=1),
+            np.max(q_next_masked, axis=1),
+        ).astype(np.float32)
+
+        targets = rew_b + self._gamma * q_next_max * (1.0 - done_b)
+
+        q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)
+
+        grad_out = np.zeros_like(q_all)
+        grad_out[np.arange(B), act_b] = 2.0 * (q_all[np.arange(B), act_b] - targets) / B
+
+        g = grad_out
+        grad_params: list[tuple[np.ndarray, np.ndarray]] = []
+        for i in range(len(self._online["weights"]) - 1, -1, -1):
+            a_in = layer_inputs[i]
+            dW   = g.T @ a_in
+            db   = g.sum(axis=0)
+            grad_params.append((dW, db))
+            if i > 0:
+                g = (g @ self._online["weights"][i]) * (pre_relu[i - 1] > 0)
+        grad_params.reverse()
+
+        self._adam_t += 1
+        t      = self._adam_t
+        b1, b2 = 0.9, 0.999
+        eps_a  = 1e-8
+        for i, (dW, db) in enumerate(grad_params):
+            self._m_w[i] = b1 * self._m_w[i] + (1.0 - b1) * dW
+            self._v_w[i] = b2 * self._v_w[i] + (1.0 - b2) * dW ** 2
+            mw_hat = self._m_w[i] / (1.0 - b1 ** t)
+            vw_hat = self._v_w[i] / (1.0 - b2 ** t)
+            self._online["weights"][i] -= self._lr * mw_hat / (np.sqrt(vw_hat) + eps_a)
+
+            self._m_b[i] = b1 * self._m_b[i] + (1.0 - b1) * db
+            self._v_b[i] = b2 * self._v_b[i] + (1.0 - b2) * db ** 2
+            mb_hat = self._m_b[i] / (1.0 - b1 ** t)
+            vb_hat = self._v_b[i] / (1.0 - b2 ** t)
+            self._online["biases"][i] -= self._lr * mb_hat / (np.sqrt(vb_hat) + eps_a)
+
+        self._grad_steps += 1
+        if self._grad_steps % self._target_freq == 0:
+            self._sync_target()
+
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "sc2_neural_dqn"
+        return cfg
+
+    def save_trainer_state(self, path: str) -> None:
+        """Persist replay buffer (with masks), Adam moments, and counters.
+
+        Extends :meth:`NeuralDQNPolicy.save_trainer_state` to also serialise
+        the per-transition masks stored by :class:`_MaskedReplayBuffer`.
+        """
+        buf = list(self._replay._buf)
+        n   = len(buf)
+        if n > 0:
+            obs_arr  = np.stack([t[0] for t in buf]).astype(np.float32)
+            act_arr  = np.array([t[1] for t in buf], dtype=np.int32)
+            rew_arr  = np.array([t[2] for t in buf], dtype=np.float32)
+            next_arr = np.stack([t[3] for t in buf]).astype(np.float32)
+            done_arr = np.array([t[4] for t in buf], dtype=np.float32)
+            mask_arr = np.stack([t[5] for t in buf])  # (n, n_actions) bool
+        else:
+            obs_arr  = np.empty((0, self._obs_dim), dtype=np.float32)
+            act_arr  = np.empty(0, dtype=np.int32)
+            rew_arr  = np.empty(0, dtype=np.float32)
+            next_arr = np.empty((0, self._obs_dim), dtype=np.float32)
+            done_arr = np.empty(0, dtype=np.float32)
+            mask_arr = np.empty((0, _N_DISCRETE_ACTIONS), dtype=bool)
+
+        n_layers = len(self._m_w)
+        arrays: dict = dict(
+            replay_obs  = obs_arr,
+            replay_act  = act_arr,
+            replay_rew  = rew_arr,
+            replay_next = next_arr,
+            replay_done = done_arr,
+            replay_mask = mask_arr,
+            total_steps = np.int64(self._total_steps),
+            grad_steps  = np.int64(self._grad_steps),
+            adam_t      = np.int64(self._adam_t),
+            epsilon     = np.float32(self._eps),
+            obs_dim     = np.int64(self._obs_dim),
+            n_layers    = np.int64(n_layers),
+        )
+        for i in range(n_layers):
+            arrays[f"m_w_{i}"] = self._m_w[i]
+            arrays[f"m_b_{i}"] = self._m_b[i]
+            arrays[f"v_w_{i}"] = self._v_w[i]
+            arrays[f"v_b_{i}"] = self._v_b[i]
+        np.savez(path, **arrays)
+
+    def load_trainer_state(self, path: str) -> None:
+        """Restore replay buffer (with masks), Adam moments, and counters.
+
+        Keeps ``self._replay`` as a :class:`_MaskedReplayBuffer`.  If the
+        saved file was written by :class:`NeuralDQNPolicy` (no ``replay_mask``
+        key), each restored transition gets an all-True mask for backward
+        compatibility.
+        """
+        with np.load(path) as data:
+            saved_obs_dim = int(data["obs_dim"])
+            if saved_obs_dim != self._obs_dim:
+                raise ValueError(
+                    f"SC2NeuralDQNPolicy: trainer state obs_dim mismatch — "
+                    f"saved={saved_obs_dim}, current={self._obs_dim}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            n_layers = int(data["n_layers"])
+            if n_layers != len(self._m_w):
+                raise ValueError(
+                    f"SC2NeuralDQNPolicy: trainer state n_layers mismatch — "
+                    f"saved={n_layers}, current={len(self._m_w)}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            for i in range(n_layers):
+                mw = data[f"m_w_{i}"]
+                if mw.shape != self._m_w[i].shape:
+                    raise ValueError(
+                        f"SC2NeuralDQNPolicy: Adam moment m_w[{i}] shape mismatch — "
+                        f"saved={mw.shape}, current={self._m_w[i].shape}. "
+                        f"Use --re-initialize to restart from scratch."
+                    )
+            n_buf = len(data["replay_obs"])
+            has_masks = "replay_mask" in data
+            self._replay = _MaskedReplayBuffer(self._buf_maxlen)
+            for i in range(n_buf):
+                mask = (
+                    data["replay_mask"][i].astype(bool)
+                    if has_masks
+                    else np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+                )
+                self._replay.push(
+                    data["replay_obs"][i], int(data["replay_act"][i]),
+                    float(data["replay_rew"][i]), data["replay_next"][i],
+                    bool(data["replay_done"][i]), mask,
+                )
+            self._total_steps = int(data["total_steps"])
+            self._grad_steps  = int(data["grad_steps"])
+            self._adam_t      = int(data["adam_t"])
+            self._eps         = float(data["epsilon"])
+            for i in range(n_layers):
+                self._m_w[i] = data[f"m_w_{i}"]
+                self._m_b[i] = data[f"m_b_{i}"]
+                self._v_w[i] = data[f"v_w_{i}"]
+                self._v_b[i] = data[f"v_b_{i}"]
+        logger.info(
+            "[SC2NeuralDQNPolicy] trainer state loaded from %s "
+            "(buf=%d, steps=%d, eps=%.4f)",
+            path, len(self._replay), self._total_steps, self._eps,
+        )
 
 class CMAESPolicy(BasePolicy):
     """(μ/μ_w, λ)-CMA-ES over the flat weight vector of a WeightedLinearPolicy.
@@ -839,7 +1340,7 @@ class REINFORCEPolicy(BasePolicy):
         return DISCRETE_ACTIONS[action_idx].copy()
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         self._ep_rewards.append(float(reward))
 
     def on_episode_end(self) -> None:
@@ -1093,7 +1594,7 @@ class LSTMPolicy(BasePolicy):
         return np.array([fn_idx, x_out, y_out, queue], dtype=np.float32)
 
     def update(self, obs: np.ndarray, action: np.ndarray | int, reward: float,
-               next_obs: np.ndarray, done: bool) -> None:
+               next_obs: np.ndarray, done: bool, **kwargs) -> None:
         pass  # trained via outer evolutionary optimiser
 
     def to_cfg(self) -> dict:

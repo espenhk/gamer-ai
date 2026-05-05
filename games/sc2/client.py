@@ -16,14 +16,8 @@ from typing import Any
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call, pysc2_ids_to_internal_fn_idx
-from games.sc2.obs_spec import (
-    LADDER_OBS_NAMES,
-    OBS_NAMES,
-    SC2_LADDER_OBS_SPEC,
-    SC2_MINIGAME_OBS_SPEC,
-    get_spec
-)
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call
+from games.sc2.obs_spec import get_spec
 
 logger = logging.getLogger(__name__)
 
@@ -395,7 +389,7 @@ class SC2Client:
             "army_count": feats.get("army_count", 0.0),
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
-            "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else None,
+            "available_fn_ids": available_fn_ids,
             "game_loop": game_loop,
             # Screen summary used by reward shaping (idle_bonus, #127).
             "screen_self_count":  feats.get("screen_self_count", 0.0),

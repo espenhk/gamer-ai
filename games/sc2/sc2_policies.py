@@ -394,8 +394,7 @@ class _GradEntry(NamedTuple):
     h_last:             np.ndarray # shared trunk output (h_dim,)
     fn_probs:           np.ndarray # softmax fn probabilities after masking (N_FUNCTION_IDS,)
     fn_idx:             int        # sampled function index
-    sp_probs:           np.ndarray # softmax spatial probabilities (N_GRID_CELLS,)
-    cell_idx:           int        # sampled spatial cell index
+    sp_sig:             np.ndarray # (2,) = sigmoid(sp_logits) = [x, y] ∈ [0,1]²
     fn_mask:            np.ndarray # bool mask: True = available fn (N_FUNCTION_IDS,)
 
 
@@ -407,14 +406,15 @@ class SC2REINFORCEPolicy(BasePolicy):
 
     * **fn_head** — 6 logits, softmax → ``fn_idx ∈ {0…5}``; unavailable
       function IDs are masked to ``-∞`` before sampling.
-    * **spatial_head** — 9 logits, softmax → grid-cell index → (x, y).
+    * **spatial_head** — 2 logits, sigmoid → continuous (x, y) ∈ [0, 1]²
+      screen coordinates (issue #122).
 
     Both heads are trained jointly via REINFORCE:
 
     .. code-block:: text
 
         loss_t = -log π_fn(fn_idx | obs) × G_t
-               - log π_sp(cell  | obs) × G_t
+               - advantage × σ'(sp_logits) × G_t  (deterministic spatial gradient)
 
     Dispatched via ``_greedy_loop_q_learning`` (``update()`` per step,
     ``on_episode_end()`` per episode).
@@ -610,9 +610,13 @@ class SC2REINFORCEPolicy(BasePolicy):
         fn_idx    = int(self._rng.choice(N_FUNCTION_IDS, p=fn_probs))
 
         # --- spatial head ---
-        sp_logits = self._sp_w @ h_last + self._sp_b  # (N_GRID_CELLS,)
-        sp_probs  = self._softmax(sp_logits)
-        cell_idx  = int(self._rng.choice(N_GRID_CELLS, p=sp_probs))
+        # Issue #122: continuous (x, y) ∈ [0, 1]² via sigmoid instead of
+        # softmax over a fixed grid.
+        sp_logits = self._sp_w @ h_last + self._sp_b  # (2,) = [x_logit, y_logit]
+        sp_sig    = np.array(
+            [_sigmoid(float(sp_logits[0])), _sigmoid(float(sp_logits[1]))],
+            dtype=np.float32,
+        )
 
         self._ep_grads.append(
             _GradEntry(
@@ -621,13 +625,12 @@ class SC2REINFORCEPolicy(BasePolicy):
                 h_last=h_last.copy(),
                 fn_probs=fn_probs.copy(),
                 fn_idx=fn_idx,
-                sp_probs=sp_probs.copy(),
-                cell_idx=cell_idx,
+                sp_sig=sp_sig.copy(),
                 fn_mask=fn_mask.copy(),
             )
         )
 
-        x, y = _GRID_XY[cell_idx]
+        x, y = float(sp_sig[0]), float(sp_sig[1])
         return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
 
     def update(
@@ -691,8 +694,7 @@ class SC2REINFORCEPolicy(BasePolicy):
             h_last   = entry.h_last
             fn_probs = entry.fn_probs
             fn_idx   = entry.fn_idx
-            sp_probs = entry.sp_probs
-            cell_idx = entry.cell_idx
+            sp_sig   = entry.sp_sig.astype(np.float64)  # (2,) = [x, y]
             fn_mask  = entry.fn_mask
 
             # --- fn head gradient ---
@@ -713,16 +715,12 @@ class SC2REINFORCEPolicy(BasePolicy):
                 )
                 delta_fn += self._entropy_coeff * ent_grad_fn
 
-            # --- spatial head gradient ---
-            delta_sp = -sp_probs.copy().astype(np.float64)
-            delta_sp[cell_idx] += 1.0
-            delta_sp *= advantage
-
-            if self._entropy_coeff > 0.0:
-                log_p_sp  = np.log(sp_probs.astype(np.float64) + 1e-8)
-                H_sp      = -float(np.dot(sp_probs, log_p_sp))
-                ent_grad_sp = -(sp_probs.astype(np.float64) * (log_p_sp + H_sp))
-                delta_sp += self._entropy_coeff * ent_grad_sp
+            # --- spatial head gradient (issue #122: sigmoid continuous head) ---
+            # Deterministic policy gradient: δ = advantage × σ'(logit) where
+            # σ'(logit) = σ(logit) × (1 − σ(logit)).  Positive advantage pushes
+            # x/y toward 1; negative advantage pushes toward 0.  Entropy bonus is
+            # omitted for the spatial head since there is no discrete distribution.
+            delta_sp = advantage * (sp_sig * (1.0 - sp_sig))  # (2,)
 
             # Update head weight gradients.
             h_last_d = h_last.astype(np.float64)

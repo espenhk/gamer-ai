@@ -21,7 +21,6 @@ from games.sc2.sc2_policies import (
     N_FUNCTION_IDS,
     N_GRID_CELLS,
     SC2REINFORCEPolicy,
-    _GRID_XY,
     _GradEntry,
 )
 
@@ -92,17 +91,17 @@ class TestSC2REINFORCEForwardShapes(unittest.TestCase):
             act = self.policy(obs)
             self.assertEqual(float(act[3]), 0.0)
 
-    def test_spatial_coords_match_grid_xy(self):
-        """Returned (x, y) must correspond to one of the 9 grid cells."""
-        obs = _rand_obs()
-        for _ in range(20):
+    def test_spatial_coords_vary_continuously(self):
+        """(x, y) from the sigmoid head must vary over multiple observations."""
+        xs, ys = [], []
+        for seed in range(20):
+            obs = _rand_obs(seed=seed)
             act = self.policy(obs)
-            x, y = float(act[1]), float(act[2])
-            match = any(
-                abs(x - gx) < 1e-5 and abs(y - gy) < 1e-5
-                for gx, gy in _GRID_XY
-            )
-            self.assertTrue(match, f"({x}, {y}) not in grid cells")
+            xs.append(float(act[1]))
+            ys.append(float(act[2]))
+        # Sigmoid of different logits produces different values — not all identical.
+        self.assertGreater(max(xs) - min(xs), 0.0, "x coords all identical")
+        self.assertGreater(max(ys) - min(ys), 0.0, "y coords all identical")
 
     def test_ladder_obs_spec(self):
         p   = _make_policy(obs_spec=SC2_LADDER_OBS_SPEC)

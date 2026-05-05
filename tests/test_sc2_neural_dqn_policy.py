@@ -157,21 +157,23 @@ class TestUpdateStoresAvailableFnIds(unittest.TestCase):
         expected = build_available_actions_mask({1, 2})
         np.testing.assert_array_equal(policy._cached_mask, expected)
 
-    def test_update_without_info_resets_mask_to_all_true(self):
-        """update() without info kwarg resets mask to all-True (no info → no restriction)."""
+    def test_update_without_info_preserves_existing_mask(self):
+        """update() without info kwarg must preserve the existing _cached_mask."""
         policy = _make_policy()
-        policy._cached_mask = build_available_actions_mask({2})
+        partial_mask = build_available_actions_mask({2})
+        policy._cached_mask = partial_mask.copy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False)  # no info kwarg
-        self.assertTrue(policy._cached_mask.all())
+        np.testing.assert_array_equal(policy._cached_mask, partial_mask)
 
-    def test_update_with_empty_info_resets_mask_to_all_true(self):
-        """update() with empty info dict resets mask to all-True."""
+    def test_update_with_empty_info_preserves_existing_mask(self):
+        """update() with empty info dict preserves the existing _cached_mask."""
         policy = _make_policy()
-        policy._cached_mask = build_available_actions_mask({2})
+        partial_mask = build_available_actions_mask({2})
+        policy._cached_mask = partial_mask.copy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False, info={})
-        self.assertTrue(policy._cached_mask.all())
+        np.testing.assert_array_equal(policy._cached_mask, partial_mask)
 
     def test_update_overwrites_mask(self):
         """Consecutive update() calls with different fn_ids update the mask each time."""

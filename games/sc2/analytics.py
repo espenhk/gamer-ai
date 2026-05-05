@@ -23,6 +23,7 @@ from framework.analytics import (
     plot_probe_rewards,
     plot_cold_start_rewards,
     plot_greedy_rewards,
+    plot_reward_components,
     plot_reward_trajectory,
     _probe_table_md,
     _cold_start_table_md,
@@ -59,6 +60,13 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         plot_greedy_rewards(data, results_dir)
         sections.append(_greedy_table_md(data))
         sections.append("\n![Greedy rewards](greedy_rewards.png)\n\n")
+
+        # Reward-component breakdown (issue #128/2b).  Only adds a section if
+        # the env populated info["episode_reward_components"] AND at least one
+        # component is non-zero.
+        plot_reward_components(data, results_dir)
+        if any(s.reward_components for s in data.greedy_sims):
+            sections.append("\n![Reward components](reward_components.png)\n\n")
 
     plot_reward_trajectory(data, results_dir)
     sections.append("\n![Reward trajectory](reward_trajectory.png)\n\n")

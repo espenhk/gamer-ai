@@ -67,7 +67,6 @@ class SC2Adapter:
         weights_file: str, reward_cfg_file: str,
         training_params: dict, track_override: str | None,
     ) -> GameSpec:
-        from games.sc2.obs_spec import get_spec
         from games.sc2.actions import DISCRETE_ACTIONS
         from games.sc2.analytics import save_experiment_results
 
@@ -126,7 +125,6 @@ class SC2Adapter:
     def build_extras(
         self, weights_file: str, training_params: dict, re_initialize: bool,
     ) -> PolicyExtras | None:
-        from games.sc2.obs_spec import get_spec
         from games.sc2.sc2_policies import SC2GeneticPolicy
 
         map_name = training_params.get("map_name", "MoveToBeacon")

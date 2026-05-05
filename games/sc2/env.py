@@ -165,6 +165,7 @@ class SC2Env(BaseGameEnv):
             screen_layers=self._screen_layers,
             minimap_layers=self._minimap_layers,
             obs_spec_preset=obs_spec_preset,
+            store_minimap_vis=enable_belief,
         )
 
         # Episode tracking
@@ -200,7 +201,7 @@ class SC2Env(BaseGameEnv):
         self._step_count = 0
         self._ep_reward_components = {}
         self._reward_calc.reset()
-        self._prev_game_loop = 0.0
+        self._prev_game_loop = float(info.get("game_loop", 0.0))
 
         if self._belief is not None:
             self._belief.reset()

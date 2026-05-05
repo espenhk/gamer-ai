@@ -1,6 +1,6 @@
 # Tests
 
-740 tests across 45 files. Runs in ~25 seconds via `python -m pytest tests/`.
+823 tests across 45 files. Runs in ~30 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -272,23 +272,25 @@ section (≈250 tests) because both the minigame and Simple64 ladder paths,
 plus six policy variants and three obs encodings (flat / dict / spatial),
 have to be covered.
 
-**Tested.** Both observation specs (13-dim minigame, 21-dim ladder) and the
-get-spec dispatch; the 9-cell discrete action grid (centre = `select_army`,
-others = `Move_screen`); the SC2 reward calculator (score delta, win bonus,
-loss penalty, economy weight, idle penalty, step penalty); the SC2 client
-wrapper (flat-obs construction, score-delta threading, player_relative
-centroid, terminal-outcome handling, ladder visibility tracking with fog
-distinction); the SC2 env wrapper (reset / step / done / info / custom
-reward config); the full lifecycle of `SC2LinearPolicy` and the multi-head
-`sc2_genetic` trainer (init, crossover from both parents, evolution,
-champion YAML round-trip, `from_cfg` defaulting missing features to zero);
-the masked DQN with action-availability masking, including a regression
-test that an illegal action is never bootstrapped from; the CNN encoder
-+ CMA-ES variant with spatial obs; the `play_sc2.py` script's policy
-loading, episode loop, lifecycle hooks and outcome handling; and a
-Simple64-specific integration suite that runs every supported policy
-through one training-loop iteration against a mocked env, plus
-trainer-state save/load round-trips for cmaes and neural_dqn.
+**Tested.** All three observation specs (13-dim minigame, 43-dim ladder,
+95-dim rich) and the get-spec dispatch; the 9-cell discrete action grid
+(centre = `select_army`, others = `Move_screen`); the SC2 reward calculator
+(score delta, win bonus, loss penalty, economy weight, idle penalty, step
+penalty); the SC2 client wrapper (flat-obs construction, score-delta
+threading, player_relative centroid, terminal-outcome handling, ladder
+visibility tracking with fog distinction, and the rich-preset extractors added
+in issue #135: enemy unit-type counts, shield/energy screen summaries, creep
+coverage fraction, and economy-pipeline features); the SC2 env wrapper (reset /
+step / done / info / custom reward config); the full lifecycle of
+`SC2LinearPolicy` and the multi-head `sc2_genetic` trainer (init, crossover
+from both parents, evolution, champion YAML round-trip, `from_cfg` defaulting
+missing features to zero); the masked DQN with action-availability masking,
+including a regression test that an illegal action is never bootstrapped from;
+the CNN encoder + CMA-ES variant with spatial obs; the `play_sc2.py` script's
+policy loading, episode loop, lifecycle hooks and outcome handling; and a
+Simple64-specific integration suite that runs every supported policy through one
+training-loop iteration against a mocked env, plus trainer-state save/load
+round-trips for cmaes and neural_dqn.
 
 **Not tested.** PySC2 against the actual Blizzard SC2 binary; real
 1v1 games against the built-in bot; minimap rendering; the deferred
@@ -307,9 +309,10 @@ handful of iterations only).
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 
-### test_sc2_client.py (9) — PySC2 client wrapper
+### test_sc2_client.py (24) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
+- rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
 
 ### test_sc2_env.py (15) — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set

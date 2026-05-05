@@ -333,6 +333,10 @@ class SC2Client:
         feats.update(self._quadrant_features(feat_screen))
         feats.update(self._available_actions_features(ob))
         feats.update(self._last_action_features())
+        feats.update(self._enemy_unit_type_features(ob))
+        feats.update(self._shield_energy_features(feat_screen))
+        feats.update(self._creep_features(feat_minimap))
+        feats.update(self._economy_pipeline_features(ob))
 
         # game_loop scalar — present on both ladder and rich.
         game_loop_arr = self._safe_array(ob, "game_loop")
@@ -669,6 +673,72 @@ class SC2Client:
         out = {f"last_fn_{i}": 0.0 for i in range(n)}
         if 0 <= self._last_fn_idx < n:
             out[f"last_fn_{self._last_fn_idx}"] = 1.0
+        return out
+
+    def _enemy_unit_type_features(self, ob: Any) -> dict[str, float]:
+        from games.sc2.obs_spec import _RICH_UNIT_TYPES
+        out = {f"enemy_count_{name}": 0.0 for name in _RICH_UNIT_TYPES}
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return out
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return out
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+        for row, owner in zip(feat_units, feat_units[:, 1]):
+            if int(owner) == 1:
+                continue
+            name = self._unit_type_id_to_name.get(int(row[0]))
+            if name is not None:
+                out[f"enemy_count_{name}"] += 1.0
+        return out
+
+    def _shield_energy_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
+        out = {
+            "screen_self_shield_mean":  0.0,
+            "screen_enemy_shield_mean": 0.0,
+            "screen_self_energy_mean":  0.0,
+        }
+        if feat_screen is None:
+            return out
+        rel = self._extract_player_relative(feat_screen, screen=True)
+        if rel is None:
+            return out
+        self_mask  = rel == 1
+        enemy_mask = rel == 4
+        shield = self._extract_named_layer(feat_screen, "unit_shields")
+        if shield is not None:
+            if self_mask.any():
+                out["screen_self_shield_mean"]  = float(shield[self_mask].mean())
+            if enemy_mask.any():
+                out["screen_enemy_shield_mean"] = float(shield[enemy_mask].mean())
+        energy = self._extract_named_layer(feat_screen, "unit_energy")
+        if energy is not None and self_mask.any():
+            out["screen_self_energy_mean"] = float(energy[self_mask].mean())
+        return out
+
+    def _creep_features(self, feat_minimap: np.ndarray | None) -> dict[str, float]:
+        out = {"minimap_creep_frac": 0.0}
+        creep = self._extract_named_layer(feat_minimap, "creep")
+        if creep is not None:
+            out["minimap_creep_frac"] = float((creep > 0).sum()) / max(creep.size, 1)
+        return out
+
+    def _economy_pipeline_features(self, ob: Any) -> dict[str, float]:
+        out = {"upgrade_count": 0.0, "build_queue_size": 0.0, "cargo_count": 0.0}
+        upgrades = self._safe_array(ob, "upgrades")
+        if upgrades is not None:
+            out["upgrade_count"] = float(upgrades.size)
+        build_queue = self._safe_array(ob, "build_queue")
+        if build_queue is not None and build_queue.ndim >= 1:
+            out["build_queue_size"] = float(
+                build_queue.shape[0] if build_queue.ndim >= 2 else build_queue.size
+            )
+        cargo = self._safe_array(ob, "cargo")
+        if cargo is not None and cargo.ndim >= 1:
+            out["cargo_count"] = float(
+                cargo.shape[0] if cargo.ndim >= 2 else cargo.size
+            )
         return out
 
     @staticmethod

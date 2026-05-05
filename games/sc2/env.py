@@ -36,10 +36,15 @@ import numpy as np
 from gymnasium import spaces
 
 from framework.base_env import BaseGameEnv
+from framework.belief import EWMABelief
+from framework.info_gain import RegionStalenessTracker
 from games.sc2.actions import FUNCTION_IDS
 from games.sc2.client import SC2Client
 from games.sc2.obs_spec import MINIGAME_NAMES, get_spec
 from games.sc2.reward import SC2RewardCalculator, SC2RewardConfig
+
+# PySC2 runs at 22.4 game ticks per real second.
+_SC2_TICKS_PER_S: float = 22.4
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +94,7 @@ class SC2Env(BaseGameEnv):
         screen_layers: list[str] | None = None,
         minimap_layers: list[str] | None = None,
         obs_spec_preset: str | None = None,
+        enable_belief: bool = False,
     ) -> None:
         super().__init__()
 
@@ -105,6 +111,21 @@ class SC2Env(BaseGameEnv):
         self._obs_spec_preset = obs_spec_preset
 
         spec = get_spec(map_name, preset=obs_spec_preset)
+
+        self._belief_cfg: dict | None = None
+        self._belief: EWMABelief | None = None
+        self._info_gain: RegionStalenessTracker | None = None
+        self._prev_game_loop: float = 0.0
+        if enable_belief:
+            from games.sc2.belief_schema import (
+                load_belief_config, make_belief, make_info_gain,
+                extend_obs_spec,
+            )
+            _belief_cfg_path = Path(__file__).parent / "config" / "belief_config.yaml"
+            self._belief_cfg = load_belief_config(_belief_cfg_path)
+            self._belief = make_belief(self._belief_cfg)
+            self._info_gain = make_info_gain(self._belief_cfg)
+            spec = extend_obs_spec(spec, self._belief_cfg)
         flat_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -144,6 +165,7 @@ class SC2Env(BaseGameEnv):
             screen_layers=self._screen_layers,
             minimap_layers=self._minimap_layers,
             obs_spec_preset=obs_spec_preset,
+            store_minimap_vis=enable_belief,
         )
 
         # Episode tracking
@@ -171,7 +193,6 @@ class SC2Env(BaseGameEnv):
         flat_obs, info = self._client.reset()
         obs = self._make_obs(flat_obs, info)
 
-        self._prev_obs = obs
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
@@ -180,7 +201,20 @@ class SC2Env(BaseGameEnv):
         self._step_count = 0
         self._ep_reward_components = {}
         self._reward_calc.reset()
+        self._prev_game_loop = float(info.get("game_loop", 0.0))
 
+        if self._belief is not None:
+            self._belief.reset()
+            self._info_gain.reset()
+            _benc = self._belief.encode()
+            _senc = self._info_gain.staleness().astype(np.float32)
+            if self._use_spatial:
+                obs = {"flat": np.concatenate([obs["flat"], _benc, _senc]),
+                       "spatial": obs["spatial"]}
+            else:
+                obs = np.concatenate([obs, _benc, _senc])
+
+        self._prev_obs = obs
         return obs, info
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray | dict, float, bool, bool, dict]:
@@ -237,11 +271,61 @@ class SC2Env(BaseGameEnv):
         else:
             info["termination_reason"] = None
 
-        self._prev_obs = obs
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
 
+        if self._belief is not None:
+            game_loop = float(info.get("game_loop", 0.0))
+            dt_s = (game_loop - self._prev_game_loop) / _SC2_TICKS_PER_S
+            self._prev_game_loop = game_loop
+
+            grid = self._belief_cfg["region_grid"]
+            n_rows, n_cols = int(grid[0]), int(grid[1])
+            n_slots = n_rows * n_cols
+
+            vis_raw = info.get("minimap_vis")
+            belief_obs = np.full(n_slots, np.nan, dtype=np.float64)
+            visible_slots = np.zeros(n_slots, dtype=bool)
+
+            if vis_raw is not None:
+                vis = np.asarray(vis_raw, dtype=np.float32)
+                if vis.ndim == 2:
+                    h, w = vis.shape
+                    # Guard: minimap must be at least as large as the region grid.
+                    if h >= n_rows and w >= n_cols:
+                        rs = h // n_rows
+                        cs = w // n_cols
+                        trimmed = vis[:n_rows * rs, :n_cols * cs]
+                        pooled = trimmed.reshape(n_rows, rs, n_cols, cs).max(axis=(1, 3))
+                        visible_slots = (pooled.flatten() >= 2.0)
+                        belief_obs = np.where(visible_slots,
+                                              pooled.flatten() / 2.0, np.nan)
+
+            self._belief.project(max(dt_s, 0.0))
+            self._belief.update(belief_obs, {})
+            self._info_gain.update(
+                belief_obs,
+                {"time_s": game_loop / _SC2_TICKS_PER_S, "visible_slots": visible_slots},
+            )
+            scout_reward = self._info_gain.intrinsic_reward()
+
+            _benc = self._belief.encode().astype(np.float32)
+            _senc = self._info_gain.staleness().astype(np.float32)
+            if self._use_spatial:
+                obs = {"flat": np.concatenate([obs["flat"], _benc, _senc]),
+                       "spatial": obs["spatial"]}
+            else:
+                obs = np.concatenate([obs, _benc, _senc])
+
+            reward += scout_reward
+            self._ep_reward_components["scout"] = (
+                self._ep_reward_components.get("scout", 0.0) + float(scout_reward)
+            )
+            # Refresh the snapshot so episode_reward_components includes scout.
+            info["episode_reward_components"] = dict(self._ep_reward_components)
+
+        self._prev_obs = obs
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
@@ -300,6 +384,7 @@ def make_env(
     screen_layers: list[str] | None = None,
     minimap_layers: list[str] | None = None,
     obs_spec_preset: str | None = None,
+    enable_belief: bool = False,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -324,4 +409,5 @@ def make_env(
         screen_layers=screen_layers,
         minimap_layers=minimap_layers,
         obs_spec_preset=obs_spec_preset,
+        enable_belief=enable_belief,
     )

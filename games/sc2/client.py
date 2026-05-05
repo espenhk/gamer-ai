@@ -111,6 +111,7 @@ class SC2Client:
         minimap_layers: list[str] | None = None,
         play_mode: bool = False,
         obs_spec_preset: str | None = None,
+        store_minimap_vis: bool = False,
     ) -> None:
         self._map_name = map_name
         self._step_mul = step_mul
@@ -120,6 +121,7 @@ class SC2Client:
         self._bot_difficulty = bot_difficulty
         self._visualize = visualize
         self._play_mode = play_mode
+        self._store_minimap_vis = store_minimap_vis
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
         self._sc2_env: Any = None
@@ -403,6 +405,12 @@ class SC2Client:
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
         }
+
+        # Raw minimap visibility layer — only stored when the belief module is
+        # active (store_minimap_vis=True) to avoid the per-step payload cost
+        # of carrying a full H×W array when belief is disabled.
+        if self._store_minimap_vis:
+            info["minimap_vis"] = self._extract_visibility(feat_minimap)
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).
         if self._screen_layers or self._minimap_layers:

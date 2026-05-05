@@ -12,6 +12,22 @@ from framework.run_config import GameSpec, ProbeSpec, WarmupSpec, PolicyExtras
 logger = logging.getLogger(__name__)
 
 
+def _get_obs_spec(map_name: str, preset: str | None, enable_belief: bool):
+    """Return the obs spec for *map_name*, extending with belief dims when requested."""
+    from games.sc2.obs_spec import get_spec
+    obs_spec = get_spec(map_name, preset=preset)
+    if enable_belief:
+        from pathlib import Path
+        from games.sc2.belief_schema import (
+            load_belief_config, extend_obs_spec as _extend_belief,
+        )
+        _bcfg = load_belief_config(
+            Path(__file__).parent / "config" / "belief_config.yaml"
+        )
+        obs_spec = _extend_belief(obs_spec, _bcfg)
+    return obs_spec
+
+
 class SC2Adapter:
     name = "sc2"
     config_dir = "games/sc2/config"
@@ -51,13 +67,13 @@ class SC2Adapter:
         weights_file: str, reward_cfg_file: str,
         training_params: dict, track_override: str | None,
     ) -> GameSpec:
-        from games.sc2.obs_spec import get_spec
         from games.sc2.actions import DISCRETE_ACTIONS
         from games.sc2.analytics import save_experiment_results
 
         map_name = self._map_name(training_params, track_override)
         obs_spec_preset = training_params.get("obs_spec_preset")
-        obs_spec = get_spec(map_name, preset=obs_spec_preset)
+        enable_belief = training_params.get("enable_belief", False)
+        obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
 
         policy_type = training_params.get("policy_type", "sc2_genetic")
         # Spatial obs (dict observation space) is only supported by sc2_cnn.
@@ -85,6 +101,7 @@ class SC2Adapter:
                 screen_layers=screen_layers,
                 minimap_layers=minimap_layers,
                 obs_spec_preset=obs_spec_preset,
+                enable_belief=enable_belief,
             )
 
         return GameSpec(
@@ -108,12 +125,12 @@ class SC2Adapter:
     def build_extras(
         self, weights_file: str, training_params: dict, re_initialize: bool,
     ) -> PolicyExtras | None:
-        from games.sc2.obs_spec import get_spec
         from games.sc2.sc2_policies import SC2GeneticPolicy
 
         map_name = training_params.get("map_name", "MoveToBeacon")
         obs_spec_preset = training_params.get("obs_spec_preset")
-        obs_spec = get_spec(map_name, preset=obs_spec_preset)
+        enable_belief = training_params.get("enable_belief", False)
+        obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
         policy_params = training_params.get("policy_params") or {}
         trainer_state_file = os.path.join(
             os.path.dirname(weights_file), "trainer_state.npz",

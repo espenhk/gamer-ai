@@ -1,0 +1,74 @@
+# Grid search template: rich observation preset on Simple64 (#135)
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_rich_obs_template.yaml --game sc2
+#
+# Purpose
+# -------
+# Compares the "ladder" (43-dim) and "rich" (95-dim) observation presets on
+# Simple64.  The 15 extra dims added in #135 are race-sensitive:
+#
+#   screen_self/enemy_shield_mean    — Protoss shield state (useless for Terran/Zerg)
+#   screen_self_energy_mean          — caster energy (Medivac, Queen, Ghost, …)
+#   minimap_creep_frac               — Zerg creep spread (useless for T/P)
+#   enemy_count_{type} ×8           — visible enemy unit-type counts; useful for
+#                                      all races but noise if the agent plays race=random
+#   upgrade_count                    — completed upgrades; relevant once the build
+#                                      order reaches upgrade structures
+#   build_queue_size, cargo_count    — army production pipeline and drop-ship load
+#
+# Sweeping agent_race × obs_spec_preset (2 × 2 = 4 runs) lets you see whether
+# the richer obs actually helps, and for which race.  Terran and Protoss are the
+# most informative choices: Terran has energy (Medivac) and upgrades; Protoss has
+# shields, energy (Sentry/High Templar) and upgrades.
+#
+# Episode budget
+# --------------
+# Each run: n_sims=30 generations × population_size=20 individuals × eval_episodes=1
+# = 600 episodes.  At step_mul=8 and in_game_episode_s=600 that is heavy —
+# reduce n_sims to 10 for a quick smoke test.  The default 30 is the minimum
+# for CMA-ES to see meaningful covariance adaptation on a 95-dim space.
+#
+# Rule of thumb for population_size with CMA-ES:
+#   λ ≈ 4 + floor(3 × ln(n))  →  95 dims → λ ≈ 18;  round up to 20.
+#
+# Interpreting results
+# --------------------
+# Compare runs with the same agent_race but different obs_spec_preset.
+# If "rich" beats "ladder" on Protoss but not Terran that strongly suggests the
+# shield/energy features are doing work.  If neither race benefits, the extra
+# dims may be adding noise — consider pinning obs_spec_preset: ladder and
+# dropping the sweep.
+
+base_name: "gs_rich_obs_v1"
+game: sc2
+
+training_params:
+  map_name: Simple64
+  in_game_episode_s: 600.0           # full ladder game; 10-minute cap
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  bot_difficulty: very_easy
+
+  n_sims: 30                         # CMA-ES generations; each costs population_size episodes
+  policy_type: cmaes
+  population_size: 20                # λ ≈ 4 + 3·ln(95) ≈ 18; round to 20
+  initial_sigma: 0.2                 # start a bit wider than the minigame default (0.1)
+                                     # because 95-dim space has more directions to explore
+  policy_params:
+    eval_episodes: 1                 # keep at 1 — comparisons only make sense across same budget
+
+  # Primary sweep axes
+  obs_spec_preset: [ladder, rich]    # compare 43-dim baseline vs 95-dim rich
+  agent_race: [terran, protoss]      # terran: energy+upgrades; protoss: shields+energy+upgrades
+
+reward_params:
+  # Ladder preset: economy signal during the game, win/loss at terminal step.
+  score_weight: 0.0
+  economy_weight: 0.001              # mineral+vespene delta per step
+  win_bonus: 100.0
+  loss_penalty: -100.0
+  step_penalty: -0.001
+  idle_penalty: 0.0
+  idle_bonus: 0.0

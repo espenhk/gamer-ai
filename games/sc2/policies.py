@@ -481,111 +481,9 @@ class NeuralDQNPolicy(BasePolicy):
         )
 
 
-# ---------------------------------------------------------------------------
-# SC2NeuralDQNPolicy
-# ---------------------------------------------------------------------------
-
-class SC2NeuralDQNPolicy(NeuralDQNPolicy):
-    """NeuralDQNPolicy with PySC2 available-actions masking.
-
-    At each step the policy receives ``info["available_fn_ids"]`` (a set of
-    FUNCTION_IDS keys that are currently legal) via the ``update()`` call.
-    The mask is applied in both action selection and the TD target computation
-    so gradients do not flow through illegal Q-values.
-
-    Step 0 of each episode starts with no mask (all actions assumed legal).
-    This is acceptable because the SC2 client falls back to ``no_op`` for
-    any actually illegal action.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._available_fn_ids: set[int] | None = None
-
-    def on_episode_start(self) -> None:
-        self._available_fn_ids = None
-
-    def _current_mask(self) -> np.ndarray:
-        if self._available_fn_ids is None:
-            return np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
-        return build_available_actions_mask(self._available_fn_ids)
-
-    def __call__(self, obs: np.ndarray) -> np.ndarray:
-        mask = self._current_mask()
-        valid = np.where(mask)[0]
-        if len(valid) == 0:
-            mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
-            valid = np.arange(_N_DISCRETE_ACTIONS)
-        if np.random.random() < self._eps:
-            return DISCRETE_ACTIONS[np.random.choice(valid)].copy()
-        obs_norm = (obs / self._scales).astype(np.float32)
-        q = self._q_values(self._online, obs_norm).copy()
-        q[~mask] = -np.inf
-        return DISCRETE_ACTIONS[int(np.argmax(q))].copy()
-
-    def update(self, obs: np.ndarray, action, reward: float,
-               next_obs: np.ndarray, done: bool, **kwargs) -> None:
-        info = kwargs.get("info") or {}
-        if "available_fn_ids" in info:
-            self._available_fn_ids = info["available_fn_ids"]
-        super().update(obs, action, reward, next_obs, done)
-
-    def _gradient_step(self, obs_b, act_b, rew_b, next_b, done_b) -> None:
-        obs_norm  = obs_b  / self._scales
-        next_norm = next_b / self._scales
-        B = len(act_b)
-
-        q_next = self._q_values(self._target, next_norm)
-        mask = self._current_mask()
-        if mask.any():
-            q_next[:, ~mask] = -np.inf
-        targets = rew_b + self._gamma * np.max(q_next, axis=1) * (1.0 - done_b)
-
-        q_all, layer_inputs, pre_relu = self._forward(self._online, obs_norm)
-
-        grad_out = np.zeros_like(q_all)
-        grad_out[np.arange(B), act_b] = 2.0 * (q_all[np.arange(B), act_b] - targets) / B
-
-        g = grad_out
-        grad_params: list[tuple[np.ndarray, np.ndarray]] = []
-        for i in range(len(self._online["weights"]) - 1, -1, -1):
-            a_in = layer_inputs[i]
-            dW   = g.T @ a_in
-            db   = g.sum(axis=0)
-            grad_params.append((dW, db))
-            if i > 0:
-                g = (g @ self._online["weights"][i]) * (pre_relu[i - 1] > 0)
-        grad_params.reverse()
-
-        self._adam_t += 1
-        t      = self._adam_t
-        b1, b2 = 0.9, 0.999
-        eps_a  = 1e-8
-        for i, (dW, db) in enumerate(grad_params):
-            self._m_w[i] = b1 * self._m_w[i] + (1.0 - b1) * dW
-            self._v_w[i] = b2 * self._v_w[i] + (1.0 - b2) * dW ** 2
-            mw_hat = self._m_w[i] / (1.0 - b1 ** t)
-            vw_hat = self._v_w[i] / (1.0 - b2 ** t)
-            self._online["weights"][i] -= self._lr * mw_hat / (np.sqrt(vw_hat) + eps_a)
-
-            self._m_b[i] = b1 * self._m_b[i] + (1.0 - b1) * db
-            self._v_b[i] = b2 * self._v_b[i] + (1.0 - b2) * db ** 2
-            mb_hat = self._m_b[i] / (1.0 - b1 ** t)
-            vb_hat = self._v_b[i] / (1.0 - b2 ** t)
-            self._online["biases"][i] -= self._lr * mb_hat / (np.sqrt(vb_hat) + eps_a)
-
-        self._grad_steps += 1
-        if self._grad_steps % self._target_freq == 0:
-            self._sync_target()
-
-    def to_cfg(self) -> dict:
-        cfg = super().to_cfg()
-        cfg["policy_type"] = "sc2_neural_dqn"
-        return cfg
-
 
 # ---------------------------------------------------------------------------
-# CMAESPolicy
+# Available-actions masking helpers (used by SC2NeuralDQNPolicy below)
 # ---------------------------------------------------------------------------
 
 def _build_available_actions_mask(
@@ -709,6 +607,19 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
         # Cache of the most recently received available-actions mask.
         # Starts as all-True (no masking) until the first update() call.
         self._cached_mask: np.ndarray = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+        # Raw set of available fn_idx values; kept in sync with _cached_mask.
+        # None means no information received yet (all actions unmasked).
+        self._avail_fn_ids_raw: set[int] | None = None
+
+    @property
+    def _available_fn_ids(self) -> set[int] | None:
+        """Available function IDs (raw set); updates ``_cached_mask`` when set."""
+        return self._avail_fn_ids_raw
+
+    @_available_fn_ids.setter
+    def _available_fn_ids(self, v: set[int] | None) -> None:
+        self._avail_fn_ids_raw = v
+        self._cached_mask = _build_available_actions_mask(v, _N_DISCRETE_ACTIONS)
 
     @classmethod
     def from_cfg(cls, cfg: dict, obs_spec: "ObsSpec") -> "SC2NeuralDQNPolicy":  # type: ignore[override]
@@ -781,14 +692,16 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
         The ``info`` keyword argument (if present) is used to extract
         ``available_fn_ids`` for the *next* state.  This mask is cached for
         use in the subsequent :meth:`__call__` and is also stored in the
-        replay buffer alongside the transition.
+        replay buffer alongside the transition.  When ``info`` does not
+        contain ``"available_fn_ids"``, the existing mask is preserved.
         """
         info = kwargs.get("info") or {}
-        available_fn_ids = info.get("available_fn_ids", None)
-        mask = _build_available_actions_mask(available_fn_ids, _N_DISCRETE_ACTIONS)
-        # Cache mask for next __call__() — info describes the next state so the
-        # mask is valid for the state we will act in on the following step.
-        self._cached_mask = mask
+        if "available_fn_ids" in info:
+            # Property setter updates _cached_mask alongside _avail_fn_ids_raw.
+            self._available_fn_ids = info["available_fn_ids"]
+        # Build the transition mask from the current cached mask so the replay
+        # buffer stores the correct next-state mask regardless of update order.
+        mask = self._cached_mask
 
         action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
         self._replay.push(obs, action_idx, reward, next_obs, done, mask)
@@ -798,9 +711,15 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
             obs_b, act_b, rew_b, next_b, done_b, mask_b = self._replay.sample(self._batch_size)
             self._gradient_step_masked(obs_b, act_b, rew_b, next_b, done_b, mask_b)
 
-    def on_episode_start(self) -> None:
-        """Reset cached mask to all-True at episode start."""
-        self._cached_mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+    def on_episode_start(self, **kwargs) -> None:
+        """Reset cached mask to all-True and clear available_fn_ids at episode start."""
+        info = kwargs.get("info") or {}
+        if "available_fn_ids" in info:
+            # Prime mask from reset info if provided.
+            self._available_fn_ids = info["available_fn_ids"]
+        else:
+            # Clear stale terminal-state mask; property setter resets _cached_mask.
+            self._available_fn_ids = None
 
     def _gradient_step_masked(
         self,
@@ -1565,7 +1484,7 @@ class LSTMPolicy(BasePolicy):
         self._h = np.zeros(self._hidden_size, dtype=np.float32)
         self._c = np.zeros(self._hidden_size, dtype=np.float32)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         self._reset_hidden_state()
 
     def on_episode_end(self) -> None:
@@ -1756,9 +1675,9 @@ class LSTMEvolutionPolicy(BasePolicy):
             )
         return self._champion(obs)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         if self._champion is not None:
-            self._champion.on_episode_start()
+            self._champion.on_episode_start(**kwargs)
 
     def on_episode_end(self) -> None:
         if self._champion is not None:

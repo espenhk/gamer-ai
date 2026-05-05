@@ -231,12 +231,12 @@ class SC2Adapter:
             return policy
 
         def _make_reinforce():
-            from games.sc2.policies import REINFORCEPolicy as SC2REINFORCEPolicy
+            from games.sc2.policies import REINFORCEPolicy as _LegacyReinforce
             if os.path.exists(weights_file) and not re_initialize:
                 with open(weights_file) as _f:
                     _cfg = yaml.safe_load(_f) or {}
                 if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                    policy = SC2REINFORCEPolicy.from_cfg(_cfg, obs_spec)
+                    policy = _LegacyReinforce.from_cfg(_cfg, obs_spec)
                     if os.path.exists(trainer_state_file):
                         try:
                             policy.load_trainer_state(trainer_state_file)
@@ -248,12 +248,39 @@ class SC2Adapter:
                                 "continuing with default state.", exc,
                             )
                     return policy
-            return SC2REINFORCEPolicy(
+            return _LegacyReinforce(
                 obs_spec=obs_spec,
                 hidden_sizes=policy_params.get("hidden_sizes", [64, 64]),
                 learning_rate=policy_params.get("learning_rate", 0.001),
                 gamma=policy_params.get("gamma", 0.99),
                 entropy_coeff=policy_params.get("entropy_coeff", 0.01),
+                baseline=policy_params.get("baseline", "running_mean"),
+            )
+
+        def _make_sc2_reinforce():
+            from games.sc2.sc2_policies import SC2REINFORCEPolicy
+            if os.path.exists(weights_file) and not re_initialize:
+                with open(weights_file) as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_reinforce":
+                    policy = SC2REINFORCEPolicy.from_cfg(_cfg, obs_spec)
+                    if os.path.exists(trainer_state_file):
+                        try:
+                            policy.load_trainer_state(trainer_state_file)
+                            logger.info("[SC2REINFORCEPolicy] loaded trainer state from %s",
+                                        trainer_state_file)
+                        except (ValueError, KeyError) as exc:
+                            logger.warning(
+                                "[SC2REINFORCEPolicy] could not load trainer state — %s; "
+                                "continuing with default state.", exc,
+                            )
+                    return policy
+            return SC2REINFORCEPolicy(
+                obs_spec=obs_spec,
+                hidden_sizes=policy_params.get("hidden_sizes", [128, 64]),
+                learning_rate=policy_params.get("learning_rate", 0.0003),
+                gamma=policy_params.get("gamma", 0.995),
+                entropy_coeff=policy_params.get("entropy_coeff", 0.05),
                 baseline=policy_params.get("baseline", "running_mean"),
             )
 
@@ -332,22 +359,22 @@ class SC2Adapter:
 
         return PolicyExtras(
             factories={
-                "sc2_genetic": _make_sc2_genetic,
-                "neural_dqn": _make_neural_dqn,
-                "sc2_neural_dqn": _make_sc2_neural_dqn,
-                "cmaes": _make_cmaes,
-                "reinforce": _make_reinforce,
-                "lstm": _make_lstm,
-                "sc2_cnn": _make_sc2_cnn,
+                "sc2_genetic":   _make_sc2_genetic,
+                "neural_dqn":    _make_neural_dqn,
+                "cmaes":         _make_cmaes,
+                "reinforce":     _make_reinforce,
+                "sc2_reinforce": _make_sc2_reinforce,
+                "lstm":          _make_lstm,
+                "sc2_cnn":       _make_sc2_cnn,
             },
             loop_dispatch={
-                "sc2_genetic": "genetic",
-                "neural_dqn": "q_learning",
-                "sc2_neural_dqn": "q_learning",
-                "cmaes": "cmaes",
-                "reinforce": "q_learning",
-                "lstm": "cmaes",
-                "sc2_cnn": "cmaes",
+                "sc2_genetic":   "genetic",
+                "neural_dqn":    "q_learning",
+                "cmaes":         "cmaes",
+                "reinforce":     "q_learning",
+                "sc2_reinforce": "q_learning",
+                "lstm":          "cmaes",
+                "sc2_cnn":       "cmaes",
             },
         )
 

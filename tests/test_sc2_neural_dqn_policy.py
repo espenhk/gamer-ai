@@ -29,8 +29,7 @@ from games.sc2.policies import (
 _OBS_SPEC = SC2_MINIGAME_OBS_SPEC
 _OBS_DIM = SC2_MINIGAME_OBS_SPEC.dim
 _N = len(DISCRETE_ACTIONS)  # 9
-    discrete_action_to_fn_id,
-)
+
 
 def _make_policy(**kw) -> SC2NeuralDQNPolicy:
     defaults = dict(

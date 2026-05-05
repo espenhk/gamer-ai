@@ -2,7 +2,43 @@
 
 740 tests across 45 files. Runs in ~25 seconds via `python -m pytest tests/`.
 
+## Coverage at a glance
+
+The suite is exhaustive on **pure logic** — config parsing, reward math, policy
+math, save/load round-trips, CLI flag dispatch — and silent on **anything that
+needs a running game or display**. Every game client is replaced by a fake or
+a `MagicMock`; no Trackmania, TORCS, SC2, BeamNG or Assetto Corsa binary is
+ever launched, no game window is grabbed, no matplotlib window is rendered, no
+keyboard/joystick output is sent. End-to-end "does the agent actually drive
+faster after training" is not covered — that belongs to manual experiment
+runs, not the unit suite.
+
+Per-area summary below; per-file details follow.
+
 ## Framework / shared
+
+Game-agnostic plumbing under `framework/`, `distributed/`, `config/`,
+`analytics.py`, `grid_search.py`, the train_rl entry point, and shared utility
+modules.
+
+**Tested.** Reward calculator math (linear components, n_ticks scaling,
+finish-bonus / progress invariants, curiosity glue); curiosity modules (ICM
+and RND, factory dispatch); fog-of-war belief encoder; staleness-based
+info-gain; `TaskMetrics` aggregation and summary-table formatting;
+discretisation, frame-stacking and obs-memory wrappers; centreline geometry
+and the `tracks/registry.json` builder; grid-search Cartesian expansion +
+naming + nested `policy_params` promotion; the early-stop streak logic in
+both greedy and Q loops; the distributed coordinator/worker JSON protocol and
+the in-process HTTP server (work queue, heartbeat re-queue, auth);
+`train_rl()`'s public signature; and that `framework.analytics` imports cleanly
+on a machine with no matplotlib.
+
+**Not tested.** Real distributed training across multiple machines (only the
+in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
+diff'ing (analytics tests assert files appear, not their contents); the Azure
+Terraform stack under `infrastructure/`; the Windows bootstrap script
+`setup_and_run.ps1`; long convergence behaviour of the actual `train_rl()`
+loop end-to-end on a real env.
 
 ### test_analytics_no_matplotlib.py (2) — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -94,6 +130,29 @@
 
 ## TMNF policies
 
+Trackmania-Nations-Forever-specific code under `games/tmnf/`. Policies live
+in `games/tmnf/policies.py`; the bridge to the live game is in
+`games/tmnf/clients/`.
+
+**Tested.** Every policy listed in CLAUDE.md (`WeightedLinearPolicy`,
+`NeuralNetPolicy`, `EpsilonGreedyPolicy`, `MCTSPolicy`, `GeneticPolicy`,
+`CMAESPolicy`, `NeuralDQNPolicy`, `REINFORCEPolicy`, `LSTMEvolutionPolicy`)
+is exercised in isolation: action shape and range, deterministic forward
+pass, mutation produces different weights, save/load YAML round-trips
+losslessly (including replay buffer + Adam moments for DQN, σ + covariance
+for CMA-ES, hidden-state reset for LSTM), `from_cfg` rejects shape
+mismatches, and the optimisation loop converges on a tiny stand-in
+problem (2-arm bandit, quadratic max). `RLClient`'s threading model — the
+tick-window state machine, decision_idx clamping, and the finish/respawn /
+hard-crash forced-commit paths — is fully covered against a `MagicMock`
+TMInterface.
+
+**Not tested.** The actual TMInterface bind to a running Trackmania process;
+the `mss` window-grab + OpenCV LIDAR pipeline (only the *configuration* of
+LIDAR is reached via reward-config tests, the raycast loop is not unit
+tested); pywin32 keyboard injection; `.Gbx` replay parsing via `pygbx`; any
+real driving on the `a03_centerline` track.
+
 ### test_weighted_linear_policy.py (11) — linear `WeightedLinearPolicy`
 - action in range; deterministic; accel/brake weight dominance; coast within threshold; left/right steer
 - from_cfg roundtrip; mutated weights differ; obs_scales length matches names; action is int
@@ -147,6 +206,18 @@
 
 ## TMNF I/O
 
+Split out from the TMNF policy section because it covers the
+client/threading boundary rather than learning algorithms.
+
+**Tested.** The `RLClient` bridge: that `set_input_state` is called with the
+right values on normal ticks, that the action-window state machine commits
+once per window and emits states only during the observation phase, that
+finish/respawn and hard-crash both force an immediate commit, and that
+decision-offset and window parameters are clamped and validated.
+
+**Not tested.** That those calls actually move the car — TMInterface and the
+game itself are mocked.
+
 ### test_rl_client.py (22) — `RLClient` (game-thread bridge, action windowing)
 - set_input_state called on tick / steer+accel+brake values / brake / full-left / clamped
 - not called when finish-respawn pending; finish-respawn resets running flag
@@ -157,6 +228,22 @@
 - window must be positive; decision_offset_pct bounds
 
 ## TORCS
+
+`games/torcs/` — the TORCS racing-simulator integration via `gym_torcs`.
+
+**Tested.** The 19-dim observation spec (names, scales, ordering, lidar
+extension); the client's mapping from a synthetic `gym_torcs` state dict to
+the observation vector and from a continuous action back to throttle / brake
+/ steer (including clipping); the `TorcsEnv` Gym wrapper end-to-end against
+a fake client (reset, 5-tuple step, crash termination, info keys,
+close-propagation, probe / warmup specs); the TORCS reward calculator
+(progress, centerline, speed, finish, accel, step penalty, n_ticks scaling,
+lap wraparound); analytics smoke tests for greedy action distribution,
+progress, termination reasons, weight heatmap and grid summary.
+
+**Not tested.** The actual `gym_torcs` package or the TORCS binary;
+real driving against the simulator; rendered analytics output (only that
+files are written without crashing).
 
 ### test_torcs_obs_spec.py (14) — TORCS observation spec (19-dim)
 - ObsSpec instance; dim matches base; dim=19; names length; scales shape+positive; obs_spec_list match; names unique; first=speed; last=track_pos; track_edges present
@@ -179,6 +266,35 @@
 - weight heatmap no-file safe; weight evolution no-weights; save plots no crash; save full report; empty experiment safe; grid summary; gs comparison progress
 
 ## SC2
+
+`games/sc2/` — the StarCraft 2 integration via PySC2. Largest per-game
+section (≈250 tests) because both the minigame and Simple64 ladder paths,
+plus six policy variants and three obs encodings (flat / dict / spatial),
+have to be covered.
+
+**Tested.** Both observation specs (13-dim minigame, 21-dim ladder) and the
+get-spec dispatch; the 9-cell discrete action grid (centre = `select_army`,
+others = `Move_screen`); the SC2 reward calculator (score delta, win bonus,
+loss penalty, economy weight, idle penalty, step penalty); the SC2 client
+wrapper (flat-obs construction, score-delta threading, player_relative
+centroid, terminal-outcome handling, ladder visibility tracking with fog
+distinction); the SC2 env wrapper (reset / step / done / info / custom
+reward config); the full lifecycle of `SC2LinearPolicy` and the multi-head
+`sc2_genetic` trainer (init, crossover from both parents, evolution,
+champion YAML round-trip, `from_cfg` defaulting missing features to zero);
+the masked DQN with action-availability masking, including a regression
+test that an illegal action is never bootstrapped from; the CNN encoder
++ CMA-ES variant with spatial obs; the `play_sc2.py` script's policy
+loading, episode loop, lifecycle hooks and outcome handling; and a
+Simple64-specific integration suite that runs every supported policy
+through one training-loop iteration against a mocked env, plus
+trainer-state save/load round-trips for cmaes and neural_dqn.
+
+**Not tested.** PySC2 against the actual Blizzard SC2 binary; real
+1v1 games against the built-in bot; minimap rendering; the deferred
+fog-of-war belief machinery beyond the standalone `test_belief.py`
+encoder; long-horizon RL convergence on Simple64 (loops are run for a
+handful of iterations only).
 
 ### test_sc2_obs_spec.py (8) — SC2 obs spec
 - minigame dim; ladder dim; ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
@@ -245,6 +361,20 @@
 - Trainer state roundtrips: cmaes / neural_dqn
 
 ## CLI / misc
+
+The entry point in `main.py` and the Assetto Corsa adapter, which is recent
+enough to only have a smoke test.
+
+**Tested.** That `main.py --game <name>` accepts every supported choice,
+rejects unknown ones, exposes the option in `--help`, accepts `--track`,
+and dispatches to the right runner per game (`run_one` for tmnf / beamng /
+car_racing / torcs / sc2, `run_assetto` for assetto, with a clear error
+when the optional dependency is missing); that the Assetto Corsa adapter's
+obs spec, env wrapper, reward calc and a 5-episode training loop all run
+against a stubbed client.
+
+**Not tested.** The interactive CLI itself (no terminal harness); the real
+Assetto Corsa shared-memory client.
 
 ### cli/test_game_flag.py (14) — `--game` CLI flag in `main.py`
 - default tmnf; all valid choices accepted; invalid → SystemExit; help text mentions flag; `--track` accepted; main parser has all choices

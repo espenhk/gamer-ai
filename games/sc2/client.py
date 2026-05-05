@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call, pysc2_ids_to_internal_fn_idx
 from games.sc2.obs_spec import (
     LADDER_OBS_NAMES,
     OBS_NAMES,
@@ -24,6 +24,11 @@ from games.sc2.obs_spec import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Reverse mapping from FUNCTION_IDS name → our fn_idx key.
+# Used in _timestep_to_obs_info() to convert PySC2 available_actions IDs
+# into our fn_idx values (0-5); built once at import time.
+_FN_NAME_TO_IDX: dict[str, int] = {v: k for k, v in FUNCTION_IDS.items()}
 
 # ---------------------------------------------------------------------------
 # Spatial feature layer normalisation scales
@@ -413,6 +418,7 @@ class SC2Client:
             "army_count": army_count,
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
+            "available_fn_ids": pysc2_ids_to_internal_fn_idx(self._available_actions) if self._available_actions is not None else None,
             "game_loop": game_loop,
             "available_fn_ids": available_fn_ids,
         }

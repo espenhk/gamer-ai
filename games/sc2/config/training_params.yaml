@@ -33,6 +33,20 @@ patience: 0                  # stop greedy loop if no improvement for this many 
 # Note: hill_climbing, neural_net, and the framework's genetic policy are NOT
 # compatible with SC2 because their output encoding collapses fn_idx to {0,1}
 # and x/y to screen corners — use sc2_genetic instead.
+#
+# sc2_neural_dqn recommended policy_params (uncomment and set policy_type: sc2_neural_dqn):
+# policy_params:
+#   replay_buffer_size: 50000    # more transitions per episode than TMNF
+#   min_replay_size: 2000        # proportional warm-up
+#   epsilon_decay_steps: 20000   # longer exploration phase
+#   gamma: 0.995                 # sparse win/loss reward needs long-horizon credit
+#   hidden_sizes: [64, 64]
+#   batch_size: 64
+#   target_update_freq: 200
+#   learning_rate: 0.001
+#   epsilon_start: 1.0
+#   epsilon_end: 0.05
+
 policy_type: sc2_genetic
 
 screen_layers: []                           # spatial feature layers for sc2_cnn policy; [] = disabled (required for sc2_genetic and other flat-obs policies)

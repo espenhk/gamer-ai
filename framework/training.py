@@ -68,7 +68,7 @@ class _ConstantPolicy:
         return self._action
     def update(self, *_, **__) -> None:
         pass
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         pass
 
 
@@ -190,8 +190,17 @@ def _run_episode(
     obs: np.ndarray,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    reset_info: dict | None = None,
 ) -> tuple[float, dict, list[int], int, RunTrace]:
     """Run one episode from *obs* until terminated/truncated.
+
+    Parameters
+    ----------
+    reset_info :
+        The info dict returned by ``env.reset()`` for this episode.
+        Forwarded to ``policy.on_episode_start(info=reset_info)`` so
+        that policies can prime state (e.g. available-actions masks)
+        before the first ``policy(obs)`` call.
 
     Returns:
         total_reward    — float
@@ -210,7 +219,7 @@ def _run_episode(
     throttle_state: list = []
     prev_obs = obs
 
-    policy.on_episode_start()
+    policy.on_episode_start(info=reset_info or {})
 
     while True:
         in_warmup = (warmup_action is not None) and (steps < warmup_steps)
@@ -220,7 +229,8 @@ def _run_episode(
         steps += 1
 
         if not in_warmup:
-            policy.update(prev_obs, action, reward, next_obs, terminated or truncated, info=info)
+            policy.update(prev_obs, action, reward, next_obs, terminated or truncated,
+                          info=info)
 
         prev_obs = next_obs
         obs      = next_obs
@@ -318,10 +328,11 @@ def _run_probes(
     try:
         for i, (action_arr, action_name) in enumerate(probe_actions):
             logger.info("Probe %d/%d: %s", i + 1, len(probe_actions), action_name)
-            obs, _ = env.reset()
+            obs, reset_info = env.reset()
             reward, _, throttle_counts, total_steps, trace = _run_episode(
                 env, _ConstantPolicy(action_arr), obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
+                reset_info=reset_info,
             )
             results[i] = reward
             probe_results.append(
@@ -383,10 +394,11 @@ def _cold_start_search(
 
         for sim in range(1, sims_per_restart + 1):
             candidate = local_best_policy.mutated(scale=mutation_scale, share=mutation_share)
-            obs, _ = env.reset()
+            obs, reset_info = env.reset()
             reward, info, tc, total_steps, trace = _run_episode(
                 env, candidate, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
+                reset_info=reset_info,
             )
             sim_results.append(ColdStartSimResult(
                 sim=sim, reward=reward,
@@ -468,10 +480,11 @@ def _greedy_loop(
                     env.set_episode_time_limit(
                         _scaled_episode_time(sim, n_sims, full_episode_time_s)
                     )
-                obs, _ = env.reset()
+                obs, reset_info = env.reset()
                 reward, info, tc, total_steps, trace = _run_episode(
                     env, candidate, obs,
                     warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    reset_info=reset_info,
                 )
                 improved = reward > best_reward
                 if improved:
@@ -542,15 +555,17 @@ def _greedy_loop(
                     _scaled_episode_time(sim, n_sims, full_episode_time_s)
                 )
 
-            obs, _ = env.reset()
+            obs, reset_info = env.reset()
             r_plus, info_plus, tc_plus, steps_plus, trace_plus = _run_episode(
                 env, policy_plus, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
+                reset_info=reset_info,
             )
-            obs, _ = env.reset()
+            obs, reset_info = env.reset()
             r_minus, info_minus, tc_minus, steps_minus, trace_minus = _run_episode(
                 env, policy_minus, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
+                reset_info=reset_info,
             )
 
             theta += learning_rate * (r_plus - r_minus) * eps
@@ -674,10 +689,11 @@ def _greedy_loop_cmaes(
             for individual in offspring:
                 ep_rewards: list[float] = []
                 for _ in range(eval_episodes):
-                    obs, _ = env.reset()
+                    obs, reset_info = env.reset()
                     reward, info, _, steps, trace = _run_episode(
                         env, individual, obs,
                         warmup_action=warmup_action, warmup_steps=warmup_steps,
+                        reset_info=reset_info,
                     )
                     ep_rewards.append(reward)
                     total_steps += steps
@@ -748,10 +764,11 @@ def _greedy_loop_q_learning(
                 env.set_episode_time_limit(_scaled_episode_time(
                     episode, n_episodes, full_episode_time_s,
                 ))
-            obs, _ = env.reset()
+            obs, reset_info = env.reset()
             reward, info, tc, total_steps, trace = _run_episode(
                 env, policy, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
+                reset_info=reset_info,
             )
             policy.on_episode_end()
 
@@ -838,10 +855,11 @@ def _greedy_loop_genetic(
             for idx, individual in enumerate(policy.population):
                 ep_rewards: list[float] = []
                 for _ in range(eval_episodes):
-                    obs, _ = env.reset()
+                    obs, reset_info = env.reset()
                     reward, info, _, steps, trace = _run_episode(
                         env, individual, obs,
                         warmup_action=warmup_action, warmup_steps=warmup_steps,
+                        reset_info=reset_info,
                     )
                     ep_rewards.append(reward)
                     total_steps += steps

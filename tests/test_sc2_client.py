@@ -455,6 +455,89 @@ class TestSC2ClientActionFallback(unittest.TestCase):
         action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
         call = self.client._action_to_call(action)
         self.assertEqual(call.function, _FakeFunctions.no_op.id)
+class TestSC2ClientAvailableFnIds(unittest.TestCase):
+    """Tests for the info["available_fn_ids"] field added by _timestep_to_obs_info."""
+
+    def _minigame_ob(self, available_actions: np.ndarray | None = None) -> dict:
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        if available_actions is not None:
+            ob["available_actions"] = available_actions
+        return ob
+
+    def test_available_fn_ids_absent_when_no_available_actions(self):
+        """When the observation has no available_actions key, available_fn_ids is None."""
+        client = SC2Client(map_name="MoveToBeacon")
+        ob = self._minigame_ob(available_actions=None)
+        _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertIn("available_fn_ids", info)
+        self.assertIsNone(info["available_fn_ids"])
+
+    def test_available_fn_ids_none_when_mapping_unavailable(self):
+        """When the PySC2 ID→fn_idx mapping is empty (PySC2 not installed),
+        available_fn_ids is None even if available_actions is present."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # Simulate PySC2 not installed: the cache resolves to an empty dict.
+            sc2_client_mod._pysc2_id_to_fn_idx = {}
+            client = SC2Client(map_name="MoveToBeacon")
+            ob = self._minigame_ob(available_actions=np.array([0, 1, 2]))
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertIsNone(info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_mapped_correctly_with_known_id_table(self):
+        """With an injected PySC2-ID→fn_idx table, available_fn_ids contains
+        only the fn_idx values whose PySC2 IDs appear in available_actions."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # Inject a synthetic mapping: PySC2 IDs 0→fn_idx 0, 7→fn_idx 1, 331→fn_idx 2.
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 7: 1, 331: 2}
+            client = SC2Client(map_name="MoveToBeacon")
+            # Observation exposes PySC2 IDs 0 (no_op) and 331 (Move_screen).
+            ob = self._minigame_ob(available_actions=np.array([0, 331]))
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertIsNotNone(info["available_fn_ids"])
+            self.assertEqual(info["available_fn_ids"], {0, 2})
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_excludes_unknown_pysc2_ids(self):
+        """PySC2 IDs with no mapping entry must be silently dropped."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0}  # only no_op mapped
+            client = SC2Client(map_name="MoveToBeacon")
+            # available_actions includes an unknown ID (999).
+            ob = self._minigame_ob(available_actions=np.array([0, 999]))
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], {0})
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_is_set_type(self):
+        """available_fn_ids must be a set (not a list or dict) for O(1) lookup."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 7: 1}
+            client = SC2Client(map_name="MoveToBeacon")
+            ob = self._minigame_ob(available_actions=np.array([0, 7]))
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertIsInstance(info["available_fn_ids"], set)
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
 
 if __name__ == "__main__":

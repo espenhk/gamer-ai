@@ -481,8 +481,9 @@ class NeuralDQNPolicy(BasePolicy):
         )
 
 
+
 # ---------------------------------------------------------------------------
-# CMAESPolicy
+# Available-actions masking helpers (used by SC2NeuralDQNPolicy below)
 # ---------------------------------------------------------------------------
 
 def _build_available_actions_mask(
@@ -606,6 +607,19 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
         # Cache of the most recently received available-actions mask.
         # Starts as all-True (no masking) until the first update() call.
         self._cached_mask: np.ndarray = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+        # Raw set of available fn_idx values; kept in sync with _cached_mask.
+        # None means no information received yet (all actions unmasked).
+        self._avail_fn_ids_raw: set[int] | None = None
+
+    @property
+    def _available_fn_ids(self) -> set[int] | None:
+        """Available function IDs (raw set); updates ``_cached_mask`` when set."""
+        return self._avail_fn_ids_raw
+
+    @_available_fn_ids.setter
+    def _available_fn_ids(self, v: set[int] | None) -> None:
+        self._avail_fn_ids_raw = v
+        self._cached_mask = _build_available_actions_mask(v, _N_DISCRETE_ACTIONS)
 
     @classmethod
     def from_cfg(cls, cfg: dict, obs_spec: "ObsSpec") -> "SC2NeuralDQNPolicy":  # type: ignore[override]
@@ -678,14 +692,16 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
         The ``info`` keyword argument (if present) is used to extract
         ``available_fn_ids`` for the *next* state.  This mask is cached for
         use in the subsequent :meth:`__call__` and is also stored in the
-        replay buffer alongside the transition.
+        replay buffer alongside the transition.  When ``info`` does not
+        contain ``"available_fn_ids"``, the existing mask is preserved.
         """
         info = kwargs.get("info") or {}
-        available_fn_ids = info.get("available_fn_ids", None)
-        mask = _build_available_actions_mask(available_fn_ids, _N_DISCRETE_ACTIONS)
-        # Cache mask for next __call__() — info describes the next state so the
-        # mask is valid for the state we will act in on the following step.
-        self._cached_mask = mask
+        if "available_fn_ids" in info:
+            # Property setter updates _cached_mask alongside _avail_fn_ids_raw.
+            self._available_fn_ids = info["available_fn_ids"]
+        # Build the transition mask from the current cached mask so the replay
+        # buffer stores the correct next-state mask regardless of update order.
+        mask = self._cached_mask
 
         action_idx = int(action) if np.isscalar(action) else _action_to_idx(action)
         self._replay.push(obs, action_idx, reward, next_obs, done, mask)
@@ -695,9 +711,15 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
             obs_b, act_b, rew_b, next_b, done_b, mask_b = self._replay.sample(self._batch_size)
             self._gradient_step_masked(obs_b, act_b, rew_b, next_b, done_b, mask_b)
 
-    def on_episode_start(self) -> None:
-        """Reset cached mask to all-True at episode start."""
-        self._cached_mask = np.ones(_N_DISCRETE_ACTIONS, dtype=bool)
+    def on_episode_start(self, **kwargs) -> None:
+        """Reset cached mask to all-True and clear available_fn_ids at episode start."""
+        info = kwargs.get("info") or {}
+        if "available_fn_ids" in info:
+            # Prime mask from reset info if provided.
+            self._available_fn_ids = info["available_fn_ids"]
+        else:
+            # Clear stale terminal-state mask; property setter resets _cached_mask.
+            self._available_fn_ids = None
 
     def _gradient_step_masked(
         self,
@@ -1462,7 +1484,7 @@ class LSTMPolicy(BasePolicy):
         self._h = np.zeros(self._hidden_size, dtype=np.float32)
         self._c = np.zeros(self._hidden_size, dtype=np.float32)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         self._reset_hidden_state()
 
     def on_episode_end(self) -> None:
@@ -1653,9 +1675,9 @@ class LSTMEvolutionPolicy(BasePolicy):
             )
         return self._champion(obs)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         if self._champion is not None:
-            self._champion.on_episode_start()
+            self._champion.on_episode_start(**kwargs)
 
     def on_episode_end(self) -> None:
         if self._champion is not None:

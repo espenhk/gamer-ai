@@ -27,24 +27,26 @@ patience: 0                  # stop greedy loop if no improvement for this many 
 
 # Policy algorithm for the greedy training phase.
 # SC2-specific policies (correct action encoding for [fn_idx, x, y, queue]):
-#   sc2_genetic (default), sc2_neural_dqn, cmaes, neural_dqn, reinforce, lstm
+#   sc2_genetic (default), sc2_reinforce, cmaes, neural_dqn, reinforce, lstm
 # Framework tabular policies also work (select from DISCRETE_ACTIONS directly):
 #   epsilon_greedy, mcts
 # Note: hill_climbing, neural_net, and the framework's genetic policy are NOT
 # compatible with SC2 because their output encoding collapses fn_idx to {0,1}
 # and x/y to screen corners — use sc2_genetic instead.
 #
-# sc2_neural_dqn recommended settings (available-actions masking, SC2-tuned defaults):
-#   policy_type: sc2_neural_dqn
-#   policy_params:
-#     hidden_sizes: [64, 64]
-#     replay_buffer_size: 50000   # SC2 generates ~5× more transitions per episode than TMNF
-#     min_replay_size: 2000       # proportional warm-up
-#     epsilon_decay_steps: 20000  # longer exploration phase for sparse rewards
-#     gamma: 0.995                # long-horizon credit assignment for delayed win/loss
-#     batch_size: 64
-#     target_update_freq: 200
-#     learning_rate: 0.001
+# sc2_neural_dqn recommended policy_params (uncomment and set policy_type: sc2_neural_dqn):
+# policy_params:
+#   replay_buffer_size: 50000    # more transitions per episode than TMNF
+#   min_replay_size: 2000        # proportional warm-up
+#   epsilon_decay_steps: 20000   # longer exploration phase
+#   gamma: 0.995                 # sparse win/loss reward needs long-horizon credit
+#   hidden_sizes: [64, 64]
+#   batch_size: 64
+#   target_update_freq: 200
+#   learning_rate: 0.001
+#   epsilon_start: 1.0
+#   epsilon_end: 0.05
+
 policy_type: sc2_genetic
 
 screen_layers: []                           # spatial feature layers for sc2_cnn policy; [] = disabled (required for sc2_genetic and other flat-obs policies)
@@ -65,15 +67,10 @@ policy_params:
   mutation_scale: 0.1
   mutation_share: 0.3      # sparse mutation — mutate 30% of weights per individual
 
-# sc2_neural_dqn recommended policy_params (uncomment and set policy_type: sc2_neural_dqn):
+# Recommended sc2_reinforce hyperparams (uncomment policy_type: sc2_reinforce above):
 # policy_params:
-#   replay_buffer_size: 50000    # more transitions per episode than TMNF
-#   min_replay_size: 2000        # proportional warm-up
-#   epsilon_decay_steps: 20000   # longer exploration phase
-#   gamma: 0.995                 # sparse win/loss reward needs long-horizon credit
-#   hidden_sizes: [64, 64]
-#   batch_size: 64
-#   target_update_freq: 200
-#   learning_rate: 0.001
-#   epsilon_start: 1.0
-#   epsilon_end: 0.05
+#   hidden_sizes: [128, 64]
+#   learning_rate: 0.0003
+#   gamma: 0.995
+#   entropy_coeff: 0.05
+#   baseline: running_mean

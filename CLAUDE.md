@@ -409,27 +409,50 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `reinforce` | Monte Carlo policy gradient | `games/sc2/policies.py` |
 | `lstm` | LSTM policy trained by evolutionary search | `games/sc2/policies.py` |
 
-### Ladder reward tuning (`reward_config.yaml`)
+### Reward tuning (`reward_config.yaml`)
 
-For ladder maps (`Simple64` etc.) the recommended reward preset is:
+| Reward param | Default | Description |
+|---|---|---|
+| `score_weight` | `1.0` | Coefficient on the PySC2 cumulative `score` delta. |
+| `win_bonus` / `loss_penalty` | `100` / `-100` | Terminal reward on `player_outcome > 0` / `< 0` (ladder maps only). |
+| `step_penalty` | `-0.001` | Per-tick time cost. |
+| `idle_penalty` | `0.0` | Per-step penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps). |
+| `idle_bonus` | `0.0` | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen.  Issue #127 — opt-in, default `0.0`.  Useful for combat minigames (DefeatRoaches, DefeatZerglingsAndBanelings) where standing still lets units shoot. |
+| `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
+
+For ladder maps (`Simple64` etc.) the recommended preset is:
 
 ```yaml
-score_weight: 0.0        # cumulative game score is noisy for ladder; disable it
-win_bonus: 100.0         # applied on terminal win  (player_outcome = +1)
-loss_penalty: -100.0     # applied on terminal loss (player_outcome = -1)
-step_penalty: -0.001     # small time cost encourages decisive play
-economy_weight: 0.001    # per-step mineral+vespene delta; guides early-game economy
+score_weight: 0.0
+win_bonus: 100.0
+loss_penalty: -100.0
+step_penalty: -0.001
+economy_weight: 0.001
 ```
 
 `win_bonus` and `loss_penalty` are always active for ladder maps regardless of `score_weight`.
 
-### Action space
+### Action space (issues #122, #127)
 
-Continuous `Box([fn_idx, x, y, queue], shape=(4,))` with a 9-cell discrete grid in `games/sc2/actions.py`. `fn_idx` cell 4 (centre) selects the army; the other 8 cells emit `Move_screen` to one of the directional cells. Sufficient for `MoveToBeacon` / `CollectMineralShards`; extension to economy/build minigames is via richer reward shaping rather than a wider action set in this MVP.
+Continuous `Box([fn_idx, x, y, queue], shape=(4,))`.  `DISCRETE_ACTIONS` (used by tabular policies) is now ``[no_op, select_army, Move_screen × N×N]`` where ``N = SCREEN_GRID_RESOLUTION`` (default 8 → 64-cell grid, 66 rows total).
 
-### Observation space
+- Row 0 is `no_op` so tabular policies can elect to do nothing (issue #127) — necessary for "stand still and shoot" tactics.
+- Row 1 is `select_army` (also the warmup action).
+- Rows 2..N-1 are `Move_screen` calls at cell centres of an 8×8 grid covering the screen at one-cell-per-8-pixels granularity.
 
-13-dim flat vector for minigames (see `games/sc2/obs_spec.py::SC2_MINIGAME_OBS_SPEC`): player totals, selected-unit summary, screen player_relative pixel counts and centroids. Ladder maps use the 21-dim `SC2_LADDER_OBS_SPEC` which adds economy and minimap visibility features.
+`SC2MultiHeadLinearPolicy` (the `sc2_genetic` default) now emits **continuous** `(x, y) ∈ [0, 1]²` coordinates via a sigmoid head (issue #122).  Pre-#122 weight files (with `spatial_{0..8}_weights` keys) load with the new `x_weights` / `y_weights` defaulting to zero.
+
+### Observation space (issue #126)
+
+Three preset specs, opt-in via the `obs_spec_preset` training param:
+
+| Preset | Dim | Default for | Notes |
+|---|---|---|---|
+| `minigame` | 13 | All minigame names | Player totals, selected-unit summary, screen `player_relative` summary. |
+| `ladder` | 43 | All non-minigame maps | Adds `food_workers`/`food_army`, idle worker / warp gate / larva counts, minimap stats (`minimap_self_count`, `minimap_enemy_count`, `minimap_visible_frac`, `minimap_explored_frac`, `minimap_camera_x/y`, `game_loop`), the 13 PySC2 score-cumulative entries, screen unit-density / mean-HP, and top-K enemy counts (`topk_enemy_within_8`, `topk_enemy_within_24`). |
+| `rich`  | 80 | Opt-in only | Adds 8 per-unit-type counts (Marine / SCV / Zergling / Drone / Probe / Stalker / Roach / Mutalisk), screen quadrant counts (NE/NW/SE/SW × self/enemy), top-3 closest enemies' (rel_x, rel_y, hp_ratio), available-actions binary mask, and last-action one-hot. |
+
+Set `obs_spec_preset: rich` in `training_params.yaml` to opt into the rich preset on any map.  Existing weight files migrate via the standard "missing key → 0.0" path — old champions can be loaded under any preset, and the new feature weights default to zero.
 
 ---
 

@@ -88,6 +88,7 @@ class SC2Env(BaseGameEnv):
         visualize: bool = False,
         screen_layers: list[str] | None = None,
         minimap_layers: list[str] | None = None,
+        obs_spec_preset: str | None = None,
     ) -> None:
         super().__init__()
 
@@ -96,12 +97,14 @@ class SC2Env(BaseGameEnv):
         self._reward_config = reward_config or SC2RewardConfig()
         self._max_episode_time_s = max_episode_time_s
         self._step_mul = step_mul
+        self._screen_size = screen_size
         self._reward_calc = SC2RewardCalculator(self._reward_config)
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
         self._use_spatial = bool(self._screen_layers or self._minimap_layers)
+        self._obs_spec_preset = obs_spec_preset
 
-        spec = get_spec(map_name)
+        spec = get_spec(map_name, preset=obs_spec_preset)
         flat_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
@@ -140,6 +143,7 @@ class SC2Env(BaseGameEnv):
             visualize=visualize,
             screen_layers=self._screen_layers,
             minimap_layers=self._minimap_layers,
+            obs_spec_preset=obs_spec_preset,
         )
 
         # Episode tracking
@@ -150,6 +154,7 @@ class SC2Env(BaseGameEnv):
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._step_count: int = 0
+        self._ep_reward_components: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -173,6 +178,7 @@ class SC2Env(BaseGameEnv):
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
         self._step_count = 0
+        self._ep_reward_components = {}
         self._reward_calc.reset()
 
         return obs, info
@@ -189,11 +195,16 @@ class SC2Env(BaseGameEnv):
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
         info["elapsed_s"] = self._elapsed_s
+        # Action fn_idx — required by reward shaping (e.g. idle_bonus, #127).
+        info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
+        # Screen size threading — reward shaping uses it to scale pixel-based
+        # thresholds for non-default screen resolutions.
+        info["screen_size"] = self._screen_size
 
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done
 
-        reward = self._reward_calc.compute(
+        reward, step_components = self._reward_calc.compute_with_components(
             prev_state=None,
             curr_state=None,
             finished=finished,
@@ -201,6 +212,14 @@ class SC2Env(BaseGameEnv):
             info=info,
             n_ticks=self._step_mul,
         )
+        # Accumulate per-component totals across the episode so analytics
+        # can attribute reward to score / economy / penalties separately
+        # (issue #128/2b).
+        for k, v in step_components.items():
+            self._ep_reward_components[k] = (
+                self._ep_reward_components.get(k, 0.0) + float(v)
+            )
+        info["episode_reward_components"] = dict(self._ep_reward_components)
 
         terminated = finished
         truncated = time_over and not terminated
@@ -280,6 +299,7 @@ def make_env(
     visualize: bool = False,
     screen_layers: list[str] | None = None,
     minimap_layers: list[str] | None = None,
+    obs_spec_preset: str | None = None,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -303,4 +323,5 @@ def make_env(
         visualize=visualize,
         screen_layers=screen_layers,
         minimap_layers=minimap_layers,
+        obs_spec_preset=obs_spec_preset,
     )

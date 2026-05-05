@@ -39,6 +39,14 @@ class SC2RewardConfig:
     idle_penalty :
         Per-step penalty when ``army_count == 0 and food_used < food_cap``;
         used by ``BuildMarines`` to discourage doing nothing.
+    idle_bonus :
+        Per-step bonus awarded when the agent issues ``no_op`` *and* friendly
+        units are within combat range of an enemy on the screen (issue #127).
+        Default ``0.0`` — opt-in.  Makes the "stand still so units can shoot"
+        lesson learnable rather than only discoverable through luck.  Requires
+        the screen summary features (``screen_self_count`` / ``screen_enemy_count``
+        / centroids) populated by the client; with the default obs preset
+        these are always present.
     economy_weight :
         Coefficient on (minerals + vespene) delta.  Useful for economy
         minigames.  Set to 0 for pure-combat minigames.
@@ -49,6 +57,7 @@ class SC2RewardConfig:
     loss_penalty:    float = -100.0
     step_penalty:    float = -0.001
     idle_penalty:    float = 0.0
+    idle_bonus:      float = 0.0
     economy_weight:  float = 0.0
 
     @classmethod
@@ -78,7 +87,19 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``prev_minerals``, ``prev_vespene`` — previous totals
         ``army_count``, ``food_used``, ``food_cap``
         ``player_outcome`` — None / +1 / -1 (only set on the final step)
+        ``action_fn_idx`` — fn_idx of the action issued this step (for ``idle_bonus``)
+        ``screen_self_count`` / ``screen_enemy_count`` — friendly / enemy
+            pixel counts on screen (for ``idle_bonus`` combat-range check)
+        ``screen_self_cx`` / ``screen_self_cy`` / ``screen_enemy_cx`` /
+            ``screen_enemy_cy`` — centroids in screen pixels
     """
+
+    # Maximum centroid-distance for friendly units to be considered
+    # "in combat range" for the ``idle_bonus`` shaping reward.  Expressed
+    # as a fraction of the screen feature-layer side so the threshold
+    # scales with non-default screen_size values (~Marine range at the
+    # 64-pixel default ≈ 25 px).
+    _COMBAT_RANGE_FRAC: float = 25.0 / 64.0
 
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
@@ -92,13 +113,32 @@ class SC2RewardCalculator(RewardCalculatorBase):
         info: dict,
         n_ticks: int = 1,
     ) -> float:
+        return self.compute_with_components(
+            prev_state, curr_state, finished, elapsed_s, info, n_ticks,
+        )[0]
+
+    def compute_with_components(
+        self,
+        prev_state: Any,
+        curr_state: Any,
+        finished: bool,
+        elapsed_s: float,
+        info: dict,
+        n_ticks: int = 1,
+    ) -> tuple[float, dict[str, float]]:
+        """Return ``(reward, components)`` for this step (issue #128/2b).
+
+        ``components`` exposes a per-term breakdown so analytics can
+        attribute reward to ``score``, ``economy``, ``idle_penalty``,
+        ``idle_bonus``, ``step_penalty`` and ``terminal`` separately.
+        """
         cfg = self.config
-        reward = 0.0
+        components: dict[str, float] = {}
 
         # Score delta — primary signal for minigames.
         prev_score = info.get("prev_score", 0.0)
         curr_score = info.get("score", 0.0)
-        reward += cfg.score_weight * (curr_score - prev_score)
+        components["score"] = float(cfg.score_weight * (curr_score - prev_score))
 
         # Economy delta (optional — typically 0 for pure-combat minigames).
         if cfg.economy_weight != 0.0:
@@ -106,27 +146,51 @@ class SC2RewardCalculator(RewardCalculatorBase):
             curr_min = info.get("minerals", 0.0)
             prev_vesp = info.get("prev_vespene", 0.0)
             curr_vesp = info.get("vespene", 0.0)
-            reward += cfg.economy_weight * (
+            components["economy"] = float(cfg.economy_weight * (
                 (curr_min - prev_min) + (curr_vesp - prev_vesp)
-            )
+            ))
+        else:
+            components["economy"] = 0.0
 
         # Idle penalty: nothing built and supply slack — encourages building.
+        idle_pen = 0.0
         if cfg.idle_penalty != 0.0:
             army = info.get("army_count", 0.0)
             food_used = info.get("food_used", 0.0)
             food_cap = info.get("food_cap", 0.0)
             if army == 0 and food_used < food_cap:
-                reward += cfg.idle_penalty * n_ticks
+                idle_pen = cfg.idle_penalty * n_ticks
+        components["idle_penalty"] = float(idle_pen)
+
+        # Idle bonus (issue #127): reward standing still when units are in
+        # combat range of an enemy.  The pixel threshold scales with the
+        # screen feature-layer size so non-default screen_size resolutions
+        # behave consistently.
+        idle_bonus = 0.0
+        if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
+            self_count  = info.get("screen_self_count", 0.0)
+            enemy_count = info.get("screen_enemy_count", 0.0)
+            if self_count > 0 and enemy_count > 0:
+                dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dist = (dx * dx + dy * dy) ** 0.5
+                screen_size = float(info.get("screen_size", 64))
+                if dist <= self._COMBAT_RANGE_FRAC * screen_size:
+                    idle_bonus = cfg.idle_bonus * n_ticks
+        components["idle_bonus"] = float(idle_bonus)
 
         # Time cost.
-        reward += cfg.step_penalty * n_ticks
+        components["step_penalty"] = float(cfg.step_penalty * n_ticks)
 
         # Terminal win/loss bonus (only set when the env signals an outcome).
+        terminal = 0.0
         outcome = info.get("player_outcome")
         if finished and outcome is not None:
             if outcome > 0:
-                reward += cfg.win_bonus
+                terminal = cfg.win_bonus
             elif outcome < 0:
-                reward += cfg.loss_penalty
+                terminal = cfg.loss_penalty
+        components["terminal"] = float(terminal)
 
-        return reward
+        reward = float(sum(components.values()))
+        return reward, components

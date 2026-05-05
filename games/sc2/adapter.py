@@ -56,7 +56,8 @@ class SC2Adapter:
         from games.sc2.analytics import save_experiment_results
 
         map_name = self._map_name(training_params, track_override)
-        obs_spec = get_spec(map_name)
+        obs_spec_preset = training_params.get("obs_spec_preset")
+        obs_spec = get_spec(map_name, preset=obs_spec_preset)
 
         policy_type = training_params.get("policy_type", "sc2_genetic")
         # Spatial obs (dict observation space) is only supported by sc2_cnn.
@@ -83,6 +84,7 @@ class SC2Adapter:
                 bot_difficulty=training_params.get("bot_difficulty", "very_easy"),
                 screen_layers=screen_layers,
                 minimap_layers=minimap_layers,
+                obs_spec_preset=obs_spec_preset,
             )
 
         return GameSpec(
@@ -110,7 +112,8 @@ class SC2Adapter:
         from games.sc2.sc2_policies import SC2GeneticPolicy
 
         map_name = training_params.get("map_name", "MoveToBeacon")
-        obs_spec = get_spec(map_name)
+        obs_spec_preset = training_params.get("obs_spec_preset")
+        obs_spec = get_spec(map_name, preset=obs_spec_preset)
         policy_params = training_params.get("policy_params") or {}
         trainer_state_file = os.path.join(
             os.path.dirname(weights_file), "trainer_state.npz",

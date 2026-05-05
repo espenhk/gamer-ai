@@ -10,7 +10,7 @@ import numpy as np
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC, SC2_LADDER_OBS_SPEC
 from games.sc2.sc2_policies import (
     N_FUNCTION_IDS,
-    N_GRID_CELLS,
+    N_SPATIAL_ROWS,
     SC2GeneticPolicy,
     SC2MultiHeadLinearPolicy,
     _ALL_ROW_NAMES,
@@ -51,9 +51,11 @@ class TestSC2MultiHeadLinearPolicyInit(unittest.TestCase):
                          (N_FUNCTION_IDS, SC2_MINIGAME_OBS_SPEC.dim))
 
     def test_spatial_weights_shape_minigame(self):
+        """Spatial head is 2 rows after issue #122 (continuous x, y sigmoid)."""
         p = _make_policy()
         self.assertEqual(p._sp_weights.shape,
-                         (N_GRID_CELLS, SC2_MINIGAME_OBS_SPEC.dim))
+                         (N_SPATIAL_ROWS, SC2_MINIGAME_OBS_SPEC.dim))
+        self.assertEqual(N_SPATIAL_ROWS, 2)
 
     def test_fn_weights_shape_ladder(self):
         p = _make_policy(SC2_LADDER_OBS_SPEC)
@@ -63,25 +65,25 @@ class TestSC2MultiHeadLinearPolicyInit(unittest.TestCase):
     def test_spatial_weights_shape_ladder(self):
         p = _make_policy(SC2_LADDER_OBS_SPEC)
         self.assertEqual(p._sp_weights.shape,
-                         (N_GRID_CELLS, SC2_LADDER_OBS_SPEC.dim))
+                         (N_SPATIAL_ROWS, SC2_LADDER_OBS_SPEC.dim))
 
     def test_total_flat_dim_minigame(self):
-        """θ dimension = (N_FUNCTION_IDS + N_GRID_CELLS) × obs_dim."""
+        """θ dimension = (N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim."""
         p = _make_policy()
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
-        expected = (N_FUNCTION_IDS + N_GRID_CELLS) * obs_dim
+        expected = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_dim
         self.assertEqual(len(p.to_flat()), expected)
 
     def test_total_flat_dim_ladder(self):
         p = _make_policy(SC2_LADDER_OBS_SPEC)
         obs_dim = SC2_LADDER_OBS_SPEC.dim
-        expected = (N_FUNCTION_IDS + N_GRID_CELLS) * obs_dim
+        expected = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_dim
         self.assertEqual(len(p.to_flat()), expected)
 
     def test_explicit_weights_stored(self):
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
         fn_w = np.ones((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
-        sp_w = np.full((N_GRID_CELLS, obs_dim), 2.0, dtype=np.float32)
+        sp_w = np.full((N_SPATIAL_ROWS, obs_dim), 2.0, dtype=np.float32)
         p = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
         np.testing.assert_array_equal(p._fn_weights, fn_w)
         np.testing.assert_array_equal(p._sp_weights, sp_w)
@@ -122,25 +124,49 @@ class TestSC2MultiHeadLinearPolicyCall(unittest.TestCase):
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
         fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
         fn_w[3, :] = 1.0   # function ID 3 gets all positive weights
-        sp_w = np.zeros((N_GRID_CELLS, obs_dim), dtype=np.float32)
+        sp_w = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
         p    = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
         obs  = np.ones(obs_dim, dtype=np.float32)
         act  = p(obs)
         self.assertEqual(int(act[0]), 3)
 
-    def test_call_selects_max_spatial_cell(self):
-        """Policy with all-zero spatial weights except cell 7 selects cell 7."""
+    def test_zero_spatial_weights_give_centre(self):
+        """Sigmoid of zero is 0.5, so all-zero spatial weights centre the click."""
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
-        from games.sc2.sc2_policies import _GRID_XY
         fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
-        sp_w = np.zeros((N_GRID_CELLS, obs_dim), dtype=np.float32)
-        sp_w[7, :] = 1.0
+        sp_w = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
         p = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
         obs = np.ones(obs_dim, dtype=np.float32)
         act = p(obs)
-        expected_x, expected_y = _GRID_XY[7]
-        self.assertAlmostEqual(float(act[1]), expected_x)
-        self.assertAlmostEqual(float(act[2]), expected_y)
+        self.assertAlmostEqual(float(act[1]), 0.5)
+        self.assertAlmostEqual(float(act[2]), 0.5)
+
+    def test_spatial_head_responds_continuously_to_obs(self):
+        """Issue #122: (x, y) must vary continuously with the observation."""
+        obs_dim = SC2_MINIGAME_OBS_SPEC.dim
+        fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
+        sp_w = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
+        # Set the x weight on dim 0 to a positive value, y weight on dim 1
+        # to a negative value so changing those obs entries moves x / y.
+        sp_w[0, 0] = 5.0   # x sensitive to obs[0]
+        sp_w[1, 1] = -5.0  # y sensitive to obs[1]
+        p = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
+
+        scales = SC2_MINIGAME_OBS_SPEC.scales
+        xs, ys = [], []
+        for v in np.linspace(-1.0, 1.0, 5):
+            obs = np.zeros(obs_dim, dtype=np.float32)
+            obs[0] = v * scales[0]
+            obs[1] = v * scales[1]
+            act = p(obs)
+            xs.append(float(act[1]))
+            ys.append(float(act[2]))
+        # x is monotone increasing in obs[0]; y is monotone decreasing in obs[1].
+        self.assertTrue(all(xs[i] < xs[i + 1] for i in range(len(xs) - 1)))
+        self.assertTrue(all(ys[i] > ys[i + 1] for i in range(len(ys) - 1)))
+        # The continuous head must produce distinct interior values, not a
+        # 9-cell argmax cluster — at least 4 unique x values across 5 samples.
+        self.assertGreaterEqual(len(set(round(x, 4) for x in xs)), 4)
 
 
 class TestSC2MultiHeadLinearPolicySerialization(unittest.TestCase):
@@ -148,10 +174,17 @@ class TestSC2MultiHeadLinearPolicySerialization(unittest.TestCase):
     def test_to_cfg_has_correct_keys(self):
         p   = _make_policy()
         cfg = p.to_cfg()
-        # 6 fn_idx rows + 9 spatial rows = 15 keys
-        self.assertEqual(len(cfg), N_FUNCTION_IDS + N_GRID_CELLS)
+        # 6 fn_idx rows + 2 spatial rows (x, y) = 8 keys
+        self.assertEqual(len(cfg), N_FUNCTION_IDS + N_SPATIAL_ROWS)
         for name in _ALL_ROW_NAMES:
             self.assertIn(f"{name}_weights", cfg)
+
+    def test_x_and_y_keys_present(self):
+        """Issue #122: spatial head serialised under x_weights / y_weights."""
+        p = _make_policy()
+        cfg = p.to_cfg()
+        self.assertIn("x_weights", cfg)
+        self.assertIn("y_weights", cfg)
 
     def test_all_cfg_keys_end_with_weights(self):
         """GeneticPolicy._crossover relies on this suffix."""
@@ -196,13 +229,23 @@ class TestSC2MultiHeadLinearPolicySerialization(unittest.TestCase):
         np.testing.assert_array_equal(p2._fn_weights, 0.0)
         np.testing.assert_array_equal(p2._sp_weights, 0.0)
 
+    def test_from_cfg_ignores_legacy_spatial_keys(self):
+        """Pre-#122 weight files (spatial_{0..8}_weights) migrate to zero."""
+        names = SC2_MINIGAME_OBS_SPEC.names
+        legacy_cfg = {
+            f"spatial_{i}_weights": {n: 1.0 for n in names}
+            for i in range(9)
+        }
+        p = SC2MultiHeadLinearPolicy.from_cfg(legacy_cfg, SC2_MINIGAME_OBS_SPEC)
+        np.testing.assert_array_equal(p._sp_weights, 0.0)
+
 
 class TestSC2MultiHeadLinearPolicyFlat(unittest.TestCase):
 
     def test_to_flat_length(self):
         p       = _make_policy()
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
-        self.assertEqual(len(p.to_flat()), (N_FUNCTION_IDS + N_GRID_CELLS) * obs_dim)
+        self.assertEqual(len(p.to_flat()), (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_dim)
 
     def test_with_flat_round_trip(self):
         p1   = _make_policy()
@@ -233,7 +276,7 @@ class TestSC2MultiHeadLinearPolicyMutation(unittest.TestCase):
     def test_mutated_share_zero_leaves_weights_unchanged(self):
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
         fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
-        sp_w = np.zeros((N_GRID_CELLS,   obs_dim), dtype=np.float32)
+        sp_w = np.zeros((N_SPATIAL_ROWS,   obs_dim), dtype=np.float32)
         p    = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
         pm   = p.mutated(scale=1.0, share=0.0)
         np.testing.assert_array_equal(pm._fn_weights, fn_w)
@@ -259,9 +302,9 @@ class TestSC2GeneticPolicyInit(unittest.TestCase):
         self.assertEqual(gp._eval_episodes, 4)
 
     def test_head_names_cover_all_rows(self):
-        """head_names must encode all 15 weight-matrix rows."""
+        """head_names must encode all weight-matrix rows (6 fn + 2 spatial = 8)."""
         gp = _make_genetic()
-        self.assertEqual(len(gp._head_names), N_FUNCTION_IDS + N_GRID_CELLS)
+        self.assertEqual(len(gp._head_names), N_FUNCTION_IDS + N_SPATIAL_ROWS)
 
 
 class TestSC2GeneticPolicyPopulation(unittest.TestCase):
@@ -287,7 +330,7 @@ class TestSC2GeneticPolicyPopulation(unittest.TestCase):
         gp      = _make_genetic(pop=4)
         gp.initialize_random()
         obs_dim = SC2_MINIGAME_OBS_SPEC.dim
-        expected_flat_len = (N_FUNCTION_IDS + N_GRID_CELLS) * obs_dim
+        expected_flat_len = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_dim
         for ind in gp.population:
             self.assertEqual(len(ind.to_flat()), expected_flat_len)
 
@@ -332,7 +375,7 @@ class TestSC2GeneticPolicyCrossover(unittest.TestCase):
         flat_child = SC2MultiHeadLinearPolicy.from_cfg(
             child_cfg, SC2_MINIGAME_OBS_SPEC
         ).to_flat()
-        # With 195 weights and ~50% crossover rate, both +1 and -1 should appear
+        # With ~100 weights and ~50% crossover rate, both +1 and -1 should appear
         self.assertIn( 1.0, flat_child.tolist())
         self.assertIn(-1.0, flat_child.tolist())
 
@@ -341,7 +384,7 @@ class TestSC2GeneticPolicyCrossover(unittest.TestCase):
         child_cfg     = SC2GeneticPolicy._crossover(cfg1, cfg2)
         child         = SC2MultiHeadLinearPolicy.from_cfg(child_cfg, SC2_MINIGAME_OBS_SPEC)
         obs_dim       = SC2_MINIGAME_OBS_SPEC.dim
-        expected_len  = (N_FUNCTION_IDS + N_GRID_CELLS) * obs_dim
+        expected_len  = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_dim
         self.assertEqual(len(child.to_flat()), expected_len)
 
     def test_crossover_child_weights_only_from_parents(self):

@@ -275,7 +275,7 @@ class SC2CNNModel:
         x, y     = _GRID_XY[cell_idx]
         return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         pass
 
     def on_episode_end(self) -> None:
@@ -431,7 +431,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
             )
         return self._champion(obs)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         pass
 
     def on_episode_end(self) -> None:

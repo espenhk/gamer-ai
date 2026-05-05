@@ -55,10 +55,13 @@ class BasePolicy(ABC):
                next_obs: np.ndarray, done: bool, **kwargs) -> None:
         """Per-step feedback from the environment.  No-op for non-online policies."""
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         """Called once at the start of each episode, before the first step.
 
         Override to reset episode-scoped hidden state (e.g. LSTM h/c).
+        The ``info`` dict from ``env.reset()`` is forwarded as ``info=``
+        when available, so policies can prime their internal state (e.g.
+        available-actions masks) before the first action is sampled.
         No-op by default.
         """
 

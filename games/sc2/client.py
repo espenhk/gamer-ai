@@ -55,7 +55,6 @@ _LAYER_SCALE: dict[str, float] = {
 
 # Lazy cache: maps PySC2 native function ID → our fn_idx (0-5 in FUNCTION_IDS).
 # Built on first use when pysc2 is available.
-_FN_NAME_TO_IDX: dict[str, int] = {name: idx for idx, name in FUNCTION_IDS.items()}
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
 
 

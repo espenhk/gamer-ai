@@ -250,6 +250,26 @@ class TestSC2REINFORCEBuffers(unittest.TestCase):
         self.assertEqual(len(policy._ep_grads),   0)
         self.assertEqual(len(policy._ep_rewards), 0)
 
+    def test_on_episode_start_primes_available_fn_ids_from_reset_info(self):
+        """on_episode_start(info={...}) with available_fn_ids primes the mask."""
+        policy = _make_policy()
+        policy.on_episode_start(info={"available_fn_ids": {0, 2}})
+        self.assertEqual(policy._available_fn_ids, {0, 2})
+
+    def test_on_episode_start_clears_stale_mask_when_no_reset_info(self):
+        """on_episode_start() without info resets the mask to None (no masking)."""
+        policy = _make_policy()
+        policy._available_fn_ids = {1, 3}   # simulate stale terminal-state mask
+        policy.on_episode_start()            # no info kwarg
+        self.assertIsNone(policy._available_fn_ids)
+
+    def test_on_episode_start_clears_stale_mask_when_info_has_none_fn_ids(self):
+        """on_episode_start(info={"available_fn_ids": None}) clears the mask."""
+        policy = _make_policy()
+        policy._available_fn_ids = {1}
+        policy.on_episode_start(info={"available_fn_ids": None})
+        self.assertIsNone(policy._available_fn_ids)
+
 
 # ---------------------------------------------------------------------------
 # Gradient / weight update tests

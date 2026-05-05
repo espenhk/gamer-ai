@@ -1315,7 +1315,7 @@ class LSTMPolicy(BasePolicy):
         self._h = np.zeros(self._hidden_size, dtype=np.float32)
         self._c = np.zeros(self._hidden_size, dtype=np.float32)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         self._reset_hidden_state()
 
     def on_episode_end(self) -> None:
@@ -1521,9 +1521,9 @@ class LSTMEvolutionPolicy(BasePolicy):
             )
         return self._champion(obs)
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         if self._champion is not None:
-            self._champion.on_episode_start()
+            self._champion.on_episode_start(**kwargs)
 
     def on_episode_end(self) -> None:
         if self._champion is not None:

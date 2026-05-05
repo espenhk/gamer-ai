@@ -244,7 +244,7 @@ class SC2MultiHeadLinearPolicy:
     # Framework compatibility shims
     # ------------------------------------------------------------------
 
-    def on_episode_start(self) -> None:
+    def on_episode_start(self, **kwargs) -> None:
         """No-op — required by training loop interface."""
 
     def update(self, obs: np.ndarray, action: np.ndarray, reward: float,
@@ -442,6 +442,10 @@ class SC2REINFORCEPolicy(BasePolicy):
         self._entropy_coeff = float(entropy_coeff)
         self._baseline_type = baseline
 
+        # Dedicated RNG for sampling — seeded so two instances with the same
+        # seed produce the same action sequence under the same weights.
+        self._rng = np.random.default_rng(seed)
+
         (
             self._trunk_w,
             self._trunk_b,
@@ -554,10 +558,25 @@ class SC2REINFORCEPolicy(BasePolicy):
     # Policy interface
     # ------------------------------------------------------------------
 
-    def on_episode_start(self) -> None:
-        """Reset episode buffers and (optionally) clear the cached available fns."""
+    def on_episode_start(self, **kwargs) -> None:
+        """Reset episode buffers and apply available_fn_ids from reset info.
+
+        The ``info`` kwarg carries the dict returned by ``env.reset()``.
+        If it contains ``"available_fn_ids"``, it is used to prime the
+        available-actions mask so the very first action of the episode is
+        sampled correctly rather than against the previous episode's mask.
+        If the key is absent the mask is cleared (all functions enabled),
+        which is safe because the SC2 client always masks at execution time.
+        """
         self._ep_grads.clear()
         self._ep_rewards.clear()
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
+        else:
+            # Clear stale terminal-state mask so first step is unmasked.
+            self._available_fn_ids = None
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         """Sample an action from the two-head policy.
@@ -574,12 +593,12 @@ class SC2REINFORCEPolicy(BasePolicy):
         fn_logits_masked = fn_logits.copy()
         fn_logits_masked[~fn_mask] = -np.inf
         fn_probs  = self._softmax(fn_logits_masked)
-        fn_idx    = int(np.random.choice(N_FUNCTION_IDS, p=fn_probs))
+        fn_idx    = int(self._rng.choice(N_FUNCTION_IDS, p=fn_probs))
 
         # --- spatial head ---
         sp_logits = self._sp_w @ h_last + self._sp_b  # (N_GRID_CELLS,)
         sp_probs  = self._softmax(sp_logits)
-        cell_idx  = int(np.random.choice(N_GRID_CELLS, p=sp_probs))
+        cell_idx  = int(self._rng.choice(N_GRID_CELLS, p=sp_probs))
 
         self._ep_grads.append(
             _GradEntry(

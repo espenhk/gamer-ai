@@ -34,26 +34,26 @@ game: sc2
 
 training_params:
   map_name: DefeatRoaches
-  obs_spec_preset: [ladder, rich]   # see state-space note above; both runs are diagnostic
-  enable_belief: false              # tabular state-space explosion; see comment above
+  obs_spec_preset: rich   # see state-space note above; both runs are diagnostic
+  enable_belief: [false, true]              # tabular state-space explosion; see comment above
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
   minimap_size: 64
-  agent_race: random
+  agent_race: terran
   n_sims: 300                 # 300 episodes; tabular Q-learning needs many episodes to build the table
   policy_type: epsilon_greedy
   epsilon_decay: [0.99, 0.995]
   alpha: [0.05, 0.1, 0.2]
-  policy_params:
-    n_bins: [2, 3, 4]
-    epsilon: 1.0
-    epsilon_min: 0.05
-    gamma: 0.99
+  #policy_params:
+  n_bins: [2, 3, 4]
+  epsilon: 1.0
+  epsilon_min: 0.05
+  gamma: 0.99
 
 reward_params:
   score_weight: 1.0
   step_penalty: -0.001
-  win_bonus: 0.0
+  win_bonus: 20.0
   loss_penalty: 0.0
-  idle_bonus: [0.5]
+  idle_bonus: [0.5, 1.0, 5.0]

@@ -2,7 +2,7 @@
 Distributed grid-search worker.
 
 Polls the coordinator for work items, runs train_rl() locally (requires a live
-TMInterface game session), and posts results back.
+game session), and posts results back.
 
 Authentication: every request carries  Authorization: Bearer <token>.
 Supply the token via --token or the TMNF_GRID_TOKEN environment variable.
@@ -13,6 +13,8 @@ Usage:
 Options:
     --coordinator URL    Coordinator base URL (required)
     --token SECRET       Shared secret; falls back to TMNF_GRID_TOKEN env var
+    --game GAME          Only accept work items for this game (tmnf, sc2, torcs,
+                         beamng, car_racing).  Omit to accept any game.
     --worker-id ID       Identifier shown in coordinator logs (default: hostname)
     --heartbeat-interval Seconds between heartbeat POSTs during a run (default: 15)
     --no-interrupt       Pass --no-interrupt to each train_rl call
@@ -34,6 +36,7 @@ import urllib.request
 from distributed.protocol import (
     ComboSpec,
     ResultPayload,
+    DEFAULT_GAME,
     combo_from_dict,
     experiment_to_json,
     result_to_dict,
@@ -115,13 +118,30 @@ def run_worker(
     heartbeat_interval: float,
     no_interrupt: bool,
     re_initialize: bool,
+    game_filter: str | None = None,
 ) -> None:
-    """Poll for work, run experiments, post results. Returns when queue is empty."""
+    """Poll for work, run experiments, post results. Returns when queue is empty.
+
+    Args:
+        coordinator_url: Base URL of the coordinator HTTP server.
+        token: Shared secret used for Bearer-token authentication.
+        worker_id: Human-readable identifier shown in coordinator status output.
+        heartbeat_interval: Seconds between heartbeat POSTs.
+        no_interrupt: If True, suppress all interactive prompts.
+        re_initialize: If True, ignore existing weights files and start fresh.
+        game_filter: When set, the worker only processes work items whose
+            ``game`` field matches this value.  Work items for other games are
+            skipped (released back to the coordinator via POST /skip so they
+            can be reassigned to a compatible worker).  Pass ``None`` to
+            accept jobs for any game.
+    """
     base = coordinator_url.rstrip("/")
     auth_headers = {
         "Authorization": f"Bearer {token}",
         "X-Worker-Id": worker_id,
     }
+    if game_filter:
+        auth_headers["X-Worker-Game"] = game_filter
 
     from framework.game_adapter import GAME_ADAPTERS
     from framework.run_config import RunConfig
@@ -168,12 +188,27 @@ def run_worker(
             continue
 
         spec: ComboSpec = combo_from_dict(json.loads(body.decode()))
-        logger.info("Running experiment: %s", spec.name)
+        logger.info("Running experiment: %s (game=%s)", spec.name, spec.game)
+
+        # --- game filter: skip jobs for games this worker doesn't support ---
+        job_game = getattr(spec, "game", DEFAULT_GAME)
+        if game_filter and job_game != game_filter:
+            logger.info(
+                "Skipping %s (game=%s, worker accepts only %s) — returning to coordinator",
+                spec.name, job_game, game_filter,
+            )
+            # Return the item to the coordinator so another worker can take it.
+            try:
+                _http_post(f"{base}/skip", {"name": spec.name}, headers=auth_headers)
+            except Exception as exc:
+                logger.debug("POST /skip failed (coordinator may not support it): %s", exc)
+            time.sleep(1)
+            continue
 
         # --- prepare local experiment dir ---
         t = spec.training_params
         r = spec.reward_params
-        game_name = getattr(spec, "game", "tmnf")
+        game_name = job_game
         adapter = GAME_ADAPTERS[game_name]()
         # For TMNF the track comes from training_params["track"]; for other
         # games spec.track carries an explicit override (may be None).
@@ -239,6 +274,9 @@ def main() -> None:
                         help="Coordinator base URL, e.g. http://192.168.1.10:5555")
     parser.add_argument("--token", default=None, metavar="SECRET",
                         help="Shared secret; falls back to TMNF_GRID_TOKEN env var")
+    parser.add_argument("--game", default=None, metavar="GAME",
+                        choices=["tmnf", "torcs", "sc2", "beamng", "car_racing"],
+                        help="Only accept work items for this game (default: accept all games)")
     parser.add_argument("--worker-id", default=socket.gethostname(), metavar="ID",
                         help="Identifier shown in coordinator status (default: hostname)")
     parser.add_argument("--heartbeat-interval", type=float, default=15.0, metavar="S",
@@ -261,6 +299,9 @@ def main() -> None:
     if not token:
         parser.error("No token provided. Use --token <secret> or set TMNF_GRID_TOKEN env var.")
 
+    if args.game:
+        logger.info("Worker %s will only accept jobs for game: %s", args.worker_id, args.game)
+
     run_worker(
         coordinator_url=args.coordinator,
         token=token,
@@ -268,6 +309,7 @@ def main() -> None:
         heartbeat_interval=args.heartbeat_interval,
         no_interrupt=args.no_interrupt,
         re_initialize=args.re_initialize,
+        game_filter=args.game,
     )
 
 

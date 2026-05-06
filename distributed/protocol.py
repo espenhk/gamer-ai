@@ -19,6 +19,11 @@ from typing import Any
 # Wire types
 # ---------------------------------------------------------------------------
 
+#: Default game name used when no game is specified in a ComboSpec or work
+#: request.  Kept here so coordinator and worker reference the same value.
+DEFAULT_GAME: str = "tmnf"
+
+
 @dataclasses.dataclass
 class ComboSpec:
     """One grid-search combination, ready for a worker to execute."""
@@ -26,7 +31,7 @@ class ComboSpec:
     track: str
     training_params: dict[str, Any]
     reward_params: dict[str, Any]
-    game: str = "tmnf"
+    game: str = DEFAULT_GAME
 
 
 @dataclasses.dataclass

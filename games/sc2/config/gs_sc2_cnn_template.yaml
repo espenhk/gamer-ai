@@ -1,0 +1,116 @@
+# Grid search template: sc2_cnn — DefeatRoaches (minigame obs + spatial CNN)
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_sc2_cnn_template.yaml --game sc2
+#
+# SC2CNNEvolutionPolicy processes a (C, 64, 64) spatial feature stack through
+# two convolutional layers, average-pools to a 4×4 grid, concatenates the
+# resulting 1024-dim vector with the flat observation, and routes through a
+# 256-unit FC layer into separate fn_idx (6) and spatial (9) heads.
+#
+# Architecture
+# ------------
+#   spatial input (C, 64, 64)
+#       │
+#   Conv2d(C → 32, 3×3, ReLU)
+#   Conv2d(32 → 64, 3×3, ReLU)
+#   AdaptiveAvgPool2d(4×4) → flatten → (1024,)
+#       │
+#   Concat with flat obs (obs_dim,)   ← (1024 + obs_dim,)
+#       │
+#   FC(1024 + obs_dim → 256, ReLU)
+#       │
+#     ┌───┴────┐
+#   fn_head   spatial_head
+#     (6,)       (9,)
+#
+# All weights are evolved by an isotropic Gaussian ES with the 1/5 success
+# rule (same as sc2_lstm); NO backpropagation is used.
+#
+# Flat parameter count (C channels, obs_dim-dim flat obs)
+# -------------------------------------------------------
+#   CONV1 weights+biases : 32 × C × 9 + 32
+#   CONV2 weights+biases : 64 × 32 × 9 + 64
+#   FC weights+biases    : 256 × (1024 + obs_dim) + 256
+#   fn_head              : 6 × 256 + 6
+#   spatial_head         : 9 × 256 + 9
+#
+# With C=2 (player_relative + unit_hit_points) and minigame obs (13 dims):
+#   = 608 + 18496 + 265728 + 1542 + 2313 = 288,687 params  (~289K)
+#
+# This is 400× the CMA-ES linear space (~760 params for rich obs) and ~17×
+# the LSTM search space (h=32, rich obs: ~17K params).  Every parameter is
+# perturbed additively with N(0, σ²) each generation.
+#
+# Why C=2 (player_relative + unit_hit_points)?
+# --------------------------------------------
+# player_relative  — encodes background / self / ally / neutral / enemy (0–4);
+#   the single most informative channel for friend-foe distinction.
+# unit_hit_points  — continuous per-cell HP; lets the CNN see health gradients
+#   and distinguish damaged units that are priority targets from full-health ones.
+# Together, two channels give the CNN both positional identity and unit health,
+# which is sufficient to learn attack/move decisions on DefeatRoaches.
+#
+# σ (initial_sigma) guidance
+# --------------------------
+# The search space is ~289K parameters.  Even a σ of 0.01 corresponds to a
+# per-dimension perturbation standard deviation far larger than a single weight
+# contributes to the network output (because the FC layer alone has 265K
+# weights summed over a 256-dim hidden layer).  The 1/5 success rule will
+# raise σ if it is too conservative and shrink it if improvements are rare.
+# Recommended sweep: [0.005, 0.01].  Using σ > 0.05 typically collapses all
+# weights before the distribution can converge.
+#
+# population_size guidance
+# ------------------------
+# For a ~289K-dim isotropic ES there is no theoretical lower bound on λ (it
+# is not full-covariance CMA-ES), but a larger population samples the fitness
+# landscape more broadly and reduces noise in the weighted-recombination step.
+# λ=10 is fast (10 episodes per generation) but high-variance; λ=20 halves
+# the variance at 2× the episode cost.  The 1/5 success rule means both will
+# eventually find directions of improvement — the question is how many
+# generations it takes.
+#
+# eval_episodes
+# -------------
+# DefeatRoaches spawns Roaches stochastically; a single episode is noisy.
+# eval_episodes=2 averages fitness over two episode seeds per individual.
+# Total episodes per generation = population_size × eval_episodes.
+# Keep eval_episodes=1 in the grid search to preserve combinability with other
+# policy runs; set eval_episodes=2 only in a focused follow-up.
+#
+# idle_bonus reward
+# -----------------
+# Marines auto-attack Roaches when adjacent.  idle_bonus > 0 rewards no_op
+# when enemies are in screen, encouraging "select army → approach → hold"
+# instead of redundant move commands.  [0.0, 0.5] tests whether this spatial
+# shaping helps or competes with the CNN's own ability to infer proximity.
+
+base_name: "gs_sc2_cnn_v1"
+game: sc2
+
+training_params:
+  map_name: DefeatRoaches
+  in_game_episode_s: 60.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: terran
+  n_sims: 100                  # 100 generations; total = n_sims × population_size × eval_episodes
+  policy_type: sc2_cnn
+  obs_spec_preset: rich
+  screen_layers:
+    - player_relative         # friend/foe/neutral (values 0–4)
+    - unit_hit_points         # per-cell HP; allows health-aware spatial decisions
+  minimap_layers: []          # no minimap channels in this sweep
+  population_size: [10, 20]
+  initial_sigma: [0.005, 0.01]
+  policy_params:
+    eval_episodes: 5
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0
+  idle_bonus: 0.5     # encourage no_op when enemies are in combat range

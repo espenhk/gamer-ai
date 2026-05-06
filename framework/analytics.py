@@ -102,6 +102,11 @@ class GreedySimResult:
     action_counts: dict | None = None         # {fn_idx: step_count} for the episode
     obs_averages: dict | None = None          # {feature_name: mean_value} for the episode
     xy_hist: list | None = None               # 2-D list[list[int]] — 8×8 action-target histogram
+    # --- SC2 end-screen analytics (issue: build-order plots) ---
+    supply_capped_fraction: float | None = None  # fraction of steps where food_used >= food_cap
+    build_order: list | None = None           # [[game_time_s, unit_name], ...] — unit-build events
+    army_count_series: list | None = None     # [[game_time_s, army_count], ...] — sampled per step
+    resource_series: list | None = None       # [[game_time_s, minerals+vespene], ...] — sampled per step
 
     def __post_init__(self):
         if self.action_counts is not None:
@@ -139,6 +144,10 @@ class GreedySimResult:
             action_counts=data.get("action_counts"),
             obs_averages=data.get("obs_averages"),
             xy_hist=data.get("xy_hist"),
+            supply_capped_fraction=data.get("supply_capped_fraction"),
+            build_order=data.get("build_order"),
+            army_count_series=data.get("army_count_series"),
+            resource_series=data.get("resource_series"),
         )
 
 

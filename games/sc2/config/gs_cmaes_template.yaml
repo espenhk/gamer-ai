@@ -36,10 +36,10 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
-  agent_race: random
+  agent_race: terran
   n_sims: 50                  # 50 generations; total episodes = n_sims × population_size × eval_episodes
   policy_type: cmaes
-  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  obs_spec_preset: rich       # 43-dim ladder vs 95-dim rich
   enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout reward
   population_size: [15, 25]
   initial_sigma: [0.1, 0.3, 0.5]

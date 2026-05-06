@@ -320,6 +320,194 @@ def plot_outcome_breakdown(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 2f — Supply-capped fraction per sim
+# ---------------------------------------------------------------------------
+
+def plot_supply_capped(data: ExperimentData, results_dir: str) -> None:
+    """Bar chart showing the fraction of each greedy sim spent supply-capped.
+
+    Supply-capped means ``food_used >= food_cap`` for that step.  Written to
+    ``supply_capped.png``.  Only rendered when at least one sim has a non-None
+    ``supply_capped_fraction`` value.
+    """
+    if not _HAS_MPL:
+        return
+    sims = [s for s in data.greedy_sims if s.supply_capped_fraction is not None]
+    if not sims:
+        return
+
+    xs     = [s.sim for s in sims]
+    ys     = [s.supply_capped_fraction for s in sims]
+    colors = ["#e74c3c" if v > 0.5 else "#f39c12" if v > 0.25 else "#27ae60"
+              for v in ys]
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.15), 4))
+    ax.bar(xs, ys, color=colors, edgecolor="none", width=1.0)
+
+    # Mark sims where the policy improved.
+    improved_xs = [s.sim for s in sims if s.improved]
+    improved_ys = [s.supply_capped_fraction for s in sims if s.improved]
+    if improved_xs:
+        ax.scatter(improved_xs, improved_ys, color="#2c3e50", s=40,
+                   zorder=4, marker="^", label="improved")
+        ax.legend(fontsize=9)
+
+    ax.set_ylim(0, 1.0)
+    ax.set_title(f"{data.experiment_name} — Time Supply-Capped per Greedy Sim")
+    ax.set_xlabel("Simulation")
+    ax.set_ylabel("Fraction of steps supply-capped")
+    ax.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda v, _: f"{100*v:.0f}%")
+    )
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "supply_capped.png"))
+
+
+# ---------------------------------------------------------------------------
+# 2g — Resources available over time (best run)
+# ---------------------------------------------------------------------------
+
+def _best_sim(data: ExperimentData) -> "GreedySimResult | None":
+    """Return the last improved greedy sim, or the last sim if none improved."""
+    if not data.greedy_sims:
+        return None
+    improved = [s for s in data.greedy_sims if s.improved]
+    return improved[-1] if improved else data.greedy_sims[-1]
+
+
+def plot_resource_series(data: ExperimentData, results_dir: str) -> None:
+    """Line chart of minerals + vespene over game time for the best greedy sim.
+
+    Written to ``resource_series.png``.  Only rendered when the best sim has
+    a non-empty ``resource_series`` list.
+    """
+    if not _HAS_MPL:
+        return
+    best = _best_sim(data)
+    if best is None or not best.resource_series:
+        return
+
+    series = best.resource_series
+    xs = [pt[0] for pt in series]
+    ys = [pt[1] for pt in series]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.fill_between(xs, ys, alpha=0.25, color="#3498db")
+    ax.plot(xs, ys, color="#3498db", linewidth=1.4)
+
+    # Average line.
+    avg = sum(ys) / len(ys)
+    ax.axhline(avg, color="#e74c3c", linestyle="--", linewidth=1.0,
+               label=f"avg {avg:.0f}")
+
+    ax.set_title(
+        f"{data.experiment_name} — Resources Available Over Time"
+        f" (sim {best.sim}, reward {best.reward:+.1f})"
+    )
+    ax.set_xlabel("Game time (s)")
+    ax.set_ylabel("Minerals + Vespene")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "resource_series.png"))
+
+
+# ---------------------------------------------------------------------------
+# 2h — Army count over time (best run)
+# ---------------------------------------------------------------------------
+
+def plot_army_count(data: ExperimentData, results_dir: str) -> None:
+    """Line chart of army count over game time for the best greedy sim.
+
+    Written to ``army_count.png``.  Only rendered when the best sim has a
+    non-empty ``army_count_series`` list.
+    """
+    if not _HAS_MPL:
+        return
+    best = _best_sim(data)
+    if best is None or not best.army_count_series:
+        return
+
+    series = best.army_count_series
+    xs = [pt[0] for pt in series]
+    ys = [pt[1] for pt in series]
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.fill_between(xs, ys, alpha=0.2, color="#27ae60")
+    ax.plot(xs, ys, color="#27ae60", linewidth=1.4)
+
+    ax.set_title(
+        f"{data.experiment_name} — Army Count Over Time"
+        f" (sim {best.sim}, reward {best.reward:+.1f})"
+    )
+    ax.set_xlabel("Game time (s)")
+    ax.set_ylabel("Army count (units)")
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "army_count.png"))
+
+
+# ---------------------------------------------------------------------------
+# 2i — Build order (best run)
+# ---------------------------------------------------------------------------
+
+def _game_time_to_mmss(game_time_s: float) -> str:
+    """Convert a float game-time in seconds to ``mm:ss`` string."""
+    m = int(game_time_s) // 60
+    s = int(game_time_s) % 60
+    return f"{m:02d}:{s:02d}"
+
+
+def plot_build_order(data: ExperimentData, results_dir: str) -> None:
+    """Horizontal timeline of unit-build events for the best greedy sim.
+
+    Each dot on the timeline marks when a new unit of that type was first
+    detected (unit count increased).  Written to ``build_order.png``.  Only
+    rendered when the best sim has a non-empty ``build_order`` list.
+    """
+    if not _HAS_MPL:
+        return
+    best = _best_sim(data)
+    if best is None or not best.build_order:
+        return
+
+    events = best.build_order   # [[game_time_s, unit_name], ...]
+
+    # Collect unique unit names in order of first appearance.
+    seen: dict[str, int] = {}
+    for _, uname in events:
+        if uname not in seen:
+            seen[uname] = len(seen)
+    unit_names = list(seen.keys())
+    n_units = len(unit_names)
+
+    fig, ax = plt.subplots(figsize=(12, max(3, n_units * 0.55 + 1.5)))
+    colors = [cm.tab10(i / max(n_units - 1, 1)) for i in range(n_units)]
+    color_map = dict(zip(unit_names, colors))
+
+    for t, uname in events:
+        y = seen[uname]
+        ax.scatter(t, y, color=color_map[uname], s=60, zorder=3)
+
+    ax.set_yticks(range(n_units))
+    ax.set_yticklabels(unit_names)
+    ax.set_xlabel("Game time (s)")
+
+    # Secondary x-axis with mm:ss labels.
+    ax2 = ax.twiny()
+    ax2.set_xlim(ax.get_xlim())
+    tick_positions = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 6)
+    ax2.set_xticks(tick_positions)
+    ax2.set_xticklabels([_game_time_to_mmss(v) for v in tick_positions], fontsize=8)
+
+    ax.set_title(
+        f"{data.experiment_name} — Build Order"
+        f" (sim {best.sim}, reward {best.reward:+.1f})"
+    )
+    ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.6)
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "build_order.png"))
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -384,6 +572,22 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         # 2e — Episode outcome breakdown.
         plot_outcome_breakdown(data, results_dir)
         sections.append(_img("outcome_breakdown.png", "Outcome breakdown"))
+
+        # 2f — Supply-capped fraction per sim.
+        plot_supply_capped(data, results_dir)
+        sections.append(_img("supply_capped.png", "Time supply-capped"))
+
+        # 2g — Resources available over time (best run).
+        plot_resource_series(data, results_dir)
+        sections.append(_img("resource_series.png", "Resources available over time"))
+
+        # 2h — Army count over time (best run).
+        plot_army_count(data, results_dir)
+        sections.append(_img("army_count.png", "Army count over time"))
+
+        # 2i — Build order (best run).
+        plot_build_order(data, results_dir)
+        sections.append(_img("build_order.png", "Build order"))
 
     plot_reward_trajectory(data, results_dir)
     sections.append(_img("reward_trajectory.png", "Reward trajectory"))

@@ -455,3 +455,157 @@ class TestCoordinator:
             assert e.code == 401
 
         coord.stop()
+
+    def _get_with_game(self, coord, game: str):
+        """GET /work with an X-Worker-Game filter header."""
+        import urllib.request
+        req = urllib.request.Request(
+            self._url(coord, "/work"),
+            headers=self._auth_headers({"X-Worker-Game": game}),
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    def test_game_filter_returns_matching_combo(self):
+        """A worker with X-Worker-Game only receives work for that game."""
+        tmnf_combo = ComboSpec(
+            name="tmnf_job",
+            track="a03",
+            training_params={},
+            reward_params={},
+            game="tmnf",
+        )
+        sc2_combo = ComboSpec(
+            name="sc2_job",
+            track="MoveToBeacon",
+            training_params={},
+            reward_params={},
+            game="sc2",
+        )
+        coord = self._start_coord([tmnf_combo, sc2_combo])
+
+        # SC2 worker should receive the SC2 job (second in queue).
+        with self._get_with_game(coord, "sc2") as r:
+            assert r.status == 200
+            spec = combo_from_dict(json.loads(r.read()))
+            assert spec.name == "sc2_job"
+            assert spec.game == "sc2"
+
+        coord.stop()
+
+    def test_game_filter_skips_non_matching_combos(self):
+        """A worker asking for sc2 should get 204 when only tmnf jobs are queued."""
+        tmnf_combo = ComboSpec(
+            name="tmnf_only",
+            track="a03",
+            training_params={},
+            reward_params={},
+            game="tmnf",
+        )
+        coord = self._start_coord([tmnf_combo])
+
+        with self._get_with_game(coord, "sc2") as r:
+            assert r.status == 204
+
+        # The tmnf job should still be in the queue (not consumed).
+        with self._get(coord, "/status") as r:
+            status = json.loads(r.read())
+        assert status["queued"] == 1
+
+        coord.stop()
+
+    def test_game_filter_preserves_queue_order(self):
+        """Non-matching items are returned to the queue in their original order."""
+        combos = [
+            ComboSpec(name="tmnf_1", track="a03", training_params={}, reward_params={}, game="tmnf"),
+            ComboSpec(name="tmnf_2", track="a03", training_params={}, reward_params={}, game="tmnf"),
+            ComboSpec(name="sc2_1",  track="map",  training_params={}, reward_params={}, game="sc2"),
+        ]
+        coord = self._start_coord(combos)
+
+        # An SC2 worker should skip tmnf_1 and tmnf_2 and receive sc2_1.
+        with self._get_with_game(coord, "sc2") as r:
+            assert r.status == 200
+            spec = combo_from_dict(json.loads(r.read()))
+            assert spec.name == "sc2_1"
+
+        # The two tmnf jobs must still be in the queue in original order.
+        for expected in ["tmnf_1", "tmnf_2"]:
+            with self._get_with_game(coord, "tmnf") as r:
+                assert r.status == 200
+                spec = combo_from_dict(json.loads(r.read()))
+                assert spec.name == expected
+
+        coord.stop()
+
+    def test_skip_endpoint_returns_item_to_queue(self):
+        """POST /skip puts the named in-progress item back at the front of the queue."""
+        combo = ComboSpec(
+            name="skip_me",
+            track="a03",
+            training_params={},
+            reward_params={},
+            game="tmnf",
+        )
+        coord = self._start_coord([combo])
+
+        # Claim the work item (no game filter — generic worker).
+        with self._get(coord, "/work") as r:
+            assert r.status == 200
+
+        # The item should now be in-progress.
+        with self._get(coord, "/status") as r:
+            status = json.loads(r.read())
+        assert status["in_progress"] == 1
+        assert status["queued"] == 0
+
+        # Return the item via POST /skip.
+        skip_body = json.dumps({"name": "skip_me"}).encode()
+        with self._post(coord, "/skip", skip_body) as r:
+            assert r.status == 200
+
+        # The item should be back in the queue.
+        with self._get(coord, "/status") as r:
+            status = json.loads(r.read())
+        assert status["queued"] == 1
+        assert status["in_progress"] == 0
+
+        coord.stop()
+
+    def test_skip_unknown_item_is_no_op(self):
+        """POST /skip for an item not in progress returns 200 with a note."""
+        coord = self._start_coord([_make_combo("existing")])
+
+        skip_body = json.dumps({"name": "nonexistent"}).encode()
+        with self._post(coord, "/skip", skip_body) as r:
+            assert r.status == 200
+            resp = json.loads(r.read())
+            assert "note" in resp
+
+        coord.stop()
+
+
+# ---------------------------------------------------------------------------
+# Worker game filter (unit tests — no real coordinator needed)
+# ---------------------------------------------------------------------------
+
+class TestWorkerGameFilter:
+    """Unit tests for the worker --game filtering logic via run_worker internals."""
+
+    def test_combo_spec_game_field_default(self):
+        """ComboSpec.game defaults to 'tmnf' for backward compatibility."""
+        spec = ComboSpec(name="x", track="y", training_params={}, reward_params={})
+        assert spec.game == "tmnf"
+
+    def test_combo_spec_game_field_explicit(self):
+        """ComboSpec.game can be set to any supported game."""
+        for game in ("tmnf", "sc2", "torcs", "beamng", "car_racing"):
+            spec = ComboSpec(name="x", track="y", training_params={}, reward_params={}, game=game)
+            assert spec.game == game
+
+    def test_combo_spec_round_trip_preserves_game(self):
+        """game field survives combo_to_dict / combo_from_dict round-trip."""
+        for game in ("tmnf", "sc2", "torcs", "beamng", "car_racing"):
+            spec = ComboSpec(name="n", track="t", training_params={}, reward_params={}, game=game)
+            recovered = combo_from_dict(combo_to_dict(spec))
+            assert recovered.game == game
+

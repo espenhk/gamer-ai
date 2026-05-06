@@ -267,14 +267,102 @@ def _run_episode(
 
 def _print_episode_summary(info: dict, steps: int, total_reward: float,
                             truncated: bool) -> None:
-    progress = 100 * float(info.get("track_progress", 0.0))
-    laps     = int(info.get("laps_completed", 0))
     finished = bool(info.get("finished", False))
     outcome  = "truncated" if truncated else ("finished" if finished else "terminated")
-    logger.info(
-        "episode end — %s  steps=%d  reward=%+.1f  progress=%5.1f%%  laps=%d",
-        outcome, steps, total_reward, progress, laps,
-    )
+    logger.info("ep end  %s  r=%+.1f  steps=%d", outcome, total_reward, steps)
+
+
+def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
+    """Log expanded breakdown for a newly-achieved best reward.
+
+    Logged at INFO level immediately after the NEW BEST headline.  Each metric
+    is compared with the previous best in parentheses where *prev_best_info* is
+    available.  Groups emitted (only when the relevant data are present):
+
+    1. Reward-component breakdown (``episode_reward_components``)
+    2. Action-frequency breakdown (``episode_action_counts``)
+    3. TMNF task metrics: track progress, mean lateral offset, finish time
+    4. SC2 kill stats: enemy units/structures destroyed
+    5. SC2 game-state averages: army size, enemy screen presence
+    """
+    prev: dict = prev_best_info or {}
+
+    # 1. Reward-component breakdown -----------------------------------------
+    rc = info.get("episode_reward_components")
+    if rc:
+        prev_rc: dict = prev.get("episode_reward_components") or {}
+        for k, v in sorted(rc.items()):
+            if abs(v) > 0.001:
+                pv = prev_rc.get(k)
+                cmp_s = f" (prev {pv:+.1f})" if pv is not None else ""
+                logger.info("    %s=%+.1f%s", k, v, cmp_s)
+
+    # 2. Action-frequency breakdown (SC2Env only) ----------------------------
+    ac = info.get("episode_action_counts")
+    if ac:
+        total = sum(ac.values())
+        if total > 0:
+            prev_ac: dict = prev.get("episode_action_counts") or {}
+            prev_total = sum(prev_ac.values()) if prev_ac else 0
+            try:
+                from games.sc2.actions import FUNCTION_IDS as _FNIDS  # noqa: PLC0415
+            except ImportError:
+                # SC2 extras not installed; fall back to numeric fn{idx} names.
+                logger.debug("games.sc2.actions unavailable; action names shown as fn{idx}")
+                _FNIDS: dict = {}
+            for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                name = _FNIDS.get(int(fn_idx), f"fn{fn_idx}")
+                pct = 100.0 * count / total
+                if prev_total > 0:
+                    # Keys are ints from env.step(); str fallback handles any
+                    # JSON-deserialised prev_best_info where keys became strings.
+                    ppct = 100.0 * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0)) / prev_total
+                    cmp_s = f" (prev {ppct:.1f}%)"
+                else:
+                    cmp_s = ""
+                logger.info("    %s=%.1f%%%s", name, pct, cmp_s)
+
+    # 3. TMNF task metrics ---------------------------------------------------
+    progress = info.get("track_progress")
+    if progress is not None:
+        prev_progress = prev.get("track_progress")
+        cmp_s = f" (prev {100.0*prev_progress:.1f}%)" if prev_progress is not None else ""
+        lat = info.get("mean_abs_lateral_offset")
+        lat_s = ""
+        if lat is not None:
+            prev_lat = prev.get("mean_abs_lateral_offset")
+            lat_cmp = f" (prev {prev_lat:.2f}m)" if prev_lat is not None else ""
+            lat_s = f"  mean_lateral={lat:.2f}m{lat_cmp}"
+        finish_t = info.get("elapsed_s") if info.get("finished") else None
+        t_s = ""
+        if finish_t is not None:
+            prev_ft = prev.get("elapsed_s") if prev.get("finished") else None
+            ft_cmp = f" (prev {prev_ft:.1f}s)" if prev_ft is not None else ""
+            t_s = f"  finish_time={finish_t:.1f}s{ft_cmp}"
+        logger.info("    progress=%.1f%%%s%s%s", 100.0 * progress, cmp_s, lat_s, t_s)
+
+    # 4. SC2 kill stats — suppress when no kills occurred --------------------
+    kills = info.get("episode_killed_value_units")
+    if kills is not None:
+        struct_kills = info.get("episode_killed_value_structures", 0.0)
+        if kills > 0.5 or struct_kills > 0.5:
+            prev_kills = prev.get("episode_killed_value_units")
+            cmp_s = f" (prev {prev_kills:.0f})" if prev_kills is not None else ""
+            prev_struct = prev.get("episode_killed_value_structures")
+            struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
+            logger.info("    kills: units=%d%s  structures=%d%s",
+                        int(kills), cmp_s, int(struct_kills), struct_cmp_s)
+
+    # 5. SC2 game-state averages ---------------------------------------------
+    obs_avgs = info.get("episode_obs_averages")
+    if obs_avgs:
+        prev_avgs: dict = prev.get("episode_obs_averages") or {}
+        for k in ("army_count", "food_used", "screen_enemy_count"):
+            v = obs_avgs.get(k)
+            if v is not None and abs(v) > 0.001:
+                pv = prev_avgs.get(k)
+                cmp_s = f" (prev {pv:.1f})" if pv is not None else ""
+                logger.info("    %s=%.1f%s", k, v, cmp_s)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int,
@@ -472,6 +560,7 @@ def _greedy_loop(
         no_improve_streak = 0
         early_stopped     = False
         early_stop_sim    = None
+        best_info: dict   = {}
         try:
             for sim in range(1, n_sims + 1):
                 candidate = best_policy.mutated(scale=current_scale)
@@ -494,9 +583,12 @@ def _greedy_loop(
                     best_policy.save(weights_file)
                     best_policy.save_trainer_state(_trainer_state_path(weights_file))
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
+                    logger.info("  >> %s", verdict)
+                    _log_new_best_details(info, best_info)
+                    best_info = info
                 else:
-                    verdict = f"no improvement  candidate={reward:+.1f}  best={best_reward:+.1f}"
-                logger.info("  >> %s", verdict)
+                    verdict = f"no improvement  r={reward:+.1f}  best={best_reward:+.1f}"
+                    logger.info("  >> %s", verdict)
                 improvement_history.append(improved)
                 _maybe_adapt_scale(improvement_history, current_scale, sim,
                                    ADAPT_WINDOW, ADAPT_UP, ADAPT_DOWN,
@@ -518,6 +610,10 @@ def _greedy_loop(
                     action_counts=info.get("episode_action_counts"),
                     obs_averages=info.get("episode_obs_averages"),
                     xy_hist=info.get("episode_xy_hist"),
+                    supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                    build_order=info.get("episode_build_order"),
+                    army_count_series=info.get("episode_army_series"),
+                    resource_series=info.get("episode_resource_series"),
                 ))
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
@@ -546,6 +642,7 @@ def _greedy_loop(
     no_improve_streak = 0
     early_stopped     = False
     early_stop_sim    = None
+    best_info_logged: dict = {}
 
     try:
         for sim in range(1, n_sims + 1):
@@ -590,10 +687,13 @@ def _greedy_loop(
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
+                logger.info("  >> %s", verdict)
+                _log_new_best_details(best_info, best_info_logged)
+                best_info_logged = best_info
             else:
                 verdict = (f"no improvement  +ε={r_plus:+.1f}  −ε={r_minus:+.1f}"
                            f"  best={best_reward:+.1f}")
-            logger.info("  >> %s", verdict)
+                logger.info("  >> %s", verdict)
 
             improvement_history.append(improved)
             if adaptive_mutation and len(improvement_history) == ADAPT_WINDOW and sim % ADAPT_WINDOW == 0:
@@ -621,6 +721,10 @@ def _greedy_loop(
                 action_counts=best_info.get("episode_action_counts"),
                 obs_averages=best_info.get("episode_obs_averages"),
                 xy_hist=best_info.get("episode_xy_hist"),
+                supply_capped_fraction=best_info.get("episode_supply_capped_fraction"),
+                build_order=best_info.get("episode_build_order"),
+                army_count_series=best_info.get("episode_army_series"),
+                resource_series=best_info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -681,6 +785,7 @@ def _greedy_loop_cmaes(
     )
 
     try:
+        best_info_logged: dict = {}
         for gen in range(1, n_generations + 1):
             if full_episode_time_s is not None:
                 env.set_episode_time_limit(_scaled_episode_time(
@@ -714,11 +819,14 @@ def _greedy_loop_cmaes(
                 policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
+                logger.info("  >> %s", verdict)
+                _log_new_best_details(info, best_info_logged)
+                best_info_logged = info
             else:
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
-            logger.info("  >> %s", verdict)
+                logger.info("  >> %s", verdict)
 
             greedy_sims.append(GreedySimResult(
                 sim=gen, reward=gen_best, improved=improved,
@@ -733,6 +841,10 @@ def _greedy_loop_cmaes(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -768,6 +880,7 @@ def _greedy_loop_q_learning(
     early_stop_sim    = None
 
     try:
+        best_info_logged: dict = {}
         for episode in range(1, n_episodes + 1):
             if full_episode_time_s is not None:
                 env.set_episode_time_limit(_scaled_episode_time(
@@ -789,10 +902,13 @@ def _greedy_loop_q_learning(
                 policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
-                verdict = f"no improvement  episode={reward:+.1f}  best={best_reward:+.1f}"
+                verdict = f"no improvement  r={reward:+.1f}  best={best_reward:+.1f}"
             cfg = policy.to_cfg()
             logger.info("  >> %s  [states visited: %s]",
                         verdict, cfg.get("n_states_visited", "?"))
+            if improved:
+                _log_new_best_details(info, best_info_logged)
+                best_info_logged = info
 
             greedy_sims.append(GreedySimResult(
                 sim=episode, reward=reward, improved=improved,
@@ -807,6 +923,10 @@ def _greedy_loop_q_learning(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -854,6 +974,7 @@ def _greedy_loop_genetic(
                     "skipping per-generation time scaling.")
 
     try:
+        best_info_logged: dict = {}
         for gen in range(1, n_generations + 1):
             if full_episode_time_s is not None:
                 env.set_episode_time_limit(_scaled_episode_time(
@@ -885,10 +1006,13 @@ def _greedy_loop_genetic(
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
+                logger.info("  >> %s", verdict)
+                _log_new_best_details(info, best_info_logged)
+                best_info_logged = info
             else:
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}")
-            logger.info("  >> %s", verdict)
+                logger.info("  >> %s", verdict)
 
             greedy_sims.append(GreedySimResult(
                 sim=gen, reward=gen_best, improved=improved,
@@ -903,6 +1027,10 @@ def _greedy_loop_genetic(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:

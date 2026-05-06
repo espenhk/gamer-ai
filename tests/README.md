@@ -9,7 +9,7 @@
   - [test\_consolidate.py (8) — grid-search result consolidation](#test_consolidatepy-8--grid-search-result-consolidation)
   - [test\_curiosity.py (12) — ICM/RND curiosity bonuses](#test_curiositypy-12--icmrnd-curiosity-bonuses)
   - [test\_discretize\_obs.py (6) — continuous→discrete obs binning](#test_discretize_obspy-6--continuousdiscrete-obs-binning)
-  - [test\_distributed.py (21) — coordinator/worker protocol + HTTP server](#test_distributedpy-21--coordinatorworker-protocol--http-server)
+  - [test\_distributed.py (29) — coordinator/worker protocol + HTTP server](#test_distributedpy-29--coordinatorworker-protocol--http-server)
   - [test\_early\_stopping.py (6) — early-stop logic in greedy + Q loops](#test_early_stoppingpy-6--early-stop-logic-in-greedy--q-loops)
   - [test\_env\_termination.py (7) — `_classify_termination()`](#test_env_terminationpy-7--_classify_termination)
   - [test\_game\_adapter.py (30) — TMNF/TORCS/SC2/BeamNG adapter abstractions](#test_game_adapterpy-30--tmnftorcssc2beamng-adapter-abstractions)
@@ -18,6 +18,7 @@
   - [test\_obs\_memory.py (7) — frame-stacking observation wrapper](#test_obs_memorypy-7--frame-stacking-observation-wrapper)
   - [test\_reward.py (44) — TMNF reward calculator + curiosity glue](#test_rewardpy-44--tmnf-reward-calculator--curiosity-glue)
   - [test\_train\_rl\_signature.py (4) — public `train_rl()` API](#test_train_rl_signaturepy-4--public-train_rl-api)
+  - [test\_new\_best\_logging.py (24) — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy-24--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py (13) — math/state-extraction utils](#test_utilspy-13--mathstate-extraction-utils)
   - [test\_track.py (11) — centreline geometry helpers](#test_trackpy-11--centreline-geometry-helpers)
 - [TMNF policies](#tmnf-policies)
@@ -39,11 +40,12 @@
   - [test\_torcs\_reward.py (13) — TORCS reward calc](#test_torcs_rewardpy-13--torcs-reward-calc)
   - [test\_torcs\_analytics.py (11) — TORCS plots/report](#test_torcs_analyticspy-11--torcs-plotsreport)
 - [SC2](#sc2)
-  - [test\_sc2\_obs\_spec.py (16) — SC2 obs spec](#test_sc2_obs_specpy-16--sc2-obs-spec)
+  - [test\_sc2\_obs\_spec.py (17) — SC2 obs spec](#test_sc2_obs_specpy-17--sc2-obs-spec)
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
   - [test\_sc2\_reward.py (23) — SC2 reward calc](#test_sc2_rewardpy-23--sc2-reward-calc)
-  - [test\_sc2\_client.py (46) — PySC2 client wrapper](#test_sc2_clientpy-46--pysc2-client-wrapper)
-  - [test\_sc2\_env.py (18) — SC2 env wrapper](#test_sc2_envpy-18--sc2-env-wrapper)
+  - [test\_sc2\_client.py (64) — PySC2 client wrapper](#test_sc2_clientpy-64--pysc2-client-wrapper)
+  - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
+  - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy-21--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
   - [test\_sc2\_lstm\_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`](#test_sc2_lstm_policypy-35--sc2lstmpolicy--sc2lstmevolutionpolicy)
@@ -53,13 +55,13 @@
   - [test\_sc2\_reinforce\_policy.py (39) — REINFORCE policy for SC2](#test_sc2_reinforce_policypy-39--reinforce-policy-for-sc2)
   - [test\_sc2\_play.py (21) — `play_sc2.py` script](#test_sc2_playpy-21--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py (31) — Simple64 ladder integration](#test_sc2_simple64_trainingpy-31--simple64-ladder-integration)
-  - [test\_sc2\_analytics.py (29) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-29--sc2-specific-analytics-plots-and-flags)
+  - [test\_sc2\_analytics.py (51) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-51--sc2-specific-analytics-plots-and-flags)
 - [CLI / misc](#cli--misc)
   - [cli/test\_game\_flag.py (14) — `--game` CLI flag in `main.py`](#clitest_game_flagpy-14----game-cli-flag-in-mainpy)
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
-- [Why 740 tests run in ~25 s](#why-740-tests-run-in-25-s)
+- [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
 
-1112 tests across 58 files. Runs in ~30 seconds via `python -m pytest tests/`.
+895 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1030 tests.
 
 ## Coverage at a glance
 
@@ -89,18 +91,20 @@ and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion; the early-stop streak logic in
 both greedy and Q loops; the distributed coordinator/worker JSON protocol and
 the in-process HTTP server (work queue, heartbeat re-queue, auth);
-`train_rl()`'s public signature; that `framework.analytics` imports cleanly
-on a machine with no matplotlib; and the `redo_analytics.py` script
-(game auto-detection, single-experiment regeneration, multi-experiment
-summaries, `--no-individual`, inferred summary dir, graceful skip of missing
-experiments).
+`train_rl()`'s public signature; the new-best log helpers
+(`_log_new_best_details` per-component / action-frequency / TMNF / SC2 kill
+groups, `_print_episode_summary` compact format); that `framework.analytics`
+imports cleanly on a machine with no matplotlib; and the `redo_analytics.py`
+script (game auto-detection, single-experiment regeneration,
+multi-experiment summaries, `--no-individual`, inferred summary dir,
+graceful skip of missing experiments).
 
 **Not tested.** Real distributed training across multiple machines (only the
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
 diff'ing (analytics tests assert files appear, not their contents); the Azure
 Terraform stack under `infrastructure/`; the Windows bootstrap script
-`setup_and_run.ps1`; long convergence behaviour of the actual `train_rl()`
-loop end-to-end on a real env.
+`setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI); long convergence
+behaviour of the actual `train_rl()` loop end-to-end on a real env.
 
 ### test_analytics_no_matplotlib.py (3) — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -138,13 +142,16 @@ loop end-to-end on a real env.
 ### test_discretize_obs.py (6) — continuous→discrete obs binning
 - zero→middle bin; clipped high→max; clipped low→min; symmetry; tuple-of-int return; length matches obs_dim
 
-### test_distributed.py (21) — coordinator/worker protocol + HTTP server
+### test_distributed.py (29) — coordinator/worker protocol + HTTP server
 - ComboSpec round-trip + JSON serialisable; ResultPayload round-trip + valid JSON
 - payload preserves greedy_sims / throttle counts / trace / none-trace / metadata / task-metric fields / SC2 analytics fields
 - numpy arrays serialised
 - HTTP: serves all combos / status endpoint / result accepted + done event
 - unknown combo rejected; duplicate result ignored; stale worker re-queued; heartbeat prevents requeue
 - empty queue returns immediately; unauthorized rejected
+- game-filter: X-Worker-Game header returns matching combo; 204 when no match; preserves queue order for non-matching items
+- skip endpoint: POST /skip returns in-progress item to queue; unknown item is no-op
+- ComboSpec.game defaults to 'tmnf'; explicit game values round-trip correctly
 
 ### test_early_stopping.py (6) — early-stop logic in greedy + Q loops
 - stops after patience-no-improvement; patience=0 runs all; streak resets on improvement; early-stop sim recorded
@@ -187,6 +194,16 @@ loop end-to-end on a real env.
 
 ### test_train_rl_signature.py (4) — public `train_rl()` API
 - accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params
+
+### test_new_best_logging.py (24) — `_log_new_best_details` + `_print_episode_summary`
+- `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
+- `_log_new_best_details` — empty info emits nothing
+- reward components: one log line per non-zero component; zero values omitted; prev comparison shown; no-prev no comparison
+- action frequency: one log line per action with SC2 function names; prev comparison shown
+- TMNF metrics: progress; lateral offset; finish time only when `finished=True`; prev comparison for progress + offset (all on one combined line)
+- SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
+- SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison
+- all five groups together emit seven lines (2 components + 2 actions + 1 progress + 1 kills + 1 game-state)
 
 ### test_utils.py (13) — math/state-extraction utils
 - vector magnitude: zero / unit / 3D / compute_speed alias
@@ -354,7 +371,10 @@ threading, player_relative centroid, terminal-outcome handling, ladder
 visibility tracking with fog distinction, and the rich-preset extractors added
 in issue #135: enemy unit-type counts, shield/energy screen summaries, creep
 coverage fraction, and economy-pipeline features); the SC2 env wrapper (reset /
-step / done / info / custom reward config); the full lifecycle of
+step / done / info / custom reward config); the APM limiter (`ApmLimiter`
+token-bucket: construction, no-op exemption, burst cap, rolling refill,
+env integration including throttled action substitution and per-episode
+counters); the full lifecycle of
 `SC2LinearPolicy` and the multi-head `sc2_genetic` trainer (init, crossover
 from both parents, evolution, champion YAML round-trip, `from_cfg` defaulting
 missing features to zero); the masked DQN with action-availability masking,
@@ -374,9 +394,10 @@ fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
 handful of iterations only).
 
-### test_sc2_obs_spec.py (16) — SC2 obs spec
-- minigame dim (15); ladder dim (45); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
+### test_sc2_obs_spec.py (17) — SC2 obs spec
+- minigame dim (15); ladder dim (45); rich dim (102 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
 - minimap_enemy_cx/cy present in all presets (minigame, ladder, rich)
+- rich spec contains new rich-only feature names (selected_avg_shields/energy, screen_visibility_frac, screen_unit_density_aa_mean, self_weapon_cooldown_mean); not present in ladder
 
 ### test_sc2_actions.py (14) — discrete action grid
 - shape / dtype / xy in unit square; centre = select_army; others = move_screen
@@ -386,17 +407,29 @@ handful of iterations only).
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 
-### test_sc2_client.py (46) — PySC2 client wrapper
+### test_sc2_client.py (64) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
+- selected-unit extras: shields + energy from cols 3/4 of single/multi_select; empty selection → zeros; short rows don't crash
+- screen_visibility_frac: all visible → 1.0; half visible → 0.25; fogged not counted; None screen / missing layer → 0
+- screen_unit_density_aa_mean: mean of unit_density_aa layer; zero layer; None screen / missing layer → 0
+- self_weapon_cooldown_mean: mean for alliance==1 from col 25; all ready → 0; no self units → 0; missing feature_units → 0; too few cols → 0
 - minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
 - action fallback (#124, beacon-idling fix): blocked Move_screen → select_army once, then no_op on consecutive blocked steps; pending flag cleared when Move_screen available; no_op action passes through unchanged
 
-### test_sc2_env.py (18) — SC2 env wrapper
+### test_sc2_env.py (27) — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; custom reward config
+- end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
+
+### test_sc2_apm_limiter.py (29) — token-bucket APM limiter + SC2Env integration
+- Construction: valid / zero/negative max_apm raises / zero/negative burst_s raises / max_tokens formula / starts full
+- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token
+- Rolling budget: 300 APM over 60 s allows ~300 total; first second capped at burst window
+- Env integration (disabled): no limiter attribute; action passed unchanged; apm_throttled=False; episode count stays zero
+- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill
 
 ### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
 - obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps
@@ -473,14 +506,19 @@ handful of iterations only).
 - Training loops (mocked env): sc2_genetic / cmaes / neural_dqn / reinforce / lstm
 - Trainer state roundtrips: cmaes / neural_dqn
 
-### test_sc2_analytics.py (29) — SC2-specific analytics plots and flags
+### test_sc2_analytics.py (51) — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags
 - `GreedySimResult` new fields: `action_counts` / `obs_averages` / `xy_hist` — default None; stored correctly
+- `GreedySimResult` end-screen fields: `supply_capped_fraction` / `build_order` / `army_count_series` / `resource_series` — default None; stored correctly
 - `plot_action_frequency`: renders to file / skips when no data / skips when no sims / single fn_idx
 - `plot_obs_averages`: renders to file / skips when no data / skips when all-zero / unknown feature key safe
 - `plot_spatial_heatmap`: renders to file / skips when no data / skips all-zero hist / partial None sims ignored
 - `plot_outcome_breakdown`: renders to file / skips when all None / skips when no sims / win+loss ladder
-- `save_experiment_results`: writes results.md / writes SC2 plots / mentions game / no crash empty sims / no racing plots written
+- `plot_supply_capped`: renders to file / skips when all None / skips when no sims / zero fraction renders
+- `plot_resource_series`: renders to file / uses best sim / skips when no series / skips when no sims / falls back to last sim when none improved
+- `plot_army_count`: renders to file / skips when no series / skips when no sims
+- `plot_build_order`: renders to file / skips when no build order / skips when no sims / single unit type / multiple unit types
+- `save_experiment_results`: writes results.md / writes SC2 plots (incl. new 4) / mentions game / no crash empty sims / no racing plots written
 
 ## CLI / misc
 
@@ -507,7 +545,7 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 740 tests run in ~25 s
+## Why 839 tests run in ~50 s
 
 These tests look heavy because of the names ("training loop", "env reset", "DQN convergence") but operationally they're almost all pure-Python unit tests with zero external I/O:
 
@@ -517,6 +555,6 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 4. **Whole files are config / dataclass tests.** `test_grid_search.py` (29), `test_reward.py` (44), `test_sc2_genetic_policy.py` (53), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
 5. **No matplotlib rendering.** TORCS analytics tests use `Agg` (non-interactive) and dump to `tmp_path`; `test_analytics_no_matplotlib.py` explicitly checks the import path that *avoids* it.
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
-7. **Heavy collection work is amortised.** `pytest`'s ~half-second startup + 41 collection modules is a big share of the wall clock; once collected, 740 mostly-arithmetic asserts run in about 30 µs each.
+7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 839 mostly-arithmetic asserts run in the remaining ~49 seconds.
 
-Roughly: 873 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 839 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.

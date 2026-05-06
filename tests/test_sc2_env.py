@@ -237,5 +237,159 @@ class TestSC2EnvCustomReward(unittest.TestCase):
             self.assertAlmostEqual(reward, 50.0)
 
 
+class TestSC2EnvEndScreenAnalytics(unittest.TestCase):
+    """Tests for the supply-cap / time-series / build-order analytics added
+    to SC2Env.step() info at end-of-episode."""
+
+    def _make_env(self, reset_info=None, step_info=None, done=False):
+        """Return a mocked SC2Env wired up with the given reset/step info."""
+        patcher = patch("games.sc2.env.SC2Client")
+        mock_cls = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        _base_reset = {
+            "score": 0.0, "minerals": 100.0, "vespene": 0.0,
+            "food_used": 6.0, "food_cap": 15.0, "army_count": 0.0,
+        }
+        _base_step = {
+            "score": 1.0, "minerals": 150.0, "vespene": 50.0,
+            "food_used": 8.0, "food_cap": 15.0, "army_count": 2.0,
+            "game_loop": 100.0,
+        }
+        mock_client = mock_cls.return_value
+        mock_client.reset.return_value = (
+            np.zeros(BASE_OBS_DIM, dtype=np.float32),
+            dict(_base_reset, **(reset_info or {})),
+        )
+        mock_client.step.return_value = (
+            np.zeros(BASE_OBS_DIM, dtype=np.float32),
+            0.0,
+            done,
+            dict(_base_step, **(step_info or {})),
+        )
+        env = SC2Env(map_name="MoveToBeacon")
+        return env
+
+    # ---------------------------------------------------------------
+    # Series not emitted on non-terminal steps
+    # ---------------------------------------------------------------
+
+    def test_series_absent_on_mid_episode_step(self):
+        """episode_army_series / resource_series / build_order / supply_capped
+        must NOT be in info for non-terminal steps to keep update() lightweight."""
+        env = self._make_env(done=False)
+        env.reset()
+        _, _, terminated, truncated, info = env.step(np.zeros(4, dtype=np.float32))
+        self.assertFalse(terminated)
+        self.assertFalse(truncated)
+        for key in ("episode_army_series", "episode_resource_series",
+                    "episode_build_order", "episode_supply_capped_fraction"):
+            self.assertNotIn(key, info, f"{key} should not appear on mid-episode step")
+
+    # ---------------------------------------------------------------
+    # Series emitted on terminal step
+    # ---------------------------------------------------------------
+
+    def test_series_present_on_terminal_step(self):
+        """All four end-screen fields appear in info when the episode ends."""
+        env = self._make_env(done=True, step_info={"is_last": True})
+        env.reset()
+        _, _, terminated, _, info = env.step(np.zeros(4, dtype=np.float32))
+        self.assertTrue(terminated)
+        for key in ("episode_army_series", "episode_resource_series",
+                    "episode_build_order", "episode_supply_capped_fraction"):
+            self.assertIn(key, info, f"{key} missing from terminal step info")
+
+    # ---------------------------------------------------------------
+    # supply_capped_fraction
+    # ---------------------------------------------------------------
+
+    def test_supply_capped_fraction_when_capped(self):
+        """All steps at food_cap → supply_capped_fraction == 1.0."""
+        env = self._make_env(
+            done=True,
+            step_info={"food_used": 15.0, "food_cap": 15.0, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        self.assertAlmostEqual(info["episode_supply_capped_fraction"], 1.0)
+
+    def test_supply_capped_fraction_when_not_capped(self):
+        """food_used < food_cap → supply_capped_fraction == 0.0."""
+        env = self._make_env(
+            done=True,
+            step_info={"food_used": 8.0, "food_cap": 15.0, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        self.assertAlmostEqual(info["episode_supply_capped_fraction"], 0.0)
+
+    # ---------------------------------------------------------------
+    # army / resource series
+    # ---------------------------------------------------------------
+
+    def test_army_series_contains_step_data(self):
+        """Army series has one entry per step with [game_time_s, army_count]."""
+        env = self._make_env(
+            done=True,
+            step_info={"army_count": 5.0, "game_loop": 224.0, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        army = info["episode_army_series"]
+        self.assertEqual(len(army), 1)
+        self.assertAlmostEqual(army[0][1], 5.0)
+
+    def test_resource_series_sums_minerals_and_vespene(self):
+        """Resource series value == minerals + vespene."""
+        env = self._make_env(
+            done=True,
+            step_info={"minerals": 100.0, "vespene": 50.0,
+                       "game_loop": 0.0, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        res = info["episode_resource_series"]
+        self.assertAlmostEqual(res[0][1], 150.0)
+
+    # ---------------------------------------------------------------
+    # Build order: starting units excluded
+    # ---------------------------------------------------------------
+
+    def test_starting_units_not_in_build_order(self):
+        """Units present in reset info are NOT counted as build-order events."""
+        # 6 SCVs present at reset; step returns same 6 → no "SCV built" event.
+        env = self._make_env(
+            reset_info={"unit_counts": {"SCV": 6.0}},
+            done=True,
+            step_info={"unit_counts": {"SCV": 6.0}, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        events = info["episode_build_order"]
+        self.assertEqual(events, [], "Starting SCVs must not appear in build order")
+
+    def test_new_unit_produces_build_order_event(self):
+        """A unit-count increase after reset IS recorded as a build-order event."""
+        # Reset: 6 SCVs; step: 7 SCVs → one "SCV" event.
+        env = self._make_env(
+            reset_info={"unit_counts": {"SCV": 6.0}},
+            done=True,
+            step_info={"unit_counts": {"SCV": 7.0}, "is_last": True},
+        )
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        events = info["episode_build_order"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0][1], "SCV")
+
+    def test_build_order_empty_when_no_unit_counts(self):
+        """If the client never provides unit_counts, build_order stays empty."""
+        env = self._make_env(done=True, step_info={"is_last": True})
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros(4, dtype=np.float32))
+        self.assertEqual(info["episode_build_order"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

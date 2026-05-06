@@ -361,6 +361,9 @@ class SC2Client:
         feats.update(self._shield_energy_features(feat_screen))
         feats.update(self._creep_features(feat_minimap))
         feats.update(self._economy_pipeline_features(ob))
+        feats.update(self._screen_visibility_features(feat_screen))
+        feats.update(self._screen_antiair_features(feat_screen))
+        feats.update(self._weapon_cooldown_features(ob))
 
         # game_loop scalar — present on both ladder and rich.
         game_loop_arr = self._safe_array(ob, "game_loop")
@@ -415,6 +418,8 @@ class SC2Client:
             "food_used": feats.get("food_used", 0.0),
             "food_cap": feats.get("food_cap", 0.0),
             "army_count": feats.get("army_count", 0.0),
+            "killed_value_units": feats.get("killed_value_units", 0.0),
+            "killed_value_structures": feats.get("killed_value_structures", 0.0),
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "available_fn_ids": available_fn_ids,
@@ -426,6 +431,12 @@ class SC2Client:
             "screen_self_cy":     feats.get("screen_self_cy", 0.0),
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
+            # Per-unit-type counts for build-order tracking (analytics).
+            # Keys follow _RICH_UNIT_TYPES naming: "Marine", "SCV", etc.
+            "unit_counts": {
+                name: feats.get(f"unit_count_{name}", 0.0)
+                for name in self._get_rich_unit_types()
+            },
         }
 
         # Raw minimap visibility layer — only stored when the belief module is
@@ -500,9 +511,24 @@ class SC2Client:
                 avg_hp = float(np.mean(hp_col))
             except (IndexError, ValueError):
                 avg_hp = 0.0
+            try:
+                shield_col = selected[:, 3] if selected.ndim >= 2 else selected[3:4]
+                avg_shields = float(np.mean(shield_col))
+            except (IndexError, ValueError):
+                avg_shields = 0.0
+            try:
+                energy_col = selected[:, 4] if selected.ndim >= 2 else selected[4:5]
+                avg_energy = float(np.mean(energy_col))
+            except (IndexError, ValueError):
+                avg_energy = 0.0
         else:
-            count, avg_hp = 0.0, 0.0
-        return {"selected_count": count, "selected_avg_hp": avg_hp}
+            count, avg_hp, avg_shields, avg_energy = 0.0, 0.0, 0.0, 0.0
+        return {
+            "selected_count":       count,
+            "selected_avg_hp":      avg_hp,
+            "selected_avg_shields": avg_shields,
+            "selected_avg_energy":  avg_energy,
+        }
 
     def _screen_summary_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
         out = {
@@ -775,6 +801,59 @@ class SC2Client:
             )
         return out
 
+    def _screen_visibility_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
+        """Fraction of screen tiles currently fully visible (visibility_map == 2).
+
+        Complements ``minimap_visible_frac`` (which measures the full-map
+        coverage) by capturing how much of the *current camera view* is
+        un-fogged.  PySC2 feature_screen ``visibility_map`` values:
+        0 = hidden, 1 = fogged, 2 = visible.
+        """
+        out = {"screen_visibility_frac": 0.0}
+        if feat_screen is None:
+            return out
+        vis = self._extract_named_layer(feat_screen, "visibility_map")
+        if vis is not None:
+            out["screen_visibility_frac"] = float((vis == 2).sum()) / max(vis.size, 1)
+        return out
+
+    def _screen_antiair_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
+        """Mean anti-air unit density across the screen.
+
+        PySC2 ``unit_density_aa`` is a spatial layer where each tile holds the
+        count of anti-air units present.  Aggregating to a mean scalar gives a
+        compact air-threat signal without requiring the full spatial grid.
+        """
+        out = {"screen_unit_density_aa_mean": 0.0}
+        if feat_screen is None:
+            return out
+        aa = self._extract_named_layer(feat_screen, "unit_density_aa")
+        if aa is not None:
+            out["screen_unit_density_aa_mean"] = float(aa.mean())
+        return out
+
+    def _weapon_cooldown_features(self, ob: Any) -> dict[str, float]:
+        """Mean weapon cooldown for friendly units from ``feature_units``.
+
+        PySC2 ``feature_units`` rows have ``weapon_cooldown`` at column 25.
+        A mean of zero means all weapons are ready; higher values indicate
+        units that fired recently and cannot shoot again immediately.  Only
+        units with alliance == 1 (self) are included.
+        """
+        out = {"self_weapon_cooldown_mean": 0.0}
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return out
+        # Need at least 26 columns to access weapon_cooldown (index 25).
+        if feat_units.ndim != 2 or feat_units.shape[1] < 26:
+            return out
+        self_mask = feat_units[:, 1] == 1  # alliance == self
+        if not self_mask.any():
+            return out
+        cooldowns = feat_units[self_mask, 25].astype(np.float32)
+        out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
+        return out
+
     @staticmethod
     def _build_unit_type_lookup() -> dict[int, str]:
         """Build {unit_type_id: race_label} for the rich preset's unit-type counts.
@@ -802,6 +881,12 @@ class SC2Client:
                 if member.name in _RICH_UNIT_TYPES:
                     lookup[int(member.value)] = member.name
         return lookup
+
+    @staticmethod
+    def _get_rich_unit_types() -> tuple:
+        """Return the _RICH_UNIT_TYPES tuple (lazy import avoids circular deps)."""
+        from games.sc2.obs_spec import _RICH_UNIT_TYPES
+        return _RICH_UNIT_TYPES
 
     # ------------------------------------------------------------------
     # PySC2 observation helpers

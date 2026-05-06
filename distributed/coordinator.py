@@ -7,8 +7,12 @@ Authentication: every request must carry  Authorization: Bearer <token>.
 Missing or wrong token → 401 Unauthorized.
 
 Endpoints:
-  GET  /work       → 200 + ComboSpec JSON, or 204 when queue is empty
+  GET  /work       → 200 + ComboSpec JSON, or 204 when queue is empty.
+                     Workers may send an optional X-Worker-Game header to
+                     receive only work items matching that game.
   POST /result     → 200 ack; stores ExperimentData from worker
+  POST /skip       → 200 ack; returns a work item to the front of the queue
+                     (used by game-filtered workers that receive an incompatible item)
   GET  /status     → 200 + JSON summary (queue depth, done, active workers)
   POST /heartbeat  → 200 ack; updates last-seen timestamp for a worker
 
@@ -36,6 +40,7 @@ from typing import Any
 
 from distributed.protocol import (
     ComboSpec,
+    DEFAULT_GAME,
     combo_to_dict,
     result_from_dict,
     experiment_from_dict,
@@ -103,6 +108,8 @@ class Coordinator:
                     coord._handle_post_result(self, body)
                 elif self.path == "/heartbeat":
                     coord._handle_post_heartbeat(self, body)
+                elif self.path == "/skip":
+                    coord._handle_post_skip(self, body)
                 else:
                     self._send_json(404, {"error": "not found"})
 
@@ -192,12 +199,34 @@ class Coordinator:
     # ------------------------------------------------------------------
 
     def _handle_get_work(self, handler: Any) -> None:
+        worker_game = handler.headers.get("X-Worker-Game", None)
         with self._lock:
             if not self._work_queue:
                 handler.send_response(204)
                 handler.end_headers()
                 return
-            spec = self._work_queue.popleft()
+
+            if worker_game:
+                # Find the first item in the queue that matches the worker's game.
+                spec = None
+                skipped: list[Any] = []
+                while self._work_queue:
+                    candidate = self._work_queue.popleft()
+                    if getattr(candidate, "game", DEFAULT_GAME) == worker_game:
+                        spec = candidate
+                        break
+                    skipped.append(candidate)
+                # Put non-matching items back at the front (preserving order).
+                for item in reversed(skipped):
+                    self._work_queue.appendleft(item)
+                if spec is None:
+                    # No matching work for this game yet.
+                    handler.send_response(204)
+                    handler.end_headers()
+                    return
+            else:
+                spec = self._work_queue.popleft()
+
             worker_id = handler.headers.get("X-Worker-Id", "unknown")
             self._in_progress[spec.name] = {
                 "spec": spec,
@@ -265,6 +294,32 @@ class Coordinator:
                 self._in_progress[name]["last_hb"] = time.monotonic()
                 self._in_progress[name]["worker_id"] = worker_id
 
+        handler._send_json(200, {"status": "ok"})
+
+    def _handle_post_skip(self, handler: Any, body: bytes) -> None:
+        """Return a work item to the front of the queue.
+
+        Called by game-filtered workers that received an item for a different
+        game (should not happen with server-side filtering, but kept as a
+        fallback for older coordinator versions or race conditions).
+        """
+        worker_id = handler.headers.get("X-Worker-Id", "unknown")
+        try:
+            d = json.loads(body.decode())
+            name = d["name"]
+        except Exception as exc:
+            handler._send_json(400, {"error": str(exc)})
+            return
+
+        with self._lock:
+            info = self._in_progress.pop(name, None)
+            if info is None:
+                # Already re-queued or completed — ignore silently.
+                handler._send_json(200, {"status": "ok", "note": "not in progress"})
+                return
+            self._work_queue.appendleft(info["spec"])
+
+        logger.info("Returned %s to queue (skipped by worker %s)", name, worker_id)
         handler._send_json(200, {"status": "ok"})
 
     def _handle_get_status(self, handler: Any) -> None:

@@ -24,6 +24,8 @@ StarCraft II (PySC2) integration for the tmnf-ai reinforcement learning framewor
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
 - [Supported policies](#supported-policies)
+  - [`sc2_genetic` — SC2GeneticPolicy](#sc2_genetic--sc2geneticpolicy)
+  - [`sc2_cnn` — SC2CNNEvolutionPolicy](#sc2_cnn--sc2cnnevolutionpolicy)
 - [Analytics output](#analytics-output)
   - [Files written per experiment](#files-written-per-experiment)
   - [Plot reference](#plot-reference)
@@ -325,6 +327,7 @@ All policies in the framework work with SC2. Set `policy_type` in `games/sc2/con
 | `neural_dqn` | Deep Q-network, experience replay, target network | Gradient-based neural training |
 | `reinforce` | Monte Carlo policy gradient | Stochastic policy, simpler than DQN |
 | `lstm` | LSTM + isotropic Gaussian ES | Useful when temporal memory matters |
+| `sc2_cnn` | CNN (two conv layers + FC) + isotropic Gaussian ES | **Requires `screen_layers` to be non-empty**; processes raw feature-layer pixels; fundamentally different observation pipeline from every other policy |
 
 Policy-specific hyperparameters go under `policy_params:` in `training_params.yaml`. See the root `README.md` or `games/tmnf/README.md` for full param reference.
 
@@ -353,6 +356,117 @@ Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format.
 
 ---
 
+### `sc2_cnn` — SC2CNNEvolutionPolicy
+
+The CNN policy is **the only SC2 policy that consumes spatial (pixel-level) observations**. All other policies receive a flat `np.ndarray`; `sc2_cnn` receives a `dict` with two keys:
+
+- `obs["flat"]` — the standard flat obs vector (13/43/97 dims, selected by `obs_spec_preset`)
+- `obs["spatial"]` — a `(C, 64, 64)` float32 array of normalised feature-layer values, where `C = len(screen_layers) + len(minimap_layers)`
+
+This dual-stream input is the **foundational difference** relative to every other policy in the framework. It is what makes the CNN uniquely capable of detecting spatial structure — enemy formations, unit clusters, HP gradients across the map — that flat scalar summaries (enemy centroid, screen pixel counts) necessarily discard.
+
+#### Architecture
+
+```
+spatial input (C, 64, 64)
+    │
+Conv2d(C → 32, 3×3, ReLU)       valid padding; output (32, 62, 62)
+Conv2d(32 → 64, 3×3, ReLU)      valid padding; output (64, 60, 60)
+AdaptiveAvgPool2d(4×4)           output (64, 4, 4) → flatten → (1024,)
+    │
+Concat with normalised flat obs (obs_dim,)
+    │                            fused vector: (1024 + obs_dim,)
+FC(1024 + obs_dim → 256, ReLU)   single shared trunk
+    │
+  ┌───┴────────┐
+fn_head        spatial_head
+Linear(256→6)  Linear(256→9)
+argmax→fn_idx  argmax→grid cell → (x, y)
+```
+
+The network is **evolved, not gradient-trained**. Weights are updated by an isotropic Gaussian ES with the 1/5 success rule (same algorithm used by `sc2_lstm`); no backpropagation occurs at any stage. This makes the implementation purely numpy and avoids the need for a deep learning framework.
+
+#### Parameter count
+
+With `C` spatial channels and `obs_dim`-dimensional flat obs:
+
+```
+CONV1 (weights + biases) : 32 × C × 9 + 32
+CONV2 (weights + biases) : 64 × 32 × 9 + 64    = 18,496  (fixed)
+FC   (weights + biases)  : 256 × (1024 + obs_dim) + 256
+fn_head                  : 6 × 256 + 6           = 1,542   (fixed)
+spatial_head             : 9 × 256 + 9           = 2,313   (fixed)
+```
+
+Example totals:
+
+| C | obs_dim (preset) | Total params |
+|---|---|---|
+| 2 | 13 (minigame) | ~289 K |
+| 2 | 97 (rich) | ~310 K |
+| 4 | 13 (minigame) | ~290 K |
+
+The FC layer `256 × (1024 + obs_dim)` dominates (~265 K of ~289 K). This is **400× the CMA-ES linear space** (~760 params, rich obs) and **17× the LSTM space** (h=32, rich obs: ~17 K params).
+
+#### What is fundamentally different from every other SC2 policy
+
+| Dimension | All other SC2 policies | `sc2_cnn` |
+|---|---|---|
+| **Observation type** | Flat `np.ndarray` (scalar summaries) | `dict` with `"flat"` + `"spatial"` keys |
+| **`screen_layers` required** | Ignored (silently set to `[]`) | **Mandatory** — must be non-empty |
+| **Spatial information** | Pre-aggregated scalars (centroid, pixel count) | Raw feature-layer pixels; CNN learns its own aggregation |
+| **Learning mechanism** | Gradient descent **or** ES | Isotropic ES only (no backprop) |
+| **Parameter space** | 640–42 K params | ~289 K params |
+| **Champion save format** | YAML (`*_weights` keys) | NumPy `.npz` (`flat`, `n_channels`, `obs_dim`, `flat_dim`) |
+| **Weight loading** | `policy.load_champion(weights_file)` on a `.yaml` path | `policy.load_champion(weights_file.replace(".yaml", ".npz"))` |
+
+Because the observations are structurally incompatible, **you cannot warm-start a `sc2_cnn` run from a champion saved by any other policy type** (and vice versa).
+
+#### Configuration
+
+Add `screen_layers` to your `training_params.yaml`:
+
+```yaml
+policy_type: sc2_cnn
+screen_layers:
+  - player_relative    # friend / foe / neutral (values 0–4) — most informative single channel
+  - unit_hit_points    # per-cell HP; lets the CNN learn health-aware spatial decisions
+minimap_layers: []     # optional; adds minimap channels as extra input planes
+obs_spec_preset: minigame   # flat part of the obs; CNN handles all spatial information
+policy_params:
+  population_size: 20
+  initial_sigma: 0.01
+  eval_episodes: 1
+```
+
+**Choosing `screen_layers`**: any subset of the PySC2 feature-layer names is valid (e.g. `player_relative`, `selected`, `unit_hit_points`, `unit_density`, `unit_type`, `visibility_map`). Two channels is a good starting point for minigames. Adding more channels increases `C`, which slightly increases `flat_dim` (the CONV1 term grows by `32 × 9 = 288` params per extra channel) and does not change the rest of the network.
+
+**`minimap_layers`**: minimap channels are concatenated with screen channels along the channel axis, so `n_channels = len(screen_layers) + len(minimap_layers)`. Both must have the same spatial resolution (`screen_size == minimap_size`) because the conv stack treats them identically.
+
+#### Hyperparameter tuning
+
+| Param | Default | Range to explore | Notes |
+|---|---|---|---|
+| `population_size` (λ) | 20 | 10–30 | Larger λ reduces fitness-estimate noise per generation; 20 is a reasonable default for ~289 K dims |
+| `initial_sigma` | 0.01 | 0.005–0.02 | **Start small.** The 1/5 success rule adapts σ automatically, but σ > 0.05 typically collapses weights before the distribution converges. If σ decays to < 1e-5 after a few generations, try a warm restart with `--re-initialize` |
+| `eval_episodes` | 1 | 1–3 | Averaging over multiple episodes reduces stochastic noise in fitness; doubles/triples episode budget per generation |
+| `n_sims` | 40–60 | — | One sim = one ES generation. With λ=20 and `eval_episodes=1`, 40 sims = 800 episodes |
+| `screen_layers` | `[player_relative]` | 1–4 layers | More channels → marginally larger search space; diminishing returns beyond 3–4 layers |
+
+**Episode budget**: `n_sims × population_size × eval_episodes`. At λ=20, `n_sims=40`, `eval_episodes=1` this is 800 episodes — roughly comparable to a short `sc2_cmaes` or `sc2_lstm` run.
+
+#### Grid search
+
+```bash
+python grid_search.py games/sc2/config/gs_sc2_cnn_template.yaml --game sc2
+```
+
+The provided template sweeps `population_size ∈ {10, 20}`, `initial_sigma ∈ {0.005, 0.01}`, and `idle_bonus ∈ {0.0, 0.5}` on DefeatRoaches with the minigame flat-obs preset and two screen channels (`player_relative` + `unit_hit_points`). That is 2 × 2 × 2 = 8 combinations, each running 40 generations.
+
+Champion weights are saved as `<experiment_dir>/weights.npz`. Trainer state (ES mean vector and current σ) is saved as `<experiment_dir>/trainer_state.npz` and is reloaded automatically on restart.
+
+---
+
 ## Analytics output
 
 Every training run automatically calls `games/sc2/analytics.py::save_experiment_results` at the end of the experiment. The module exposes `SUPPORTS_THROTTLE = False` and `SUPPORTS_PATH = False` flags confirming that racing-specific plots (throttle/brake timelines, bird's-eye path traces, weight heatmaps) are intentionally excluded for SC2.
@@ -371,6 +485,10 @@ Output directory: `experiments/sc2_<map>/<name>/results/`.
 | `obs_averages.png` | At least one greedy sim has non-empty `obs_averages` AND at least one feature value is non-zero | `plot_obs_averages` |
 | `spatial_heatmap.png` | At least one greedy sim has a non-zero `xy_hist` | `plot_spatial_heatmap` |
 | `outcome_breakdown.png` | At least one greedy sim has a non-None `termination_reason` | `plot_outcome_breakdown` |
+| `supply_capped.png` | At least one greedy sim has a non-None `supply_capped_fraction` | `plot_supply_capped` |
+| `resource_series.png` | The best greedy sim has a non-empty `resource_series` | `plot_resource_series` |
+| `army_count.png` | The best greedy sim has a non-empty `army_count_series` | `plot_army_count` |
+| `build_order.png` | The best greedy sim has a non-empty `build_order` | `plot_build_order` |
 | `reward_trajectory.png` | Always | `plot_reward_trajectory` |
 | `results.md` | Always | Markdown report stitching the plots above with summary tables |
 | `experiment_data.json` | Always (by `framework.analytics.save_experiment_data_json`) | JSON dump of `ExperimentData` for cross-experiment analysis |
@@ -406,6 +524,18 @@ Aggregate 8×8 heatmap of normalised `(x, y)` screen coordinates targeted by the
 #### `outcome_breakdown.png` — Episode termination reasons (issue #128/2e)
 Stacked-bar chart, one bar per greedy sim, showing the termination category: **win** (green), **finish** (light green), **timeout** (orange), **loss** (red), **other** (grey). Useful for ladder maps where win/loss outcomes are meaningful. On pure minigames all bars will be `finish` or `timeout`, confirming the plot is non-noisy in that setting.
 
+#### `supply_capped.png` — Time supply-capped per sim (2f)
+Bar chart showing the fraction of each greedy sim's steps where `food_used >= food_cap`. Bars are colour-coded: **green** (≤25%), **orange** (25–50%), **red** (>50%). Supply-cap time is a classic SC2 macro-management metric: a high fraction indicates the agent should be training more units rather than idling production. Improvement sims are marked with a dark triangle.
+
+#### `resource_series.png` — Resources available over time (2g)
+Line chart of `minerals + vespene` over game time (seconds) for the **best** greedy sim (last improved, or last sim if none improved). A shaded region fills under the curve; a red dashed line marks the episode average. High average resources indicate the agent is collecting but not spending — an economy bottleneck rather than a production bottleneck.
+
+#### `army_count.png` — Army count over time (2h)
+Line chart of `army_count` (total friendly army units) over game time for the **best** greedy sim. A shaded region fills under the curve. Reveals when army grows (training units) or collapses (combat losses). Flat at zero indicates the agent never builds an army.
+
+#### `build_order.png` — Unit-build timeline (2i)
+Horizontal scatter plot of unit-count increase events for the **best** greedy sim. Each row on the y-axis is a distinct unit type (e.g. Marine, SCV, Zergling); each dot marks a game-time moment when that unit type's count increased above its previous observed value (i.e. a unit of that type was built or spawned). Multiple dots per unit type are possible if several units are built over the episode. Starting units present at episode reset are excluded from the baseline so they are not recorded as "built" events. A secondary x-axis above the chart shows `mm:ss` wall-clock labels. Only unit types recognised by the rich observation preset (`Marine`, `SCV`, `Zergling`, `Drone`, `Probe`, `Stalker`, `Roach`, `Mutalisk`) appear in the plot.
+
 #### `reward_trajectory.png` — All phases on a single timeline
 Scatter plot of per-episode reward across **all** phases on one cumulative-simulation x-axis: probe (blue), cold-start (purple), greedy (orange), with vertical dotted boundaries between phases. A black step-line traces the running best-so-far. Useful for spotting how much of the gain came from each phase and whether the greedy phase plateaued early.
 
@@ -418,7 +548,7 @@ Scatter plot of per-episode reward across **all** phases on one cumulative-simul
 3. **Summary** — single paragraph with policy type, total sims, best reward, etc. (`_summary_md`)
 4. **Probe Phase** *(if probes were run)* — table of `(action, reward)` pairs + the probe-rewards plot
 5. **Cold-start Phase** *(if cold-start was run)* — table of `(restart, best_reward, beat_floor)` + the cold-start plot
-6. **Greedy Phase** *(if any greedy sims)* — table of `(sim, reward, improved, sigma, …)` + the greedy plot, and — when populated — the reward-components, action-frequency, obs-averages, spatial-heatmap and outcome-breakdown plots
+6. **Greedy Phase** *(if any greedy sims)* — table of `(sim, reward, improved, sigma, …)` + the greedy plot, and — when populated — the reward-components, action-frequency, obs-averages, spatial-heatmap, outcome-breakdown, supply-capped, resource-series, army-count, and build-order plots
 7. **Reward trajectory** — the best-episode trajectory plot
 
 ### Grid-search summary

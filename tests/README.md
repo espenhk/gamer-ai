@@ -40,10 +40,10 @@
   - [test\_torcs\_reward.py (13) — TORCS reward calc](#test_torcs_rewardpy-13--torcs-reward-calc)
   - [test\_torcs\_analytics.py (11) — TORCS plots/report](#test_torcs_analyticspy-11--torcs-plotsreport)
 - [SC2](#sc2)
-  - [test\_sc2\_obs\_spec.py (16) — SC2 obs spec](#test_sc2_obs_specpy-16--sc2-obs-spec)
+  - [test\_sc2\_obs\_spec.py (17) — SC2 obs spec](#test_sc2_obs_specpy-17--sc2-obs-spec)
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
   - [test\_sc2\_reward.py (23) — SC2 reward calc](#test_sc2_rewardpy-23--sc2-reward-calc)
-  - [test\_sc2\_client.py (46) — PySC2 client wrapper](#test_sc2_clientpy-46--pysc2-client-wrapper)
+  - [test\_sc2\_client.py (64) — PySC2 client wrapper](#test_sc2_clientpy-64--pysc2-client-wrapper)
   - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
   - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
@@ -61,7 +61,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
 
-868 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1003 tests.
+887 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1003 tests.
 
 ## Coverage at a glance
 
@@ -391,9 +391,10 @@ fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
 handful of iterations only).
 
-### test_sc2_obs_spec.py (16) — SC2 obs spec
-- minigame dim (15); ladder dim (45); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
+### test_sc2_obs_spec.py (17) — SC2 obs spec
+- minigame dim (15); ladder dim (45); rich dim (102 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
 - minimap_enemy_cx/cy present in all presets (minigame, ladder, rich)
+- rich spec contains new rich-only feature names (selected_avg_shields/energy, screen_visibility_frac, screen_unit_density_aa_mean, self_weapon_cooldown_mean); not present in ladder
 
 ### test_sc2_actions.py (14) — discrete action grid
 - shape / dtype / xy in unit square; centre = select_army; others = move_screen
@@ -403,10 +404,14 @@ handful of iterations only).
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 
-### test_sc2_client.py (46) — PySC2 client wrapper
+### test_sc2_client.py (64) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
+- selected-unit extras: shields + energy from cols 3/4 of single/multi_select; empty selection → zeros; short rows don't crash
+- screen_visibility_frac: all visible → 1.0; half visible → 0.25; fogged not counted; None screen / missing layer → 0
+- screen_unit_density_aa_mean: mean of unit_density_aa layer; zero layer; None screen / missing layer → 0
+- self_weapon_cooldown_mean: mean for alliance==1 from col 25; all ready → 0; no self units → 0; missing feature_units → 0; too few cols → 0
 - minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
 - action fallback (#124, beacon-idling fix): blocked Move_screen → select_army once, then no_op on consecutive blocked steps; pending flag cleared when Move_screen available; no_op action passes through unchanged
 

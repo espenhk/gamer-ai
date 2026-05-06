@@ -6,22 +6,32 @@ score breakdowns.  The framework policies (linear, MLP, evolutionary) consume
 flat fixed-size vectors, so the SC2 integration projects PySC2's observation
 into one of three preset specs (issue #126):
 
-``SC2_MINIGAME_OBS_SPEC``  (13 dims)
+``SC2_MINIGAME_OBS_SPEC``  (15 dims)
     Compact spec covering player totals plus a few spatial summary statistics.
     Designed for the 7 standard PySC2 minigames.  Unchanged from before #126
     so existing minigame champions keep loading.
 
-``SC2_LADDER_OBS_SPEC``   (~40 dims)
+``SC2_LADDER_OBS_SPEC``   (~45 dims)
     Extension adding economy breakdowns (collected / spent minerals + vespene,
     killed / total value, idle worker / production time), army-vs-worker supply
     split, screen unit-density / mean-HP summaries, top-K enemy features and
     minimap-camera position.  Default for 1v1 ladder play.
 
-``SC2_RICH_OBS_SPEC``     (80 dims)
+``SC2_RICH_OBS_SPEC``     (~100 dims)
     Full superset for research experiments: everything in the ladder spec plus
     8 per-unit-type counts, per-quadrant screen counts of self / enemy,
     top-3 closest enemies (rel_x, rel_y, hp_ratio), available-actions binary
-    mask and one-hot of last function id.
+    mask, one-hot of last function id, per-side shield / energy screen
+    summaries, Zerg creep coverage, economy pipeline scalars, selected-unit
+    shield / energy averages, screen visibility fraction, anti-air density,
+    and mean friendly weapon cooldown.
+
+    **PySC2 features intentionally deferred to a later phase:**
+
+    * ``score_by_category`` / ``score_by_vital`` — per-category economic /
+      damage breakdowns (Phase 2 of issue #126; adds ~40+ dims with complex
+      2-D structure).
+    * ``player_id`` — fixed per game; only meaningful in multi-agent settings.
 
 Map → preset selection is done by ``get_spec(map_name, preset=None)``.  Pass
 an explicit ``preset`` (``"minigame"`` / ``"ladder"`` / ``"rich"``) to override
@@ -205,6 +215,43 @@ _ECONOMY_PIPELINE_DIMS: list[ObsDim] = [
 ]
 
 
+# --- Selected-unit extras (rich only) ----------------------------------------
+# PySC2 single_select / multi_select rows are laid out as:
+# [unit_type, player_relative, health, shields, energy,
+#  transport_slots_taken, build_progress]
+# We already use col 2 (health) in _SELECTED_DIMS (minigame baseline).
+# Cols 3 (shields) and 4 (energy) add protoss / caster signal.
+_SELECTED_EXTRA_DIMS: list[ObsDim] = [
+    ObsDim("selected_avg_shields", 100.0, "Mean shield of currently selected units"),
+    ObsDim("selected_avg_energy",  200.0, "Mean energy of currently selected units"),
+]
+
+# --- Screen visibility fraction (rich only) ----------------------------------
+# PySC2 feature_screen has a visibility_map layer (0=hidden, 1=fogged,
+# 2=visible).  The scalar fraction of tiles that are fully visible
+# complements minimap_visible_frac and captures current camera coverage.
+_SCREEN_VISIBILITY_DIMS: list[ObsDim] = [
+    ObsDim("screen_visibility_frac", 1.0,
+           "Fraction of screen tiles currently visible (visibility_map == 2)"),
+]
+
+# --- Anti-air density (rich only) --------------------------------------------
+# PySC2 feature_screen includes a unit_density_aa channel (anti-air unit
+# density per tile).  The mean gives a signal for air-threat awareness.
+_SCREEN_ANTIAIR_DIMS: list[ObsDim] = [
+    ObsDim("screen_unit_density_aa_mean", 16.0,
+           "Mean anti-air unit density across screen (unit_density_aa layer)"),
+]
+
+# --- Friendly weapon cooldown (rich only) ------------------------------------
+# PySC2 feature_units exposes weapon_cooldown (col 25) per unit.  A high
+# mean cooldown signals that friendly units recently fired and cannot fire
+# again immediately; near-zero means all weapons are ready.
+_WEAPON_COOLDOWN_DIMS: list[ObsDim] = [
+    ObsDim("self_weapon_cooldown_mean", 50.0,
+           "Mean weapon cooldown for friendly units (0 = all ready to fire)"),
+]
+
 # --- Minimap enemy centroid — shared baseline block --------------------------
 # The minimap always shows the full map regardless of camera position.
 # Adding the enemy centroid on the minimap gives the policy a reliable
@@ -262,9 +309,13 @@ _RICH_DIMS: list[ObsDim] = (
     + _SHIELD_ENERGY_DIMS
     + _CREEP_DIMS
     + _ECONOMY_PIPELINE_DIMS
+    + _SELECTED_EXTRA_DIMS
+    + _SCREEN_VISIBILITY_DIMS
+    + _SCREEN_ANTIAIR_DIMS
+    + _WEAPON_COOLDOWN_DIMS
 )
 
-#: ~95-dim research preset.
+#: ~102-dim research preset.
 SC2_RICH_OBS_SPEC: ObsSpec = ObsSpec(_RICH_DIMS)
 
 

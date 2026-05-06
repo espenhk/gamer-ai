@@ -60,7 +60,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 839 tests run in ~50 s](#why-839-tests-run-in-50-s)
 
-862 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
+863 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
 
 ## Coverage at a glance
 
@@ -191,14 +191,14 @@ loop end-to-end on a real env.
 ### test_train_rl_signature.py (4) — public `train_rl()` API
 - accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params
 
-### test_new_best_logging.py (23) — `_log_new_best_details` + `_print_episode_summary`
+### test_new_best_logging.py (24) — `_log_new_best_details` + `_print_episode_summary`
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
 - `_log_new_best_details` — empty info emits nothing
-- reward components: logged; zero values omitted; prev comparison shown; no-prev no comparison
-- action frequency: logged with SC2 function names; prev comparison shown
+- reward components: logged as single line; zero values omitted; prev comparison shown; no-prev no comparison
+- action frequency: logged as single line with SC2 function names; prev comparison shown
 - TMNF metrics: progress; lateral offset; finish time only when `finished=True`; prev comparison for progress + offset
-- SC2 kills: units + structures logged; prev comparison; absent when key not in info
-- SC2 game-state averages: logged; zero values omitted; prev comparison
+- SC2 kills: units + structures logged as single line; prev comparison; absent when key not in info; suppressed when both values zero
+- SC2 game-state averages: logged as single line; zero values omitted; prev comparison
 - all five groups together emit five lines
 
 ### test_utils.py (13) — math/state-extraction utils

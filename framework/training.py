@@ -296,7 +296,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             if abs(v) > 0.001:
                 pv = prev_rc.get(k)
                 cmp_s = f" (prev {pv:+.1f})" if pv is not None else ""
-                logger.info(f"{k}={v:+.1f}{cmp_s}")
+                parts.append(f"{k}={v:+.1f}{cmp_s}")
+        if parts:
+            logger.info("    components: %s", "  ".join(parts))
 
     # 2. Action-frequency breakdown (SC2Env only) ----------------------------
     ac = info.get("episode_action_counts")
@@ -322,7 +324,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:
                     cmp_s = ""
-                logger.info(f"{name}={pct:.1f}%{cmp_s}")
+                parts.append(f"{name}={pct:.1f}%{cmp_s}")
+            if parts:
+                logger.info("    actions: %s", "  ".join(parts))
 
     # 3. TMNF task metrics ---------------------------------------------------
     progress = info.get("track_progress")
@@ -343,16 +347,17 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             t_s = f"  finish_time={finish_t:.1f}s{ft_cmp}"
         logger.info("    progress=%.1f%%%s%s%s", 100.0 * progress, cmp_s, lat_s, t_s)
 
-    # 4. SC2 kill stats ------------------------------------------------------
+    # 4. SC2 kill stats — suppress when no kills occurred --------------------
     kills = info.get("episode_killed_value_units")
     if kills is not None:
-        prev_kills = prev.get("episode_killed_value_units")
-        cmp_s = f" (prev {prev_kills:.0f})" if prev_kills is not None else ""
         struct_kills = info.get("episode_killed_value_structures", 0.0)
-        prev_struct = prev.get("episode_killed_value_structures")
-        struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
-        logger.info("    kills: units=%d%s  structures=%d%s",
-                    int(kills), cmp_s, int(struct_kills), struct_cmp_s)
+        if kills > 0.5 or struct_kills > 0.5:
+            prev_kills = prev.get("episode_killed_value_units")
+            cmp_s = f" (prev {prev_kills:.0f})" if prev_kills is not None else ""
+            prev_struct = prev.get("episode_killed_value_structures")
+            struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
+            logger.info("    kills: units=%d%s  structures=%d%s",
+                        int(kills), cmp_s, int(struct_kills), struct_cmp_s)
 
     # 5. SC2 game-state averages ---------------------------------------------
     obs_avgs = info.get("episode_obs_averages")
@@ -364,7 +369,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             if v is not None and abs(v) > 0.001:
                 pv = prev_avgs.get(k)
                 cmp_s = f" (prev {pv:.1f})" if pv is not None else ""
-                logger.info(f"{k}={v:.1f}{cmp_s}")
+                parts.append(f"{k}={v:.1f}{cmp_s}")
+        if parts:
+            logger.info("    game_state: %s", "  ".join(parts))
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int,

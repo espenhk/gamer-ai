@@ -178,6 +178,16 @@ class TestLogNewBestDetails(unittest.TestCase):
         for line in lines:
             self.assertNotIn("kills:", line)
 
+    def test_kill_stats_suppressed_when_both_zero(self):
+        """kills: line not emitted when both units and structures killed are zero."""
+        info = {
+            "episode_killed_value_units": 0.0,
+            "episode_killed_value_structures": 0.0,
+        }
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        for line in lines:
+            self.assertNotIn("kills:", line)
+
     def test_game_state_averages_logged(self):
         info = {"episode_obs_averages": {"army_count": 4.5, "food_used": 10.0, "screen_enemy_count": 3.2}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))

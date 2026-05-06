@@ -326,7 +326,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                     cmp_s = ""
                 parts.append(f"{name}={pct:.1f}%{cmp_s}")
             if parts:
-                logger.info("    actions: %s", "  ".join(parts))
+                logger.info("    actions: %s", "\n".join(parts))
 
     # 3. TMNF task metrics ---------------------------------------------------
     progress = info.get("track_progress")

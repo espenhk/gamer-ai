@@ -39,6 +39,7 @@ from framework.base_env import BaseGameEnv
 from framework.belief import EWMABelief
 from framework.info_gain import RegionStalenessTracker
 from games.sc2.actions import FUNCTION_IDS
+from games.sc2.apm_limiter import ApmLimiter
 from games.sc2.client import SC2Client
 from games.sc2.obs_spec import MINIGAME_NAMES, get_spec
 from games.sc2.reward import SC2RewardCalculator, SC2RewardConfig
@@ -76,6 +77,16 @@ class SC2Env(BaseGameEnv):
         ``"flat"`` (the existing vector) and ``"spatial"`` (C × H × W).
     minimap_layers :
         PySC2 feature_minimap layer names appended after screen_layers.
+    max_apm :
+        Optional maximum actions per minute.  When set, a token-bucket
+        limiter replaces non-no-op actions with ``no_op`` when the budget
+        is exhausted.  ``None`` (default) disables limiting.  No-op actions
+        (``fn_idx == 0``) are always free and do not consume budget.
+    apm_burst_s :
+        Token-bucket burst window in seconds.  Controls how many seconds'
+        worth of tokens can accumulate before the limiter kicks in.
+        Defaults to ``2.0`` — short bursts are fine, but the agent cannot
+        spend its entire per-minute budget instantaneously.
     """
 
     metadata = {"render_modes": []}
@@ -95,6 +106,8 @@ class SC2Env(BaseGameEnv):
         minimap_layers: list[str] | None = None,
         obs_spec_preset: str | None = None,
         enable_belief: bool = False,
+        max_apm: int | None = None,
+        apm_burst_s: float = 2.0,
     ) -> None:
         super().__init__()
 
@@ -168,6 +181,11 @@ class SC2Env(BaseGameEnv):
             store_minimap_vis=enable_belief,
         )
 
+        # APM limiter — None when no limit is requested.
+        self._apm_limiter: ApmLimiter | None = (
+            ApmLimiter(max_apm, burst_s=apm_burst_s) if max_apm is not None else None
+        )
+
         # Episode tracking
         self._prev_obs: np.ndarray | None = None
         self._prev_minerals: float = 0.0
@@ -182,6 +200,7 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_sums: dict[str, float] = {}
         self._ep_obs_step_count: int = 0
         self._ep_xy_hist: np.ndarray = np.zeros((8, 8), dtype=np.int64)
+        self._ep_apm_throttled_steps: int = 0
         # Per-episode SC2 end-screen analytics (supply cap, time-series, build order).
         self._ep_supply_capped_steps: int = 0
         self._ep_army_series: list = []       # [[game_time_s, army_count], ...]
@@ -215,6 +234,7 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_sums = {}
         self._ep_obs_step_count = 0
         self._ep_xy_hist = np.zeros((8, 8), dtype=np.int64)
+        self._ep_apm_throttled_steps = 0
         self._ep_supply_capped_steps = 0
         self._ep_army_series = []
         self._ep_resource_series = []
@@ -225,6 +245,9 @@ class SC2Env(BaseGameEnv):
         self._ep_prev_unit_counts = dict(info.get("unit_counts") or {})
         self._reward_calc.reset()
         self._prev_game_loop = float(info.get("game_loop", 0.0))
+
+        if self._apm_limiter is not None:
+            self._apm_limiter.reset(self._episode_start_s)
 
         if self._belief is not None:
             self._belief.reset()
@@ -241,11 +264,23 @@ class SC2Env(BaseGameEnv):
         return obs, info
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray | dict, float, bool, bool, dict]:
+        # APM limiting: replace non-no-op actions with no_op when budget is
+        # exhausted.  The check uses the current wall-clock time so that the
+        # rolling token bucket tracks real elapsed time.
+        _now = time.monotonic()
+        _fn_idx_requested = int(action[0]) if len(action) > 0 else 0
+        if self._apm_limiter is not None and not self._apm_limiter.allow(_now, _fn_idx_requested):
+            action = np.array([0.0, 0.5, 0.5, 0.0], dtype=np.float32)
+            _apm_throttled = True
+            self._ep_apm_throttled_steps += 1
+        else:
+            _apm_throttled = False
+
         flat_obs, _raw_reward, done, info = self._client.step(action)
         obs = self._make_obs(flat_obs, info)
 
         self._step_count += 1
-        self._elapsed_s = time.monotonic() - self._episode_start_s
+        self._elapsed_s = _now - self._episode_start_s
 
         # Override the prev-* entries the client cannot know about.
         info["prev_minerals"] = self._prev_minerals
@@ -257,6 +292,9 @@ class SC2Env(BaseGameEnv):
         # Screen size threading — reward shaping uses it to scale pixel-based
         # thresholds for non-default screen resolutions.
         info["screen_size"] = self._screen_size
+        # APM throttle metadata — useful for diagnostics and analytics.
+        info["apm_throttled"] = _apm_throttled
+        info["episode_apm_throttled_steps"] = self._ep_apm_throttled_steps
 
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done
@@ -462,6 +500,8 @@ def make_env(
     minimap_layers: list[str] | None = None,
     obs_spec_preset: str | None = None,
     enable_belief: bool = False,
+    max_apm: int | None = None,
+    apm_burst_s: float = 2.0,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -487,4 +527,6 @@ def make_env(
         minimap_layers=minimap_layers,
         obs_spec_preset=obs_spec_preset,
         enable_belief=enable_belief,
+        max_apm=max_apm,
+        apm_burst_s=apm_burst_s,
     )

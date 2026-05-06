@@ -44,6 +44,7 @@
   - [test\_sc2\_reward.py (23) — SC2 reward calc](#test_sc2_rewardpy-23--sc2-reward-calc)
   - [test\_sc2\_client.py (46) — PySC2 client wrapper](#test_sc2_clientpy-46--pysc2-client-wrapper)
   - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
+  - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy-21--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
   - [test\_sc2\_lstm\_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`](#test_sc2_lstm_policypy-35--sc2lstmpolicy--sc2lstmevolutionpolicy)
@@ -57,9 +58,9 @@
 - [CLI / misc](#cli--misc)
   - [cli/test\_game\_flag.py (14) — `--game` CLI flag in `main.py`](#clitest_game_flagpy-14----game-cli-flag-in-mainpy)
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
-- [Why 839 tests run in ~50 s](#why-839-tests-run-in-50-s)
+- [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
 
-839 tests across 53 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
+868 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
 
 ## Coverage at a glance
 
@@ -354,7 +355,10 @@ threading, player_relative centroid, terminal-outcome handling, ladder
 visibility tracking with fog distinction, and the rich-preset extractors added
 in issue #135: enemy unit-type counts, shield/energy screen summaries, creep
 coverage fraction, and economy-pipeline features); the SC2 env wrapper (reset /
-step / done / info / custom reward config); the full lifecycle of
+step / done / info / custom reward config); the APM limiter (`ApmLimiter`
+token-bucket: construction, no-op exemption, burst cap, rolling refill,
+env integration including throttled action substitution and per-episode
+counters); the full lifecycle of
 `SC2LinearPolicy` and the multi-head `sc2_genetic` trainer (init, crossover
 from both parents, evolution, champion YAML round-trip, `from_cfg` defaulting
 missing features to zero); the masked DQN with action-availability masking,
@@ -398,6 +402,13 @@ handful of iterations only).
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; custom reward config
 - end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
+
+### test_sc2_apm_limiter.py (29) — token-bucket APM limiter + SC2Env integration
+- Construction: valid / zero/negative max_apm raises / zero/negative burst_s raises / max_tokens formula / starts full
+- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token
+- Rolling budget: 300 APM over 60 s allows ~300 total; first second capped at burst window
+- Env integration (disabled): no limiter attribute; action passed unchanged; apm_throttled=False; episode count stays zero
+- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill
 
 ### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
 - obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps

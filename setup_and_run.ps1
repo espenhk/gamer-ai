@@ -1,17 +1,19 @@
 <#
 .SYNOPSIS
-    Setup and launch script for all supported games on Windows.
+    Setup and launch script for supported games on Windows.
 
 .DESCRIPTION
     Two modes:
-      Fresh machine  - installs Python 3.11+, Poetry, Git, and ALL supported
-                       game binaries (Trackmania Nations Forever + TMInterface,
-                       StarCraft II, TORCS, BeamNG Python deps, Car Racing deps),
-                       then launches runtime services for the selected game and
-                       runs the user command.
+      Fresh machine  - installs Python 3.11+, Poetry, Git, the selected game
+                       binary, and its Python dependencies, then launches
+                       runtime services for that game and runs the user command.
       Existing setup - detects what is already present, skips install steps, and
                        goes straight to starting the selected game services and
                        running the requested command.
+
+    Only the game specified by -Game is installed.  This keeps setup fast and
+    avoids downloading games you don't intend to use (e.g. SC2 can take many
+    minutes and requires interactive login to Battle.net).
 
     Supported games: tmnf, sc2, torcs, beamng, car_racing.
 
@@ -24,12 +26,12 @@
         "python -m distributed.worker --coordinator http://192.168.1.10:5555 --token mytoken --no-interrupt"
 
 .PARAMETER Game
-    The game whose runtime services to launch before running Command.
-    One of: tmnf, sc2, torcs, beamng, car_racing.  Default: tmnf.
+    The game to install and whose runtime services to launch before running
+    Command.  One of: tmnf, sc2, torcs, beamng, car_racing.  Default: tmnf.
 
     For distributed multi-node runs, pass the same game you are training on so
-    the correct background services (TMInterface for tmnf, TORCS SCR server for
-    torcs, etc.) are started before the worker process connects.
+    the correct binary and background services (TMInterface for tmnf, TORCS SCR
+    server for torcs, etc.) are installed and started before the worker connects.
 
 .PARAMETER DryRun
     Print what would be done without executing anything.
@@ -516,63 +518,112 @@ function Install-BeamNG {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Poetry dependencies (all games)
+# 6. Poetry dependencies (selected game only)
 # ---------------------------------------------------------------------------
 
 function Install-PoetryDeps {
-    Invoke-Step "Running 'poetry install' for all available dependency groups" {
-        Push-Location $ScriptDir
-        try {
-            # Install all declared poetry groups so every game is ready to run.
-            poetry install --with tmnf --with sc2
-            Assert-Success "poetry install"
-        } finally {
-            Pop-Location
-        }
-    }
-
-    # gym_torcs is not on PyPI — install from source via pip into the Poetry venv.
-    $gymTorcsMarker = Join-Path $env:TEMP "gym_torcs_installed.flag"
-    if (Test-Path $gymTorcsMarker) {
-        Write-Skip "gym_torcs already installed (marker found)."
-    } else {
-        Invoke-Step "Installing gym_torcs from GitHub into Poetry venv" {
-            Push-Location $ScriptDir
-            try {
-                poetry run pip install "git+https://github.com/ugo-nama-kun/gym_torcs.git" --quiet
-                Assert-Success "gym_torcs install"
-                New-Item -ItemType File -Path $gymTorcsMarker -Force | Out-Null
-            } finally {
-                Pop-Location
+    # Install the base environment plus the dependency group for the selected game.
+    switch ($Game) {
+        "tmnf" {
+            Invoke-Step "Running 'poetry install --with tmnf'" {
+                Push-Location $ScriptDir
+                try {
+                    poetry install --with tmnf
+                    Assert-Success "poetry install --with tmnf"
+                } finally {
+                    Pop-Location
+                }
             }
         }
-    }
-
-    # beamng-gym is a separate package not included in poetry groups.
-    $beamngMarker = Join-Path $env:TEMP "beamng_gym_installed.flag"
-    if (Test-Path $beamngMarker) {
-        Write-Skip "beamng-gym already installed (marker found)."
-    } else {
-        Invoke-Step "Installing beamng-gym into Poetry venv" {
-            Push-Location $ScriptDir
-            try {
-                poetry run pip install beamng-gym --quiet
-                Assert-Success "beamng-gym install"
-                New-Item -ItemType File -Path $beamngMarker -Force | Out-Null
-            } finally {
-                Pop-Location
+        "sc2" {
+            Invoke-Step "Running 'poetry install --with sc2'" {
+                Push-Location $ScriptDir
+                try {
+                    poetry install --with sc2
+                    Assert-Success "poetry install --with sc2"
+                } finally {
+                    Pop-Location
+                }
             }
         }
-    }
-
-    # gymnasium[box2d] requires SWIG for Box2D compilation (Car Racing).
-    Invoke-Step "Installing gymnasium[box2d] for Car Racing into Poetry venv" {
-        Push-Location $ScriptDir
-        try {
-            poetry run pip install "gymnasium[box2d]" --quiet
-            Assert-Success "gymnasium[box2d] install"
-        } finally {
-            Pop-Location
+        "torcs" {
+            Invoke-Step "Running 'poetry install' (TORCS uses standard deps)" {
+                Push-Location $ScriptDir
+                try {
+                    poetry install
+                    Assert-Success "poetry install"
+                } finally {
+                    Pop-Location
+                }
+            }
+            # gym_torcs is not on PyPI — install from source via pip into the Poetry venv.
+            $gymTorcsMarker = Join-Path $env:TEMP "gym_torcs_installed.flag"
+            if (Test-Path $gymTorcsMarker) {
+                Write-Skip "gym_torcs already installed (marker found)."
+            } else {
+                Invoke-Step "Installing gym_torcs from GitHub into Poetry venv" {
+                    Push-Location $ScriptDir
+                    try {
+                        poetry run pip install "git+https://github.com/ugo-nama-kun/gym_torcs.git" --quiet
+                        Assert-Success "gym_torcs install"
+                        New-Item -ItemType File -Path $gymTorcsMarker -Force | Out-Null
+                    } finally {
+                        Pop-Location
+                    }
+                }
+            }
+        }
+        "beamng" {
+            Invoke-Step "Running 'poetry install' (BeamNG uses standard deps)" {
+                Push-Location $ScriptDir
+                try {
+                    poetry install
+                    Assert-Success "poetry install"
+                } finally {
+                    Pop-Location
+                }
+            }
+            # beamng-gym is a separate package not included in poetry groups.
+            $beamngMarker = Join-Path $env:TEMP "beamng_gym_installed.flag"
+            if (Test-Path $beamngMarker) {
+                Write-Skip "beamng-gym already installed (marker found)."
+            } else {
+                Invoke-Step "Installing beamng-gym into Poetry venv" {
+                    Push-Location $ScriptDir
+                    try {
+                        poetry run pip install beamng-gym --quiet
+                        Assert-Success "beamng-gym install"
+                        New-Item -ItemType File -Path $beamngMarker -Force | Out-Null
+                    } finally {
+                        Pop-Location
+                    }
+                }
+            }
+        }
+        "car_racing" {
+            Invoke-Step "Running 'poetry install' (Car Racing uses standard deps)" {
+                Push-Location $ScriptDir
+                try {
+                    poetry install
+                    Assert-Success "poetry install"
+                } finally {
+                    Pop-Location
+                }
+            }
+            # gymnasium[box2d] requires SWIG for Box2D compilation.
+            Invoke-Step "Installing gymnasium[box2d] for Car Racing into Poetry venv" {
+                Push-Location $ScriptDir
+                try {
+                    poetry run pip install "gymnasium[box2d]" --quiet
+                    Assert-Success "gymnasium[box2d] install"
+                } finally {
+                    Pop-Location
+                }
+            }
+        }
+        default {
+            Write-Err "Unknown game: $Game.  Valid values: tmnf, sc2, torcs, beamng, car_racing."
+            exit 1
         }
     }
 }
@@ -740,18 +791,34 @@ Install-Python
 Install-Git
 Install-Poetry
 
-# Install ALL game binaries so the VM can run any game on demand.
-Install-TMNF
-Install-TMInterface
-Install-SC2
-Install-TORCS
-Install-SWIG
-Install-BeamNG
+# Install only the binary/tools needed for the selected game.
+switch ($Game) {
+    "tmnf" {
+        Install-TMNF
+        Install-TMInterface
+    }
+    "sc2" {
+        Install-SC2
+    }
+    "torcs" {
+        Install-TORCS
+    }
+    "beamng" {
+        Install-BeamNG
+    }
+    "car_racing" {
+        Install-SWIG
+    }
+    default {
+        Write-Err "Unknown game: $Game.  Valid values: tmnf, sc2, torcs, beamng, car_racing."
+        exit 1
+    }
+}
 
-# Install Python dependencies for all games.
+# Install Python dependencies for the selected game only.
 Install-PoetryDeps
 
-# Start runtime services for the selected game only.
+# Start runtime services for the selected game.
 Start-GameServices
 
 Invoke-UserCommand

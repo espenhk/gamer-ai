@@ -808,6 +808,182 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
             self.assertNotIn(name, LADDER_OBS_NAMES,
                              f"{name!r} should not be in ladder spec")
 
+    # --- selected-unit shield and energy averages ---
+
+    def test_selected_features_shields_and_energy(self):
+        """selected_avg_shields and selected_avg_energy are computed from cols 3/4."""
+        # multi_select rows: [unit_type, player_relative, hp, shields, energy, ...]
+        multi = np.array([
+            [48, 1, 45, 80, 0],   # Marine: hp=45, shields=80, energy=0
+            [48, 1, 55, 20, 0],   # Marine: hp=55, shields=20, energy=0
+        ], dtype=np.int32)
+        ob = {"multi_select": multi}
+        feats = self.client._selected_features(ob)
+        self.assertAlmostEqual(feats["selected_avg_shields"], 50.0)  # (80+20)/2
+        self.assertAlmostEqual(feats["selected_avg_energy"],   0.0)
+
+    def test_selected_features_energy_populated(self):
+        """selected_avg_energy reflects col 4 of the select array."""
+        single = np.array([[76, 1, 100, 0, 150]], dtype=np.int32)  # HT: energy=150
+        ob = {"single_select": single}
+        feats = self.client._selected_features(ob)
+        self.assertAlmostEqual(feats["selected_avg_energy"], 150.0)
+        self.assertAlmostEqual(feats["selected_avg_shields"],  0.0)
+
+    def test_selected_features_empty_selection_returns_zeros(self):
+        """Empty selection → all selected_* features are 0."""
+        ob = {
+            "single_select": np.zeros((0, 7), dtype=np.int32),
+            "multi_select":  np.zeros((0, 7), dtype=np.int32),
+        }
+        feats = self.client._selected_features(ob)
+        self.assertEqual(feats["selected_avg_shields"], 0.0)
+        self.assertEqual(feats["selected_avg_energy"],  0.0)
+
+    def test_selected_features_short_rows_dont_crash(self):
+        """If the select array has fewer than 5 columns, defaults to 0."""
+        ob = {"single_select": np.array([[48, 1, 55]], dtype=np.int32)}  # only 3 cols
+        feats = self.client._selected_features(ob)
+        self.assertEqual(feats["selected_avg_shields"], 0.0)
+        self.assertEqual(feats["selected_avg_energy"],  0.0)
+
+    # --- screen visibility fraction ---
+
+    def test_screen_visibility_features_all_visible(self):
+        """All-2 visibility_map → screen_visibility_frac == 1.0."""
+        class _NamedScreen:
+            def __getitem__(self, key):
+                if key == "visibility_map":
+                    return np.full((64, 64), 2, dtype=np.int32)
+                raise KeyError(key)
+
+        feats = self.client._screen_visibility_features(_NamedScreen())
+        self.assertAlmostEqual(feats["screen_visibility_frac"], 1.0)
+
+    def test_screen_visibility_features_half_visible(self):
+        """Half of tiles visible → screen_visibility_frac ≈ 0.25 (quadrant)."""
+        class _NamedScreen:
+            def __getitem__(self, key):
+                if key == "visibility_map":
+                    arr = np.zeros((64, 64), dtype=np.int32)
+                    arr[:32, :32] = 2  # top-left quadrant visible
+                    return arr
+                raise KeyError(key)
+
+        feats = self.client._screen_visibility_features(_NamedScreen())
+        expected = (32 * 32) / (64 * 64)
+        self.assertAlmostEqual(feats["screen_visibility_frac"], expected, places=5)
+
+    def test_screen_visibility_features_fogged_not_counted(self):
+        """Fogged tiles (value == 1) must NOT count as visible."""
+        class _NamedScreen:
+            def __getitem__(self, key):
+                if key == "visibility_map":
+                    arr = np.full((64, 64), 1, dtype=np.int32)  # all fogged
+                    return arr
+                raise KeyError(key)
+
+        feats = self.client._screen_visibility_features(_NamedScreen())
+        self.assertAlmostEqual(feats["screen_visibility_frac"], 0.0)
+
+    def test_screen_visibility_features_none_screen(self):
+        feats = self.client._screen_visibility_features(None)
+        self.assertEqual(feats["screen_visibility_frac"], 0.0)
+
+    def test_screen_visibility_features_missing_layer_returns_zero(self):
+        """If visibility_map is absent from the feature screen, returns 0."""
+        feats = self.client._screen_visibility_features(np.zeros((17, 64, 64), dtype=np.int32))
+        self.assertEqual(feats["screen_visibility_frac"], 0.0)
+
+    # --- anti-air density ---
+
+    def test_screen_antiair_features_mean(self):
+        """Mean of unit_density_aa layer is returned."""
+        class _NamedScreen:
+            def __getitem__(self, key):
+                if key == "unit_density_aa":
+                    arr = np.zeros((64, 64), dtype=np.float32)
+                    arr[:32, :32] = 4.0  # top-left quadrant has density 4
+                    return arr
+                raise KeyError(key)
+
+        feats = self.client._screen_antiair_features(_NamedScreen())
+        expected = 4.0 * (32 * 32) / (64 * 64)
+        self.assertAlmostEqual(feats["screen_unit_density_aa_mean"], expected, places=4)
+
+    def test_screen_antiair_features_zero_layer(self):
+        class _NamedScreen:
+            def __getitem__(self, key):
+                if key == "unit_density_aa":
+                    return np.zeros((64, 64), dtype=np.float32)
+                raise KeyError(key)
+
+        feats = self.client._screen_antiair_features(_NamedScreen())
+        self.assertAlmostEqual(feats["screen_unit_density_aa_mean"], 0.0)
+
+    def test_screen_antiair_features_none_screen(self):
+        feats = self.client._screen_antiair_features(None)
+        self.assertEqual(feats["screen_unit_density_aa_mean"], 0.0)
+
+    def test_screen_antiair_features_missing_layer_returns_zero(self):
+        feats = self.client._screen_antiair_features(np.zeros((17, 64, 64), dtype=np.int32))
+        self.assertEqual(feats["screen_unit_density_aa_mean"], 0.0)
+
+    # --- weapon cooldown ---
+
+    def test_weapon_cooldown_features_mean(self):
+        """Mean cooldown for friendly units is computed from col 25."""
+        # 26-column feature_units: col 1 = alliance, col 25 = weapon_cooldown
+        feat_units = np.zeros((3, 26), dtype=np.float32)
+        feat_units[0, 1] = 1.0;  feat_units[0, 25] = 10.0   # self, cooldown=10
+        feat_units[1, 1] = 1.0;  feat_units[1, 25] = 30.0   # self, cooldown=30
+        feat_units[2, 1] = 4.0;  feat_units[2, 25] = 99.0   # enemy → excluded
+        ob = {"feature_units": feat_units}
+        feats = self.client._weapon_cooldown_features(ob)
+        self.assertAlmostEqual(feats["self_weapon_cooldown_mean"], 20.0)  # (10+30)/2
+
+    def test_weapon_cooldown_features_all_ready(self):
+        """All friendly units with cooldown 0 → mean == 0."""
+        feat_units = np.zeros((2, 26), dtype=np.float32)
+        feat_units[:, 1] = 1.0  # all self; cooldown col stays 0
+        ob = {"feature_units": feat_units}
+        feats = self.client._weapon_cooldown_features(ob)
+        self.assertAlmostEqual(feats["self_weapon_cooldown_mean"], 0.0)
+
+    def test_weapon_cooldown_features_no_self_units_returns_zero(self):
+        """If all units are enemy, returns 0."""
+        feat_units = np.zeros((2, 26), dtype=np.float32)
+        feat_units[:, 1] = 4.0  # all enemy
+        feat_units[:, 25] = 50.0
+        ob = {"feature_units": feat_units}
+        feats = self.client._weapon_cooldown_features(ob)
+        self.assertEqual(feats["self_weapon_cooldown_mean"], 0.0)
+
+    def test_weapon_cooldown_features_missing_feature_units_returns_zero(self):
+        feats = self.client._weapon_cooldown_features({})
+        self.assertEqual(feats["self_weapon_cooldown_mean"], 0.0)
+
+    def test_weapon_cooldown_features_too_few_columns_returns_zero(self):
+        """feature_units with < 26 columns is tolerated gracefully."""
+        feat_units = np.zeros((2, 10), dtype=np.float32)
+        feat_units[:, 1] = 1.0
+        ob = {"feature_units": feat_units}
+        feats = self.client._weapon_cooldown_features(ob)
+        self.assertEqual(feats["self_weapon_cooldown_mean"], 0.0)
+
+    # --- integration: new dims appear in flat rich obs ---
+
+    def test_rich_obs_includes_new_feature_names(self):
+        """The rich spec should contain all new feature names."""
+        from games.sc2.obs_spec import RICH_OBS_NAMES
+        for name in ("enemy_count_Marine", "screen_self_shield_mean",
+                     "minimap_creep_frac", "upgrade_count",
+                     "build_queue_size", "cargo_count",
+                     "selected_avg_shields", "selected_avg_energy",
+                     "screen_visibility_frac", "screen_unit_density_aa_mean",
+                     "self_weapon_cooldown_mean"):
+            self.assertIn(name, RICH_OBS_NAMES, f"{name!r} missing from rich spec")
+
 
 if __name__ == "__main__":
     unittest.main()

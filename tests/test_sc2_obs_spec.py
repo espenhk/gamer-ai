@@ -32,6 +32,11 @@ class TestSC2ObsSpec(unittest.TestCase):
     def test_rich_spec_dim(self):
         self.assertEqual(RICH_OBS_DIM, SC2_RICH_OBS_SPEC.dim)
         self.assertGreater(RICH_OBS_DIM, LADDER_OBS_DIM)
+        # Exact count: ladder(45) + per-unit-type(8) + quadrant(8) +
+        # topk-features(9) + available(6) + last(6) + enemy-unit-type(8) +
+        # shield-energy(3) + creep(1) + economy(3) + selected-extra(2) +
+        # screen-visibility(1) + antiair(1) + weapon-cooldown(1) = 102
+        self.assertEqual(RICH_OBS_DIM, 102)
 
     def test_ladder_extends_minigame(self):
         """Ladder spec must contain all minigame names as a prefix."""
@@ -92,6 +97,25 @@ class TestSC2ObsSpec(unittest.TestCase):
             for d in spec.dims:
                 self.assertGreater(len(d.description), 0,
                                    f"{d.name} has no description")
+
+    def test_rich_spec_contains_new_feature_names(self):
+        """New rich-only dims (selected-extras, screen-visibility, antiair,
+        weapon-cooldown) must be present in the rich spec and absent from the
+        ladder spec."""
+        new_rich_only = (
+            "selected_avg_shields",
+            "selected_avg_energy",
+            "screen_visibility_frac",
+            "screen_unit_density_aa_mean",
+            "self_weapon_cooldown_mean",
+        )
+        rich_names   = SC2_RICH_OBS_SPEC.names
+        ladder_names = SC2_LADDER_OBS_SPEC.names
+        for name in new_rich_only:
+            self.assertIn(name, rich_names,
+                          f"{name!r} missing from rich spec")
+            self.assertNotIn(name, ladder_names,
+                             f"{name!r} should not be in ladder spec")
 
 
 if __name__ == "__main__":

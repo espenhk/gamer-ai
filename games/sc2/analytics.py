@@ -82,7 +82,7 @@ def plot_action_frequency(data: ExperimentData, results_dir: str) -> None:
     """Bar chart of per-sim action-type counts + aggregate bar + entropy line.
 
     Three panels written to ``action_frequency.png``:
-    - Top: stacked horizontal bars, one row per greedy sim, coloured by fn_idx.
+    - Top: stacked vertical bars, one bar per greedy sim, coloured by fn_idx.
     - Middle: aggregate total-count bar chart across all sims.
     - Bottom: action-entropy per sim H = -Σ pᵢ log₂ pᵢ over unique fn_idx values.
     """

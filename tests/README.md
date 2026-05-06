@@ -1,6 +1,6 @@
 # Tests
 
-854 tests across 46 files. Runs in ~30 seconds via `python -m pytest tests/`.
+894 tests across 47 files. Runs in ~30 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -338,7 +338,23 @@ handful of iterations only).
 - scout reward > 0 on first visit with fully-visible minimap; zero when no visible regions
 - `episode_reward_components` always contains `scout` key; accumulates across steps
 
-### test_sc2_genetic_policy.py (56) — `SC2LinearPolicy` + genetic trainer
+### test_sc2_cmaes_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)
+- Dimension: θ = (N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim for minigame and ladder obs specs
+- Sample population: count matches λ / all individuals are SC2MultiHeadLinearPolicy
+- Mechanics: update_distribution before sample raises / σ adapts across generations / champion improves monotonically / wrong reward count raises
+- Call: raises before first generation / returns valid 4-vec after one generation
+- Masking: restricts fn_idx to available set / fallback to no_op when set empty / updated via update() kwargs / no masking when None
+- Serialisation: champion YAML round-trip lossless / trainer-state npz round-trip / dim mismatch raises / initialize_from_champion sets mean / initialize_random zeros mean
+
+### test_sc2_lstm_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`
+- Structure: hidden state zero at init / W_out shape = (N_FUNCTION_IDS+N_LSTM_SPATIAL_CELLS, hidden_size) / flat_dim formula matches both minigame and ladder / to_flat length correct / with_flat round-trip / wrong size raises
+- Action: shape (4,) / fn_idx in [0, N_FUNCTION_IDS) / x,y in [0,1] / hidden state advances after step
+- Masking: never selects unavailable fn / set via on_episode_start info / updated via update kwargs / fallback to no_op when all masked
+- Hidden state reset: reset_on_episode=True zeros state on episode start + end / reset_on_episode=False carries state across resets
+- Serialisation: to_cfg / from_cfg round-trip lossless / save / load round-trip / policy_type = "sc2_lstm"
+- Evolution: population size / individuals are SC2LSTMPolicy / call raises before generation / champion set after one generation / σ adapts / wrong reward count raises / flat_dim mismatch raises / initialize_from_champion sets mean / on_episode_start forwarded to champion / save writes yaml / trainer-state round-trip / dim mismatch raises
+
+### test_sc2_genetic_policy.py (53) — `SC2LinearPolicy` + genetic trainer
 - Weight shapes (fn / spatial × minigame / ladder); flat dim (mini/ladder); explicit weights stored
 - Call: returns 4-vec / fn_idx range / spatial unit range / queue=0 / max-fn / max-spatial
 - Cfg: keys / *_weights suffix / values are obs-name dicts / from_cfg roundtrip / yaml lossless / missing default zero

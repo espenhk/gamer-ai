@@ -377,6 +377,79 @@ class SC2Adapter:
                     )
             return policy
 
+        def _make_sc2_cmaes():
+            from games.sc2.sc2_policies import (
+                SC2CMAESPolicy,
+                SC2MultiHeadLinearPolicy,
+            )
+            pop_size = policy_params.get("population_size", 30)
+            sigma    = policy_params.get("initial_sigma", 0.5)
+            policy   = SC2CMAESPolicy(
+                obs_spec        = obs_spec,
+                population_size = pop_size,
+                initial_sigma   = sigma,
+                eval_episodes   = policy_params.get("eval_episodes", 2),
+            )
+            if os.path.exists(weights_file) and not re_initialize:
+                with open(weights_file) as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                if isinstance(_cfg, dict):
+                    champion = SC2MultiHeadLinearPolicy.from_cfg(_cfg, obs_spec)
+                    policy.initialize_from_champion(champion)
+                    if os.path.exists(trainer_state_file):
+                        try:
+                            policy.load_trainer_state(trainer_state_file)
+                            logger.info("[SC2CMAESPolicy] loaded trainer state from %s",
+                                        trainer_state_file)
+                        except (ValueError, KeyError) as exc:
+                            logger.warning(
+                                "[SC2CMAESPolicy] could not load trainer state — %s; "
+                                "continuing with champion weights.", exc,
+                            )
+            else:
+                policy.initialize_random()
+            return policy
+
+        def _make_sc2_lstm():
+            from games.sc2.sc2_policies import (
+                SC2LSTMPolicy,
+                SC2LSTMEvolutionPolicy,
+            )
+            hidden_size      = policy_params.get("hidden_size", 64)
+            pop_size         = policy_params.get("population_size", 20)
+            sigma            = policy_params.get("initial_sigma", 0.03)
+            reset_on_episode = bool(policy_params.get("reset_on_episode", True))
+            policy           = SC2LSTMEvolutionPolicy(
+                obs_spec         = obs_spec,
+                hidden_size      = hidden_size,
+                population_size  = pop_size,
+                initial_sigma    = sigma,
+                reset_on_episode = reset_on_episode,
+            )
+            if os.path.exists(weights_file) and not re_initialize:
+                with open(weights_file) as _f:
+                    _cfg = yaml.safe_load(_f) or {}
+                if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_lstm":
+                    try:
+                        champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec)
+                        policy.initialize_from_champion(champion)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2LSTMEvolutionPolicy] incompatible saved champion — %s; "
+                            "starting from random.", exc,
+                        )
+                if os.path.exists(trainer_state_file):
+                    try:
+                        policy.load_trainer_state(trainer_state_file)
+                        logger.info("[SC2LSTMEvolutionPolicy] loaded trainer state from %s",
+                                    trainer_state_file)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2LSTMEvolutionPolicy] could not load trainer state — %s; "
+                            "continuing.", exc,
+                        )
+            return policy
+
         return PolicyExtras(
             factories={
                 "sc2_genetic":   _make_sc2_genetic,
@@ -386,6 +459,8 @@ class SC2Adapter:
                 "sc2_reinforce": _make_sc2_reinforce,
                 "lstm":          _make_lstm,
                 "sc2_cnn":       _make_sc2_cnn,
+                "sc2_cmaes":     _make_sc2_cmaes,
+                "sc2_lstm":      _make_sc2_lstm,
             },
             loop_dispatch={
                 "sc2_genetic":   "genetic",
@@ -395,6 +470,8 @@ class SC2Adapter:
                 "sc2_reinforce": "q_learning",
                 "lstm":          "cmaes",
                 "sc2_cnn":       "cmaes",
+                "sc2_cmaes":     "cmaes",
+                "sc2_lstm":      "cmaes",
             },
         )
 

@@ -1,0 +1,66 @@
+# Grid search template: sc2_lstm — DefeatRoaches (rich obs)
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_sc2_lstm_template.yaml --game sc2
+#
+# SC2LSTMEvolutionPolicy wraps SC2LSTMPolicy in an isotropic ES outer loop
+# (1/5 success rule for σ adaptation).
+# n_sims = generations; total episodes = n_sims × population_size.
+#
+# Flat parameter counts — 4×(h×(h+obs)+h) + 15×h + 15  where h = hidden_size
+# ---------------------------------------------------------------------------
+#   rich obs (95-dim):
+#     h=32:  4×(32×127+32) + 15×32 + 15 = 16384  +  495 = 16879 params
+#     h=64:  4×(64×159+64) + 15×64 + 15 = 40960  +  975 = 41935 params
+#
+# The output layer has 15 neurons (6 fn logits + 9 spatial logits over a 3×3
+# grid).  With the rich preset, the LSTM receives enemy unit counts, quadrant
+# densities, top-3 enemy positions, and the available-actions mask — letting
+# temporal memory track Roach formation movement across steps.
+#
+# σ (initial_sigma) guidance
+# --------------------------
+# The search space is ~17 k–42 k params; small σ is critical to avoid early
+# divergence.  Recommended window: [0.02, 0.05].  The 1/5 success rule will
+# increase σ automatically if the initial value is too conservative.
+#
+# reset_on_episode flag
+# ---------------------
+# True (default): (h, c) zeroed at every episode boundary.  Appropriate for
+#   DefeatRoaches because each episode starts with a fresh Roach spawn.
+# False: hidden state carried across resets — only useful for long ladder
+#   matches where truncation is mid-match; not recommended for minigames.
+#
+# idle_bonus reward
+# -----------------
+# DefeatRoaches: Marines auto-attack when adjacent to Roaches.  idle_bonus > 0
+# rewards no_op when enemies are on screen, encouraging the LSTM to learn a
+# "select army → approach → hold position" sequence rather than issuing
+# redundant move commands.  [0.0, 0.5] tests whether the shaping helps or
+# interferes with the spatial exploration needed early in each episode.
+
+base_name: "gs_sc2_lstm_v1"
+game: sc2
+
+training_params:
+  map_name: DefeatRoaches
+  in_game_episode_s: 60.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: terran
+  n_sims: 60                  # 60 generations; total = n_sims × population_size
+  policy_type: sc2_lstm
+  obs_spec_preset: rich       # 95-dim rich preset — enemy counts, quadrant densities, action mask
+  policy_params:
+    hidden_size: [32, 64]
+    population_size: 20
+    initial_sigma: [0.02, 0.05]
+    reset_on_episode: true
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 0.0
+  loss_penalty: 0.0
+  idle_bonus: [0.0, 0.5]     # encourage no_op when enemies are in combat range

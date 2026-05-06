@@ -1,6 +1,6 @@
 # Tests
 
-873 tests across 47 files. Runs in ~30 seconds via `python -m pytest tests/`.
+894 tests across 47 files. Runs in ~30 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -94,7 +94,7 @@ loop end-to-end on a real env.
 ### test_env_termination.py (7) — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
 
-### test_game_adapter.py (26) — TMNF/TORCS/SC2/BeamNG adapter abstractions
+### test_game_adapter.py (30) — TMNF/TORCS/SC2/BeamNG adapter abstractions
 - registry: all games registered; adapter instantiable
 - TMNF: experiment_dir includes track / track override / track_label default+override / build_probe / build_warmup / build_extras / decorate_reward_cfg
 - TORCS: experiment_dir root / dir / track_label default+override / build_probe/warmup/extras = None
@@ -282,8 +282,12 @@ section (≈250 tests) because both the minigame and Simple64 ladder paths,
 plus six policy variants and three obs encodings (flat / dict / spatial),
 have to be covered.
 
-**Tested.** All three observation specs (13-dim minigame, 43-dim ladder,
-95-dim rich) and the get-spec dispatch; the 9-cell discrete action grid
+**Tested.** All three observation specs (15-dim minigame, 45-dim ladder,
+97-dim rich) and the get-spec dispatch; the minimap enemy centroid
+(`minimap_enemy_cx/cy`) that enables the policy to locate the beacon even
+when it is off the current camera view (beacon-idling fix); the `_action_to_call`
+no-spam fix (blocked Move_screen issues select_army once, then no_op on
+consecutive blocked steps); the 9-cell discrete action grid
 (centre = `select_army`, others = `Move_screen`); the SC2 reward calculator
 (score delta, win bonus, loss penalty, economy weight, idle penalty, step
 penalty); the SC2 client wrapper (flat-obs construction, score-delta
@@ -311,23 +315,26 @@ fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
 handful of iterations only).
 
-### test_sc2_obs_spec.py (8) — SC2 obs spec
-- minigame dim; ladder dim; ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
+### test_sc2_obs_spec.py (16) — SC2 obs spec
+- minigame dim (15); ladder dim (45); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
+- minimap_enemy_cx/cy present in all presets (minigame, ladder, rich)
 
-### test_sc2_actions.py (10) — discrete action grid
+### test_sc2_actions.py (14) — discrete action grid
 - shape / dtype / xy in unit square; centre = select_army; others = move_screen
 - probe actions count / shape; warmup shape / select_army; function_ids table complete
 
-### test_sc2_reward.py (13) — SC2 reward calc
+### test_sc2_reward.py (23) — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 
-### test_sc2_client.py (24) — PySC2 client wrapper
+### test_sc2_client.py (46) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
+- minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
+- action fallback (#124, beacon-idling fix): blocked Move_screen → select_army once, then no_op on consecutive blocked steps; pending flag cleared when Move_screen available; no_op action passes through unchanged
 
-### test_sc2_env.py (15) — SC2 env wrapper
+### test_sc2_env.py (18) — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; custom reward config
@@ -339,6 +346,22 @@ handful of iterations only).
 - step appends dims even when `minimap_vis` absent; enc non-zero + staleness drops after visible step
 - scout reward > 0 on first visit with fully-visible minimap; zero when no visible regions
 - `episode_reward_components` always contains `scout` key; accumulates across steps
+
+### test_sc2_cmaes_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)
+- Dimension: θ = (N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim for minigame and ladder obs specs
+- Sample population: count matches λ / all individuals are SC2MultiHeadLinearPolicy
+- Mechanics: update_distribution before sample raises / σ adapts across generations / champion improves monotonically / wrong reward count raises
+- Call: raises before first generation / returns valid 4-vec after one generation
+- Masking: restricts fn_idx to available set / fallback to no_op when set empty / updated via update() kwargs / no masking when None
+- Serialisation: champion YAML round-trip lossless / trainer-state npz round-trip / dim mismatch raises / initialize_from_champion sets mean / initialize_random zeros mean
+
+### test_sc2_lstm_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`
+- Structure: hidden state zero at init / W_out shape = (N_FUNCTION_IDS+N_LSTM_SPATIAL_CELLS, hidden_size) / flat_dim formula matches both minigame and ladder / to_flat length correct / with_flat round-trip / wrong size raises
+- Action: shape (4,) / fn_idx in [0, N_FUNCTION_IDS) / x,y in [0,1] / hidden state advances after step
+- Masking: never selects unavailable fn / set via on_episode_start info / updated via update kwargs / fallback to no_op when all masked
+- Hidden state reset: reset_on_episode=True zeros state on episode start + end / reset_on_episode=False carries state across resets
+- Serialisation: to_cfg / from_cfg round-trip lossless / save / load round-trip / policy_type = "sc2_lstm"
+- Evolution: population size / individuals are SC2LSTMPolicy / call raises before generation / champion set after one generation / σ adapts / wrong reward count raises / flat_dim mismatch raises / initialize_from_champion sets mean / on_episode_start forwarded to champion / save writes yaml / trainer-state round-trip / dim mismatch raises
 
 ### test_sc2_genetic_policy.py (53) — `SC2LinearPolicy` + genetic trainer
 - Weight shapes (fn / spatial × minigame / ladder); flat dim (mini/ladder); explicit weights stored
@@ -353,7 +376,7 @@ handful of iterations only).
 - Save: yaml / champion lossless / cfg policy_type=sc2_genetic / from_cfg roundtrip / restores champion / no champion key OK
 - Call: 4-vec after init / raises before init
 
-### test_sc2_neural_dqn_policy.py (37) — masked DQN for SC2
+### test_sc2_neural_dqn_policy.py (17) — masked DQN for SC2
 - fn_idx_for_cell: centre=select_army / others=move_screen / consistent / int
 - Available mask: None=all true / empty=all false / select_army only / move_screen only / both / dtype bool
 - Masked replay buffer: push+len / default mask all true / 6-tuple sample / mask shape / preserves mask / circular eviction
@@ -367,6 +390,13 @@ handful of iterations only).
 - CNN: flat_dim formula / varies w/ channels / forward shapes / callable returns 4-vec / with_flat roundtrip / wrong size raises / non-dict obs raises / flat-concat dim
 - CMA-ES: pop size / sample correct count / individuals callable / update returns bool / champion improves / champion callable / wrong rewards raises / no sample raises / σ adapts / trainer-state roundtrip / save+load champion
 - Spatial obs: flat space when no layers / dict space when layers / spatial shape matches channels / reset dict obs / fills zeros when none / step dict obs / spatial in info / normalised / no spatial when no layers
+
+### test_sc2_reinforce_policy.py (39) — REINFORCE policy for SC2
+- Action: 4-vec shape / fn_idx in range / x+y in unit square / queue=0
+- Buffers: episode buffer fills / clears on end / empty end no-op
+- Gradient: weights change after update / direction improves expected action
+- Available-actions masking: illegal fn_idx masked out / mask updates from info kwarg
+- Serialisation: cfg keys / policy_type / from_cfg roundtrip / save+reload / wrong obs dim raises
 
 ### test_sc2_play.py (21) — `play_sc2.py` script
 - Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / neural_dqn / reinforce / lstm; cmaes no policy_type → SC2Linear; unknown → SC2Linear

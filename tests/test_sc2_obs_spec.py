@@ -20,14 +20,14 @@ from games.sc2.obs_spec import (
 class TestSC2ObsSpec(unittest.TestCase):
 
     def test_minigame_spec_dim(self):
-        self.assertEqual(BASE_OBS_DIM, 13)
-        self.assertEqual(SC2_MINIGAME_OBS_SPEC.dim, 13)
+        self.assertEqual(BASE_OBS_DIM, 15)
+        self.assertEqual(SC2_MINIGAME_OBS_SPEC.dim, 15)
 
     def test_ladder_spec_dim_grows_post_126(self):
         """Issue #126: ladder spec extended with economy / minimap-camera /
         score / HP / top-K-counts blocks (~40 dims, exact value asserted)."""
-        self.assertEqual(LADDER_OBS_DIM, 43)
-        self.assertEqual(SC2_LADDER_OBS_SPEC.dim, 43)
+        self.assertEqual(LADDER_OBS_DIM, 45)
+        self.assertEqual(SC2_LADDER_OBS_SPEC.dim, 45)
 
     def test_rich_spec_dim(self):
         self.assertEqual(RICH_OBS_DIM, SC2_RICH_OBS_SPEC.dim)
@@ -73,6 +73,15 @@ class TestSC2ObsSpec(unittest.TestCase):
     def test_all_preset_names_are_unique(self):
         for spec in (SC2_MINIGAME_OBS_SPEC, SC2_LADDER_OBS_SPEC, SC2_RICH_OBS_SPEC):
             self.assertEqual(len(spec.names), len(set(spec.names)))
+
+    def test_minimap_beacon_dims_in_all_presets(self):
+        """minimap_enemy_cx/cy must appear in every preset (minigame, ladder,
+        rich) since they are part of _MINIGAME_DIMS which all presets inherit."""
+        for spec in (SC2_MINIGAME_OBS_SPEC, SC2_LADDER_OBS_SPEC, SC2_RICH_OBS_SPEC):
+            self.assertIn("minimap_enemy_cx", spec.names,
+                          f"{spec} missing minimap_enemy_cx")
+            self.assertIn("minimap_enemy_cy", spec.names,
+                          f"{spec} missing minimap_enemy_cy")
 
     def test_all_preset_scales_finite(self):
         for spec in (SC2_MINIGAME_OBS_SPEC, SC2_LADDER_OBS_SPEC, SC2_RICH_OBS_SPEC):

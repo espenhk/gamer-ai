@@ -1,0 +1,15 @@
+obs_spec_preset: rich
+enable_belief: false
+map_name: DefeatRoaches
+in_game_episode_s: 120.0
+step_mul: 8
+screen_size: 64
+minimap_size: 64
+agent_race: random
+n_sims: 300
+policy_type: mcts
+mcts_c: 2.0
+alpha: 0.05
+policy_params:
+  n_bins: 3
+  gamma: 0.99

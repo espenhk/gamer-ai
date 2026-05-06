@@ -1,0 +1,56 @@
+# Grid search template: lstm — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_lstm_template.yaml --game sc2
+#
+# total episodes = n_sims × population_size.
+#
+# Flat parameter counts — 4×(h×(h+obs)+h) + 4×h  where h=hidden_size
+# -----------------------------------------------------------------------
+#                      h=16        h=32
+#   ladder  (43):     3904        9856   params
+#   rich    (95):     7232       16512   params
+#   ladder+belief(235):16192     39936   params
+#   rich+belief  (287):19520     48128   params
+#
+# The larger the space, the smaller initial_sigma must be to avoid diverging.
+# Use initial_sigma ≤ 0.03 for the belief combinations; 0.05–0.1 is safe for
+# the no-belief ladder/rich presets.
+#
+# Good first sweep: hidden_size × initial_sigma.
+# Larger hidden_size gives more expressive memory but much larger search space;
+# start with hidden_size=16 to validate the setup before scaling.
+#
+# LSTM hidden state vs belief: both encode "what has the agent seen recently?"
+# If LSTM+belief beats LSTM alone, the explicit spatial grid provides
+# information the recurrence does not learn to represent on its own.
+
+base_name: "gs_sc2_lstm_v1"
+game: sc2
+
+training_params:
+  map_name: DefeatRoaches
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  agent_race: terran
+  n_sims: 100                  # 100 generations; total episodes = n_sims × population_size
+  policy_type: genetic
+  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims (up to 48k params)
+  hidden_size: [16, 32]
+  initial_sigma: [0.03, 0.05, 0.1]
+  policy_params:
+    population_size: [20, 50]
+    elite_k: 5
+    eval_episodes: 2         # average fitness over 2 noisy episodes per individual
+    mutation_scale: 0.1
+    mutation_share: [0.3, 0.5, 1.0]      # sparse mutation — mutate 30% of weights per individual
+
+reward_params:
+  score_weight: 1.0
+  step_penalty: -0.001
+  win_bonus: 100.0
+  loss_penalty: 0.0
+  idle_bonus: 0.5

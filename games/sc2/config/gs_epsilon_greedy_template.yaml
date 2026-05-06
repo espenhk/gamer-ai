@@ -33,7 +33,7 @@ base_name: "gs_sc2_eps_greedy_v2"
 game: sc2
 
 training_params:
-  map_name: MoveToBeacon
+  map_name: DefeatRoaches
   obs_spec_preset: [ladder, rich]   # see state-space note above; both runs are diagnostic
   enable_belief: false              # tabular state-space explosion; see comment above
   in_game_episode_s: 120.0
@@ -46,7 +46,7 @@ training_params:
   epsilon_decay: [0.99, 0.995]
   alpha: [0.05, 0.1, 0.2]
   policy_params:
-    n_bins: 3
+    n_bins: [2, 3, 4]
     epsilon: 1.0
     epsilon_min: 0.05
     gamma: 0.99
@@ -56,3 +56,4 @@ reward_params:
   step_penalty: -0.001
   win_bonus: 0.0
   loss_penalty: 0.0
+  idle_bonus: [0.5]

@@ -1,0 +1,6 @@
+policy_type: mcts
+c: 1.0
+alpha: 0.1
+gamma: 0.99
+n_bins: 3
+n_states_visited: 121

@@ -181,6 +181,8 @@ def _validate_policy_param_map() -> None:
 
 
 _validate_policy_param_map()
+
+
 def _fmt_value(v: Any) -> str:
     """Format a param value for use in a directory name.
 
@@ -297,14 +299,16 @@ def _build_policy_params(t: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
-
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 
 def _setup_experiment_dir(
-    adapter, name: str, t: dict[str, Any], r: dict[str, Any],
+    adapter,
+    name: str,
+    t: dict[str, Any],
+    r: dict[str, Any],
     track_override: str | None,
 ) -> tuple[str, str, str]:
     """Create experiment dir, write config files. Returns (experiment_dir, weights_file, reward_cfg_file)."""
@@ -355,7 +359,12 @@ def _run_local(
         t_with_pp["policy_params"] = _build_policy_params(t)
 
         game_spec = adapter.build_game_spec(
-            name, experiment_dir, weights_file, reward_cfg_file, t_with_pp, track_override,
+            name,
+            experiment_dir,
+            weights_file,
+            reward_cfg_file,
+            t_with_pp,
+            track_override,
         )
         data = train_rl(
             game=game_spec,
@@ -397,8 +406,13 @@ def _run_distributed(
         _setup_experiment_dir(adapter, name, t, r, track_override)
         track = adapter.track_label(t, track_override)
         combo_specs.append(
-            ComboSpec(name=name, track=track, training_params=t,
-                      reward_params=r, game=game_name)
+            ComboSpec(
+                name=name,
+                track=track,
+                training_params=t,
+                reward_params=r,
+                game=game_name,
+            )
         )
 
     coord = Coordinator(
@@ -418,16 +432,23 @@ def _run_distributed(
     # Override reward_config_file to the local path written above, then save results.
     all_runs = []
     for name, data in raw_runs:
-        experiment_dir = adapter.experiment_dir(name, data.training_params, track_override)
+        experiment_dir = adapter.experiment_dir(
+            name, data.training_params, track_override
+        )
         data.reward_config_file = f"{experiment_dir}/reward_config.yaml"
         data.weights_file = f"{experiment_dir}/policy_weights.yaml"
         game_spec = adapter.build_game_spec(
-            name, experiment_dir, data.weights_file, data.reward_config_file,
-            data.training_params, track_override,
+            name,
+            experiment_dir,
+            data.weights_file,
+            data.reward_config_file,
+            data.training_params,
+            track_override,
         )
         if game_spec.save_results_fn is not None:
             game_spec.save_results_fn(data, results_dir=f"{experiment_dir}/results")
         from framework.analytics import save_experiment_data_json
+
         save_experiment_data_json(data, results_dir=f"{experiment_dir}/results")
         all_runs.append((name, data))
 
@@ -478,10 +499,9 @@ def _consolidate(
         parent = os.path.commonpath(experiment_dirs)
         summary_dir = os.path.join(parent, f"{summary_name}__summary")
 
-    logger.info(
-        "Consolidating %d experiment(s) into %s", len(all_runs), summary_dir
-    )
+    logger.info("Consolidating %d experiment(s) into %s", len(all_runs), summary_dir)
     from framework.analytics import save_grid_summary
+
     save_grid_summary(all_runs, varied_keys, summary_dir, summary_name)
     logger.info("Summary report: %s/summary.md", summary_dir)
 
@@ -490,8 +510,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Grid search over training/reward params (multi-game)"
     )
-    parser.add_argument("config", nargs="?", default=None,
-                        help="Path to grid search YAML config (not needed with --consolidate)")
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default=None,
+        help="Path to grid search YAML config (not needed with --consolidate)",
+    )
     parser.add_argument(
         "--game",
         default=None,
@@ -584,8 +608,8 @@ def main() -> None:
     if args.config is None:
         parser.error("config is required when not using --consolidate")
 
-    base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg = _load_grid_config(
-        args.config
+    base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg = (
+        _load_grid_config(args.config)
     )
 
     # CLI --game / --track override YAML values
@@ -633,8 +657,13 @@ def main() -> None:
                 token_preview,
             )
         all_runs = _run_distributed(
-            adapter, combos, names, track_override,
-            token=token, port=port, heartbeat_timeout=hb_timeout,
+            adapter,
+            combos,
+            names,
+            track_override,
+            token=token,
+            port=port,
+            heartbeat_timeout=hb_timeout,
             game_name=game_name,
         )
     else:
@@ -661,12 +690,17 @@ def main() -> None:
     summary_root = adapter.experiment_dir_root(training_spec, track_override)
     summary_dir = f"{summary_root}/{base_name}__summary"
     try:
-        _analytics_mod = __import__(f"games.{game_name}.analytics", fromlist=["save_grid_summary"])
+        _analytics_mod = __import__(
+            f"games.{game_name}.analytics", fromlist=["save_grid_summary"]
+        )
         _analytics_mod.save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     except (ImportError, AttributeError):
-        logger.debug("Game-specific save_grid_summary not available for %s; using framework fallback.",
-                      game_name)
+        logger.debug(
+            "Game-specific save_grid_summary not available for %s; using framework fallback.",
+            game_name,
+        )
         from framework.analytics import save_grid_summary
+
         save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
     logger.info("Summary report: %s/summary.md", summary_dir)
 

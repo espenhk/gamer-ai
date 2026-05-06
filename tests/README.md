@@ -59,7 +59,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 762 tests run in ~25 s](#why-762-tests-run-in-25-s)
 
-1112 tests across 58 files. Runs in ~30 seconds via `python -m pytest tests/`.
+1134 tests across 58 files. Runs in ~30 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -524,4 +524,4 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
 7. **Heavy collection work is amortised.** `pytest`'s ~half-second startup + 41 collection modules is a big share of the wall clock; once collected, 762 mostly-arithmetic asserts run in about 30 µs each.
 
-Roughly: 873 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 895 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.

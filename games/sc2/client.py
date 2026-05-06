@@ -53,6 +53,68 @@ _LAYER_SCALE: dict[str, float] = {
 # Built on first use when pysc2 is available.
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
 
+# ---------------------------------------------------------------------------
+# Lazy PySC2 field-name helpers
+# ---------------------------------------------------------------------------
+# PySC2 exposes structured field names via NamedNumpyArray descriptors.
+# We source these lazily to avoid a hard pysc2 import (unit tests run without
+# it) and fall back to our hardcoded lists when pysc2 is not installed.
+# Caches are populated once on first use and then reused.
+
+_score_field_names_cache: tuple[str, ...] | None = None
+_player_field_names_cache: tuple[str, ...] | None = None
+
+
+def _get_score_field_names() -> tuple[str, ...]:
+    """Return ``score_cumulative`` field names, sourced from PySC2 if available.
+
+    The PySC2 ``ScoreCumulative`` namedtuple has 13 fields.  We rename ``score``
+    to ``score_total`` to avoid confusion with the reward signal.  When pysc2 is
+    not installed (e.g. in unit tests) we fall back to our hardcoded list, which
+    is kept in sync with the PySC2 ordering.
+    """
+    global _score_field_names_cache
+    if _score_field_names_cache is None:
+        try:
+            from pysc2.lib import features as pysc2_features  # type: ignore[import-untyped]
+            raw = pysc2_features.ScoreCumulative._fields
+            _score_field_names_cache = tuple(
+                "score_total" if f == "score" else f for f in raw
+            )
+        except (ImportError, AttributeError):
+            _score_field_names_cache = (
+                "score_total", "idle_production_time", "idle_worker_time",
+                "total_value_units", "total_value_structures",
+                "killed_value_units", "killed_value_structures",
+                "collected_minerals", "collected_vespene",
+                "collection_rate_minerals", "collection_rate_vespene",
+                "spent_minerals", "spent_vespene",
+            )
+    return _score_field_names_cache
+
+
+def _get_player_field_names() -> tuple[str, ...]:
+    """Return ``player`` vector field names, sourced from PySC2 if available.
+
+    Excludes ``player_id`` (fixed per game; only meaningful in multi-agent
+    settings).  The remaining 10 fields are used by both the ladder and rich
+    presets.
+    """
+    global _player_field_names_cache
+    if _player_field_names_cache is None:
+        try:
+            from pysc2.lib import features as pysc2_features  # type: ignore[import-untyped]
+            _player_field_names_cache = tuple(
+                f for f in pysc2_features.Player._fields if f != "player_id"
+            )
+        except (ImportError, AttributeError):
+            _player_field_names_cache = (
+                "minerals", "vespene", "food_used", "food_cap",
+                "army_count", "idle_worker_count", "warp_gate_count",
+                "larva_count", "food_workers", "food_army",
+            )
+    return _player_field_names_cache
+
 
 def _get_pysc2_id_to_fn_idx() -> dict[int, int]:
     """Build and cache a mapping from PySC2 native function ID → our fn_idx.
@@ -364,6 +426,7 @@ class SC2Client:
         feats.update(self._screen_visibility_features(feat_screen))
         feats.update(self._screen_antiair_features(feat_screen))
         feats.update(self._weapon_cooldown_features(ob))
+        feats.update(self._alerts_features(ob))
 
         # game_loop scalar — present on both ladder and rich.
         game_loop_arr = self._safe_array(ob, "game_loop")
@@ -584,15 +647,11 @@ class SC2Client:
         return out
 
     def _score_features(self, ob: Any) -> dict[str, float]:
+        # Field names are sourced from pysc2.lib.features.ScoreCumulative._fields
+        # (lazily) so we never duplicate them.  'score' is renamed 'score_total'
+        # to avoid confusion with the per-step reward signal.
+        names = _get_score_field_names()
         score_arr = self._safe_array(ob, "score_cumulative")
-        names = (
-            "score_total", "idle_production_time", "idle_worker_time",
-            "total_value_units", "total_value_structures",
-            "killed_value_units", "killed_value_structures",
-            "collected_minerals", "collected_vespene",
-            "collection_rate_minerals", "collection_rate_vespene",
-            "spent_minerals", "spent_vespene",
-        )
         if score_arr is None:
             return {n: 0.0 for n in names}
         out: dict[str, float] = {}
@@ -832,6 +891,17 @@ class SC2Client:
             out["screen_unit_density_aa_mean"] = float(aa.mean())
         return out
 
+    def _alerts_features(self, ob: Any) -> dict[str, float]:
+        """Number of active PySC2 alerts this step.
+
+        ``obs.observation["alerts"]`` is a variable-size tensor (usually empty,
+        occasionally 1–2 entries) emitted when the player is under major attack.
+        We collapse it to a single count scalar so the policy receives a direct
+        "under attack" signal without needing to handle variable-size arrays.
+        """
+        alerts = self._safe_array(ob, "alerts")
+        return {"alert_count": float(alerts.size) if alerts is not None else 0.0}
+
     def _weapon_cooldown_features(self, ob: Any) -> dict[str, float]:
         """Mean weapon cooldown for friendly units from ``feature_units``.
 
@@ -894,18 +964,17 @@ class SC2Client:
 
     @staticmethod
     def _safe_player(ob: Any) -> dict:
-        """PySC2 ``ob['player']`` is a NamedNumpyArray indexed by feature name."""
+        """PySC2 ``ob['player']`` is a NamedNumpyArray indexed by feature name.
+
+        Field names are sourced from ``pysc2.lib.features.Player._fields``
+        (lazily, so tests without pysc2 still work).  ``player_id`` is excluded
+        because it is fixed per game and not useful as a policy input.
+        """
         player = ob.get("player") if hasattr(ob, "get") else None
         if player is None:
             return {}
-        # NamedNumpyArray: support both attribute access and dict-like access.
         result = {}
-        keys = (
-            "minerals", "vespene", "food_used", "food_cap",
-            "army_count", "idle_worker_count", "warp_gate_count", "larva_count",
-            "food_workers", "food_army",
-        )
-        for k in keys:
+        for k in _get_player_field_names():
             try:
                 v = player[k]
             except (KeyError, IndexError, TypeError):

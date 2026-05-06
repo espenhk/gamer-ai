@@ -111,7 +111,7 @@ class TestSC2CNNModelShape(unittest.TestCase):
     def test_non_dict_obs_raises(self):
         model = _make_model(n_channels=2)
         with self.assertRaises(TypeError):
-            model(np.zeros(13, dtype=np.float32))
+            model(np.zeros(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32))
 
     def test_flat_concat_dimension(self):
         """Flat obs and spatial features must be correctly concatenated."""

@@ -205,6 +205,21 @@ _ECONOMY_PIPELINE_DIMS: list[ObsDim] = [
 ]
 
 
+# --- Minimap enemy centroid — shared baseline block --------------------------
+# The minimap always shows the full map regardless of camera position.
+# Adding the enemy centroid on the minimap gives the policy a reliable
+# beacon location signal even when the beacon has just been scored and
+# respawned outside the current screen camera view.  This fixes the
+# post-beacon idling bug where the agent spams "select_army" because it
+# cannot see the beacon on screen (issue: sc2 idling after reward is hit).
+# These dims are part of _MINIGAME_DIMS and therefore inherited by the
+# ladder and rich presets as well.
+_MINIMAP_BEACON_DIMS: list[ObsDim] = [
+    ObsDim("minimap_enemy_cx",  64.0, "Enemy (beacon) centroid x on minimap"),
+    ObsDim("minimap_enemy_cy",  64.0, "Enemy (beacon) centroid y on minimap"),
+]
+
+
 # ---------------------------------------------------------------------------
 # Preset assembly
 # ---------------------------------------------------------------------------
@@ -215,6 +230,7 @@ _MINIGAME_DIMS: list[ObsDim] = (
     _PLAYER_BASE_DIMS
     + _SELECTED_DIMS
     + _SCREEN_SUMMARY_DIMS
+    + _MINIMAP_BEACON_DIMS
 )
 
 #: 13-dim preset for PySC2 minigames.

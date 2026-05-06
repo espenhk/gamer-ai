@@ -11,12 +11,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import yaml
 
+from games.sc2.obs_spec import BASE_OBS_DIM
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_fake_obs(dim: int = 13) -> np.ndarray:
+def _make_fake_obs(dim: int = BASE_OBS_DIM) -> np.ndarray:
     return np.zeros(dim, dtype=np.float32)
 
 
@@ -314,7 +316,7 @@ class TestSC2ClientPlayMode(unittest.TestCase):
 
         with patch.object(
             client, "_timestep_to_obs_info",
-            return_value=(np.zeros(13, dtype=np.float32), {}),
+            return_value=(np.zeros(BASE_OBS_DIM, dtype=np.float32), {}),
         ):
             client.reset()
 

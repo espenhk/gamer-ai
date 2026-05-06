@@ -338,13 +338,67 @@ class TestSC2ClientFeatureExtractors(unittest.TestCase):
         self.assertEqual(flat.shape, (RICH_OBS_DIM,))
 
     def test_minigame_preset_unaffected_by_new_features(self):
-        """Minigame default still produces a 13-dim flat obs (BC)."""
+        """Minigame default still produces a BASE_OBS_DIM flat obs."""
         from games.sc2.client import SC2Client
         from games.sc2.obs_spec import BASE_OBS_DIM
         c = SC2Client(map_name="MoveToBeacon")
         ob = self._ladder_ob()  # extra fields are tolerated
         flat, _ = c._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertEqual(flat.shape, (BASE_OBS_DIM,))
+
+    def test_minimap_enemy_centroid_populated(self):
+        """minimap_enemy_cx/cy (beacon locator) are computed from the minimap
+        player_relative layer and included in the minigame flat obs."""
+        from games.sc2.client import SC2Client
+        from games.sc2.obs_spec import BASE_OBS_DIM, SC2_MINIGAME_OBS_SPEC
+
+        c = SC2Client(map_name="MoveToBeacon")
+        minimap = np.zeros((11, 64, 64), dtype=np.int32)
+        # Place a fake beacon (enemy, player_relative=4) at pixel (40, 20).
+        minimap[5, 20, 40] = 4   # channel 5 = player_relative
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 1, "food_cap": 15,
+                "army_count": 1, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen":  np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_minimap": minimap,
+            "score_cumulative": np.array([0]),
+        }
+        flat, info = c._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertEqual(flat.shape, (BASE_OBS_DIM,))
+
+        cx_idx = SC2_MINIGAME_OBS_SPEC.names.index("minimap_enemy_cx")
+        cy_idx = SC2_MINIGAME_OBS_SPEC.names.index("minimap_enemy_cy")
+        # Raw centroid values (flat obs is unnormalized): cx=40.0, cy=20.0.
+        self.assertAlmostEqual(flat[cx_idx], 40.0, places=3)
+        self.assertAlmostEqual(flat[cy_idx], 20.0, places=3)
+
+    def test_minimap_enemy_centroid_zero_when_no_beacon(self):
+        """When there are no enemy pixels on the minimap (e.g. during the brief
+        beacon-scored / pre-respawn transition) the centroid defaults to 0.0."""
+        from games.sc2.client import SC2Client
+        from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
+
+        c = SC2Client(map_name="MoveToBeacon")
+        # All-zero minimap: no enemies present.
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 1, "food_cap": 15,
+                "army_count": 1, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen":  np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_minimap": np.zeros((11, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        flat, _ = c._timestep_to_obs_info(_FakeTimeStep(ob))
+
+        cx_idx = SC2_MINIGAME_OBS_SPEC.names.index("minimap_enemy_cx")
+        cy_idx = SC2_MINIGAME_OBS_SPEC.names.index("minimap_enemy_cy")
+        self.assertAlmostEqual(flat[cx_idx], 0.0, places=5)
+        self.assertAlmostEqual(flat[cy_idx], 0.0, places=5)
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +509,57 @@ class TestSC2ClientActionFallback(unittest.TestCase):
         action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
         call = self.client._action_to_call(action)
         self.assertEqual(call.function, _FakeFunctions.no_op.id)
+
+    def test_select_army_substitution_not_repeated_on_consecutive_blocked_steps(self):
+        """Issue (beacon idling): when Move_screen is blocked for multiple
+        consecutive steps, select_army should be issued ONCE, then no_op on
+        subsequent blocked steps — not select_army every time."""
+        blocked_available = {
+            _FakeFunctions.no_op.id, _FakeFunctions.select_army.id,
+        }
+        self.client._available_actions = blocked_available
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+
+        # Step 1: first blocked step → should substitute select_army.
+        call1 = self.client._action_to_call(action)
+        self.assertEqual(call1.function, _FakeFunctions.select_army.id)
+        self.assertTrue(self.client._select_army_pending)
+
+        # Step 2: still blocked → should NOT repeat select_army; use no_op.
+        call2 = self.client._action_to_call(action)
+        self.assertEqual(call2.function, _FakeFunctions.no_op.id)
+
+        # Step 3: still blocked → no_op again (not select_army).
+        call3 = self.client._action_to_call(action)
+        self.assertEqual(call3.function, _FakeFunctions.no_op.id)
+
+    def test_pending_flag_cleared_when_move_screen_becomes_available(self):
+        """After a select_army substitution, when Move_screen finally becomes
+        available again the pending flag is reset and a future blocked step
+        will trigger a fresh select_army substitution."""
+        blocked = {_FakeFunctions.no_op.id, _FakeFunctions.select_army.id}
+        available = {
+            _FakeFunctions.no_op.id,
+            _FakeFunctions.select_army.id,
+            _FakeFunctions.Move_screen.id,
+        }
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+
+        # First blocked step: select_army substituted, pending=True.
+        self.client._available_actions = blocked
+        self.client._action_to_call(action)
+        self.assertTrue(self.client._select_army_pending)
+
+        # Move_screen becomes available: pending should reset.
+        self.client._available_actions = available
+        self.client._action_to_call(action)
+        self.assertFalse(self.client._select_army_pending)
+
+        # Now block again: should trigger select_army again (not no_op).
+        self.client._available_actions = blocked
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.select_army.id)
+
 class TestSC2ClientAvailableFnIds(unittest.TestCase):
     """Tests for the info["available_fn_ids"] field added by _timestep_to_obs_info."""
 

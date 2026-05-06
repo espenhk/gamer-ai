@@ -136,6 +136,11 @@ class SC2Client:
         self._explored_mask: np.ndarray | None = None
         self._available_actions: set[int] | None = None
         self._last_fn_idx: int = 0  # for last_fn_* one-hot in rich preset
+        # True after _action_to_call has already substituted select_army once
+        # for a blocked unit-targeted action.  Prevents repeated select_army
+        # spam when Move_screen stays unavailable for multiple consecutive steps
+        # (e.g. immediately after a beacon is scored in MoveToBeacon).
+        self._select_army_pending: bool = False
         # Lookup table for unit-type ids → label, populated lazily so unit
         # tests don't import pysc2.lib.units at module load.
         self._unit_type_id_to_name: dict[int, str] | None = None
@@ -153,6 +158,7 @@ class SC2Client:
         self._explored_mask = None
         self._available_actions = None
         self._last_fn_idx = 0
+        self._select_army_pending = False
         return self._timestep_to_obs_info(timesteps[0])
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict]:
@@ -276,13 +282,26 @@ class SC2Client:
                 "Move_screen", "Attack_screen", "Harvest_Gather_screen",
             )
             if unit_targeted and select_army_id in self._available_actions:
+                if not self._select_army_pending:
+                    # First blocked step: issue select_army once to re-establish
+                    # army selection (e.g. at episode start or after a beacon
+                    # scoring event deselects the unit).
+                    logger.debug(
+                        "Action %s blocked; auto-selecting army (#124).", fn_name,
+                    )
+                    # Reflect the executed action, not the requested one, so the
+                    # rich preset's last_fn_* one-hot stays consistent.
+                    self._last_fn_idx = 1  # FUNCTION_IDS index for select_army
+                    self._select_army_pending = True
+                    return pysc2_actions.FunctionCall(select_army_id, [[0]])
+                # select_army was already issued last step but Move_screen is
+                # still blocked — issuing it again would cause the agent to spam
+                # "Select army" for the entire scoring transition period in
+                # MoveToBeacon.  Wait with no_op instead so the policy can
+                # resume moving as soon as Move_screen becomes available again.
                 logger.debug(
-                    "Action %s blocked; auto-selecting army (#124).", fn_name,
+                    "Action %s still blocked after select_army; issuing no_op.", fn_name,
                 )
-                # Reflect the executed action, not the requested one, so the
-                # rich preset's last_fn_* one-hot stays consistent.
-                self._last_fn_idx = 1  # FUNCTION_IDS index for select_army
-                return pysc2_actions.FunctionCall(select_army_id, [[0]])
             logger.debug(
                 "Action %s blocked (not in available_actions); substituting no_op.",
                 fn_name,
@@ -292,6 +311,9 @@ class SC2Client:
                 int(pysc2_actions.FUNCTIONS.no_op.id), []
             )
 
+        # Action is available — reset the pending flag so a future blocked step
+        # triggers a fresh select_army substitution if needed.
+        self._select_army_pending = False
         self._last_fn_idx = fn_idx
 
         if fn_name != "no_op":
@@ -506,6 +528,8 @@ class SC2Client:
         out = {
             "minimap_self_count":   0.0,
             "minimap_enemy_count":  0.0,
+            "minimap_enemy_cx":     0.0,
+            "minimap_enemy_cy":     0.0,
             "minimap_visible_frac": 0.0,
             "minimap_explored_frac":0.0,
             "minimap_camera_x":     0.0,
@@ -516,7 +540,9 @@ class SC2Client:
         layer = self._extract_player_relative(feat_minimap, screen=False)
         if layer is not None:
             out["minimap_self_count"]  = float((layer == 1).sum())
-            out["minimap_enemy_count"] = float((layer == 4).sum())
+            enemy_mask = layer == 4
+            out["minimap_enemy_count"] = float(enemy_mask.sum())
+            out["minimap_enemy_cx"], out["minimap_enemy_cy"] = self._centroid(enemy_mask)
         visible = self._extract_visibility(feat_minimap)
         if visible is not None:
             out["minimap_visible_frac"] = float((visible == 2).sum()) / max(visible.size, 1)

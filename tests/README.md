@@ -59,7 +59,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 740 tests run in ~25 s](#why-740-tests-run-in-25-s)
 
-894 tests across 47 files. Runs in ~30 seconds via `python -m pytest tests/`.
+1112 tests across 58 files. Runs in ~30 seconds via `python -m pytest tests/`.
 
 ## Coverage at a glance
 
@@ -89,8 +89,11 @@ and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion; the early-stop streak logic in
 both greedy and Q loops; the distributed coordinator/worker JSON protocol and
 the in-process HTTP server (work queue, heartbeat re-queue, auth);
-`train_rl()`'s public signature; and that `framework.analytics` imports cleanly
-on a machine with no matplotlib.
+`train_rl()`'s public signature; that `framework.analytics` imports cleanly
+on a machine with no matplotlib; and the `redo_analytics.py` script
+(game auto-detection, single-experiment regeneration, multi-experiment
+summaries, `--no-individual`, inferred summary dir, graceful skip of missing
+experiments).
 
 **Not tested.** Real distributed training across multiple machines (only the
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
@@ -120,6 +123,12 @@ loop end-to-end on a real env.
 ### test_consolidate.py (8) — grid-search result consolidation
 - experiment-data round-trip / load missing raises / valid JSON
 - creates results dir; produces summary; infers summary dir; skips missing; detects varied keys
+
+### test_redo_analytics.py (20) — `redo_analytics.py` re-generation script
+- game detection: SC2 inferred from `map_name` / `agent_race`; TMNF default; empty params → TMNF
+- analytics loader: tmnf returns callables; unknown game falls back gracefully
+- single experiment: regenerates results.md / greedy_rewards.png; no summary without `--summary-name`; summary produced when `--summary-name` given; missing dir skipped without crash; `--no-individual` without summary raises ValueError
+- multiple experiments: summary.md written; contains experiment names; individual results regenerated; `--no-individual` skips results.md but writes summary; summary dir inferred from common parent; default summary name is 'combined'; missing experiment skipped; SC2 auto-detected and run without crash
 
 ### test_curiosity.py (12) — ICM/RND curiosity bonuses
 - ICM: reward decreases on repeat / non-negative / dim mismatch raises / β raises / η scales
@@ -510,4 +519,4 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
 7. **Heavy collection work is amortised.** `pytest`'s ~half-second startup + 41 collection modules is a big share of the wall clock; once collected, 740 mostly-arithmetic asserts run in about 30 µs each.
 
-Roughly: 854 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 873 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.

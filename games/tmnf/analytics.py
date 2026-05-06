@@ -269,6 +269,8 @@ def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
 def plot_weight_heatmap(data: ExperimentData, results_dir: str) -> None:
     if not _HAS_MPL:
         return
+    if not os.path.exists(data.weights_file):
+        return
     with open(data.weights_file) as f:
         cfg = yaml.safe_load(f) or {}
     if "steer_weights" not in cfg:

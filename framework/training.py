@@ -310,12 +310,16 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             try:
                 from games.sc2.actions import FUNCTION_IDS as _FNIDS  # noqa: PLC0415
             except ImportError:
+                # SC2 extras not installed; fall back to numeric fn{idx} names.
+                logger.debug("games.sc2.actions unavailable; action names shown as fn{idx}")
                 _FNIDS: dict = {}
             parts = []
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
                 name = _FNIDS.get(int(fn_idx), f"fn{fn_idx}")
                 pct = 100.0 * count / total
                 if prev_total > 0:
+                    # Keys are ints from env.step(); str fallback handles any
+                    # JSON-deserialised prev_best_info where keys became strings.
                     ppct = 100.0 * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0)) / prev_total
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:

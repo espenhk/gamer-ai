@@ -334,6 +334,10 @@ class SC2Env(BaseGameEnv):
             info["episode_army_series"]     = self._ep_army_series
             info["episode_resource_series"] = self._ep_resource_series
             info["episode_build_order"]     = self._ep_build_order
+            # Kill stats: score_cumulative counters are cumulative and reset
+            # each episode, so the final value equals the episode total.
+            info["episode_killed_value_units"]      = info.get("killed_value_units", 0.0)
+            info["episode_killed_value_structures"] = info.get("killed_value_structures", 0.0)
 
         if finished:
             outcome = info.get("player_outcome")

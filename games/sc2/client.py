@@ -415,6 +415,8 @@ class SC2Client:
             "food_used": feats.get("food_used", 0.0),
             "food_cap": feats.get("food_cap", 0.0),
             "army_count": feats.get("army_count", 0.0),
+            "killed_value_units": feats.get("killed_value_units", 0.0),
+            "killed_value_structures": feats.get("killed_value_structures", 0.0),
             "player_outcome": player_outcome,
             "is_last": bool(timestep.last()),
             "available_fn_ids": available_fn_ids,

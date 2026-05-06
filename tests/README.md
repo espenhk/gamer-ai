@@ -18,6 +18,7 @@
   - [test\_obs\_memory.py (7) — frame-stacking observation wrapper](#test_obs_memorypy-7--frame-stacking-observation-wrapper)
   - [test\_reward.py (44) — TMNF reward calculator + curiosity glue](#test_rewardpy-44--tmnf-reward-calculator--curiosity-glue)
   - [test\_train\_rl\_signature.py (4) — public `train_rl()` API](#test_train_rl_signaturepy-4--public-train_rl-api)
+  - [test\_new\_best\_logging.py (23) — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy-23--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py (13) — math/state-extraction utils](#test_utilspy-13--mathstate-extraction-utils)
   - [test\_track.py (11) — centreline geometry helpers](#test_trackpy-11--centreline-geometry-helpers)
 - [TMNF policies](#tmnf-policies)
@@ -59,7 +60,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 839 tests run in ~50 s](#why-839-tests-run-in-50-s)
 
-839 tests across 53 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
+862 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
 
 ## Coverage at a glance
 
@@ -89,11 +90,13 @@ and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion; the early-stop streak logic in
 both greedy and Q loops; the distributed coordinator/worker JSON protocol and
 the in-process HTTP server (work queue, heartbeat re-queue, auth);
-`train_rl()`'s public signature; that `framework.analytics` imports cleanly
-on a machine with no matplotlib; and the `redo_analytics.py` script
-(game auto-detection, single-experiment regeneration, multi-experiment
-summaries, `--no-individual`, inferred summary dir, graceful skip of missing
-experiments).
+`train_rl()`'s public signature; the new-best log helpers
+(`_log_new_best_details` per-component / action-frequency / TMNF / SC2 kill
+groups, `_print_episode_summary` compact format); that `framework.analytics`
+imports cleanly on a machine with no matplotlib; and the `redo_analytics.py`
+script (game auto-detection, single-experiment regeneration,
+multi-experiment summaries, `--no-individual`, inferred summary dir,
+graceful skip of missing experiments).
 
 **Not tested.** Real distributed training across multiple machines (only the
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
@@ -187,6 +190,16 @@ loop end-to-end on a real env.
 
 ### test_train_rl_signature.py (4) — public `train_rl()` API
 - accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params
+
+### test_new_best_logging.py (23) — `_log_new_best_details` + `_print_episode_summary`
+- `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
+- `_log_new_best_details` — empty info emits nothing
+- reward components: logged; zero values omitted; prev comparison shown; no-prev no comparison
+- action frequency: logged with SC2 function names; prev comparison shown
+- TMNF metrics: progress; lateral offset; finish time only when `finished=True`; prev comparison for progress + offset
+- SC2 kills: units + structures logged; prev comparison; absent when key not in info
+- SC2 game-state averages: logged; zero values omitted; prev comparison
+- all five groups together emit five lines
 
 ### test_utils.py (13) — math/state-extraction utils
 - vector magnitude: zero / unit / 3D / compute_speed alias

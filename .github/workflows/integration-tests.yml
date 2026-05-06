@@ -1,0 +1,34 @@
+name: Integration Tests
+
+# Run heavier end-to-end tests on every push to main and on-demand.
+# These tests spin up real game environments (no mocking) so they are kept
+# separate from the fast unit-test suite that runs on every pull request.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest numpy scipy pyyaml gymnasium matplotlib
+          pip install gymnasium[box2d]
+
+      - name: Run integration tests
+        # PYTHONPATH=. puts the repo root on sys.path so game/framework imports
+        # resolve regardless of pytest's rootdir handling.
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/integration/ -m integration -v

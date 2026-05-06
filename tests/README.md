@@ -59,9 +59,18 @@
 - [CLI / misc](#cli--misc)
   - [cli/test\_game\_flag.py (14) — `--game` CLI flag in `main.py`](#clitest_game_flagpy-14----game-cli-flag-in-mainpy)
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
-- [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
+- [Integration tests (`tests/integration/`)](#integration-tests-testsintegration)
+  - [integration/test\_car\_racing.py (14) — CarRacing real-env end-to-end tests](#integrationtest_car_racingpy-14--caracing-real-env-end-to-end-tests)
+- [Why 895 tests run in ~50 s](#why-895-tests-run-in-50-s)
 
-895 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1030 tests.
+895 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/ --ignore=tests/integration/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1030 tests.
+
+Additionally, **14 integration tests** live in `tests/integration/`. These require `gymnasium[box2d]` and are run separately by the `integration-tests` workflow on every push to `main`.  To run them locally:
+
+```bash
+pip install gymnasium[box2d]
+python -m pytest tests/integration/ -m integration -v
+```
 
 ## Coverage at a glance
 
@@ -71,8 +80,8 @@ needs a running game or display**. Every game client is replaced by a fake or
 a `MagicMock`; no Trackmania, TORCS, SC2, BeamNG or Assetto Corsa binary is
 ever launched, no game window is grabbed, no matplotlib window is rendered, no
 keyboard/joystick output is sent. End-to-end "does the agent actually drive
-faster after training" is not covered — that belongs to manual experiment
-runs, not the unit suite.
+faster after training" is partially covered by the integration tests for
+CarRacing (the one game that runs headless without a separate binary).
 
 Per-area summary below; per-file details follow.
 
@@ -545,7 +554,41 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 839 tests run in ~50 s
+## Integration tests (`tests/integration/`)
+
+End-to-end tests that spin up a real gymnasium environment (no mocking) and
+exercise actual game physics.  Marked `integration` so they are excluded from
+the fast unit-test suite.  Run by the `integration-tests` workflow on every
+push to `main`; also available on demand via::
+
+    pytest tests/integration/ -m integration -v
+
+**Requires** `gymnasium[box2d]` (`pip install gymnasium[box2d]`).  The tests
+are skipped gracefully with `pytest.mark.skipif` when the extra is absent.
+
+CarRacing is the only game in this repository that can run headless on a CPU-only
+GitHub runner without an external binary or display server: it uses the
+`Box2D` physics engine (pure Python/C) and `pygame-ce` for its renderer,
+which is never called in headless mode.
+
+### integration/test_car_racing.py (14) — CarRacing real-env end-to-end tests
+
+**Tested.** That `CarRacingEnv.reset()` returns a float32 array of the right
+shape; that reset is repeatable under the same seed; that `step()` returns a
+valid 5-tuple with finite rewards; that `info['native_reward']` and
+`info['termination_reason']` are populated correctly; that episodes truncate
+within the step limit; that total accumulated reward is finite; that multiple
+reset/step cycles leave no leaked state.  Three training-loop tests run 1
+hill-climbing sim, 1 genetic generation (population 2), and 1 ε-greedy episode
+against the real CarRacing environment to verify the full stack end-to-end.
+
+- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent
+- full episode: terminates within step limit; total reward finite; multiple resets safe
+- training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
+
+---
+
+## Why 895 tests run in ~50 s
 
 These tests look heavy because of the names ("training loop", "env reset", "DQN convergence") but operationally they're almost all pure-Python unit tests with zero external I/O:
 
@@ -555,6 +598,8 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 4. **Whole files are config / dataclass tests.** `test_grid_search.py` (29), `test_reward.py` (44), `test_sc2_genetic_policy.py` (53), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
 5. **No matplotlib rendering.** TORCS analytics tests use `Agg` (non-interactive) and dump to `tmp_path`; `test_analytics_no_matplotlib.py` explicitly checks the import path that *avoids* it.
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
-7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 839 mostly-arithmetic asserts run in the remaining ~49 seconds.
+7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 895 mostly-arithmetic asserts run in the remaining ~49 seconds.
 
-Roughly: 839 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 895 tests × ~55 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
+
+The 14 integration tests in `tests/integration/` are excluded from this count; they run real Box2D physics and take an additional ~2 s when `gymnasium[box2d]` is present.

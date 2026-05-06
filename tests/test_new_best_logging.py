@@ -85,10 +85,11 @@ class TestLogNewBestDetails(unittest.TestCase):
     def test_reward_components_logged(self):
         info = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.2}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 1)
-        self.assertIn("components:", lines[0])
-        self.assertIn("score=", lines[0])
-        self.assertIn("idle_bonus=", lines[0])
+        # one log line per non-zero component (sorted: idle_bonus, score)
+        self.assertEqual(len(lines), 2)
+        all_text = "\n".join(lines)
+        self.assertIn("score=", all_text)
+        self.assertIn("idle_bonus=", all_text)
 
     def test_reward_components_zero_omitted(self):
         info = {"episode_reward_components": {"score": 5.0, "economy": 0.0}}
@@ -100,28 +101,32 @@ class TestLogNewBestDetails(unittest.TestCase):
         info = {"episode_reward_components": {"score": 10.0, "idle_bonus": 2.0}}
         prev = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
-        self.assertEqual(len(lines), 1)
-        self.assertIn("score=+10.0 (prev +5.0)", lines[0])
-        self.assertIn("idle_bonus=+2.0 (prev +1.0)", lines[0])
+        self.assertEqual(len(lines), 2)
+        all_text = "\n".join(lines)
+        self.assertIn("score=+10.0 (prev +5.0)", all_text)
+        self.assertIn("idle_bonus=+2.0 (prev +1.0)", all_text)
 
     def test_reward_components_no_prev_no_comparison(self):
         info = {"episode_reward_components": {"score": 10.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        self.assertEqual(len(lines), 1)
         self.assertNotIn("prev", lines[0])
 
     def test_action_counts_logged(self):
         info = {"episode_action_counts": {0: 30, 1: 10, 2: 60}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 1)
-        self.assertIn("actions:", lines[0])
-        self.assertIn("Move_screen=60.0%", lines[0])
+        # one log line per action (sorted by descending count: fn2, fn0, fn1)
+        self.assertEqual(len(lines), 3)
+        all_text = "\n".join(lines)
+        self.assertIn("Move_screen=60.0%", all_text)
 
     def test_action_counts_prev_comparison(self):
         info = {"episode_action_counts": {0: 10, 2: 90}}
         prev = {"episode_action_counts": {0: 50, 2: 50}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
-        self.assertEqual(len(lines), 1)
-        self.assertIn("prev", lines[0])
+        self.assertEqual(len(lines), 2)
+        all_text = "\n".join(lines)
+        self.assertIn("prev", all_text)
 
     def test_tmnf_progress_logged(self):
         info = {"track_progress": 0.75}
@@ -191,15 +196,15 @@ class TestLogNewBestDetails(unittest.TestCase):
     def test_game_state_averages_logged(self):
         info = {"episode_obs_averages": {"army_count": 4.5, "food_used": 10.0, "screen_enemy_count": 3.2}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 1)
-        self.assertIn("game_state:", lines[0])
-        self.assertIn("army_count=4.5", lines[0])
+        # one log line per non-zero metric (army_count, food_used, screen_enemy_count)
+        self.assertEqual(len(lines), 3)
+        all_text = "\n".join(lines)
+        self.assertIn("army_count=4.5", all_text)
 
     def test_game_state_zero_values_omitted(self):
         info = {"episode_obs_averages": {"army_count": 0.0, "screen_enemy_count": 0.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        for line in lines:
-            self.assertNotIn("game_state:", line)
+        self.assertEqual(lines, [])
 
     def test_game_state_prev_comparison(self):
         info = {"episode_obs_averages": {"army_count": 5.0}}
@@ -218,7 +223,8 @@ class TestLogNewBestDetails(unittest.TestCase):
             "episode_obs_averages": {"army_count": 3.0},
         }
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 5)
+        # 2 reward components + 2 actions + 1 progress + 1 kills + 1 game-state = 7
+        self.assertEqual(len(lines), 7)
 
 
 if __name__ == "__main__":

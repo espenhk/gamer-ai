@@ -103,6 +103,44 @@ class GreedySimResult:
     obs_averages: dict | None = None          # {feature_name: mean_value} for the episode
     xy_hist: list | None = None               # 2-D list[list[int]] — 8×8 action-target histogram
 
+    def __post_init__(self):
+        if self.action_counts is not None:
+            normalized_action_counts = {}
+            for key, value in self.action_counts.items():
+                try:
+                    normalized_action_counts[int(key)] = value
+                except (TypeError, ValueError):
+                    normalized_action_counts[key] = value
+            self.action_counts = normalized_action_counts
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GreedySimResult":
+        data = dict(data)
+
+        trace = data.get("trace")
+        if isinstance(trace, dict):
+            data["trace"] = RunTrace(**trace)
+
+        return cls(
+            sim=data["sim"],
+            reward=data["reward"],
+            improved=data["improved"],
+            throttle_counts=data["throttle_counts"],
+            total_steps=data["total_steps"],
+            trace=data.get("trace"),
+            weights=data.get("weights"),
+            final_track_progress=data.get("final_track_progress", 0.0),
+            laps_completed=data.get("laps_completed", 0),
+            mutation_scale=data.get("mutation_scale"),
+            termination_reason=data.get("termination_reason"),
+            finish_time_s=data.get("finish_time_s"),
+            mean_abs_lateral_offset=data.get("mean_abs_lateral_offset"),
+            reward_components=data.get("reward_components"),
+            action_counts=data.get("action_counts"),
+            obs_averages=data.get("obs_averages"),
+            xy_hist=data.get("xy_hist"),
+        )
+
 
 @dataclass
 class ExperimentData:

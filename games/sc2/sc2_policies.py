@@ -829,3 +829,785 @@ class SC2REINFORCEPolicy(BasePolicy):
             self._baseline_val = float(data["baseline_val"])
         logger.info("[SC2REINFORCEPolicy] trainer state loaded from %s", path)
 
+
+# ---------------------------------------------------------------------------
+# SC2CMAESPolicy — CMA-ES over SC2MultiHeadLinearPolicy weight vectors
+# ---------------------------------------------------------------------------
+
+#: Number of spatial logits for SC2LSTMPolicy (3×3 grid).
+N_LSTM_SPATIAL_CELLS: int = 9
+
+#: 3×3 spatial grid: cell_idx → (x, y) ∈ [0, 1]².
+_SPATIAL_GRID: np.ndarray = np.array(
+    [(col / 2.0, row / 2.0) for row in range(3) for col in range(3)],
+    dtype=np.float32,
+)  # shape (9, 2)
+
+
+class SC2CMAESPolicy:
+    """(μ/μ_w, λ)-CMA-ES over :class:`SC2MultiHeadLinearPolicy` weight vectors.
+
+    The parameter vector θ = [W_fn.flat | W_sp.flat] has dimension
+    ``(N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim``.
+
+    Available-actions masking is applied during inference via a cached set of
+    available function IDs (populated by :meth:`on_episode_start` /
+    :meth:`update`).
+
+    Parameters
+    ----------
+    obs_spec :
+        Observation spec for the target environment.
+    population_size :
+        λ — offspring sampled per generation (default 30).
+    initial_sigma :
+        Starting step size (default 0.5).
+    eval_episodes :
+        Episodes per individual per generation (default 2).
+    seed :
+        Optional RNG seed.
+    """
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec,
+        population_size: int = 30,
+        initial_sigma: float = 0.5,
+        eval_episodes: int = 2,
+        seed: int | None = None,
+    ) -> None:
+        self._obs_spec       = obs_spec
+        self._lam            = int(population_size)
+        self._eval_episodes  = max(1, int(eval_episodes))
+        n                    = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_spec.dim
+        self._n              = n
+
+        mu            = self._lam // 2
+        self._mu      = mu
+        raw_w         = np.array(
+            [np.log(mu + 0.5) - np.log(i + 1) for i in range(mu)], dtype=np.float64
+        )
+        self._weights = raw_w / raw_w.sum()
+        self._mu_eff  = 1.0 / float(np.sum(self._weights ** 2))
+
+        self._cs   = (self._mu_eff + 2) / (n + self._mu_eff + 5)
+        self._ds   = (
+            1
+            + 2 * max(0.0, float(np.sqrt((self._mu_eff - 1) / (n + 1))) - 1)
+            + self._cs
+        )
+        self._chin = float(
+            np.sqrt(n) * (1 - 1.0 / (4 * n) + 1.0 / (21 * n ** 2))
+        )
+        self._cc  = (4 + self._mu_eff / n) / (n + 4 + 2 * self._mu_eff / n)
+        self._c1  = 2.0 / ((n + 1.3) ** 2 + self._mu_eff)
+        self._cmu = min(
+            1.0 - self._c1,
+            2.0
+            * (self._mu_eff - 2 + 1.0 / self._mu_eff)
+            / ((n + 2) ** 2 + self._mu_eff),
+        )
+
+        self._rng       = np.random.default_rng(seed)
+        self._mean      = self._rng.standard_normal(n).astype(np.float64)
+        self._sigma     = float(initial_sigma)
+        self._ps        = np.zeros(n, dtype=np.float64)
+        self._pc        = np.zeros(n, dtype=np.float64)
+        self._C         = np.eye(n, dtype=np.float64)
+        self._B         = np.eye(n, dtype=np.float64)
+        self._D         = np.ones(n, dtype=np.float64)
+        self._invsqrtC  = np.eye(n, dtype=np.float64)
+        self._eigengen  = 0
+        self._gen       = 0
+
+        self._pop_xs: list[np.ndarray] = []
+        self._pop_ys: list[np.ndarray] = []
+
+        self._champion: SC2MultiHeadLinearPolicy | None = None
+        self._champion_reward: float = float("-inf")
+
+        # Available-actions mask cache (populated from episode info).
+        self._available_fn_ids: set[int] | None = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def population_size(self) -> int:
+        return self._lam
+
+    @property
+    def champion_reward(self) -> float:
+        return self._champion_reward
+
+    @property
+    def sigma(self) -> float:
+        return self._sigma
+
+    # ------------------------------------------------------------------
+    # Initialisation
+    # ------------------------------------------------------------------
+
+    def initialize_random(self) -> None:
+        self._mean = np.zeros(self._n, dtype=np.float64)
+        logger.info(
+            "[SC2CMAESPolicy] initialised with zero mean, sigma=%.3f", self._sigma
+        )
+
+    def initialize_from_champion(self, champion: SC2MultiHeadLinearPolicy) -> None:
+        self._champion        = champion
+        self._champion_reward = float("-inf")
+        self._mean            = champion.to_flat().astype(np.float64)
+        logger.info("[SC2CMAESPolicy] seeded mean from champion")
+
+    # ------------------------------------------------------------------
+    # Individual factory
+    # ------------------------------------------------------------------
+
+    def _flat_to_policy(self, flat: np.ndarray) -> SC2MultiHeadLinearPolicy:
+        template = SC2MultiHeadLinearPolicy(self._obs_spec)
+        return template.with_flat(flat.astype(np.float32))
+
+    # ------------------------------------------------------------------
+    # CMA-ES mechanics
+    # ------------------------------------------------------------------
+
+    def _update_eigen(self) -> None:
+        self._C = np.triu(self._C) + np.triu(self._C, 1).T
+        eigvals, self._B = np.linalg.eigh(self._C)
+        eigvals          = np.maximum(eigvals, 1e-20)
+        self._D          = np.sqrt(eigvals)
+        self._invsqrtC   = self._B @ np.diag(1.0 / self._D) @ self._B.T
+        self._eigengen   = self._gen
+
+    def sample_population(self) -> list[SC2MultiHeadLinearPolicy]:
+        n = self._n
+        if self._gen - self._eigengen >= max(1, self._lam // max(1, 10 * n)):
+            self._update_eigen()
+
+        self._pop_xs = []
+        self._pop_ys = []
+        for _ in range(self._lam):
+            z = self._rng.standard_normal(n)
+            y = self._B @ (self._D * z)
+            x = self._mean + self._sigma * y
+            self._pop_xs.append(x)
+            self._pop_ys.append(y)
+
+        return [self._flat_to_policy(x) for x in self._pop_xs]
+
+    def update_distribution(self, rewards: list[float]) -> bool:
+        if len(rewards) != self._lam:
+            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
+        if len(self._pop_xs) != self._lam:
+            raise RuntimeError(
+                "update_distribution() called before a matching sample_population()."
+            )
+        n     = self._n
+        order = np.argsort(rewards)[::-1]
+
+        improved = False
+        best_r   = rewards[order[0]]
+        if best_r > self._champion_reward:
+            self._champion_reward = best_r
+            self._champion        = self._flat_to_policy(self._pop_xs[order[0]])
+            improved              = True
+
+        elite_ys = np.stack([self._pop_ys[order[i]] for i in range(self._mu)])
+        step     = np.einsum("i,ij->j", self._weights, elite_ys)
+
+        self._mean = self._mean + self._sigma * step
+
+        ps_scale  = float(np.sqrt(self._cs * (2 - self._cs) * self._mu_eff))
+        self._ps  = (1 - self._cs) * self._ps + ps_scale * (self._invsqrtC @ step)
+
+        ps_norm     = float(np.linalg.norm(self._ps))
+        self._sigma = float(np.clip(
+            self._sigma * np.exp((self._cs / self._ds) * (ps_norm / self._chin - 1)),
+            1e-10, 1e6,
+        ))
+
+        ps_norm_normed = ps_norm / float(
+            np.sqrt(1 - (1 - self._cs) ** (2 * (self._gen + 1)))
+        )
+        h_sigma = (
+            1.0
+            if ps_norm_normed < (1.4 + 2.0 / (n + 1)) * self._chin
+            else 0.0
+        )
+
+        pc_scale  = float(np.sqrt(self._cc * (2 - self._cc) * self._mu_eff))
+        self._pc  = (1 - self._cc) * self._pc + h_sigma * pc_scale * step
+
+        delta_h = (1 - h_sigma) * self._cc * (2 - self._cc)
+        rank1   = np.outer(self._pc, self._pc)
+        rank_mu = np.einsum("i,ij,ik->jk", self._weights, elite_ys, elite_ys)
+        self._C = (
+            (1 - self._c1 - self._cmu) * self._C
+            + self._c1 * (rank1 + delta_h * self._C)
+            + self._cmu * rank_mu
+        )
+
+        self._gen += 1
+        return improved
+
+    # ------------------------------------------------------------------
+    # Policy interface
+    # ------------------------------------------------------------------
+
+    def _build_fn_mask(self, available_fn_ids: set[int] | None) -> np.ndarray:
+        mask = np.ones(N_FUNCTION_IDS, dtype=bool)
+        if available_fn_ids is not None:
+            for i in range(N_FUNCTION_IDS):
+                mask[i] = i in available_fn_ids
+        if not mask.any():
+            mask[0] = True
+        return mask
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if self._champion is None:
+            raise RuntimeError(
+                "SC2CMAESPolicy: no champion yet — run at least one generation first."
+            )
+        # Use the underlying champion but apply available-actions masking.
+        norm_obs  = obs / self._obs_spec.scales
+        fn_scores = self._champion._fn_weights @ norm_obs
+        fn_mask   = self._build_fn_mask(self._available_fn_ids)
+        masked    = fn_scores.copy().astype(np.float64)
+        masked[~fn_mask] = -np.inf
+        fn_idx    = int(np.argmax(masked))
+        sp_scores = self._champion._sp_weights @ norm_obs
+        x         = _sigmoid(float(sp_scores[0]))
+        y         = _sigmoid(float(sp_scores[1]))
+        return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
+
+    def on_episode_start(self, **kwargs) -> None:
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        self._available_fn_ids = set(available) if available is not None else None
+
+    def update(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+        **kwargs,
+    ) -> None:
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
+
+    def on_episode_end(self) -> None:
+        pass
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":     "sc2_cmaes",
+            "population_size": self._lam,
+            "sigma":           self._sigma,
+            "obs_dim":         self._obs_spec.dim,
+            "eval_episodes":   self._eval_episodes,
+            "champion_reward": float(self._champion_reward),
+        }
+
+    def save(self, path: str) -> None:
+        if self._champion is not None:
+            self._champion.save(path)
+
+    def save_trainer_state(self, path: str) -> None:
+        np.savez(
+            path,
+            mean     = self._mean,
+            sigma    = np.float64(self._sigma),
+            C        = self._C,
+            B        = self._B,
+            D        = self._D,
+            invsqrtC = self._invsqrtC,
+            ps       = self._ps,
+            pc       = self._pc,
+            gen      = np.int64(self._gen),
+            n        = np.int64(self._n),
+        )
+
+    def load_trainer_state(self, path: str) -> None:
+        with np.load(path) as data:
+            n_saved = int(data["n"])
+            if n_saved != self._n:
+                raise ValueError(
+                    f"SC2CMAESPolicy: trainer state dimension mismatch — "
+                    f"saved n={n_saved}, current n={self._n}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean     = data["mean"].astype(np.float64)
+            self._sigma    = float(data["sigma"])
+            self._C        = data["C"].astype(np.float64)
+            self._B        = data["B"].astype(np.float64)
+            self._D        = data["D"].astype(np.float64)
+            self._invsqrtC = data["invsqrtC"].astype(np.float64)
+            self._ps       = data["ps"].astype(np.float64)
+            self._pc       = data["pc"].astype(np.float64)
+            self._gen      = int(data["gen"])
+        logger.info(
+            "[SC2CMAESPolicy] trainer state loaded from %s (gen=%d, sigma=%.4f)",
+            path, self._gen, self._sigma,
+        )
+
+
+# ---------------------------------------------------------------------------
+# SC2LSTMPolicy — LSTM with two-head output for SC2
+# ---------------------------------------------------------------------------
+
+class SC2LSTMPolicy:
+    """Single-layer LSTM policy with two-head output for StarCraft 2.
+
+    The output layer maps hidden state → 15 values:
+    - First 6 = fn logits  → softmax + available-actions masking → fn_idx
+    - Last  9 = spatial logits → softmax → 3×3 grid cell_idx → (x, y)
+
+    Parameters
+    ----------
+    obs_spec :
+        Observation spec describing feature names and normalisation scales.
+    hidden_size :
+        LSTM hidden state dimensionality (default 64).
+    reset_on_episode :
+        If True (default), reset ``(h, c)`` to zeros at each episode start.
+        Set to False to carry hidden state across truncated resets within the
+        same match (useful for long ladder episodes).
+    seed :
+        Optional RNG seed.
+    """
+
+    #: Total output dimension: fn_head (6) + spatial_head (9).
+    N_OUTPUT: int = N_FUNCTION_IDS + N_LSTM_SPATIAL_CELLS
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec,
+        hidden_size: int = 64,
+        reset_on_episode: bool = True,
+        seed: int | None = None,
+    ) -> None:
+        self._obs_spec        = obs_spec
+        self._hidden_size     = hidden_size
+        self._obs_dim         = obs_spec.dim
+        self._scales          = obs_spec.scales
+        self._reset_on_episode = reset_on_episode
+
+        h    = hidden_size
+        c_in = h + self._obs_dim
+        rng  = np.random.default_rng(seed)
+        gain = np.sqrt(2.0 / c_in)
+
+        # LSTM gates: forget, input, cell, output
+        self._W_f = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_f = np.zeros(h, dtype=np.float32)
+        self._W_i = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_i = np.zeros(h, dtype=np.float32)
+        self._W_g = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_g = np.zeros(h, dtype=np.float32)
+        self._W_o = rng.standard_normal((h, c_in)).astype(np.float32) * gain
+        self._b_o = np.zeros(h, dtype=np.float32)
+
+        # Output head: hidden_size → 15 (6 fn logits + 9 spatial logits)
+        self._W_out = (
+            rng.standard_normal((self.N_OUTPUT, h)).astype(np.float32)
+            * np.sqrt(2.0 / h)
+        )
+        self._b_out = np.zeros(self.N_OUTPUT, dtype=np.float32)
+
+        self._h = np.zeros(h, dtype=np.float32)
+        self._c = np.zeros(h, dtype=np.float32)
+
+        # Available fn_ids cache (set by on_episode_start / update callers).
+        self._available_fn_ids: set[int] | None = None
+
+    # ------------------------------------------------------------------
+    # Flat weight interface (for CMA-ES)
+    # ------------------------------------------------------------------
+
+    @property
+    def obs_dim(self) -> int:
+        return self._obs_dim
+
+    @property
+    def flat_dim(self) -> int:
+        h    = self._hidden_size
+        c_in = h + self._obs_dim
+        # 4 LSTM gates × (h×c_in weights + h biases) + output (N_OUTPUT×h + N_OUTPUT)
+        return 4 * (h * c_in + h) + self.N_OUTPUT * h + self.N_OUTPUT
+
+    def to_flat(self) -> np.ndarray:
+        return np.concatenate([
+            self._W_f.ravel(), self._b_f,
+            self._W_i.ravel(), self._b_i,
+            self._W_g.ravel(), self._b_g,
+            self._W_o.ravel(), self._b_o,
+            self._W_out.ravel(), self._b_out,
+        ]).astype(np.float32)
+
+    def with_flat(self, flat: np.ndarray) -> "SC2LSTMPolicy":
+        flat = np.asarray(flat, dtype=np.float32)
+        if flat.shape[0] != self.flat_dim:
+            raise ValueError(
+                f"SC2LSTMPolicy.with_flat: expected {self.flat_dim}, got {flat.shape[0]}"
+            )
+        obj = object.__new__(SC2LSTMPolicy)
+        obj._obs_spec         = self._obs_spec
+        obj._hidden_size      = self._hidden_size
+        obj._obs_dim          = self._obs_dim
+        obj._scales           = self._scales
+        obj._reset_on_episode = self._reset_on_episode
+        obj._available_fn_ids = None
+
+        h    = self._hidden_size
+        c_in = h + self._obs_dim
+        off  = 0
+
+        def _take(shape: tuple) -> np.ndarray:
+            nonlocal off
+            n   = int(np.prod(shape))
+            out = flat[off: off + n].reshape(shape).copy()
+            off += n
+            return out
+
+        obj._W_f   = _take((h, c_in))
+        obj._b_f   = _take((h,))
+        obj._W_i   = _take((h, c_in))
+        obj._b_i   = _take((h,))
+        obj._W_g   = _take((h, c_in))
+        obj._b_g   = _take((h,))
+        obj._W_o   = _take((h, c_in))
+        obj._b_o   = _take((h,))
+        obj._W_out = _take((SC2LSTMPolicy.N_OUTPUT, h))
+        obj._b_out = _take((SC2LSTMPolicy.N_OUTPUT,))
+        obj._h     = np.zeros(h, dtype=np.float32)
+        obj._c     = np.zeros(h, dtype=np.float32)
+        return obj
+
+    # ------------------------------------------------------------------
+    # LSTM step
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _softmax(z: np.ndarray) -> np.ndarray:
+        z_s = z - z.max()
+        e   = np.exp(z_s)
+        return e / e.sum()
+
+    def _reset_hidden_state(self) -> None:
+        self._h = np.zeros(self._hidden_size, dtype=np.float32)
+        self._c = np.zeros(self._hidden_size, dtype=np.float32)
+
+    def on_episode_start(self, **kwargs) -> None:
+        if self._reset_on_episode:
+            self._reset_hidden_state()
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        self._available_fn_ids = set(available) if available is not None else None
+
+    def on_episode_end(self) -> None:
+        if self._reset_on_episode:
+            self._reset_hidden_state()
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        x  = (obs / self._scales).astype(np.float32)
+        hx = np.concatenate([self._h, x])
+
+        f = _sigmoid(self._W_f @ hx + self._b_f)
+        i = _sigmoid(self._W_i @ hx + self._b_i)
+        g = np.tanh(self._W_g  @ hx + self._b_g)
+        o = _sigmoid(self._W_o @ hx + self._b_o)
+
+        self._c = f * self._c + i * g
+        self._h = o * np.tanh(self._c)
+
+        out         = self._W_out @ self._h + self._b_out
+        fn_logits   = out[:N_FUNCTION_IDS].copy().astype(np.float64)
+        sp_logits   = out[N_FUNCTION_IDS:].astype(np.float64)
+
+        # Available-actions masking on fn head.
+        if self._available_fn_ids is not None:
+            for k in range(N_FUNCTION_IDS):
+                if k not in self._available_fn_ids:
+                    fn_logits[k] = -np.inf
+        if not np.isfinite(fn_logits).any():
+            fn_logits[0] = 0.0  # fallback to no_op
+
+        fn_probs  = self._softmax(fn_logits)
+        fn_idx    = int(np.random.choice(N_FUNCTION_IDS, p=fn_probs))
+        cell_idx  = int(np.random.choice(N_LSTM_SPATIAL_CELLS,
+                                         p=self._softmax(sp_logits)))
+        x_out, y_out = float(_SPATIAL_GRID[cell_idx, 0]), float(_SPATIAL_GRID[cell_idx, 1])
+        return np.array([fn_idx, x_out, y_out, 0.0], dtype=np.float32)
+
+    def update(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+        **kwargs,
+    ) -> None:
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
+
+    # ------------------------------------------------------------------
+    # Serialisation — .npz compatible with LSTMEvolutionPolicy format
+    # ------------------------------------------------------------------
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":      "sc2_lstm",
+            "hidden_size":      self._hidden_size,
+            "reset_on_episode": self._reset_on_episode,
+            "obs_dim":          self._obs_dim,
+            "W_f":  self._W_f.tolist(),  "b_f":  self._b_f.tolist(),
+            "W_i":  self._W_i.tolist(),  "b_i":  self._b_i.tolist(),
+            "W_g":  self._W_g.tolist(),  "b_g":  self._b_g.tolist(),
+            "W_o":  self._W_o.tolist(),  "b_o":  self._b_o.tolist(),
+            "W_out": self._W_out.tolist(), "b_out": self._b_out.tolist(),
+        }
+
+    def save(self, path: str) -> None:
+        with open(path, "w") as f:
+            yaml.dump(self.to_cfg(), f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, obs_spec: ObsSpec) -> "SC2LSTMPolicy":
+        obj = object.__new__(cls)
+        obj._obs_spec         = obs_spec
+        obj._hidden_size      = int(cfg["hidden_size"])
+        obj._obs_dim          = obs_spec.dim
+        obj._scales           = obs_spec.scales
+        obj._reset_on_episode = bool(cfg.get("reset_on_episode", True))
+        obj._available_fn_ids = None
+        obj._W_f   = np.array(cfg["W_f"],   dtype=np.float32)
+        obj._b_f   = np.array(cfg["b_f"],   dtype=np.float32)
+        obj._W_i   = np.array(cfg["W_i"],   dtype=np.float32)
+        obj._b_i   = np.array(cfg["b_i"],   dtype=np.float32)
+        obj._W_g   = np.array(cfg["W_g"],   dtype=np.float32)
+        obj._b_g   = np.array(cfg["b_g"],   dtype=np.float32)
+        obj._W_o   = np.array(cfg["W_o"],   dtype=np.float32)
+        obj._b_o   = np.array(cfg["b_o"],   dtype=np.float32)
+        obj._W_out = np.array(cfg["W_out"], dtype=np.float32)
+        obj._b_out = np.array(cfg["b_out"], dtype=np.float32)
+        h          = obj._hidden_size
+        obj._h     = np.zeros(h, dtype=np.float32)
+        obj._c     = np.zeros(h, dtype=np.float32)
+        return obj
+
+
+# ---------------------------------------------------------------------------
+# SC2LSTMEvolutionPolicy — CMA-ES outer loop over SC2LSTMPolicy weights
+# ---------------------------------------------------------------------------
+
+class SC2LSTMEvolutionPolicy:
+    """(μ/μ_w, λ)-isotropic ES wrapping :class:`SC2LSTMPolicy`.
+
+    Uses the ``_greedy_loop_cmaes`` interface: :meth:`sample_population` /
+    :meth:`update_distribution`.  Step size is adapted via the 1/5 success rule.
+
+    Parameters
+    ----------
+    obs_spec :
+        Observation spec for the target environment.
+    hidden_size :
+        LSTM hidden state dimensionality (default 64).
+    population_size :
+        λ — offspring evaluated per generation (default 20).
+    initial_sigma :
+        Starting perturbation scale (default 0.03).
+    reset_on_episode :
+        Forwarded to each :class:`SC2LSTMPolicy` individual.
+    seed :
+        Optional RNG seed.
+    """
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec,
+        hidden_size: int = 64,
+        population_size: int = 20,
+        initial_sigma: float = 0.03,
+        reset_on_episode: bool = True,
+        seed: int | None = None,
+    ) -> None:
+        self._lam             = int(population_size)
+        self._sigma           = float(initial_sigma)
+        self._obs_spec        = obs_spec
+        self._reset_on_episode = reset_on_episode
+        self._rng             = np.random.default_rng(seed)
+
+        self._template  = SC2LSTMPolicy(
+            obs_spec         = obs_spec,
+            hidden_size      = hidden_size,
+            reset_on_episode = reset_on_episode,
+        )
+        self._flat_dim  = self._template.flat_dim
+        self._mean      = self._template.to_flat().astype(np.float64)
+
+        mu             = self._lam // 2
+        self._mu       = mu
+        raw_w          = np.array(
+            [np.log(mu + 0.5) - np.log(i + 1) for i in range(mu)], dtype=np.float64
+        )
+        self._recomb_w = raw_w / raw_w.sum()
+
+        self._pop: list[np.ndarray]       = []
+        self._champion: SC2LSTMPolicy | None  = None
+        self._champion_reward: float          = float("-inf")
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def population_size(self) -> int:
+        return self._lam
+
+    @property
+    def champion_reward(self) -> float:
+        return self._champion_reward
+
+    @property
+    def sigma(self) -> float:
+        return self._sigma
+
+    # ------------------------------------------------------------------
+    # Champion seeding
+    # ------------------------------------------------------------------
+
+    def initialize_from_champion(self, champion: SC2LSTMPolicy) -> None:
+        if champion.flat_dim != self._flat_dim:
+            raise ValueError(
+                f"SC2LSTMEvolutionPolicy: flat_dim mismatch — "
+                f"expected {self._flat_dim}, got {champion.flat_dim}. "
+                f"Use --re-initialize to restart from scratch."
+            )
+        self._champion = champion
+        self._mean     = champion.to_flat().astype(np.float64)
+        logger.info("[SC2LSTMEvolutionPolicy] seeded mean from champion")
+
+    # ------------------------------------------------------------------
+    # CMA-ES loop interface
+    # ------------------------------------------------------------------
+
+    def sample_population(self) -> list[SC2LSTMPolicy]:
+        self._pop = []
+        for _ in range(self._lam):
+            z = self._rng.standard_normal(self._flat_dim)
+            self._pop.append(self._mean + self._sigma * z)
+        return [self._template.with_flat(x) for x in self._pop]
+
+    def update_distribution(self, rewards: list[float]) -> bool:
+        if len(rewards) != self._lam:
+            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
+        if len(self._pop) != self._lam:
+            raise RuntimeError("update_distribution() called before sample_population().")
+
+        order     = np.argsort(rewards)[::-1]
+        prev_best = self._champion_reward
+        improved  = False
+
+        best_r = rewards[order[0]]
+        if best_r > self._champion_reward:
+            self._champion_reward = best_r
+            self._champion        = self._template.with_flat(
+                np.array(self._pop[order[0]], dtype=np.float32)
+            )
+            improved = True
+
+        elite_xs   = np.stack([self._pop[order[i]] for i in range(self._mu)])
+        self._mean = np.einsum("i,ij->j", self._recomb_w, elite_xs)
+
+        n_success    = sum(1 for r in rewards if r > prev_best)
+        success_rate = n_success / self._lam
+        self._sigma  = float(np.clip(
+            self._sigma * (1.2 if success_rate > 0.2 else 0.85),
+            1e-6, 1e2,
+        ))
+        return improved
+
+    # ------------------------------------------------------------------
+    # Policy interface
+    # ------------------------------------------------------------------
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        if self._champion is None:
+            raise RuntimeError(
+                "SC2LSTMEvolutionPolicy: no champion yet — "
+                "run at least one generation first."
+            )
+        return self._champion(obs)
+
+    def on_episode_start(self, **kwargs) -> None:
+        if self._champion is not None:
+            self._champion.on_episode_start(**kwargs)
+
+    def on_episode_end(self) -> None:
+        if self._champion is not None:
+            self._champion.on_episode_end()
+
+    def update(
+        self,
+        obs: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_obs: np.ndarray,
+        done: bool,
+        **kwargs,
+    ) -> None:
+        if self._champion is not None:
+            self._champion.update(obs, action, reward, next_obs, done, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
+
+    def to_cfg(self) -> dict:
+        return {
+            "policy_type":      "sc2_lstm",
+            "hidden_size":      self._template._hidden_size,
+            "reset_on_episode": self._reset_on_episode,
+            "obs_dim":          self._obs_spec.dim,
+            "sigma":            self._sigma,
+            "champion_reward":  float(self._champion_reward),
+        }
+
+    def save(self, path: str) -> None:
+        if self._champion is not None:
+            self._champion.save(path)
+
+    def save_trainer_state(self, path: str) -> None:
+        np.savez(
+            path,
+            mean      = self._mean,
+            sigma     = np.float64(self._sigma),
+            flat_dim  = np.int64(self._flat_dim),
+        )
+
+    def load_trainer_state(self, path: str) -> None:
+        with np.load(path) as data:
+            saved_dim = int(data["flat_dim"])
+            if saved_dim != self._flat_dim:
+                raise ValueError(
+                    f"SC2LSTMEvolutionPolicy: flat_dim mismatch — "
+                    f"saved={saved_dim}, current={self._flat_dim}. "
+                    f"Use --re-initialize to restart from scratch."
+                )
+            self._mean  = data["mean"].astype(np.float64)
+            self._sigma = float(data["sigma"])
+        logger.info("[SC2LSTMEvolutionPolicy] trainer state loaded from %s", path)
+

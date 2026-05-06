@@ -61,7 +61,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
 
-868 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1003 tests.
+876 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1011 tests.
 
 ## Coverage at a glance
 
@@ -103,8 +103,8 @@ graceful skip of missing experiments).
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
 diff'ing (analytics tests assert files appear, not their contents); the Azure
 Terraform stack under `infrastructure/`; the Windows bootstrap script
-`setup_and_run.ps1`; long convergence behaviour of the actual `train_rl()`
-loop end-to-end on a real env.
+`setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI); long convergence
+behaviour of the actual `train_rl()` loop end-to-end on a real env.
 
 ### test_analytics_no_matplotlib.py (3) — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -142,13 +142,16 @@ loop end-to-end on a real env.
 ### test_discretize_obs.py (6) — continuous→discrete obs binning
 - zero→middle bin; clipped high→max; clipped low→min; symmetry; tuple-of-int return; length matches obs_dim
 
-### test_distributed.py (21) — coordinator/worker protocol + HTTP server
+### test_distributed.py (29) — coordinator/worker protocol + HTTP server
 - ComboSpec round-trip + JSON serialisable; ResultPayload round-trip + valid JSON
 - payload preserves greedy_sims / throttle counts / trace / none-trace / metadata / task-metric fields / SC2 analytics fields
 - numpy arrays serialised
 - HTTP: serves all combos / status endpoint / result accepted + done event
 - unknown combo rejected; duplicate result ignored; stale worker re-queued; heartbeat prevents requeue
 - empty queue returns immediately; unauthorized rejected
+- game-filter: X-Worker-Game header returns matching combo; 204 when no match; preserves queue order for non-matching items
+- skip endpoint: POST /skip returns in-progress item to queue; unknown item is no-op
+- ComboSpec.game defaults to 'tmnf'; explicit game values round-trip correctly
 
 ### test_early_stopping.py (6) — early-stop logic in greedy + Q loops
 - stops after patience-no-improvement; patience=0 runs all; streak resets on improvement; early-stop sim recorded

@@ -19,6 +19,10 @@ locals {
     ghs-tariff             = "zab"
   }
 
+  # Arguments passed to setup_and_run.ps1 in the worker scheduled task.
+  # -Game selects which runtime services to start; the optional command starts
+  # the distributed worker process after setup completes.
+  setup_script_args = var.worker_command != "" ? "-Game ${var.worker_game} \"${var.worker_command}\"" : "-Game ${var.worker_game}"
 }
 
 # ============================================================================
@@ -334,34 +338,18 @@ resource "azurerm_virtual_machine_extension" "setup" {
   type_handler_version = "1.10"
 
   protected_settings = jsonencode({
-    commandToExecute = join("; ", [
-      # Install Git silently
-      "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-      "Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe' -OutFile C:\\git-installer.exe -UseBasicParsing",
-      "Start-Process -FilePath C:\\git-installer.exe -ArgumentList '/VERYSILENT','/NORESTART' -Wait",
-      "$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')",
-
-      # Clone repo (skip if exists)
-      "if (!(Test-Path C:\\tmnf-ai)) { & git clone ${var.repo_url} C:\\tmnf-ai }",
-
-      # Register startup task (runs setup_and_run.ps1 at every boot)
-      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Unrestricted -File C:\\tmnf-ai\\setup_and_run.ps1'",
-      "$t = New-ScheduledTaskTrigger -AtStartup",
-      "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'TMNF-AI-Setup' -Action $a -Trigger $t -Principal $p -Force"
-    ])
-
-    # This tells Azure to run it as PowerShell, not cmd.exe
     commandToExecute = "powershell.exe -ExecutionPolicy Unrestricted -Command \"${join("; ", [
       "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
       "Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe' -OutFile C:\\git-installer.exe -UseBasicParsing",
       "Start-Process -FilePath C:\\git-installer.exe -ArgumentList '/VERYSILENT','/NORESTART' -Wait",
       "$env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine')",
       "if (!(Test-Path C:\\tmnf-ai)) { & git clone ${var.repo_url} C:\\tmnf-ai }",
-      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Unrestricted -File C:\\tmnf-ai\\setup_and_run.ps1'",
+      # Register a startup task that runs setup_and_run.ps1 with the selected
+      # game and (optionally) the worker command on every boot.
+      "$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-ExecutionPolicy Unrestricted -File C:\\tmnf-ai\\setup_and_run.ps1 ${local.setup_script_args}'",
       "$t = New-ScheduledTaskTrigger -AtStartup",
       "$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest",
-      "Register-ScheduledTask -TaskName 'TMNF-AI-Setup' -Action $a -Trigger $t -Principal $p -Force",
+      "Register-ScheduledTask -TaskName 'GamerAI-Setup' -Action $a -Trigger $t -Principal $p -Force",
     ])}\""
   })
 

@@ -19,3 +19,27 @@ my_ip_address = "xxx.yyy.zzz.vvv"
 
 state_storage_resource_group = "rg-tfstate-tmnf-ai"
 state_storage_account        = "sttfstatexxxxxxxx"
+
+# ---------------------------------------------------------------------------
+# Game selection
+# ---------------------------------------------------------------------------
+# The game each worker VM will run.  All games are installed on every VM so
+# you can change this and re-apply without re-provisioning.
+# Valid values: tmnf, sc2, torcs, beamng, car_racing
+worker_game = "tmnf"
+
+# Optional: command to run on each worker after game services start.
+# Leave empty ("") to only perform setup without starting a worker process.
+# For distributed training, set this to the worker command once you have the
+# coordinator IP and a shared token:
+#
+#   worker_command = "python -m distributed.worker --coordinator http://10.0.0.5:5555 --token mytoken --game tmnf --no-interrupt"
+#
+worker_command = ""
+
+# Private IP of the coordinator VM (leave empty if not using distributed mode).
+coordinator_ip = ""
+
+# Shared secret for coordinator/worker authentication.
+# Must match the token used when launching the coordinator.
+grid_token = ""

@@ -518,6 +518,10 @@ def _greedy_loop(
                     action_counts=info.get("episode_action_counts"),
                     obs_averages=info.get("episode_obs_averages"),
                     xy_hist=info.get("episode_xy_hist"),
+                    supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                    build_order=info.get("episode_build_order"),
+                    army_count_series=info.get("episode_army_series"),
+                    resource_series=info.get("episode_resource_series"),
                 ))
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
@@ -621,6 +625,10 @@ def _greedy_loop(
                 action_counts=best_info.get("episode_action_counts"),
                 obs_averages=best_info.get("episode_obs_averages"),
                 xy_hist=best_info.get("episode_xy_hist"),
+                supply_capped_fraction=best_info.get("episode_supply_capped_fraction"),
+                build_order=best_info.get("episode_build_order"),
+                army_count_series=best_info.get("episode_army_series"),
+                resource_series=best_info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -733,6 +741,10 @@ def _greedy_loop_cmaes(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -807,6 +819,10 @@ def _greedy_loop_q_learning(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
@@ -903,6 +919,10 @@ def _greedy_loop_genetic(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                supply_capped_fraction=info.get("episode_supply_capped_fraction"),
+                build_order=info.get("episode_build_order"),
+                army_count_series=info.get("episode_army_series"),
+                resource_series=info.get("episode_resource_series"),
             ))
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:

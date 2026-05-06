@@ -43,7 +43,7 @@
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
   - [test\_sc2\_reward.py (23) — SC2 reward calc](#test_sc2_rewardpy-23--sc2-reward-calc)
   - [test\_sc2\_client.py (46) — PySC2 client wrapper](#test_sc2_clientpy-46--pysc2-client-wrapper)
-  - [test\_sc2\_env.py (18) — SC2 env wrapper](#test_sc2_envpy-18--sc2-env-wrapper)
+  - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy-21--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
   - [test\_sc2\_lstm\_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`](#test_sc2_lstm_policypy-35--sc2lstmpolicy--sc2lstmevolutionpolicy)
@@ -53,13 +53,13 @@
   - [test\_sc2\_reinforce\_policy.py (39) — REINFORCE policy for SC2](#test_sc2_reinforce_policypy-39--reinforce-policy-for-sc2)
   - [test\_sc2\_play.py (21) — `play_sc2.py` script](#test_sc2_playpy-21--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py (31) — Simple64 ladder integration](#test_sc2_simple64_trainingpy-31--simple64-ladder-integration)
-  - [test\_sc2\_analytics.py (29) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-29--sc2-specific-analytics-plots-and-flags)
+  - [test\_sc2\_analytics.py (51) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-51--sc2-specific-analytics-plots-and-flags)
 - [CLI / misc](#cli--misc)
   - [cli/test\_game\_flag.py (14) — `--game` CLI flag in `main.py`](#clitest_game_flagpy-14----game-cli-flag-in-mainpy)
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
-- [Why 740 tests run in ~25 s](#why-740-tests-run-in-25-s)
+- [Why 839 tests run in ~50 s](#why-839-tests-run-in-50-s)
 
-1112 tests across 58 files. Runs in ~30 seconds via `python -m pytest tests/`.
+839 tests across 53 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 974 tests.
 
 ## Coverage at a glance
 
@@ -393,10 +393,11 @@ handful of iterations only).
 - minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
 - action fallback (#124, beacon-idling fix): blocked Move_screen → select_army once, then no_op on consecutive blocked steps; pending flag cleared when Move_screen available; no_op action passes through unchanged
 
-### test_sc2_env.py (18) — SC2 env wrapper
+### test_sc2_env.py (27) — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; custom reward config
+- end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
 
 ### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
 - obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps
@@ -473,14 +474,19 @@ handful of iterations only).
 - Training loops (mocked env): sc2_genetic / cmaes / neural_dqn / reinforce / lstm
 - Trainer state roundtrips: cmaes / neural_dqn
 
-### test_sc2_analytics.py (29) — SC2-specific analytics plots and flags
+### test_sc2_analytics.py (51) — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags
 - `GreedySimResult` new fields: `action_counts` / `obs_averages` / `xy_hist` — default None; stored correctly
+- `GreedySimResult` end-screen fields: `supply_capped_fraction` / `build_order` / `army_count_series` / `resource_series` — default None; stored correctly
 - `plot_action_frequency`: renders to file / skips when no data / skips when no sims / single fn_idx
 - `plot_obs_averages`: renders to file / skips when no data / skips when all-zero / unknown feature key safe
 - `plot_spatial_heatmap`: renders to file / skips when no data / skips all-zero hist / partial None sims ignored
 - `plot_outcome_breakdown`: renders to file / skips when all None / skips when no sims / win+loss ladder
-- `save_experiment_results`: writes results.md / writes SC2 plots / mentions game / no crash empty sims / no racing plots written
+- `plot_supply_capped`: renders to file / skips when all None / skips when no sims / zero fraction renders
+- `plot_resource_series`: renders to file / uses best sim / skips when no series / skips when no sims / falls back to last sim when none improved
+- `plot_army_count`: renders to file / skips when no series / skips when no sims
+- `plot_build_order`: renders to file / skips when no build order / skips when no sims / single unit type / multiple unit types
+- `save_experiment_results`: writes results.md / writes SC2 plots (incl. new 4) / mentions game / no crash empty sims / no racing plots written
 
 ## CLI / misc
 
@@ -507,7 +513,7 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 740 tests run in ~25 s
+## Why 839 tests run in ~50 s
 
 These tests look heavy because of the names ("training loop", "env reset", "DQN convergence") but operationally they're almost all pure-Python unit tests with zero external I/O:
 
@@ -517,6 +523,6 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 4. **Whole files are config / dataclass tests.** `test_grid_search.py` (29), `test_reward.py` (44), `test_sc2_genetic_policy.py` (53), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
 5. **No matplotlib rendering.** TORCS analytics tests use `Agg` (non-interactive) and dump to `tmp_path`; `test_analytics_no_matplotlib.py` explicitly checks the import path that *avoids* it.
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
-7. **Heavy collection work is amortised.** `pytest`'s ~half-second startup + 41 collection modules is a big share of the wall clock; once collected, 740 mostly-arithmetic asserts run in about 30 µs each.
+7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 839 mostly-arithmetic asserts run in the remaining ~49 seconds.
 
-Roughly: 873 tests × ~25 ms average = ~21 s of work + ~7 s of import/collection — fits the 30 s budget exactly because nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 839 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.

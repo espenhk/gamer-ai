@@ -1,4 +1,4 @@
-"""Tests for the SC2-specific analytics module (issue improvements 2a-2e).
+"""Tests for the SC2-specific analytics module (issue improvements 2a-2i).
 
 Covers:
 - SUPPORTS_THROTTLE / SUPPORTS_PATH flags
@@ -6,7 +6,12 @@ Covers:
 - plot_obs_averages: renders without error; skips when no data
 - plot_spatial_heatmap: renders without error; skips when no data
 - plot_outcome_breakdown: renders without error; skips when no data
-- GreedySimResult new optional fields: action_counts, obs_averages, xy_hist
+- plot_supply_capped: renders without error; skips when no data
+- plot_resource_series: renders without error; skips when no data
+- plot_army_count: renders without error; skips when no data
+- plot_build_order: renders without error; skips when no data
+- GreedySimResult new optional fields: action_counts, obs_averages, xy_hist,
+  supply_capped_fraction, build_order, army_count_series, resource_series
 - save_experiment_results: completes without error; writes results.md
 """
 from __future__ import annotations
@@ -20,9 +25,13 @@ from games.sc2.analytics import (
     SUPPORTS_PATH,
     SUPPORTS_THROTTLE,
     plot_action_frequency,
+    plot_army_count,
+    plot_build_order,
     plot_obs_averages,
     plot_outcome_breakdown,
+    plot_resource_series,
     plot_spatial_heatmap,
+    plot_supply_capped,
     save_experiment_results,
 )
 
@@ -40,6 +49,10 @@ def _make_sim(
     xy_hist: list | None = None,
     termination_reason: str | None = "timeout",
     reward_components: dict | None = None,
+    supply_capped_fraction: float | None = None,
+    build_order: list | None = None,
+    army_count_series: list | None = None,
+    resource_series: list | None = None,
 ) -> GreedySimResult:
     return GreedySimResult(
         sim=sim,
@@ -52,6 +65,10 @@ def _make_sim(
         xy_hist=xy_hist,
         termination_reason=termination_reason,
         reward_components=reward_components,
+        supply_capped_fraction=supply_capped_fraction,
+        build_order=build_order,
+        army_count_series=army_count_series,
+        resource_series=resource_series,
     )
 
 
@@ -305,19 +322,30 @@ class TestPlotOutcomeBreakdown(unittest.TestCase):
 class TestSaveExperimentResults(unittest.TestCase):
 
     def _make_full_sims(self) -> list:
+        series_pts = [[float(i) * 0.5, 100.0 + i * 5] for i in range(20)]
+        army_pts   = [[float(i) * 0.5, float(i // 3)] for i in range(20)]
+        build_evt  = [[2.0, "Marine"], [5.0, "SCV"], [8.0, "Marine"]]
         return [
             _make_sim(1, reward=5.0,
                       action_counts={0: 20, 1: 5, 2: 75},
                       obs_averages={"army_count": 2.0, "minerals": 100.0},
                       xy_hist=_xy_hist(4),
                       termination_reason="timeout",
-                      reward_components={"score": 5.0, "step_penalty": -0.5}),
+                      reward_components={"score": 5.0, "step_penalty": -0.5},
+                      supply_capped_fraction=0.3,
+                      resource_series=series_pts,
+                      army_count_series=army_pts,
+                      build_order=build_evt),
             _make_sim(2, reward=8.0, improved=True,
                       action_counts={0: 5, 1: 10, 2: 85},
                       obs_averages={"army_count": 3.0, "minerals": 150.0},
                       xy_hist=_xy_hist(6),
                       termination_reason="finish",
-                      reward_components={"score": 8.5, "step_penalty": -0.5}),
+                      reward_components={"score": 8.5, "step_penalty": -0.5},
+                      supply_capped_fraction=0.1,
+                      resource_series=series_pts,
+                      army_count_series=army_pts,
+                      build_order=build_evt),
         ]
 
     def test_writes_results_md(self):
@@ -337,6 +365,10 @@ class TestSaveExperimentResults(unittest.TestCase):
             self.assertIn("obs_averages.png", files)
             self.assertIn("spatial_heatmap.png", files)
             self.assertIn("outcome_breakdown.png", files)
+            self.assertIn("supply_capped.png", files)
+            self.assertIn("resource_series.png", files)
+            self.assertIn("army_count.png", files)
+            self.assertIn("build_order.png", files)
 
     def test_results_md_mentions_game(self):
         data = _make_experiment(self._make_full_sims())
@@ -367,6 +399,223 @@ class TestSaveExperimentResults(unittest.TestCase):
                 files.isdisjoint(racing_files),
                 f"Racing-specific files found: {files & racing_files}",
             )
+
+
+# ---------------------------------------------------------------------------
+# GreedySimResult new fields (supply_capped_fraction, build_order, series)
+# ---------------------------------------------------------------------------
+
+class TestGreedySimResultEndScreenFields(unittest.TestCase):
+
+    def test_supply_capped_fraction_default_none(self):
+        s = GreedySimResult(
+            sim=1, reward=5.0, improved=False,
+            throttle_counts=[0, 0, 0], total_steps=1,
+        )
+        self.assertIsNone(s.supply_capped_fraction)
+
+    def test_build_order_default_none(self):
+        s = GreedySimResult(
+            sim=1, reward=5.0, improved=False,
+            throttle_counts=[0, 0, 0], total_steps=1,
+        )
+        self.assertIsNone(s.build_order)
+
+    def test_army_count_series_default_none(self):
+        s = GreedySimResult(
+            sim=1, reward=5.0, improved=False,
+            throttle_counts=[0, 0, 0], total_steps=1,
+        )
+        self.assertIsNone(s.army_count_series)
+
+    def test_resource_series_default_none(self):
+        s = GreedySimResult(
+            sim=1, reward=5.0, improved=False,
+            throttle_counts=[0, 0, 0], total_steps=1,
+        )
+        self.assertIsNone(s.resource_series)
+
+    def test_fields_stored_correctly(self):
+        bo = [[1.0, "Marine"], [5.0, "SCV"]]
+        army = [[0.5, 0.0], [1.0, 1.0]]
+        res  = [[0.5, 200.0], [1.0, 180.0]]
+        s = _make_sim(
+            supply_capped_fraction=0.25,
+            build_order=bo,
+            army_count_series=army,
+            resource_series=res,
+        )
+        self.assertAlmostEqual(s.supply_capped_fraction, 0.25)
+        self.assertEqual(s.build_order, bo)
+        self.assertEqual(s.army_count_series, army)
+        self.assertEqual(s.resource_series, res)
+
+
+# ---------------------------------------------------------------------------
+# plot_supply_capped
+# ---------------------------------------------------------------------------
+
+class TestPlotSupplyCapped(unittest.TestCase):
+
+    def test_renders_to_file(self):
+        sims = [
+            _make_sim(1, supply_capped_fraction=0.1),
+            _make_sim(2, supply_capped_fraction=0.4, improved=True),
+            _make_sim(3, supply_capped_fraction=0.7),
+        ]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_supply_capped(data, d)
+            self.assertIn("supply_capped.png", os.listdir(d))
+
+    def test_skips_when_all_none(self):
+        sims = [_make_sim(i) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_supply_capped(data, d)
+            self.assertNotIn("supply_capped.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_supply_capped(data, d)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_zero_fraction_renders(self):
+        """All zeros is valid (supply was never capped)."""
+        sims = [_make_sim(1, supply_capped_fraction=0.0)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_supply_capped(data, d)
+            self.assertIn("supply_capped.png", os.listdir(d))
+
+
+# ---------------------------------------------------------------------------
+# plot_resource_series
+# ---------------------------------------------------------------------------
+
+_SERIES = [[float(i) * 0.5, 100.0 + i * 10] for i in range(20)]
+_ARMY   = [[float(i) * 0.5, float(i // 3)]   for i in range(20)]
+_BUILD  = [[2.0, "Marine"], [4.0, "SCV"], [7.0, "Marine"]]
+
+
+class TestPlotResourceSeries(unittest.TestCase):
+
+    def test_renders_to_file(self):
+        sims = [
+            _make_sim(1, resource_series=_SERIES),
+            _make_sim(2, resource_series=_SERIES, improved=True),
+        ]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_resource_series(data, d)
+            self.assertIn("resource_series.png", os.listdir(d))
+
+    def test_uses_best_sim(self):
+        """Only one file written even with multiple sims."""
+        sims = [
+            _make_sim(1, resource_series=_SERIES),
+            _make_sim(2, resource_series=_SERIES, improved=True),
+            _make_sim(3, resource_series=_SERIES),
+        ]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_resource_series(data, d)
+            self.assertIn("resource_series.png", os.listdir(d))
+
+    def test_skips_when_no_series(self):
+        sims = [_make_sim(i) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_resource_series(data, d)
+            self.assertNotIn("resource_series.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_resource_series(data, d)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_falls_back_to_last_sim_when_none_improved(self):
+        """If no sim is improved, the last sim's series is shown."""
+        sims = [_make_sim(1, resource_series=_SERIES)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_resource_series(data, d)
+            self.assertIn("resource_series.png", os.listdir(d))
+
+
+# ---------------------------------------------------------------------------
+# plot_army_count
+# ---------------------------------------------------------------------------
+
+class TestPlotArmyCount(unittest.TestCase):
+
+    def test_renders_to_file(self):
+        sims = [_make_sim(1, army_count_series=_ARMY, improved=True)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_army_count(data, d)
+            self.assertIn("army_count.png", os.listdir(d))
+
+    def test_skips_when_no_series(self):
+        sims = [_make_sim(i) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_army_count(data, d)
+            self.assertNotIn("army_count.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_army_count(data, d)
+            self.assertEqual(os.listdir(d), [])
+
+
+# ---------------------------------------------------------------------------
+# plot_build_order
+# ---------------------------------------------------------------------------
+
+class TestPlotBuildOrder(unittest.TestCase):
+
+    def test_renders_to_file(self):
+        sims = [_make_sim(1, build_order=_BUILD, improved=True)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_build_order(data, d)
+            self.assertIn("build_order.png", os.listdir(d))
+
+    def test_skips_when_no_build_order(self):
+        sims = [_make_sim(i) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_build_order(data, d)
+            self.assertNotIn("build_order.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_build_order(data, d)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_single_unit_type(self):
+        """Build order with one unit type renders without crash."""
+        events = [[float(i), "Marine"] for i in range(5)]
+        sims = [_make_sim(1, build_order=events)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_build_order(data, d)
+            self.assertIn("build_order.png", os.listdir(d))
+
+    def test_multiple_unit_types(self):
+        """Build order with multiple unit types renders correctly."""
+        events = [[1.0, "Marine"], [2.0, "SCV"], [3.0, "Zergling"],
+                  [4.0, "Marine"], [5.0, "SCV"]]
+        sims = [_make_sim(1, build_order=events, improved=True)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_build_order(data, d)
+            self.assertIn("build_order.png", os.listdir(d))
 
 
 if __name__ == "__main__":

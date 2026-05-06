@@ -182,6 +182,12 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_sums: dict[str, float] = {}
         self._ep_obs_step_count: int = 0
         self._ep_xy_hist: np.ndarray = np.zeros((8, 8), dtype=np.int64)
+        # Per-episode SC2 end-screen analytics (supply cap, time-series, build order).
+        self._ep_supply_capped_steps: int = 0
+        self._ep_army_series: list = []       # [[game_time_s, army_count], ...]
+        self._ep_resource_series: list = []   # [[game_time_s, minerals+vespene], ...]
+        self._ep_build_order: list = []       # [[game_time_s, unit_name], ...]
+        self._ep_prev_unit_counts: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -209,6 +215,14 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_sums = {}
         self._ep_obs_step_count = 0
         self._ep_xy_hist = np.zeros((8, 8), dtype=np.int64)
+        self._ep_supply_capped_steps = 0
+        self._ep_army_series = []
+        self._ep_resource_series = []
+        self._ep_build_order = []
+        # Seed from the reset observation so units already present at episode
+        # start (e.g. starting SCVs) are not recorded as "built" build-order
+        # events on the first step.
+        self._ep_prev_unit_counts = dict(info.get("unit_counts") or {})
         self._reward_calc.reset()
         self._prev_game_loop = float(info.get("game_loop", 0.0))
 
@@ -289,8 +303,37 @@ class SC2Env(BaseGameEnv):
                 for k, v in self._ep_obs_sums.items()
             }
 
+        # Track SC2 end-screen analytics: supply cap, time-series, build order.
+        _game_time_s = float(info.get("game_loop", 0.0)) / _SC2_TICKS_PER_S
+        _food_used = info.get("food_used", 0.0)
+        _food_cap  = info.get("food_cap",  0.0)
+        if _food_cap > 0 and _food_used >= _food_cap:
+            self._ep_supply_capped_steps += 1
+        _army_count = info.get("army_count", 0.0)
+        _resources  = info.get("minerals", 0.0) + info.get("vespene", 0.0)
+        self._ep_army_series.append([_game_time_s, _army_count])
+        self._ep_resource_series.append([_game_time_s, _resources])
+        # Build-order: detect unit-count increases from client's unit_counts dict.
+        _unit_counts = info.get("unit_counts") or {}
+        for _uname, _ucount in _unit_counts.items():
+            _prev = self._ep_prev_unit_counts.get(_uname, 0.0)
+            if _ucount > _prev:
+                self._ep_build_order.append([_game_time_s, _uname])
+            self._ep_prev_unit_counts[_uname] = _ucount
+
         terminated = finished
         truncated = time_over and not terminated
+
+        # Only emit the large per-episode series into info at end of episode so
+        # mid-episode policy.update() calls are not burdened with copying/
+        # serialising O(n) lists on every step.
+        if terminated or truncated:
+            info["episode_supply_capped_fraction"] = (
+                self._ep_supply_capped_steps / self._ep_obs_step_count
+            )
+            info["episode_army_series"]     = self._ep_army_series
+            info["episode_resource_series"] = self._ep_resource_series
+            info["episode_build_order"]     = self._ep_build_order
 
         if finished:
             outcome = info.get("player_outcome")

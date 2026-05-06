@@ -11,8 +11,25 @@ import types
 
 
 def _import_without_matplotlib(module_name: str) -> None:
-    """Import *module_name* after hiding matplotlib from sys.modules."""
-    # Stash real modules
+    """Import *module_name* after hiding matplotlib from sys.modules.
+
+    The function removes ALL newly imported modules from sys.modules after the
+    test completes, including freshly-imported dependency modules (e.g.
+    ``framework.analytics`` imported as a side-effect of testing
+    ``games.tmnf.analytics``) that were stamped with ``_HAS_MPL = False`` during
+    the matplotlib-blocked import.  Without this cleanup those contaminated
+    modules persist in sys.modules and cause subsequent tests that rely on
+    matplotlib to silently skip plot generation.
+
+    Only modules that were NOT already present in sys.modules before the test
+    (i.e. newly imported as side-effects) are removed; pre-existing C extension
+    modules such as numpy are never touched.
+    """
+    # Snapshot the set of module keys BEFORE any manipulation so we can tell
+    # which modules were freshly imported as side effects of the test.
+    pre_existing = set(sys.modules.keys())
+
+    # Stash real matplotlib modules
     stashed = {k: v for k, v in sys.modules.items()
                if k == "matplotlib" or k.startswith("matplotlib.")}
 
@@ -43,15 +60,27 @@ def _import_without_matplotlib(module_name: str) -> None:
     try:
         importlib.import_module(module_name)
     finally:
-        # Restore original state
+        # Remove every module that was freshly imported during this test
+        # (not present before the blocker was installed, excluding matplotlib
+        # entries handled separately below).  This prevents dependency modules
+        # like framework.analytics — imported with _HAS_MPL=False as a side
+        # effect — from contaminating subsequent tests.
+        for k in list(sys.modules):
+            if (k not in pre_existing
+                    and k != "matplotlib"
+                    and not k.startswith("matplotlib.")):
+                del sys.modules[k]
+        # Also explicitly remove the target module and any submodules (handles
+        # the case where the target was already in pre_existing and was removed
+        # then re-imported with _HAS_MPL=False during the test).
+        for k in list(sys.modules):
+            if k == module_name or k.startswith(module_name + "."):
+                del sys.modules[k]
+        # Restore original matplotlib state
         for k in list(sys.modules):
             if k == "matplotlib" or k.startswith("matplotlib."):
                 del sys.modules[k]
         sys.modules.update(stashed)
-        # Re-import the target so subsequent tests see the real module
-        for k in list(sys.modules):
-            if k == module_name or k.startswith(module_name + "."):
-                del sys.modules[k]
 
 
 def test_framework_analytics_importable_without_matplotlib():

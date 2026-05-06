@@ -426,6 +426,12 @@ class SC2Client:
             "screen_self_cy":     feats.get("screen_self_cy", 0.0),
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
+            # Per-unit-type counts for build-order tracking (analytics).
+            # Keys follow _RICH_UNIT_TYPES naming: "Marine", "SCV", etc.
+            "unit_counts": {
+                name: feats.get(f"unit_count_{name}", 0.0)
+                for name in self._get_rich_unit_types()
+            },
         }
 
         # Raw minimap visibility layer — only stored when the belief module is
@@ -802,6 +808,12 @@ class SC2Client:
                 if member.name in _RICH_UNIT_TYPES:
                     lookup[int(member.value)] = member.name
         return lookup
+
+    @staticmethod
+    def _get_rich_unit_types() -> tuple:
+        """Return the _RICH_UNIT_TYPES tuple (lazy import avoids circular deps)."""
+        from games.sc2.obs_spec import _RICH_UNIT_TYPES
+        return _RICH_UNIT_TYPES
 
     # ------------------------------------------------------------------
     # PySC2 observation helpers

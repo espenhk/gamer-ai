@@ -346,6 +346,21 @@ class TestSC2GeneticPolicyPopulation(unittest.TestCase):
         gp.initialize_from_champion(champion)
         self.assertIs(gp._champion, champion)
 
+    def test_initialize_from_champion_includes_champion_as_first_member(self):
+        """Champion must be the first population member so it gets re-evaluated."""
+        gp       = _make_genetic(pop=4)
+        champion = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC)
+        gp.initialize_from_champion(champion)
+        self.assertIs(gp.population[0], champion)
+
+    def test_initialize_from_champion_rest_are_mutants(self):
+        """Members after index 0 must be new objects (mutations, not the champion)."""
+        gp       = _make_genetic(pop=4)
+        champion = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC)
+        gp.initialize_from_champion(champion)
+        for member in gp.population[1:]:
+            self.assertIsNot(member, champion)
+
     def test_initialize_from_champion_members_are_sc2_policy(self):
         gp       = _make_genetic(pop=3)
         champion = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC)

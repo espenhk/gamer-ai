@@ -820,15 +820,13 @@ class SC2Client:
         if avail is None:
             return out
         avail_set = set(int(x) for x in avail.tolist()) if avail.size > 0 else set()
-        # Map our FUNCTION_IDS table indices to PySC2 function IDs lazily.
-        try:
-            from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
-        except ImportError:
-            return out
-        for i, name in FUNCTION_IDS.items():
-            fn = getattr(pysc2_actions.FUNCTIONS, name, None)
-            if fn is not None and int(fn.id) in avail_set:
-                out[f"available_fn_{i}"] = 1.0
+        # Use the module-level cache to avoid per-step PySC2 attribute lookups
+        # and repeated lazy imports.  _get_pysc2_id_to_fn_idx() resolves
+        # PySC2 function metadata exactly once and caches the result.
+        id_to_fn_idx = _get_pysc2_id_to_fn_idx()
+        for pysc2_id, fn_idx in id_to_fn_idx.items():
+            if pysc2_id in avail_set:
+                out[f"available_fn_{fn_idx}"] = 1.0
         return out
 
     def _last_action_features(self) -> dict[str, float]:

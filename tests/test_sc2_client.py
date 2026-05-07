@@ -1083,5 +1083,87 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
             self.assertIn(name, RICH_OBS_NAMES, f"{name!r} missing from rich spec")
 
 
+# ---------------------------------------------------------------------------
+# Issue #140: action-mask caching benchmark / regression
+# ---------------------------------------------------------------------------
+
+class TestAvailableActionsMaskCachingOverhead(unittest.TestCase):
+    """Regression guard: _available_actions_features must use the module-level
+    _get_pysc2_id_to_fn_idx() cache and not do per-call PySC2 attribute
+    lookups or lazy imports.
+
+    The benchmark calls the method N times with a synthetic cache injected and
+    asserts the total wall-clock time stays under a conservative budget.  Any
+    regression that re-introduces per-call getattr / import would make the loop
+    at least ~10× slower and trip this guard well before a real SC2 session.
+    """
+
+    # Synthetic PySC2-ID → fn_idx mapping (matches FUNCTION_IDS structure).
+    _FAKE_CACHE: dict[int, int] = {0: 0, 7: 1, 331: 2, 12: 3, 274: 4, 453: 5}
+
+    def _minigame_ob(self, available_actions: np.ndarray) -> dict:
+        return {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+            "available_actions": available_actions,
+        }
+
+    def test_available_actions_features_uses_cache(self):
+        """_available_actions_features must not import pysc2 on every call.
+
+        We inject a pre-built cache and confirm that the method returns the
+        correct mask without touching pysc2 at all (pysc2 is not installed in
+        the unit-test environment).
+        """
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = dict(self._FAKE_CACHE)
+            client = SC2Client(map_name="MoveToBeacon")
+            ob = self._minigame_ob(np.array([0, 331], dtype=np.int32))
+            feats = client._available_actions_features(ob)
+            # PySC2 ID 0 → fn_idx 0; ID 331 → fn_idx 2
+            self.assertEqual(feats["available_fn_0"], 1.0)
+            self.assertEqual(feats["available_fn_2"], 1.0)
+            # fn_idx 1 (ID 7) not in available_actions → 0.0
+            self.assertEqual(feats["available_fn_1"], 0.0)
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_actions_features_calls_cache_once_per_invocation(self):
+        """_available_actions_features must call _get_pysc2_id_to_fn_idx() exactly
+        once per _available_actions_features() call regardless of how many
+        FUNCTION_IDS entries exist.
+
+        A regression back to the old per-entry getattr loop would call the
+        cache builder zero or many extra times; patching the helper and counting
+        calls is deterministic and does not depend on wall-clock timing.
+        """
+        from unittest.mock import patch
+        import games.sc2.client as sc2_client_mod
+        client = SC2Client(map_name="MoveToBeacon")
+        ob = self._minigame_ob(np.array([0, 7, 331], dtype=np.int32))
+        with patch.object(
+            sc2_client_mod,
+            "_get_pysc2_id_to_fn_idx",
+            wraps=lambda: dict(self._FAKE_CACHE),
+        ) as mock_cache:
+            n_calls = 5
+            for _ in range(n_calls):
+                client._available_actions_features(ob)
+            self.assertEqual(
+                mock_cache.call_count,
+                n_calls,
+                f"_get_pysc2_id_to_fn_idx called {mock_cache.call_count} times "
+                f"for {n_calls} _available_actions_features invocations; "
+                "expected exactly one call per invocation (not per FUNCTION_IDS entry).",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,16 +40,16 @@
   - [test\_torcs\_reward.py (13) — TORCS reward calc](#test_torcs_rewardpy-13--torcs-reward-calc)
   - [test\_torcs\_analytics.py (11) — TORCS plots/report](#test_torcs_analyticspy-11--torcs-plotsreport)
 - [SC2](#sc2)
-  - [test\_sc2\_obs\_spec.py (17) — SC2 obs spec](#test_sc2_obs_specpy-17--sc2-obs-spec)
+  - [test\_sc2\_obs\_spec.py (18) — SC2 obs spec](#test_sc2_obs_specpy-18--sc2-obs-spec)
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
   - [test\_sc2\_reward.py (39) — SC2 reward calc](#test_sc2_rewardpy-39--sc2-reward-calc)
-  - [test\_sc2\_client.py (64) — PySC2 client wrapper](#test_sc2_clientpy-64--pysc2-client-wrapper)
+  - [test\_sc2\_client.py (70) — PySC2 client wrapper](#test_sc2_clientpy-70--pysc2-client-wrapper)
   - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
   - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py (21) — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy-21--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
   - [test\_sc2\_lstm\_policy.py (35) — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`](#test_sc2_lstm_policypy-35--sc2lstmpolicy--sc2lstmevolutionpolicy)
-  - [test\_sc2\_genetic\_policy.py (53) — `SC2LinearPolicy` + genetic trainer](#test_sc2_genetic_policypy-53--sc2linearpolicy--genetic-trainer)
+  - [test\_sc2\_genetic\_policy.py (68) — `SC2MultiHeadLinearPolicy` + genetic trainer](#test_sc2_genetic_policypy-68--sc2multiheadlinearpolicy--genetic-trainer)
   - [test\_sc2\_neural\_dqn\_policy.py (17) — masked DQN for SC2](#test_sc2_neural_dqn_policypy-17--masked-dqn-for-sc2)
   - [test\_sc2\_cnn\_policy.py (32) — CNN feature extractor + CMA-ES variant](#test_sc2_cnn_policypy-32--cnn-feature-extractor--cma-es-variant)
   - [test\_sc2\_reinforce\_policy.py (39) — REINFORCE policy for SC2](#test_sc2_reinforce_policypy-39--reinforce-policy-for-sc2)
@@ -394,10 +394,11 @@ fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
 handful of iterations only).
 
-### test_sc2_obs_spec.py (17) — SC2 obs spec
-- minigame dim (15); ladder dim (45); rich dim (102 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
+### test_sc2_obs_spec.py (18) — SC2 obs spec
+- minigame dim (15); ladder dim (46); rich dim (103 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
 - minimap_enemy_cx/cy present in all presets (minigame, ladder, rich)
 - rich spec contains new rich-only feature names (selected_avg_shields/energy, screen_visibility_frac, screen_unit_density_aa_mean, self_weapon_cooldown_mean); not present in ladder
+- alert_count present in ladder and rich; absent from minigame
 
 ### test_sc2_actions.py (14) — discrete action grid
 - shape / dtype / xy in unit square; centre = select_army; others = move_screen
@@ -411,7 +412,7 @@ handful of iterations only).
 - click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 
-### test_sc2_client.py (64) — PySC2 client wrapper
+### test_sc2_client.py (70) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
@@ -419,6 +420,7 @@ handful of iterations only).
 - screen_visibility_frac: all visible → 1.0; half visible → 0.25; fogged not counted; None screen / missing layer → 0
 - screen_unit_density_aa_mean: mean of unit_density_aa layer; zero layer; None screen / missing layer → 0
 - self_weapon_cooldown_mean: mean for alliance==1 from col 25; all ready → 0; no self units → 0; missing feature_units → 0; too few cols → 0
+- alerts: empty array → 0; one alert → 1; two alerts → 2; missing key → 0; None value → 0; alert_count present in ladder names
 - minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
 - action fallback (#124, beacon-idling fix): blocked Move_screen → select_army once, then no_op on consecutive blocked steps; pending flag cleared when Move_screen available; no_op action passes through unchanged
 
@@ -428,12 +430,12 @@ handful of iterations only).
 - close calls client.close; info keys; prev_score threaded; custom reward config
 - end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
 
-### test_sc2_apm_limiter.py (29) — token-bucket APM limiter + SC2Env integration
+### test_sc2_apm_limiter.py (31) — token-bucket APM limiter + SC2Env integration
 - Construction: valid / zero/negative max_apm raises / zero/negative burst_s raises / max_tokens formula / starts full
-- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token
+- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token; burst-budget protection mode caps non-dangerous bursts at steady one-second capacity
 - Rolling budget: 300 APM over 60 s allows ~300 total; first second capped at burst window
 - Env integration (disabled): no limiter attribute; action passed unchanged; apm_throttled=False; episode count stays zero
-- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill
+- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill; burst budget remains protected
 
 ### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
 - obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps
@@ -459,7 +461,7 @@ handful of iterations only).
 - Serialisation: to_cfg / from_cfg round-trip lossless / save / load round-trip / policy_type = "sc2_lstm"
 - Evolution: population size / individuals are SC2LSTMPolicy / call raises before generation / champion set after one generation / σ adapts / wrong reward count raises / flat_dim mismatch raises / initialize_from_champion sets mean / on_episode_start forwarded to champion / save writes yaml / trainer-state round-trip / dim mismatch raises
 
-### test_sc2_genetic_policy.py (53) — `SC2LinearPolicy` + genetic trainer
+### test_sc2_genetic_policy.py (68) — `SC2MultiHeadLinearPolicy` + genetic trainer
 - Weight shapes (fn / spatial × minigame / ladder); flat dim (mini/ladder); explicit weights stored
 - Call: returns 4-vec / fn_idx range / spatial unit range / queue=0 / max-fn / max-spatial
 - Cfg: keys / *_weights suffix / values are obs-name dicts / from_cfg roundtrip / yaml lossless / missing default zero
@@ -471,6 +473,7 @@ handful of iterations only).
 - Evolve: champion reward / true on improve / false otherwise / elite count preserved / new members are SC2
 - Save: yaml / champion lossless / cfg policy_type=sc2_genetic / from_cfg roundtrip / restores champion / no champion key OK
 - Call: 4-vec after init / raises before init
+- Available-actions masking: no-mask selects highest fn / None by default / masking blocks unavailable fn / selects best available / on_episode_start caches ids / no key clears mask / None info clears mask / update caches ids / no key in update leaves unchanged / mask applied after on_episode_start / mask applied after update / empty set falls back to no_op
 
 ### test_sc2_neural_dqn_policy.py (17) — masked DQN for SC2
 - fn_idx_for_cell: centre=select_army / others=move_screen / consistent / int
@@ -549,16 +552,16 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 839 tests run in ~50 s
+## Why 854 tests run in ~50 s
 
 These tests look heavy because of the names ("training loop", "env reset", "DQN convergence") but operationally they're almost all pure-Python unit tests with zero external I/O:
 
 1. **No game binaries are launched.** TMInterface, the SC2 binary, and TORCS are never started. `RLClient`, `SC2Client`, the SC2 env, and the TMNF env are all driven through fakes and `MagicMock` patches (e.g. `test_rl_client.py`, `test_env_termination.py`, `test_sc2_play.py`). The single "five-episode training loop" smoke test (`assetto_corsa/test_smoke.py`) runs against a stubbed client.
 2. **All "policies" are pure numpy.** No PyTorch, no TensorFlow, no GPU. The DQN, REINFORCE, LSTM, CMA-ES, CNN, and SC2 multi-head policies are hand-rolled numpy with hidden sizes like `[8, 8]` or `hidden_size=4` in tests. Forward+backward passes are sub-millisecond.
 3. **Tiny tensors.** Where convergence is asserted (`test_neural_dqn_policy.test_bandit_convergence`, `test_cmaes_policy.test_converges_toward_quadratic_maximum`, `test_reinforce_policy.test_gradient_direction`), the problem is a 2-arm bandit or a quadratic — a few hundred steps on tiny vectors.
-4. **Whole files are config / dataclass tests.** `test_grid_search.py` (29), `test_reward.py` (44), `test_sc2_genetic_policy.py` (53), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
+4. **Whole files are config / dataclass tests.** `test_grid_search.py` (29), `test_reward.py` (44), `test_sc2_genetic_policy.py` (68), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
 5. **No matplotlib rendering.** TORCS analytics tests use `Agg` (non-interactive) and dump to `tmp_path`; `test_analytics_no_matplotlib.py` explicitly checks the import path that *avoids* it.
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
 7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 839 mostly-arithmetic asserts run in the remaining ~49 seconds.
 
-Roughly: 839 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 854 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.

@@ -79,7 +79,13 @@ class ApmLimiter:
         self._tokens = self._max_tokens
         self._last_time = now
 
-    def allow(self, now: float, fn_idx: int = -1) -> bool:
+    def allow(
+        self,
+        now: float,
+        fn_idx: int = -1,
+        *,
+        protect_burst_budget: bool = False,
+    ) -> bool:
         """Decide whether an action may proceed.
 
         No-op actions (``fn_idx == 0``) are always permitted and do not
@@ -94,6 +100,11 @@ class ApmLimiter:
             no-op (always allowed, no token consumed).  Any other value —
             including the default ``-1`` — is treated as a real action and
             will consume a token when the budget allows.
+        protect_burst_budget :
+            When True, non-no-op actions are prevented from consuming tokens
+            reserved for burst handling.  This leaves up to one second of
+            refill capacity untouched (``max_tokens - refill_rate`` floor),
+            so non-dangerous periods cannot drain burst headroom.
 
         Returns
         -------
@@ -110,7 +121,11 @@ class ApmLimiter:
         self._last_time = now
         self._tokens = min(self._max_tokens, self._tokens + elapsed * self._refill_rate)
 
-        if self._tokens >= 1.0:
+        min_tokens_after_action = 0.0
+        if protect_burst_budget:
+            min_tokens_after_action = max(0.0, self._max_tokens - self._refill_rate)
+
+        if self._tokens >= (min_tokens_after_action + 1.0):
             self._tokens -= 1.0
             return True
         return False

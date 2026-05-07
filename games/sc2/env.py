@@ -269,7 +269,11 @@ class SC2Env(BaseGameEnv):
         # rolling token bucket tracks real elapsed time.
         _now = time.monotonic()
         _fn_idx_requested = int(action[0]) if len(action) > 0 else 0
-        if self._apm_limiter is not None and not self._apm_limiter.allow(_now, _fn_idx_requested):
+        if self._apm_limiter is not None and not self._apm_limiter.allow(
+            _now,
+            _fn_idx_requested,
+            protect_burst_budget=True,
+        ):
             action = DISCRETE_ACTIONS[0].copy()
             _apm_throttled = True
             self._ep_apm_throttled_steps += 1

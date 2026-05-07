@@ -526,5 +526,139 @@ class TestSC2GeneticPolicyCall(unittest.TestCase):
             gp(obs)
 
 
+# ---------------------------------------------------------------------------
+# SC2MultiHeadLinearPolicy — available-actions masking tests
+# ---------------------------------------------------------------------------
+
+class TestSC2MultiHeadLinearPolicyAvailableMask(unittest.TestCase):
+    """Tests for available-actions masking (issue: genetic policy idles/select-army spam)."""
+
+    def _make_fn_biased(self, preferred_fn: int) -> SC2MultiHeadLinearPolicy:
+        """Policy whose fn head strongly prefers *preferred_fn* for all-ones obs."""
+        obs_dim = SC2_MINIGAME_OBS_SPEC.dim
+        fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
+        # Drive score of preferred_fn very high, all others negative.
+        fn_w[preferred_fn, :] = 10.0
+        for i in range(N_FUNCTION_IDS):
+            if i != preferred_fn:
+                fn_w[i, :] = -10.0
+        sp_w = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
+        return SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
+
+    def test_no_mask_selects_highest_fn(self):
+        """Without masking the argmax selects the function with the best weights."""
+        p   = self._make_fn_biased(3)
+        obs = np.ones(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        act = p(obs)
+        self.assertEqual(int(act[0]), 3)
+
+    def test_available_fn_ids_none_by_default(self):
+        """Freshly constructed policy has no masking active."""
+        p = _make_policy()
+        self.assertIsNone(p._available_fn_ids)
+
+    def test_masking_blocks_preferred_fn(self):
+        """When the preferred fn is NOT in available_fn_ids, it must not be selected."""
+        p   = self._make_fn_biased(3)   # prefers fn_idx=3
+        obs = np.ones(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        # Allow only fn_idx 0, 1, 2 — not 3.
+        p._available_fn_ids = {0, 1, 2}
+        act = p(obs)
+        self.assertIn(int(act[0]), {0, 1, 2})
+        self.assertNotEqual(int(act[0]), 3)
+
+    def test_masking_selects_best_available(self):
+        """Among available fns the one with the highest score wins."""
+        obs_dim = SC2_MINIGAME_OBS_SPEC.dim
+        fn_w = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
+        # fn 0 → score 1, fn 1 → score 3, fn 2 → score 2; rest very negative.
+        fn_w[0, :] = 1.0 / obs_dim
+        fn_w[1, :] = 3.0 / obs_dim
+        fn_w[2, :] = 2.0 / obs_dim
+        for i in range(3, N_FUNCTION_IDS):
+            fn_w[i, :] = -10.0
+        sp_w = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
+        p    = SC2MultiHeadLinearPolicy(SC2_MINIGAME_OBS_SPEC, fn_w, sp_w)
+        obs  = np.ones(obs_dim, dtype=np.float32)
+
+        # Without mask, fn 1 wins (highest score).
+        self.assertEqual(int(p(obs)[0]), 1)
+
+        # With mask excluding fn 1, fn 2 wins.
+        p._available_fn_ids = {0, 2}
+        self.assertEqual(int(p(obs)[0]), 2)
+
+    def test_on_episode_start_caches_available_fn_ids(self):
+        """on_episode_start extracts available_fn_ids from the info dict."""
+        p = _make_policy()
+        p.on_episode_start(info={"available_fn_ids": {0, 1, 2}})
+        self.assertEqual(p._available_fn_ids, {0, 1, 2})
+
+    def test_on_episode_start_no_key_clears_mask(self):
+        """on_episode_start with no available_fn_ids key resets mask to None."""
+        p = _make_policy()
+        p._available_fn_ids = {0, 2}   # stale value from previous episode
+        p.on_episode_start(info={})
+        self.assertIsNone(p._available_fn_ids)
+
+    def test_on_episode_start_none_info_clears_mask(self):
+        """on_episode_start with None info dict resets mask to None."""
+        p = _make_policy()
+        p._available_fn_ids = {0, 2}
+        p.on_episode_start(info=None)
+        self.assertIsNone(p._available_fn_ids)
+
+    def test_update_caches_available_fn_ids(self):
+        """update() extracts available_fn_ids from the info kwarg."""
+        p   = _make_policy()
+        obs = np.zeros(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        p.update(obs, obs, 0.0, obs, False, info={"available_fn_ids": {1, 2}})
+        self.assertEqual(p._available_fn_ids, {1, 2})
+
+    def test_update_no_available_key_leaves_mask_unchanged(self):
+        """update() without available_fn_ids in info does not change the cache."""
+        p = _make_policy()
+        p._available_fn_ids = {0, 1}
+        obs = np.zeros(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        p.update(obs, obs, 0.0, obs, False, info={})
+        self.assertEqual(p._available_fn_ids, {0, 1})
+
+    def test_mask_applied_after_on_episode_start(self):
+        """The mask set by on_episode_start is honoured by __call__."""
+        p   = self._make_fn_biased(5)   # prefers fn_idx=5
+        obs = np.ones(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+
+        # Without mask fn 5 is chosen.
+        self.assertEqual(int(p(obs)[0]), 5)
+
+        # After on_episode_start excluding fn 5, fn 5 must NOT be chosen.
+        p.on_episode_start(info={"available_fn_ids": {0, 1, 2}})
+        self.assertNotEqual(int(p(obs)[0]), 5)
+        self.assertIn(int(p(obs)[0]), {0, 1, 2})
+
+    def test_mask_applied_after_update(self):
+        """The mask set by update() is honoured by the next __call__."""
+        p   = self._make_fn_biased(4)   # prefers fn_idx=4
+        obs = np.ones(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        dummy = np.zeros(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+
+        # Without mask fn 4 is chosen.
+        self.assertEqual(int(p(obs)[0]), 4)
+
+        # After update with restricted available set, fn 4 must NOT be chosen.
+        p.update(dummy, dummy, 0.0, dummy, False,
+                 info={"available_fn_ids": {0, 1, 2}})
+        self.assertNotEqual(int(p(obs)[0]), 4)
+        self.assertIn(int(p(obs)[0]), {0, 1, 2})
+
+    def test_empty_available_set_falls_back_to_noop(self):
+        """An empty available_fn_ids set falls back to fn_idx=0 (no_op)."""
+        p   = self._make_fn_biased(3)
+        obs = np.ones(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
+        p._available_fn_ids = set()
+        act = p(obs)
+        self.assertEqual(int(act[0]), 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

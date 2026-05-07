@@ -10,7 +10,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  integration:
+  # -----------------------------------------------------------------
+  # CarRacing — lightweight Box2D physics, no external binary
+  # -----------------------------------------------------------------
+  car-racing:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,9 +29,59 @@ jobs:
           pip install pytest numpy scipy pyyaml gymnasium matplotlib
           pip install gymnasium[box2d]
 
-      - name: Run integration tests
-        # PYTHONPATH=. puts the repo root on sys.path so game/framework imports
-        # resolve regardless of pytest's rootdir handling.
+      - name: Run CarRacing integration tests
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/integration/ -m integration -v
+        run: python -m pytest tests/integration/test_car_racing.py -m integration -v
+
+  # -----------------------------------------------------------------
+  # StarCraft 2 — headless Linux binary + PySC2 mini-game maps
+  # -----------------------------------------------------------------
+  sc2:
+    runs-on: ubuntu-latest
+    # SC2 binary download is ~2 GB; keep this job separate so CarRacing
+    # results are not blocked by a slow download.
+
+    env:
+      SC2PATH: /home/runner/StarCraftII
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install pytest numpy scipy pyyaml gymnasium matplotlib
+          pip install pysc2 protobuf
+
+      - name: Download & install SC2 headless binary
+        run: |
+          mkdir -p "$SC2PATH"
+          echo "Downloading SC2 4.10 headless binary..."
+          wget -q https://blzdistsc2-a.akamaihd.net/Linux/SC2.4.10.zip -O /tmp/sc2.zip
+          echo "Extracting (password-protected archive)..."
+          unzip -P iagreetotheeula -q /tmp/sc2.zip -d "$HOME"
+          rm /tmp/sc2.zip
+          echo "SC2 binary installed at $SC2PATH"
+          ls -la "$SC2PATH"
+
+      - name: Download PySC2 mini-game maps
+        run: |
+          MAPS_DIR="$SC2PATH/Maps/mini_games"
+          mkdir -p "$MAPS_DIR"
+          echo "Downloading PySC2 mini-game maps..."
+          MAPS="MoveToBeacon CollectMineralShards FindAndDefeatZerglings DefeatRoaches DefeatZerglingsAndBanelings CollectMineralsAndGas BuildMarines"
+          for map in $MAPS; do
+            wget -q "https://github.com/deepmind/pysc2/raw/master/pysc2/maps/mini_games/${map}.SC2Map" -O "$MAPS_DIR/${map}.SC2Map"
+          done
+          echo "Maps installed:"
+          ls -la "$MAPS_DIR"
+
+      - name: Run SC2 integration tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/integration/test_sc2.py -m integration -v --timeout=300

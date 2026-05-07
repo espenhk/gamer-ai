@@ -61,15 +61,21 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Integration tests (`tests/integration/`)](#integration-tests-testsintegration)
   - [integration/test\_car\_racing.py (14) — CarRacing real-env end-to-end tests](#integrationtest_car_racingpy-14--caracing-real-env-end-to-end-tests)
+  - [integration/test\_sc2.py (14) — SC2 real-binary end-to-end tests](#integrationtest_sc2py-14--sc2-real-binary-end-to-end-tests)
 - [Why 895 tests run in ~50 s](#why-895-tests-run-in-50-s)
 
 895 tests across 54 files (unit-test suite, excluding `tests/integration/`). Runs in ~50 seconds via `python -m pytest tests/ --ignore=tests/integration/` (also excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1030 tests.
 
-Additionally, **14 integration tests** live in `tests/integration/`. These require `gymnasium[box2d]` and are run separately by the `integration-tests` workflow on every push to `main`.  To run them locally:
+Additionally, **28 integration tests** live in `tests/integration/` (14 CarRacing + 14 SC2). These are run separately by the `integration-tests` workflow on every push to `main`.  To run them locally:
 
 ```bash
+# CarRacing only (requires gymnasium[box2d])
 pip install gymnasium[box2d]
-python -m pytest tests/integration/ -m integration -v
+python -m pytest tests/integration/test_car_racing.py -m integration -v
+
+# SC2 only (requires pysc2 + Blizzard SC2 binary + maps)
+export SC2PATH=~/StarCraftII
+python -m pytest tests/integration/test_sc2.py -m integration -v
 ```
 
 ## Coverage at a glance
@@ -79,9 +85,9 @@ math, save/load round-trips, CLI flag dispatch — and silent on **anything that
 needs a running game or display**. Every game client is replaced by a fake or
 a `MagicMock`; no Trackmania, TORCS, SC2, BeamNG or Assetto Corsa binary is
 ever launched, no game window is grabbed, no matplotlib window is rendered, no
-keyboard/joystick output is sent. End-to-end "does the agent actually drive
-faster after training" is partially covered by the integration tests for
-CarRacing (the one game that runs headless without a separate binary).
+keyboard/joystick output is sent. End-to-end integration is covered separately
+in `tests/integration/` for CarRacing (Box2D, no external binary) and SC2
+(headless Blizzard binary + PySC2 minigame maps).
 
 Per-area summary below; per-file details follow.
 
@@ -586,6 +592,30 @@ against the real CarRacing environment to verify the full stack end-to-end.
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 
+### integration/test_sc2.py (14) — SC2 real-binary end-to-end tests
+
+**Requires** the Blizzard SC2 headless Linux binary (4.10), PySC2 mini-game
+maps in `$SC2PATH/Maps/mini_games/`, and the `pysc2` Python package.  Skipped
+gracefully when any of these are absent.  The CI workflow downloads the binary
+and maps automatically; locally set `SC2PATH` and run::
+
+    pytest tests/integration/test_sc2.py -m integration -v
+
+**Tested.** SC2Client low-level: `reset()` returns a numpy obs + info dict;
+`step()` returns a valid 4-tuple (obs, score, done, info); `select_army` →
+`Move_screen` sequence works.  SC2Env lifecycle: `reset()` returns correct obs
+dimension; `step()` returns gymnasium 5-tuple with finite rewards; episode
+terminates within time limit; `close()` is idempotent; multiple resets mid-episode
+are safe.  Full episode: varied `select_army` + `Move_screen` actions run to
+completion with finite reward; `info["score"]` present.  Training loop: 1
+generation of `SC2GeneticPolicy` (pop=2) and 1 `EpsilonGreedyPolicy` episode
+both execute end-to-end against the real SC2 binary.
+
+- SC2Client basics: reset returns obs+info; step returns 4-tuple; select_army then Move_screen
+- SC2Env lifecycle: reset obs shape; step 5-tuple; reward finite; obs shape consistent; episode terminates; close idempotent; multiple resets
+- full episode: varied actions; info contains score
+- training loop: genetic 1 generation (pop=2); epsilon_greedy 1 episode
+
 ---
 
 ## Why 895 tests run in ~50 s
@@ -602,4 +632,4 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 
 Roughly: 895 tests × ~55 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
 
-The 14 integration tests in `tests/integration/` are excluded from this count; they run real Box2D physics and take an additional ~2 s when `gymnasium[box2d]` is present.
+The 28 integration tests in `tests/integration/` are excluded from this count.  CarRacing tests run real Box2D physics and take ~2 s; SC2 tests launch the Blizzard headless binary and take ~2–5 minutes depending on episode length and the runner's download speed for the ~2 GB SC2 binary.

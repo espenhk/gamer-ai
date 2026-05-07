@@ -40,13 +40,24 @@ idle_penalty: 0.0
 # learnable rather than only discoverable through luck.
 idle_bonus: 0.0
 
-# --- Attack bonus ---
-# Per-step bonus when the agent issues Attack_screen (fn_idx 3) AND at least
-# one enemy is visible on screen.  Encourages attack-move over plain move
-# (the unit will fight back instead of running past enemies) and direct
-# click-to-attack on a visible enemy.  Off by default; enable on combat
-# minigames or any map where the agent tends to move rather than engage.
-attack_bonus: 0.0
+# --- Attack bonuses ---
+# attack_move_bonus: per-step bonus when the agent issues Attack_screen
+#   (fn_idx 3) with the target on empty ground while enemies are visible.
+#   Encourages A-move behaviour over plain Move_screen so units fight back.
+attack_move_bonus: 0.0
+
+# click_attack_bonus: per-step bonus when the agent issues Attack_screen
+#   with the target directly on (or very close to) a visible enemy unit.
+#   Set slightly higher than attack_move_bonus to favour precision targeting.
+#   Rapid switching between different enemy targets is not rewarded — a new
+#   target must be either the same unit OR the agent must wait
+#   click_attack_cooldown_steps before the bonus fires again.
+click_attack_bonus: 0.0
+
+# Minimum env steps between rewarded target switches for click_attack_bonus.
+# Clicking repeatedly on the same unit passes immediately; changing target
+# rapidly is withheld until this many steps have elapsed since the last switch.
+click_attack_cooldown_steps: 8
 
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.

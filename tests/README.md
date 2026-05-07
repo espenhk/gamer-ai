@@ -42,7 +42,7 @@
 - [SC2](#sc2)
   - [test\_sc2\_obs\_spec.py (17) — SC2 obs spec](#test_sc2_obs_specpy-17--sc2-obs-spec)
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
-  - [test\_sc2\_reward.py (30) — SC2 reward calc](#test_sc2_rewardpy-30--sc2-reward-calc)
+  - [test\_sc2\_reward.py (39) — SC2 reward calc](#test_sc2_rewardpy-39--sc2-reward-calc)
   - [test\_sc2\_client.py (64) — PySC2 client wrapper](#test_sc2_clientpy-64--pysc2-client-wrapper)
   - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
   - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
@@ -61,7 +61,7 @@
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
 - [Why 868 tests run in ~50 s](#why-868-tests-run-in-50-s)
 
-902 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1037 tests.
+911 tests across 54 files. Runs in ~50 seconds via `python -m pytest tests/` (excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1046 tests.
 
 ## Coverage at a glance
 
@@ -403,11 +403,13 @@ handful of iterations only).
 - shape / dtype / xy in unit square; centre = select_army; others = move_screen
 - probe actions count / shape; warmup shape / select_army; function_ids table complete
 
-### test_sc2_reward.py (30) — SC2 reward calc
+### test_sc2_reward.py (39) — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 - idle bonus: fires when no_op in combat range; skipped for non-no_op / out-of-range enemy / no enemy / no self; disabled by default; n_ticks scaling
-- attack bonus: fires on Attack_screen with enemy on screen; skipped for Move_screen / no enemy / no_op; disabled by default; n_ticks scaling; present in components breakdown
+- attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling
+- click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling
+- cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 
 ### test_sc2_client.py (64) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded

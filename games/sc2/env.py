@@ -287,8 +287,12 @@ class SC2Env(BaseGameEnv):
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
         info["elapsed_s"] = self._elapsed_s
-        # Action fn_idx — required by reward shaping (e.g. idle_bonus, #127).
+        # Action fn_idx and target coords — required by reward shaping.
+        # action_target_x/y are normalised [0, 1] screen coordinates used by
+        # click_attack_bonus to distinguish "click on unit" from "attack move".
         info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
+        info["action_target_x"] = float(np.clip(action[1], 0.0, 1.0)) if len(action) > 1 else 0.5
+        info["action_target_y"] = float(np.clip(action[2], 0.0, 1.0)) if len(action) > 2 else 0.5
         # Screen size threading — reward shaping uses it to scale pixel-based
         # thresholds for non-default screen resolutions.
         info["screen_size"] = self._screen_size

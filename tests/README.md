@@ -575,6 +575,19 @@ approval (final gate before merge to `main`); also available on demand via::
 
     pytest tests/integration/ -m integration -v
 
+The ``integration-tests`` workflow only runs the suites relevant to the files
+that changed in the PR:
+
+- Changes confined to ``games/sc2/`` (or ``tests/integration/test_sc2.py``)
+  trigger only the **sc2** job.
+- Changes confined to ``games/car_racing/`` (or
+  ``tests/integration/test_car_racing.py``) trigger only the **car-racing** job.
+- Changes to shared code (``framework/``, ``main.py``, ``grid_search.py``,
+  ``policies.py``, ``analytics.py``, ``config/``, ``pyproject.toml``) trigger
+  **both** jobs because they could affect either game.
+- A manual ``workflow_dispatch`` run always executes **all** suites regardless
+  of path changes.
+
 **Requires** `gymnasium[box2d]` (`pip install gymnasium[box2d]`).  The tests
 are skipped gracefully with `pytest.mark.skipif` when the extra is absent.
 

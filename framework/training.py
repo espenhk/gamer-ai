@@ -952,8 +952,22 @@ def _greedy_loop_genetic(
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
     patience: int = 0,
+    adaptive_mutation: bool = True,
 ) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
-    """Genetic algorithm loop: N_pop episodes per generation."""
+    """Genetic algorithm loop: N_pop episodes per generation.
+
+    When *adaptive_mutation* is True, the population's mutation scale is
+    adjusted every ``ADAPT_WINDOW`` generations using a 1/5 success rule
+    (same heuristic as the hill-climbing loop): if the champion improved in
+    more than 1/5 of the recent window, scale up; if less, scale down.
+    """
+    ADAPT_WINDOW = 10
+    ADAPT_UP     = 1.2
+    ADAPT_DOWN   = 0.85
+    SCALE_MIN    = 0.001
+    SCALE_MAX    = 2.0
+    improvement_history: deque[bool] = deque(maxlen=ADAPT_WINDOW)
+
     pop_size          = len(policy.population)
     eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
@@ -1014,10 +1028,31 @@ def _greedy_loop_genetic(
                            f"  champion={policy.champion_reward:+.1f}")
                 logger.info("  >> %s", verdict)
 
+            # --- adaptive mutation (1/5 success rule over recent window) ---
+            improvement_history.append(improved)
+            if (adaptive_mutation
+                    and len(improvement_history) == ADAPT_WINDOW
+                    and gen % ADAPT_WINDOW == 0):
+                p = sum(improvement_history) / ADAPT_WINDOW
+                prev_scale = policy.mutation_scale
+                if p > 1 / 5:
+                    new_scale = min(prev_scale * ADAPT_UP, SCALE_MAX)
+                elif p < 1 / 5:
+                    new_scale = max(prev_scale * ADAPT_DOWN, SCALE_MIN)
+                else:
+                    new_scale = prev_scale
+                if new_scale != prev_scale:
+                    logger.info(
+                        "  [adaptive] mutation_scale %.4f → %.4f  (success_rate=%.2f)",
+                        prev_scale, new_scale, p,
+                    )
+                    policy.mutation_scale = new_scale
+
             greedy_sims.append(GreedySimResult(
                 sim=gen, reward=gen_best, improved=improved,
                 throttle_counts=[0, 0, 0], total_steps=total_steps, trace=trace,
                 weights=policy.to_cfg(),
+                mutation_scale=policy.mutation_scale,
                 final_track_progress=info.get("track_progress", 0.0),
                 laps_completed=info.get("laps_completed", 0),
                 termination_reason=info.get("termination_reason"),
@@ -1225,7 +1260,8 @@ def train_rl(
     elif policy_type == "genetic":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
             env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
+            n_generations=n_sims, weights_file=weights_file,
+            patience=patience, adaptive_mutation=adaptive_mutation, **kw,
         )
     elif _extra_dispatch.get(policy_type) == "q_learning":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
@@ -1240,7 +1276,8 @@ def train_rl(
     elif _extra_dispatch.get(policy_type) == "genetic":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
             env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,  # type: ignore[arg-type]
+            n_generations=n_sims, weights_file=weights_file,
+            patience=patience, adaptive_mutation=adaptive_mutation, **kw,  # type: ignore[arg-type]
         )
     else:
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(

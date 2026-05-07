@@ -609,6 +609,14 @@ class GeneticPolicy(BasePolicy):
     def champion_reward(self) -> float:
         return self._champion_reward
 
+    @property
+    def mutation_scale(self) -> float:
+        return self._mutation_scale
+
+    @mutation_scale.setter
+    def mutation_scale(self, value: float) -> None:
+        self._mutation_scale = float(value)
+
     def initialize_random(self) -> None:
         """Build a fresh random population."""
         rng   = np.random.default_rng()
@@ -625,11 +633,17 @@ class GeneticPolicy(BasePolicy):
             self._champion = pop[0]
 
     def initialize_from_champion(self, champion: WeightedLinearPolicy) -> None:
-        """Seed the population by mutating the given champion."""
+        """Seed the population by mutating the given champion.
+
+        The champion itself is always included as the first population member so
+        that it is re-evaluated on the first generation.  This prevents the
+        population drifting away from a known-good solution purely due to
+        mutation noise in a stochastic environment.
+        """
         self._champion    = champion
-        self._population  = [
+        self._population  = [champion] + [
             champion.mutated(self._mutation_scale, self._mutation_share)
-            for _ in range(self._pop_size)
+            for _ in range(self._pop_size - 1)
         ]
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:

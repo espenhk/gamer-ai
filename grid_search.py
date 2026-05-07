@@ -132,6 +132,8 @@ _POLICY_PARAM_MAP = {
     "mcts_c": "c",  # mcts (renamed)
     "population_size": "population_size",  # genetic / cmaes / lstm
     "elite_k": "elite_k",  # genetic
+    "mutation_scale": "mutation_scale",  # genetic (sc2_genetic / genetic)
+    "mutation_share": "mutation_share",  # genetic (sc2_genetic / genetic)
     "initial_sigma": "initial_sigma",  # cmaes
     "eval_episodes": "eval_episodes",  # genetic / cmaes
 }
@@ -157,7 +159,10 @@ _EXPECTED_POLICY_PARAM_MAP = {
     "mcts_c": "c",
     "population_size": "population_size",
     "elite_k": "elite_k",
+    "mutation_scale": "mutation_scale",
+    "mutation_share": "mutation_share",
     "initial_sigma": "initial_sigma",
+    "eval_episodes": "eval_episodes",
 }
 
 

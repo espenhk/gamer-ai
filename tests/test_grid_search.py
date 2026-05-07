@@ -138,6 +138,25 @@ class TestBuildPolicyParams:
         assert pp["baseline"] == "none"
         assert pp["entropy_coeff"] == 0.05
 
+    def test_genetic_mutation_scale_promoted(self):
+        """mutation_scale top-level key should be forwarded into policy_params."""
+        t = {"mutation_scale": 0.2}
+        pp = _build_policy_params(t)
+        assert pp["mutation_scale"] == 0.2
+
+    def test_genetic_mutation_share_promoted(self):
+        """mutation_share top-level key should be forwarded into policy_params."""
+        t = {"mutation_share": 0.5}
+        pp = _build_policy_params(t)
+        assert pp["mutation_share"] == 0.5
+
+    def test_genetic_mutation_params_can_be_grid_axes(self):
+        """Ensure mutation_scale and mutation_share are in _POLICY_PARAM_MAP."""
+        assert "mutation_scale" in _POLICY_PARAM_MAP
+        assert "mutation_share" in _POLICY_PARAM_MAP
+        assert _POLICY_PARAM_MAP["mutation_scale"] == "mutation_scale"
+        assert _POLICY_PARAM_MAP["mutation_share"] == "mutation_share"
+
 
 class TestFmtValue:
     def test_integer(self):

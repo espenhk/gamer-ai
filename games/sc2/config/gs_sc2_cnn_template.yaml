@@ -95,6 +95,7 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
+  max_apm: 300
   agent_race: terran
   n_sims: 100                  # 100 generations; total = n_sims × population_size × eval_episodes
   policy_type: sc2_cnn
@@ -114,3 +115,6 @@ reward_params:
   win_bonus: 0.0
   loss_penalty: 0.0
   idle_bonus: 0.5     # encourage no_op when enemies are in combat range
+  move_exploration_bonus: 0.01
+  move_repeat_penalty: -0.02
+  move_self_penalty: -0.01

@@ -11,11 +11,13 @@ into one of three preset specs (issue #126):
     Designed for the 7 standard PySC2 minigames.  Unchanged from before #126
     so existing minigame champions keep loading.
 
-``SC2_LADDER_OBS_SPEC``   (~45 dims)
+``SC2_LADDER_OBS_SPEC``   (~46 dims)
     Extension adding economy breakdowns (collected / spent minerals + vespene,
     killed / total value, idle worker / production time), army-vs-worker supply
-    split, screen unit-density / mean-HP summaries, top-K enemy features and
-    minimap-camera position.  Default for 1v1 ladder play.
+    split, screen unit-density / mean-HP summaries, top-K enemy features,
+    minimap-camera position, and an alert-count scalar (from PySC2's
+    ``obs.observation["alerts"]``, non-zero when under major attack).
+    Default for 1v1 ladder play.
 
 ``SC2_RICH_OBS_SPEC``     (~100 dims)
     Full superset for research experiments: everything in the ladder spec plus
@@ -252,6 +254,17 @@ _WEAPON_COOLDOWN_DIMS: list[ObsDim] = [
            "Mean weapon cooldown for friendly units (0 = all ready to fire)"),
 ]
 
+# --- Alerts (ladder + rich) --------------------------------------------------
+# PySC2 ``obs.observation["alerts"]`` is a variable-size array (usually empty,
+# occasionally 1–2 entries) emitted when the player is under major attack.
+# Exposing the count as a scalar gives the policy a direct "under attack" signal
+# that is not derivable from the spatial layers alone.  Max value is 2 per PySC2
+# docs; we scale by 2.0 so the normalised value is always in [0, 1].
+_ALERTS_DIMS: list[ObsDim] = [
+    ObsDim("alert_count", 2.0,
+           "Number of active alerts (0–2); >0 means under major attack"),
+]
+
 # --- Minimap enemy centroid — shared baseline block --------------------------
 # The minimap always shows the full map regardless of camera position.
 # Adding the enemy centroid on the minimap gives the policy a reliable
@@ -292,9 +305,10 @@ _LADDER_DIMS: list[ObsDim] = (
     + _SCORE_DIMS
     + _SCREEN_HP_DIMS
     + _TOPK_ENEMY_COUNTS_DIMS
+    + _ALERTS_DIMS
 )
 
-#: ~40-dim preset for 1v1 ladder play.
+#: ~46-dim preset for 1v1 ladder play.
 SC2_LADDER_OBS_SPEC: ObsSpec = ObsSpec(_LADDER_DIMS)
 
 # Rich preset — full superset for research / CNN policies.
@@ -315,7 +329,7 @@ _RICH_DIMS: list[ObsDim] = (
     + _WEAPON_COOLDOWN_DIMS
 )
 
-#: ~102-dim research preset.
+#: ~103-dim research preset.
 SC2_RICH_OBS_SPEC: ObsSpec = ObsSpec(_RICH_DIMS)
 
 

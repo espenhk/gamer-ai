@@ -25,18 +25,19 @@ class TestSC2ObsSpec(unittest.TestCase):
 
     def test_ladder_spec_dim_grows_post_126(self):
         """Issue #126: ladder spec extended with economy / minimap-camera /
-        score / HP / top-K-counts blocks (~40 dims, exact value asserted)."""
-        self.assertEqual(LADDER_OBS_DIM, 45)
-        self.assertEqual(SC2_LADDER_OBS_SPEC.dim, 45)
+        score / HP / top-K-counts / alerts blocks (~46 dims, exact value
+        asserted)."""
+        self.assertEqual(LADDER_OBS_DIM, 46)
+        self.assertEqual(SC2_LADDER_OBS_SPEC.dim, 46)
 
     def test_rich_spec_dim(self):
         self.assertEqual(RICH_OBS_DIM, SC2_RICH_OBS_SPEC.dim)
         self.assertGreater(RICH_OBS_DIM, LADDER_OBS_DIM)
-        # Exact count: ladder(45) + per-unit-type(8) + quadrant(8) +
+        # Exact count: ladder(46) + per-unit-type(8) + quadrant(8) +
         # topk-features(9) + available(6) + last(6) + enemy-unit-type(8) +
         # shield-energy(3) + creep(1) + economy(3) + selected-extra(2) +
-        # screen-visibility(1) + antiair(1) + weapon-cooldown(1) = 102
-        self.assertEqual(RICH_OBS_DIM, 102)
+        # screen-visibility(1) + antiair(1) + weapon-cooldown(1) = 103
+        self.assertEqual(RICH_OBS_DIM, 103)
 
     def test_ladder_extends_minigame(self):
         """Ladder spec must contain all minigame names as a prefix."""
@@ -116,6 +117,13 @@ class TestSC2ObsSpec(unittest.TestCase):
                           f"{name!r} missing from rich spec")
             self.assertNotIn(name, ladder_names,
                              f"{name!r} should not be in ladder spec")
+
+    def test_alert_count_in_ladder_and_rich(self):
+        """alert_count must be present in ladder and rich (both include
+        _ALERTS_DIMS) but absent from the minigame preset."""
+        self.assertIn("alert_count", SC2_LADDER_OBS_SPEC.names)
+        self.assertIn("alert_count", SC2_RICH_OBS_SPEC.names)
+        self.assertNotIn("alert_count", SC2_MINIGAME_OBS_SPEC.names)
 
 
 if __name__ == "__main__":

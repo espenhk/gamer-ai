@@ -70,6 +70,7 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
+  max_apm: 300
   bot_difficulty: very_easy
 
   n_sims: 30                         # CMA-ES generations; each costs population_size episodes
@@ -94,3 +95,6 @@ reward_params:
   step_penalty: -0.001
   idle_penalty: 0.0
   idle_bonus: 0.0
+  move_exploration_bonus: 0.01
+  move_repeat_penalty: -0.02
+  move_self_penalty: -0.01

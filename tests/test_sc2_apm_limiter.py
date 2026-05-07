@@ -138,6 +138,17 @@ class TestApmLimiterBasicBehaviour(unittest.TestCase):
         self.assertTrue(lim.allow(0.0))      # fn_idx defaults to -1
         self.assertFalse(lim.allow(0.0))
 
+    def test_protect_burst_budget_blocks_after_steady_capacity(self):
+        """protect_burst_budget should keep burst headroom untouched."""
+        lim = ApmLimiter(max_apm=300, burst_s=2.0)  # refill_rate=5, max_tokens=10
+        lim.reset(0.0)
+        allowed = sum(
+            1 for _ in range(15)
+            if lim.allow(0.0, fn_idx=1, protect_burst_budget=True)
+        )
+        self.assertEqual(allowed, 5)
+        self.assertAlmostEqual(lim.tokens, 5.0)
+
 
 class TestApmLimiterRollingBudget(unittest.TestCase):
     """Verify that the rolling budget prevents "all in first second" patterns."""
@@ -304,6 +315,24 @@ class TestSC2EnvApmLimiterEnabled(unittest.TestCase):
         # Advance 1 second → refill → should pass again.
         _, _, _, _, info = self._do_step(select_army, now=1.0)
         self.assertFalse(info["apm_throttled"])
+
+    def test_burst_budget_always_protected(self):
+        env, mock_client, patcher = _make_mock_env(max_apm=300, apm_burst_s=2.0)
+        self.addCleanup(patcher.stop)
+
+        with patch("games.sc2.env.time") as mock_time:
+            mock_time.monotonic.return_value = 0.0
+            env.reset()
+            select_army = np.array([1.0, 0.5, 0.5, 0.0], dtype=np.float32)
+            allowed = 0
+            for _ in range(10):
+                _, _, _, _, info = env.step(select_army)
+                if not info["apm_throttled"]:
+                    allowed += 1
+
+        self.assertEqual(allowed, 5)
+        called = mock_client.step.call_args[0][0]
+        self.assertEqual(int(called[0]), 0)
 
 
 if __name__ == "__main__":

@@ -448,9 +448,9 @@ Three preset specs, opt-in via the `obs_spec_preset` training param:
 
 | Preset | Dim | Default for | Notes |
 |---|---|---|---|
-| `minigame` | 13 | All minigame names | Player totals, selected-unit summary, screen `player_relative` summary. |
-| `ladder` | 43 | All non-minigame maps | Adds `food_workers`/`food_army`, idle worker / warp gate / larva counts, minimap stats (`minimap_self_count`, `minimap_enemy_count`, `minimap_visible_frac`, `minimap_explored_frac`, `minimap_camera_x/y`, `game_loop`), the 13 PySC2 score-cumulative entries, screen unit-density / mean-HP, and top-K enemy counts (`topk_enemy_within_8`, `topk_enemy_within_24`). |
-| `rich`  | 95 | Opt-in only | Adds 8 per-unit-type friendly counts (Marine / SCV / Zergling / Drone / Probe / Stalker / Roach / Mutalisk), screen quadrant counts (NE/NW/SE/SW × self/enemy), top-3 closest enemies' (rel_x, rel_y, hp_ratio), available-actions binary mask, last-action one-hot, 8 enemy unit-type counts, screen shield/energy means (self_shield, enemy_shield, self_energy), minimap creep fraction, and economy-pipeline scalars (upgrade_count, build_queue_size, cargo_count). |
+| `minigame` | 15 | All minigame names | Player totals, selected-unit summary, screen `player_relative` summary, and minimap beacon centroid (`minimap_enemy_cx`/`minimap_enemy_cy`). |
+| `ladder` | 46 | All non-minigame maps | Adds `food_workers`/`food_army`, idle worker / warp gate / larva counts, minimap stats (`minimap_self_count`, `minimap_enemy_count`, `minimap_visible_frac`, `minimap_explored_frac`, `minimap_camera_x/y`, `game_loop`), the 13 PySC2 score-cumulative entries, screen unit-density / mean-HP, top-K enemy counts (`topk_enemy_within_8`, `topk_enemy_within_24`), and `alert_count` (non-zero when under major attack). |
+| `rich`  | 103 | Opt-in only | Adds 8 per-unit-type friendly counts (Marine / SCV / Zergling / Drone / Probe / Stalker / Roach / Mutalisk), screen quadrant counts (NE/NW/SE/SW × self/enemy), top-3 closest enemies' (rel_x, rel_y, hp_ratio), available-actions binary mask, last-action one-hot, 8 enemy unit-type counts, screen shield/energy means (self_shield, enemy_shield, self_energy), minimap creep fraction, and economy-pipeline scalars (upgrade_count, build_queue_size, cargo_count). |
 
 Set `obs_spec_preset: rich` in `training_params.yaml` to opt into the rich preset on any map.  Existing weight files migrate via the standard "missing key → 0.0" path — old champions can be loaded under any preset, and the new feature weights default to zero.
 

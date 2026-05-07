@@ -191,6 +191,7 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals: float = 0.0
         self._prev_vespene: float = 0.0
         self._prev_score: float = 0.0
+        self._prev_move_target: tuple[float, float] | None = None
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._step_count: int = 0
@@ -226,6 +227,7 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        self._prev_move_target = None
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
         self._step_count = 0
@@ -269,7 +271,11 @@ class SC2Env(BaseGameEnv):
         # rolling token bucket tracks real elapsed time.
         _now = time.monotonic()
         _fn_idx_requested = int(action[0]) if len(action) > 0 else 0
-        if self._apm_limiter is not None and not self._apm_limiter.allow(_now, _fn_idx_requested):
+        if self._apm_limiter is not None and not self._apm_limiter.allow(
+            _now,
+            _fn_idx_requested,
+            protect_burst_budget=True,
+        ):
             action = DISCRETE_ACTIONS[0].copy()
             _apm_throttled = True
             self._ep_apm_throttled_steps += 1
@@ -287,8 +293,18 @@ class SC2Env(BaseGameEnv):
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
         info["elapsed_s"] = self._elapsed_s
-        # Action fn_idx — required by reward shaping (e.g. idle_bonus, #127).
+        # Action fn_idx and target coords — required by reward shaping.
+        # action_target_x/y are normalised [0, 1] screen coordinates used by
+        # click_attack_bonus to distinguish "click on unit" from "attack move".
         info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
+        info["action_target_x"] = float(np.clip(action[1], 0.0, 1.0)) if len(action) > 1 else 0.5
+        info["action_target_y"] = float(np.clip(action[2], 0.0, 1.0)) if len(action) > 2 else 0.5
+        if self._prev_move_target is not None:
+            info["prev_move_target_x"] = float(self._prev_move_target[0])
+            info["prev_move_target_y"] = float(self._prev_move_target[1])
+        else:
+            info["prev_move_target_x"] = None
+            info["prev_move_target_y"] = None
         # Screen size threading — reward shaping uses it to scale pixel-based
         # thresholds for non-default screen resolutions.
         info["screen_size"] = self._screen_size
@@ -393,6 +409,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        if info["action_fn_idx"] == 2:
+            self._prev_move_target = (info["action_target_x"], info["action_target_y"])
 
         if self._belief is not None:
             game_loop = float(info.get("game_loop", 0.0))

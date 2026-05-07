@@ -35,6 +35,32 @@ class TestGeneticPolicy(unittest.TestCase):
         self.assertEqual(len(gp._population), 5)
         self.assertIs(gp._champion, champion)
 
+    def test_initialize_from_champion_includes_champion_as_first_member(self):
+        """Champion must be the first population member (not a mutant of itself)."""
+        gp = _make_genetic(pop=4)
+        champion = make_wlp()
+        gp.initialize_from_champion(champion)
+        self.assertIs(gp._population[0], champion)
+
+    def test_initialize_from_champion_rest_are_mutants(self):
+        """Remaining population members should be distinct objects (mutations)."""
+        gp = _make_genetic(pop=5)
+        champion = make_wlp()
+        gp.initialize_from_champion(champion)
+        # Every member after index 0 must be a different object from the champion.
+        for member in gp._population[1:]:
+            self.assertIsNot(member, champion)
+
+    def test_mutation_scale_property_getter(self):
+        gp = _make_genetic()
+        self.assertAlmostEqual(gp.mutation_scale, 0.1)
+
+    def test_mutation_scale_property_setter(self):
+        gp = _make_genetic()
+        gp.mutation_scale = 0.5
+        self.assertAlmostEqual(gp.mutation_scale, 0.5)
+        self.assertAlmostEqual(gp._mutation_scale, 0.5)
+
     def test_evaluate_and_evolve_updates_champion_reward(self):
         gp = _make_genetic(pop=4, elite=2)
         gp.initialize_random()
@@ -226,6 +252,97 @@ class TestGeneticEvalEpisodes(unittest.TestCase):
                 os.unlink(wf)
 
         self.assertEqual(reset_count[0], pop_size * eval_episodes)
+
+
+class TestGeneticAdaptiveMutation(unittest.TestCase):
+    """Tests for adaptive mutation_scale in _greedy_loop_genetic."""
+
+    def _make_env(self, rewards: list[float]):
+        from games.tmnf.obs_spec import BASE_OBS_DIM
+
+        class _FixedEnv:
+            def __init__(self):
+                self._rewards = rewards
+                self._idx = 0
+
+            def reset(self):
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+            def step(self, action):
+                info = {"track_progress": 0.5, "laps_completed": 0,
+                        "pos_x": 0.0, "pos_z": 0.0}
+                r = self._rewards[self._idx % len(self._rewards)]
+                self._idx += 1
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), r, True, False, info
+
+            def get_episode_time_limit(self):
+                return None
+
+            def set_episode_time_limit(self, _):
+                pass
+
+            def close(self):
+                pass
+
+        return _FixedEnv()
+
+    def test_mutation_scale_logged_in_greedy_sims(self):
+        """Each GreedySimResult should carry the current mutation_scale."""
+        gp = _make_genetic(pop=3, elite=1)
+        gp.initialize_random()
+        env = self._make_env([1.0, 2.0, 3.0] * 50)
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            _, _, sims, _, _ = _greedy_loop_genetic(
+                env=env, policy=gp, n_generations=3, weights_file=wf,
+                adaptive_mutation=False,
+            )
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+        for sim in sims:
+            self.assertIsNotNone(sim.mutation_scale)
+
+    def test_adaptive_mutation_reduces_scale_on_no_improvement(self):
+        """With adaptive=True and all-same rewards, scale should not increase."""
+        pop_size = 3
+        gp = _make_genetic(pop=pop_size, elite=1)
+        gp.initialize_random()
+        initial_scale = gp.mutation_scale
+        # 20 generations × pop_size episodes, all with identical rewards → 0 improvements
+        env = self._make_env([5.0] * (pop_size * 20))
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            _greedy_loop_genetic(
+                env=env, policy=gp, n_generations=20, weights_file=wf,
+                adaptive_mutation=True,
+            )
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+        # Scale should have been adjusted downward (or stayed) — never higher.
+        self.assertLessEqual(gp.mutation_scale, initial_scale)
+
+    def test_adaptive_mutation_disabled_leaves_scale_unchanged(self):
+        """With adaptive_mutation=False the scale must not change."""
+        pop_size = 3
+        gp = _make_genetic(pop=pop_size, elite=1)
+        gp.initialize_random()
+        initial_scale = gp.mutation_scale
+        env = self._make_env(list(range(pop_size * 20)))
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            _greedy_loop_genetic(
+                env=env, policy=gp, n_generations=20, weights_file=wf,
+                adaptive_mutation=False,
+            )
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+        self.assertAlmostEqual(gp.mutation_scale, initial_scale)
 
 
 if __name__ == "__main__":

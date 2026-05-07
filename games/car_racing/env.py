@@ -1,6 +1,6 @@
 """CarRacing Gymnasium environment.
 
-Wraps the ``CarRacing-v2`` environment from gymnasium.  Requires the
+Wraps the ``CarRacing-v3`` environment from gymnasium.  Requires the
 ``box2d-py`` and ``pygame`` extras::
 
     pip install gymnasium[box2d]
@@ -24,7 +24,7 @@ try:
     from gymnasium.envs.box2d import CarRacing  # noqa: F401
 except ImportError as _exc:
     raise ImportError(
-        "CarRacing-v2 requires optional gymnasium box2d extras.  Install with:\n"
+        "CarRacing-v3 requires optional gymnasium box2d extras.  Install with:\n"
         "    pip install gymnasium[box2d]\n"
         "This also requires pygame and box2d-py."
     ) from _exc
@@ -70,7 +70,7 @@ class CarRacingEnv(BaseGameEnv):
         self._max_episode_steps = max_episode_steps
 
         self._env = gym.make(
-            "CarRacing-v2",
+            "CarRacing-v3",
             continuous=continuous,
             max_episode_steps=max_episode_steps,
         )

@@ -21,6 +21,9 @@ class TestSC2RewardConfig(unittest.TestCase):
         self.assertEqual(cfg.win_bonus, 100.0)
         self.assertEqual(cfg.loss_penalty, -100.0)
         self.assertLess(cfg.step_penalty, 0.0)
+        self.assertGreater(cfg.move_exploration_bonus, 0.0)
+        self.assertLess(cfg.move_repeat_penalty, 0.0)
+        self.assertLess(cfg.move_self_penalty, 0.0)
 
     def test_from_yaml(self):
         path = _write_yaml("score_weight: 0.5\nwin_bonus: 50.0\n")
@@ -263,6 +266,87 @@ class TestSC2IdleBonus(unittest.TestCase):
         self.assertAlmostEqual(r, 6.0)
 
 
+class TestSC2MoveShaping(unittest.TestCase):
+    """Tests for anti-hyperfixation movement shaping."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg_kwargs = {
+            "score_weight": 0.0,
+            "step_penalty": 0.0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "economy_weight": 0.0,
+            "idle_bonus": 0.0,
+            "idle_penalty": 0.0,
+            "move_exploration_bonus": 1.0,
+            "move_repeat_penalty": -2.0,
+            "move_self_penalty": -3.0,
+        }
+        cfg_kwargs.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
+
+    def _move_info(
+        self,
+        *,
+        x: float,
+        y: float,
+        prev_x: float | None = None,
+        prev_y: float | None = None,
+        self_cx: float = 40.0,
+        self_cy: float = 40.0,
+        self_count: float = 1.0,
+    ) -> dict:
+        return {
+            "prev_score": 0.0,
+            "score": 0.0,
+            "action_fn_idx": 2,  # Move_screen
+            "action_target_x": x,
+            "action_target_y": y,
+            "prev_move_target_x": prev_x,
+            "prev_move_target_y": prev_y,
+            "screen_size": 64.0,
+            "screen_self_count": self_count,
+            "screen_self_cx": self_cx,
+            "screen_self_cy": self_cy,
+        }
+
+    def test_move_exploration_bonus_increases_for_new_target(self):
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.9, y=0.1, prev_x=0.1, prev_y=0.1),
+        )
+        self.assertGreater(r, 0.0)
+
+    def test_move_repeat_penalty_for_same_target(self):
+        calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.5, y=0.5, prev_x=0.5, prev_y=0.5),
+        )
+        self.assertAlmostEqual(r, -2.0)
+
+    def test_move_self_penalty_when_targeting_friendly_centroid(self):
+        calc = self._make_calc(move_exploration_bonus=0.0, move_repeat_penalty=0.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=40.0 / 64.0, y=40.0 / 64.0),
+        )
+        self.assertAlmostEqual(r, -3.0)
+
+    def test_move_self_penalty_not_applied_without_visible_friendlies(self):
+        calc = self._make_calc(move_exploration_bonus=0.0, move_repeat_penalty=0.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=40.0 / 64.0, y=40.0 / 64.0, self_count=0.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+
 class TestSC2RewardComponents(unittest.TestCase):
     """Issue #128/2b: per-component reward breakdown."""
 
@@ -279,6 +363,8 @@ class TestSC2RewardComponents(unittest.TestCase):
                   "prev_vespene": 0.0, "vespene": 0.0},
         )
         for key in ("score", "economy", "idle_penalty", "idle_bonus",
+                    "move_exploration", "move_repeat_penalty", "move_self_penalty",
+                    "attack_move_bonus", "click_attack_bonus",
                     "step_penalty", "terminal"):
             self.assertIn(key, comp)
 
@@ -312,6 +398,230 @@ class TestSC2RewardComponents(unittest.TestCase):
             elapsed_s=1.0, info=info,
         )
         self.assertAlmostEqual(r, r2)
+
+
+class TestSC2AttackMoveBonusAndClickAttackBonus(unittest.TestCase):
+    """Tests for the attack-move and click-to-attack reward split."""
+
+    # Screen size used in all helpers below.
+    _SS = 64.0
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg_kwargs = {
+            "score_weight": 0.0, "step_penalty": 0.0,
+            "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0,
+        }
+        cfg_kwargs.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
+
+    def _info(
+        self,
+        fn_idx: int,
+        enemy_count: float = 1.0,
+        enemy_cx: float = 32.0,
+        enemy_cy: float = 32.0,
+        target_x_norm: float = 0.5,   # normalised [0,1]
+        target_y_norm: float = 0.5,
+    ) -> dict:
+        return {
+            "prev_score": 0.0, "score": 0.0,
+            "action_fn_idx": fn_idx,
+            "screen_enemy_count": enemy_count,
+            "screen_enemy_cx": enemy_cx,
+            "screen_enemy_cy": enemy_cy,
+            "action_target_x": target_x_norm,
+            "action_target_y": target_y_norm,
+            "screen_size": self._SS,
+        }
+
+    # --- attack_move_bonus ---
+
+    def test_attack_move_bonus_fires_when_target_not_on_enemy(self):
+        """Attack_screen to empty ground while enemies visible → attack_move."""
+        calc = self._make_calc(attack_move_bonus=1.0)
+        # enemy at (32,32), target at (0,0) — far from enemy
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        self.assertAlmostEqual(r, 1.0)
+
+    def test_attack_move_bonus_skipped_when_no_enemy_on_screen(self):
+        calc = self._make_calc(attack_move_bonus=1.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_count=0.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_attack_move_bonus_skipped_for_move_screen(self):
+        """Plain Move_screen does not trigger attack_move_bonus."""
+        calc = self._make_calc(attack_move_bonus=1.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2, target_x_norm=0.0, target_y_norm=0.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_attack_move_bonus_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.attack_move_bonus, 0.0)
+
+    def test_attack_move_bonus_scales_with_n_ticks(self):
+        calc = self._make_calc(attack_move_bonus=1.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, target_x_norm=0.0, target_y_norm=0.0),
+            n_ticks=3,
+        )
+        self.assertAlmostEqual(r, 3.0)
+
+    # --- click_attack_bonus ---
+
+    def test_click_attack_bonus_fires_when_target_on_enemy(self):
+        """Attack_screen with target near enemy centroid → click_attack."""
+        calc = self._make_calc(click_attack_bonus=2.0)
+        # enemy centroid at (32,32), target at norm (0.5,0.5) = pixel (32,32)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.5, target_y_norm=0.5),
+        )
+        self.assertAlmostEqual(r, 2.0)
+
+    def test_click_attack_bonus_skipped_when_target_far_from_enemy(self):
+        """Target far from enemy centroid → not a click-to-attack → 0."""
+        calc = self._make_calc(click_attack_bonus=2.0)
+        # enemy at (32,32), target at (0,0) — distance >> click radius
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_click_attack_bonus_skipped_when_no_enemy(self):
+        calc = self._make_calc(click_attack_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_count=0.0,
+                            target_x_norm=0.5, target_y_norm=0.5),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_click_attack_bonus_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.click_attack_bonus, 0.0)
+
+    def test_click_attack_bonus_scales_with_n_ticks(self):
+        calc = self._make_calc(click_attack_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.5, target_y_norm=0.5),
+            n_ticks=3,
+        )
+        self.assertAlmostEqual(r, 6.0)
+
+    # --- cooldown (rapid target switching) ---
+
+    def test_cooldown_default_is_eight(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.click_attack_cooldown_steps, 8)
+
+    def test_same_target_always_fires(self):
+        """Clicking the same enemy unit repeatedly is always rewarded."""
+        calc = self._make_calc(click_attack_bonus=1.0, click_attack_cooldown_steps=10)
+        info = self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                          target_x_norm=0.5, target_y_norm=0.5)
+        for _ in range(5):
+            r = calc.compute(prev_state=None, curr_state=None, finished=False,
+                             elapsed_s=1.0, info=info)
+            self.assertAlmostEqual(r, 1.0)
+
+    def test_rapid_switch_withholds_bonus(self):
+        """Switching to a new target within cooldown window gets 0."""
+        calc = self._make_calc(click_attack_bonus=1.0, click_attack_cooldown_steps=5)
+        # First click at centre
+        calc.compute(prev_state=None, curr_state=None, finished=False,
+                     elapsed_s=1.0,
+                     info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                                     target_x_norm=0.5, target_y_norm=0.5))
+        # Immediately switch to a very different target (far enemy)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=4.0, enemy_cy=4.0,
+                            target_x_norm=0.0625, target_y_norm=0.0625),  # px≈4
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_bonus_fires_after_cooldown_elapsed(self):
+        """After cooldown_steps of non-attack-screen actions, bonus fires again."""
+        cooldown = 4
+        calc = self._make_calc(click_attack_bonus=1.0,
+                               click_attack_cooldown_steps=cooldown)
+        # First click (centre target)
+        calc.compute(prev_state=None, curr_state=None, finished=False,
+                     elapsed_s=1.0,
+                     info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                                     target_x_norm=0.5, target_y_norm=0.5))
+        # Advance step count with non-attack actions
+        no_attack_info = {
+            "prev_score": 0.0, "score": 0.0, "action_fn_idx": 0,
+            "screen_enemy_count": 1.0, "screen_size": self._SS,
+        }
+        for _ in range(cooldown):
+            calc.compute(prev_state=None, curr_state=None, finished=False,
+                         elapsed_s=1.0, info=no_attack_info)
+        # Now click a different enemy target — cooldown expired
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=4.0, enemy_cy=4.0,
+                            target_x_norm=0.0625, target_y_norm=0.0625),
+        )
+        self.assertAlmostEqual(r, 1.0)
+
+    def test_reset_clears_cooldown_state(self):
+        """After reset(), the cooldown state is cleared for a new episode."""
+        calc = self._make_calc(click_attack_bonus=1.0, click_attack_cooldown_steps=100)
+        # Click at centre to prime cooldown
+        calc.compute(prev_state=None, curr_state=None, finished=False,
+                     elapsed_s=1.0,
+                     info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                                     target_x_norm=0.5, target_y_norm=0.5))
+        # Reset — starts a fresh episode
+        calc.reset()
+        # Click a different target immediately after reset — should fire
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=4.0, enemy_cy=4.0,
+                            target_x_norm=0.0625, target_y_norm=0.0625),
+        )
+        self.assertAlmostEqual(r, 1.0)
+
+    def test_both_bonuses_exclusive(self):
+        """Ground target → attack_move_bonus; on-enemy target → click_attack_bonus."""
+        calc = self._make_calc(attack_move_bonus=1.0, click_attack_bonus=2.0)
+        # Ground target (far from enemy centroid)
+        r_move, comp_move = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        self.assertAlmostEqual(comp_move["attack_move_bonus"],  1.0)
+        self.assertAlmostEqual(comp_move["click_attack_bonus"], 0.0)
+
+        # Click on enemy centroid
+        calc.reset()
+        r_click, comp_click = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.5, target_y_norm=0.5),
+        )
+        self.assertAlmostEqual(comp_click["attack_move_bonus"],  0.0)
+        self.assertAlmostEqual(comp_click["click_attack_bonus"], 2.0)
 
 
 if __name__ == "__main__":

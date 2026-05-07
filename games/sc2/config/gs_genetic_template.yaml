@@ -1,31 +1,39 @@
-# Grid search template: lstm — MoveToBeacon
+# Grid search template: sc2_genetic — DefeatRoaches
 #
 # Usage:
-#   python grid_search.py games/sc2/config/gs_lstm_template.yaml --game sc2
+#   python grid_search.py games/sc2/config/gs_genetic_template.yaml --game sc2
 #
-# total episodes = n_sims × population_size.
+# SC2GeneticPolicy maintains a population of SC2MultiHeadLinearPolicy individuals
+# (6 fn_idx rows + 2 spatial rows, each obs_dim wide).
 #
-# Flat parameter counts — 4×(h×(h+obs)+h) + 4×h  where h=hidden_size
-# -----------------------------------------------------------------------
-#                      h=16        h=32
-#   ladder  (43):     3904        9856   params
-#   rich    (95):     7232       16512   params
-#   ladder+belief(235):16192     39936   params
-#   rich+belief  (287):19520     48128   params
+# Flat parameter counts (8 rows × obs_dim):
+#   minigame (13-dim):   8 ×  13 =  104 params
+#   ladder   (43-dim):   8 ×  43 =  344 params
+#   rich     (95-dim):   8 ×  95 =  760 params
 #
-# The larger the space, the smaller initial_sigma must be to avoid diverging.
-# Use initial_sigma ≤ 0.03 for the belief combinations; 0.05–0.1 is safe for
-# the no-belief ladder/rich presets.
+# total episodes = n_sims × population_size × eval_episodes
 #
-# Good first sweep: hidden_size × initial_sigma.
-# Larger hidden_size gives more expressive memory but much larger search space;
-# start with hidden_size=16 to validate the setup before scaling.
+# Mutation mechanics:
+#   mutation_scale: Gaussian noise std-dev added to each perturbed weight.
+#                   Too large → offspring diverge far from elites; after a good
+#                   generation the next is often bad (champion fitness regresses).
+#                   Too small → slow exploration.  Safe range: 0.02–0.2.
+#   mutation_share: Fraction of weights perturbed per individual.  1.0 = dense
+#                   (every weight nudged); lower values make finer local search
+#                   around the elite genome.  0.3 is a good starting point.
+#   eval_episodes:  Episodes averaged per individual for fitness estimation.
+#                   Higher values reduce reward variance (stochastic environment
+#                   noise causes "good run followed by bad run"); 2–4 is a
+#                   practical range given episode budget.
+#   population_size (λ): Rule of thumb for linear policies ≥ 2 × n_heads = 16.
+#                   Recommend 20–40 for minigame/ladder obs; too few individuals
+#                   leads to premature convergence.
+#   elite_k:        Number of individuals preserved unchanged each generation.
+#                   Setting to ~population_size/5 is typical.
 #
-# LSTM hidden state vs belief: both encode "what has the agent seen recently?"
-# If LSTM+belief beats LSTM alone, the explicit spatial grid provides
-# information the recurrence does not learn to represent on its own.
+# Good first sweep: mutation_scale × mutation_share
 
-base_name: "gs_sc2_lstm_v1"
+base_name: "gs_sc2_genetic_v1"
 game: sc2
 
 training_params:
@@ -34,19 +42,16 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
+  max_apm: 300
   agent_race: terran
-  n_sims: 50
-  policy_type: genetic
-  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
-  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims (up to 48k params)
-  hidden_size: [16, 32]
-  initial_sigma: [0.03, 0.05, 0.1]
-  #policy_params:
-  population_size: [20, 50]
+  n_sims: 50          # 50 generations; total episodes = n_sims × population_size × eval_episodes
+  policy_type: sc2_genetic
+  obs_spec_preset: [minigame, ladder]   # 13-dim minigame vs 43-dim ladder
+  population_size: [20, 40]
   elite_k: 5
-  eval_episodes: 2         # average fitness over 2 noisy episodes per individual
-  mutation_scale: 0.1
-  mutation_share: [0.3, 0.5, 1.0]      # sparse mutation — mutate 30% of weights per individual
+  eval_episodes: [2, 4]    # higher = less reward variance per fitness estimate
+  mutation_scale: [0.05, 0.1, 0.2]
+  mutation_share: [0.3, 1.0]     # sparse vs dense mutation
 
 reward_params:
   score_weight: 1.0
@@ -54,3 +59,6 @@ reward_params:
   win_bonus: 100.0
   loss_penalty: 0.0
   idle_bonus: 0.5
+  move_exploration_bonus: 0.01
+  move_repeat_penalty: -0.02
+  move_self_penalty: -0.01

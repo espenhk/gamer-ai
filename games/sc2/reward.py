@@ -47,18 +47,55 @@ class SC2RewardConfig:
         the screen summary features (``screen_self_count`` / ``screen_enemy_count``
         / centroids) populated by the client; with the default obs preset
         these are always present.
+    attack_move_bonus :
+        Per-step bonus awarded when the agent issues ``Attack_screen``
+        (fn_idx 3) *and* the click target is **not** on a visible enemy unit
+        (i.e. the attack lands on empty ground — an A-move command).
+        Encourages the unit to patrol-attack rather than plain-move past
+        enemies.  Default ``0.0`` — opt-in.
+    click_attack_bonus :
+        Per-step bonus awarded when the agent issues ``Attack_screen``
+        (fn_idx 3) *and* the click target is close to the enemy centroid on
+        screen — i.e. a direct click-to-attack on a visible enemy unit.
+        Should typically be set slightly higher than ``attack_move_bonus`` to
+        prefer precision targeting.  Subject to ``click_attack_cooldown_steps``
+        to discourage very rapid target-switching.  Default ``0.0`` — opt-in.
+    click_attack_cooldown_steps :
+        Minimum env steps that must elapse before a ``click_attack_bonus`` is
+        awarded again when the agent switches to a *new* attack target (one
+        that is more than ``_CLICK_ATTACK_RADIUS_FRAC`` of the screen away
+        from the previous target).  Targeting the *same* unit (same vicinity)
+        always fires immediately — the cooldown only penalises rapidly bouncing
+        between different enemies.  Default ``8``.
     economy_weight :
         Coefficient on (minerals + vespene) delta.  Useful for economy
         minigames.  Set to 0 for pure-combat minigames.
+    move_exploration_bonus :
+        Per-step bonus for issuing ``Move_screen`` commands to spatial targets
+        that differ from the previous move target.  Encourages exploration
+        instead of spamming one point repeatedly.
+    move_repeat_penalty :
+        Per-step penalty when a ``Move_screen`` command targets almost the same
+        point as the previous ``Move_screen`` command.
+    move_self_penalty :
+        Per-step penalty when a ``Move_screen`` command targets the centroid of
+        currently-visible friendly units (a common "keep moving to where we
+        already are" failure mode).
     """
 
-    score_weight:    float = 1.0
-    win_bonus:       float = 100.0
-    loss_penalty:    float = -100.0
-    step_penalty:    float = -0.001
-    idle_penalty:    float = 0.0
-    idle_bonus:      float = 0.0
-    economy_weight:  float = 0.0
+    score_weight:               float = 1.0
+    win_bonus:                  float = 100.0
+    loss_penalty:               float = -100.0
+    step_penalty:               float = -0.001
+    idle_penalty:               float = 0.0
+    idle_bonus:                 float = 0.0
+    attack_move_bonus:          float = 0.0
+    click_attack_bonus:         float = 0.0
+    click_attack_cooldown_steps: int  = 8
+    economy_weight:             float = 0.0
+    move_exploration_bonus:     float = 0.01
+    move_repeat_penalty:        float = -0.02
+    move_self_penalty:          float = -0.01
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -77,8 +114,10 @@ class SC2RewardConfig:
 class SC2RewardCalculator(RewardCalculatorBase):
     """Reward computation for the SC2 environment.
 
-    Stateless — episode-state derivatives (``prev_score``) are passed in via
-    the ``info`` dict produced by :class:`games.sc2.env.SC2Env`.
+    Holds a small amount of per-episode state to implement the
+    ``click_attack_bonus`` cooldown (tracking the last click-attack target
+    so rapid target-switching is not rewarded).  Call :meth:`reset` at the
+    start of each episode (``SC2Env`` does this automatically).
 
     Expected keys in ``info``:
         ``score``         — current cumulative environment score
@@ -87,11 +126,17 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``prev_minerals``, ``prev_vespene`` — previous totals
         ``army_count``, ``food_used``, ``food_cap``
         ``player_outcome`` — None / +1 / -1 (only set on the final step)
-        ``action_fn_idx`` — fn_idx of the action issued this step (for ``idle_bonus``)
+        ``action_fn_idx`` — fn_idx of the action issued this step
+        ``action_target_x`` / ``action_target_y`` — normalised [0, 1] screen
+            target coordinates of the action (used by ``attack_move_bonus``
+            and ``click_attack_bonus`` to classify the attack type)
+        ``prev_move_target_x`` / ``prev_move_target_y`` — previous move target
+            in [0, 1], or None if no previous move target is known
         ``screen_self_count`` / ``screen_enemy_count`` — friendly / enemy
-            pixel counts on screen (for ``idle_bonus`` combat-range check)
+            pixel counts on screen
         ``screen_self_cx`` / ``screen_self_cy`` / ``screen_enemy_cx`` /
             ``screen_enemy_cy`` — centroids in screen pixels
+        ``screen_size`` — screen feature-layer side length (default 64)
     """
 
     # Maximum centroid-distance for friendly units to be considered
@@ -100,9 +145,32 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # scales with non-default screen_size values (~Marine range at the
     # 64-pixel default ≈ 25 px).
     _COMBAT_RANGE_FRAC: float = 25.0 / 64.0
+    # Radius (as a screen fraction) considered "same target" for repeated
+    # move commands.
+    _MOVE_REPEAT_RADIUS_FRAC: float = 2.0 / 64.0
+    # Radius (as a screen fraction) considered "targeting where my units are".
+    _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
+    # Distance normaliser for movement exploration bonus.
+    _MOVE_EXPLORATION_NORM: float = 0.5
+
+    # Radius (as screen fraction) within which a click target must fall to be
+    # classified as "on an enemy unit" rather than "attack-move to ground".
+    # At the 64-pixel default this is 8 px — roughly one unit sprite.
+    _CLICK_ATTACK_RADIUS_FRAC: float = 8.0 / 64.0
 
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
+        self._last_click_x: float | None = None
+        self._last_click_y: float | None = None
+        self._last_click_step: int = -1
+        self._step_count: int = 0
+
+    def reset(self) -> None:
+        """Clear per-episode state at the start of a new episode."""
+        self._last_click_x = None
+        self._last_click_y = None
+        self._last_click_step = -1
+        self._step_count = 0
 
     def compute(
         self,
@@ -130,10 +198,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         ``components`` exposes a per-term breakdown so analytics can
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
-        ``idle_bonus``, ``step_penalty`` and ``terminal`` separately.
+        ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
+        ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
+        ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
+
+        self._step_count += 1
 
         # Score delta — primary signal for minigames.
         prev_score = info.get("prev_score", 0.0)
@@ -178,6 +250,89 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist <= self._COMBAT_RANGE_FRAC * screen_size:
                     idle_bonus = cfg.idle_bonus * n_ticks
         components["idle_bonus"] = float(idle_bonus)
+
+        # Move shaping: encourage varied move targets and
+        # discourage repeatedly targeting where units already are.
+        move_exploration = 0.0
+        move_repeat_penalty = 0.0
+        move_self_penalty = 0.0
+        if info.get("action_fn_idx") == 2:
+            x = float(info.get("action_target_x", 0.5))
+            y = float(info.get("action_target_y", 0.5))
+
+            prev_x = info.get("prev_move_target_x")
+            prev_y = info.get("prev_move_target_y")
+            if prev_x is not None and prev_y is not None:
+                dx_prev = x - float(prev_x)
+                dy_prev = y - float(prev_y)
+                dist_prev = (dx_prev * dx_prev + dy_prev * dy_prev) ** 0.5
+                if cfg.move_exploration_bonus != 0.0:
+                    novelty = min(1.0, dist_prev / self._MOVE_EXPLORATION_NORM)
+                    move_exploration = cfg.move_exploration_bonus * novelty * n_ticks
+                if cfg.move_repeat_penalty != 0.0 and dist_prev <= self._MOVE_REPEAT_RADIUS_FRAC:
+                    move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
+
+            if cfg.move_self_penalty != 0.0:
+                self_count = float(info.get("screen_self_count", 0.0))
+                if self_count > 0:
+                    screen_size = max(1.0, float(info.get("screen_size", 64)))
+                    self_x = float(info.get("screen_self_cx", 0.0)) / screen_size
+                    self_y = float(info.get("screen_self_cy", 0.0)) / screen_size
+                    dx_self = x - self_x
+                    dy_self = y - self_y
+                    dist_self = (dx_self * dx_self + dy_self * dy_self) ** 0.5
+                    if dist_self <= self._MOVE_SELF_RADIUS_FRAC:
+                        move_self_penalty = cfg.move_self_penalty * n_ticks
+        components["move_exploration"] = float(move_exploration)
+        components["move_repeat_penalty"] = float(move_repeat_penalty)
+        components["move_self_penalty"] = float(move_self_penalty)
+
+        # Attack bonuses: split Attack_screen into attack-move (ground target)
+        # and click-to-attack (target on/near a visible enemy unit).
+        attack_move_bonus = 0.0
+        click_attack_bonus = 0.0
+        if info.get("action_fn_idx") == 3:
+            screen_size = float(info.get("screen_size", 64))
+            enemy_count = info.get("screen_enemy_count", 0.0)
+            tx_norm = float(info.get("action_target_x", 0.5))
+            ty_norm = float(info.get("action_target_y", 0.5))
+            tx_px = tx_norm * screen_size
+            ty_px = ty_norm * screen_size
+            ecx = float(info.get("screen_enemy_cx", 0.0))
+            ecy = float(info.get("screen_enemy_cy", 0.0))
+            click_radius_px = self._CLICK_ATTACK_RADIUS_FRAC * screen_size
+
+            # "Click to attack": target pixel is within click_radius of enemy
+            # centroid and at least one enemy is visible.
+            on_enemy = (
+                enemy_count > 0
+                and ((tx_px - ecx) ** 2 + (ty_px - ecy) ** 2) ** 0.5
+                    <= click_radius_px
+            )
+
+            if on_enemy and cfg.click_attack_bonus != 0.0:
+                # Check cooldown: only blocked when the agent switches to a
+                # *different* target quickly (same target always passes).
+                steps_since = self._step_count - self._last_click_step
+                if self._last_click_x is None:
+                    same_target = True
+                else:
+                    dx = tx_px - self._last_click_x
+                    dy = ty_px - self._last_click_y  # _last_click_x/_last_click_y are set together
+                    same_target = (dx * dx + dy * dy) ** 0.5 <= click_radius_px
+                if same_target or steps_since >= cfg.click_attack_cooldown_steps:
+                    click_attack_bonus = cfg.click_attack_bonus * n_ticks
+                # Always update the tracked target on a click-attack so the
+                # cooldown window resets relative to the most recent action.
+                self._last_click_x = tx_px
+                self._last_click_y = ty_px
+                self._last_click_step = self._step_count
+            elif not on_enemy and cfg.attack_move_bonus != 0.0 and enemy_count > 0:
+                # Attack-move to ground while enemies are visible.
+                attack_move_bonus = cfg.attack_move_bonus * n_ticks
+
+        components["attack_move_bonus"]  = float(attack_move_bonus)
+        components["click_attack_bonus"] = float(click_attack_bonus)
 
         # Time cost.
         components["step_penalty"] = float(cfg.step_penalty * n_ticks)

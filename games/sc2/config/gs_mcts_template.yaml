@@ -46,6 +46,7 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
+  max_apm: 300
   agent_race: random
   n_sims: 300                 # 300 episodes; UCT needs a dense Q-table before exploitation is reliable
   policy_type: mcts
@@ -61,3 +62,6 @@ reward_params:
   win_bonus: 0.0
   loss_penalty: 0.0
   idle_bonus: [0.1, 0.2, 0.5]
+  move_exploration_bonus: 0.01
+  move_repeat_penalty: -0.02
+  move_self_penalty: -0.01

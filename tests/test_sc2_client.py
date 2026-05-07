@@ -971,7 +971,39 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
         feats = self.client._weapon_cooldown_features(ob)
         self.assertEqual(feats["self_weapon_cooldown_mean"], 0.0)
 
-    # --- integration: new dims appear in flat rich obs ---
+    # --- alerts ---
+
+    def test_alerts_features_empty_no_alerts(self):
+        """Empty alerts array → alert_count == 0."""
+        feats = self.client._alerts_features({"alerts": np.array([], dtype=np.int32)})
+        self.assertEqual(feats["alert_count"], 0.0)
+
+    def test_alerts_features_one_alert(self):
+        """Single alert entry → alert_count == 1."""
+        feats = self.client._alerts_features({"alerts": np.array([2], dtype=np.int32)})
+        self.assertEqual(feats["alert_count"], 1.0)
+
+    def test_alerts_features_two_alerts(self):
+        """Two simultaneous alerts (PySC2 max) → alert_count == 2."""
+        feats = self.client._alerts_features({"alerts": np.array([2, 2], dtype=np.int32)})
+        self.assertEqual(feats["alert_count"], 2.0)
+
+    def test_alerts_features_missing_key_returns_zero(self):
+        """No 'alerts' key in observation → alert_count == 0."""
+        feats = self.client._alerts_features({})
+        self.assertEqual(feats["alert_count"], 0.0)
+
+    def test_alerts_features_none_ob_returns_zero(self):
+        """_safe_array with None result → alert_count == 0."""
+        feats = self.client._alerts_features({"alerts": None})
+        self.assertEqual(feats["alert_count"], 0.0)
+
+    def test_alert_count_appears_in_ladder_flat_obs(self):
+        """alert_count must appear in the ladder flat obs vector."""
+        from games.sc2.obs_spec import LADDER_OBS_NAMES
+        self.assertIn("alert_count", LADDER_OBS_NAMES)
+
+    # --- integration: new dims appear in flat rich obs (TestSC2ClientRichExtractors) ---
 
     def test_rich_obs_includes_new_feature_names(self):
         """The rich spec should contain all new feature names."""

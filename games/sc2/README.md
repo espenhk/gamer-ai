@@ -270,6 +270,9 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `step_penalty` | −0.001 | Per-step time cost |
 | `idle_penalty` | 0.0 | Penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps) |
 | `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen (issue #127). Useful for combat minigames |
+| `move_exploration_bonus` | 0.01 | Bonus for `Move_screen` targets that differ from the previous move target (encourages exploration) |
+| `move_repeat_penalty` | −0.02 | Penalty for repeatedly issuing `Move_screen` to (nearly) the same point |
+| `move_self_penalty` | −0.01 | Penalty for issuing `Move_screen` to the friendly-unit centroid (discourages "move where we already are") |
 | `economy_weight` | 0.0 | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps |
 
 For ladder maps (`Simple64` etc.) the recommended preset is:
@@ -284,7 +287,7 @@ economy_weight: 0.001
 
 `win_bonus` and `loss_penalty` always fire on terminal `player_outcome` regardless of `score_weight`.
 
-The reward calculator exposes a per-component breakdown via `compute_with_components()` (issue #128/2b). `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, which the analytics layer plots as `reward_components.png` so you can attribute episode reward to `score` / `economy` / `idle_penalty` / `idle_bonus` / `step_penalty` / `terminal` separately.
+The reward calculator exposes a per-component breakdown via `compute_with_components()` (issue #128/2b). `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, which the analytics layer plots as `reward_components.png` so you can attribute episode reward to `score` / `economy` / `idle_penalty` / `idle_bonus` / `move_exploration` / `move_repeat_penalty` / `move_self_penalty` / `step_penalty` / `terminal` separately.
 
 ---
 
@@ -507,7 +510,7 @@ Bar chart, one bar per random restart, showing the best episode reward in that r
 Per-simulation reward over the greedy (or per-generation, for evolutionary policies) phase. For genetic / CMA-ES / LSTM-ES this is the fitness of the best individual in each generation. Improvements (sims that updated the champion) are marked, and a running-best curve is overlaid so you can see the staircase of progress.
 
 #### `reward_components.png` — Per-term reward attribution (issue #128/2b)
-One line per active reward component (e.g. `score`, `economy`, `idle_penalty`, `idle_bonus`, `step_penalty`, `terminal`). Each line is the per-episode sum across the greedy sim. Components that are zero in *every* sim are omitted, so this plot is silently skipped on minigame runs where only `score` and `step_penalty` contribute. The horizontal `0` line is dashed for reference. Highest-value diagnostic: tells you whether the agent is winning by collecting score, by economy growth, by surviving longer, or by hitting the `idle_bonus` shaping reward.
+One line per active reward component (e.g. `score`, `economy`, `idle_penalty`, `idle_bonus`, `move_exploration`, `move_repeat_penalty`, `move_self_penalty`, `step_penalty`, `terminal`). Each line is the per-episode sum across the greedy sim. Components that are zero in *every* sim are omitted, so this plot is silently skipped on minigame runs where only `score` and `step_penalty` contribute. The horizontal `0` line is dashed for reference. Highest-value diagnostic: tells you whether the agent is winning by collecting score, by economy growth, by surviving longer, or by shaping terms such as `idle_bonus` / movement exploration.
 
 #### `action_frequency.png` — Action-type breakdown (issue #128/2a)
 Three-panel figure:

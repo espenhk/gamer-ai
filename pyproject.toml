@@ -56,3 +56,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: end-to-end tests that require real game binaries or heavy dependencies (deselect with '-m not integration')",
+]

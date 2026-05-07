@@ -27,7 +27,7 @@
 # If LSTM+belief beats LSTM alone, the explicit spatial grid provides
 # information the recurrence does not learn to represent on its own.
 
-base_name: "gs_sc2_lstm_v1"
+base_name: "gs_sc2_lstm_v2"
 game: sc2
 
 training_params:
@@ -36,14 +36,14 @@ training_params:
   step_mul: 8
   screen_size: 64
   minimap_size: 64
+  max_apm: 300
   agent_race: random
   n_sims: 50                  # 50 generations; total episodes = n_sims × population_size
   policy_type: lstm
   obs_spec_preset: rich
-  enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims (up to 48k params)
-  hidden_size: [16, 32]
+  enable_belief: true      # false: obs only; true: obs+192 belief dims (up to 48k params)
+  hidden_size: [32, 128]
   initial_sigma: [0.03, 0.05, 0.1]
-  max_apm: [50, 300]
   policy_params:
     population_size: 20
 
@@ -53,3 +53,6 @@ reward_params:
   win_bonus: 20.0
   loss_penalty: 0.0
   idle_bonus: 1.0
+  move_exploration_bonus: 0.01
+  move_repeat_penalty: -0.02
+  move_self_penalty: -0.01

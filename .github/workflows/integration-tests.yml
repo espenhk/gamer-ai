@@ -1,0 +1,153 @@
+name: Integration Tests
+
+# Run heavier end-to-end tests after a PR is approved — acts as a final
+# gate before merge to main.  Also available on-demand via workflow_dispatch.
+#
+# Only the integration-test suites relevant to the changed files are run:
+# - changes to games/car_racing/ (or shared framework code) → car-racing job
+# - changes to games/sc2/ (or shared framework code) → sc2 job
+# - workflow_dispatch always runs all suites
+#
+# To enforce this as a merge gate, add "Integration Tests / car-racing" and
+# "Integration Tests / sc2" as required status checks in the repository's
+# branch-protection rules for `main`.
+on:
+  pull_request_review:
+    types: [submitted]
+  workflow_dispatch:
+
+jobs:
+  # -----------------------------------------------------------------
+  # Detect which parts of the codebase changed in this PR so that
+  # only the relevant integration-test suites are run.
+  # -----------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    # Only run after an approving review or a manual dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.state == 'approved')
+    outputs:
+      run-car-racing: ${{ steps.set-outputs.outputs.run-car-racing }}
+      run-sc2: ${{ steps.set-outputs.outputs.run-sc2 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          filters: |
+            car-racing:
+              - 'games/car_racing/**'
+              - 'tests/integration/test_car_racing.py'
+              - 'framework/**'
+              - 'main.py'
+              - 'grid_search.py'
+              - 'policies.py'
+              - 'analytics.py'
+              - 'config/**'
+              - 'pyproject.toml'
+            sc2:
+              - 'games/sc2/**'
+              - 'tests/integration/test_sc2.py'
+              - 'framework/**'
+              - 'main.py'
+              - 'grid_search.py'
+              - 'policies.py'
+              - 'analytics.py'
+              - 'config/**'
+              - 'pyproject.toml'
+
+      - name: Resolve which suites to run
+        id: set-outputs
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run-car-racing=true" >> "$GITHUB_OUTPUT"
+            echo "run-sc2=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run-car-racing=${{ steps.filter.outputs.car-racing }}" >> "$GITHUB_OUTPUT"
+            echo "run-sc2=${{ steps.filter.outputs.sc2 }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # -----------------------------------------------------------------
+  # CarRacing — lightweight Box2D physics, no external binary
+  # -----------------------------------------------------------------
+  car-racing:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.run-car-racing == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest numpy scipy pyyaml gymnasium matplotlib
+          pip install gymnasium[box2d]
+
+      - name: Run CarRacing integration tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/integration/test_car_racing.py -m integration -v
+
+  # -----------------------------------------------------------------
+  # StarCraft 2 — headless Linux binary + PySC2 mini-game maps
+  # -----------------------------------------------------------------
+  sc2:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.run-sc2 == 'true'
+    # SC2 binary download is ~2 GB; keep this job separate so CarRacing
+    # results are not blocked by a slow download.
+
+    env:
+      SC2PATH: /home/runner/StarCraftII
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: |
+          pip install pytest numpy scipy pyyaml gymnasium matplotlib
+          pip install pysc2 "protobuf<4"
+
+      - name: Download & install SC2 headless binary
+        run: |
+          mkdir -p "$SC2PATH"
+          echo "Downloading SC2 4.10 headless binary..."
+          wget -q https://blzdistsc2-a.akamaihd.net/Linux/SC2.4.10.zip -O /tmp/sc2.zip
+          echo "Extracting (password-protected archive)..."
+          unzip -P iagreetotheeula -q /tmp/sc2.zip -d "$HOME"
+          rm /tmp/sc2.zip
+          echo "SC2 binary installed at $SC2PATH"
+          ls -la "$SC2PATH"
+
+      - name: Download PySC2 mini-game maps
+        run: |
+          MAPS_DIR="$SC2PATH/Maps/mini_games"
+          mkdir -p "$MAPS_DIR"
+          echo "Downloading PySC2 mini-game maps..."
+          MAPS="MoveToBeacon CollectMineralShards FindAndDefeatZerglings DefeatRoaches DefeatZerglingsAndBanelings CollectMineralsAndGas BuildMarines"
+          for map in $MAPS; do
+            wget -q "https://github.com/deepmind/pysc2/raw/master/pysc2/maps/mini_games/${map}.SC2Map" -O "$MAPS_DIR/${map}.SC2Map"
+          done
+          echo "Maps installed:"
+          ls -la "$MAPS_DIR"
+
+      - name: Run SC2 integration tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/integration/test_sc2.py -m integration -v

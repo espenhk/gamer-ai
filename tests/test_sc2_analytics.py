@@ -19,7 +19,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 
+import games.sc2.analytics as sc2_analytics
 from framework.analytics import ExperimentData, GreedySimResult
 from games.sc2.analytics import (
     SUPPORTS_PATH,
@@ -32,6 +34,7 @@ from games.sc2.analytics import (
     plot_resource_series,
     plot_spatial_heatmap,
     plot_supply_capped,
+    save_grid_summary,
     save_experiment_results,
 )
 
@@ -398,6 +401,130 @@ class TestSaveExperimentResults(unittest.TestCase):
             self.assertTrue(
                 files.isdisjoint(racing_files),
                 f"Racing-specific files found: {files & racing_files}",
+            )
+
+
+class TestSaveGridSummary(unittest.TestCase):
+
+    def test_normalises_rewards_from_components_before_summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("score_weight: 100.0\nstep_penalty: -2.0\n")
+
+            sim = _make_sim(
+                sim=1,
+                reward=496.0,
+                reward_components={"score": 500.0, "step_penalty": -4.0},
+            )
+            data = _make_experiment([sim], name="exp_a")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_a", data)], ["score_weight"], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 3.0, places=6)
+
+    def test_falls_back_to_raw_reward_without_components(self):
+        with tempfile.TemporaryDirectory() as d:
+            sim = _make_sim(sim=1, reward=12.5, reward_components=None)
+            data = _make_experiment([sim], name="exp_b")
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_b", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 12.5, places=6)
+
+    def test_normalises_multiple_sims_independently(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("score_weight: 10.0\nstep_penalty: -2.0\n")
+
+            sims = [
+                _make_sim(sim=1, reward=20.0, reward_components={"score": 20.0}),
+                _make_sim(sim=2, reward=-6.0, reward_components={"step_penalty": -6.0}),
+            ]
+            data = _make_experiment(sims, name="exp_c")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_c", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sims = forwarded_runs[0][1].greedy_sims
+            self.assertAlmostEqual(forwarded_sims[0].reward, 2.0, places=6)
+            self.assertAlmostEqual(forwarded_sims[1].reward, -3.0, places=6)
+
+    def test_malformed_reward_config_yaml_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("score_weight: [1.0\n")
+
+            sim = _make_sim(sim=1, reward=5.0, reward_components={"score": 5.0})
+            data = _make_experiment([sim], name="exp_d")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_d", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 5.0, places=6)
+
+    def test_non_mapping_reward_config_yaml_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("[]\n")
+
+            sim = _make_sim(sim=1, reward=5.0, reward_components={"score": 5.0})
+            data = _make_experiment([sim], name="exp_e")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_e", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 5.0, places=6)
+
+    def test_non_numeric_reward_weight_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("score_weight: foo\n")
+
+            sim = _make_sim(sim=1, reward=5.0, reward_components={"score": 5.0})
+            data = _make_experiment([sim], name="exp_f")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_f", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 5.0, places=6)
+
+    def test_scout_component_does_not_emit_unmapped_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            sim = _make_sim(sim=1, reward=2.0, reward_components={"scout": 2.0})
+            data = _make_experiment([sim], name="exp_g")
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary"), \
+                    mock.patch.object(sc2_analytics.logger, "warning") as warn:
+                save_grid_summary([("exp_g", data)], [], d, "gs_test")
+
+            self.assertTrue(
+                all(
+                    "unmapped reward component" not in str(call.args[0])
+                    for call in warn.call_args_list
+                )
             )
 
 

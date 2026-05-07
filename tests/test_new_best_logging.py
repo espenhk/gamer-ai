@@ -76,7 +76,7 @@ class TestPrintEpisodeSummary(unittest.TestCase):
         self.assertNotIn("progress", lines[0])
 
     def test_sc2_outcome_reward_score_logged_as_scalars(self):
-        info = {"player_outcome": 1, "score": 0}
+        info = {"player_outcome": 1, "raw_reward": 1, "score": 0}
         lines = _capture_training_logs(
             lambda: _print_episode_summary(info, steps=240, total_reward=-30.1,
                                            truncated=False)
@@ -111,8 +111,8 @@ class TestLogNewBestDetails(unittest.TestCase):
         self.assertNotIn("economy", lines[0])
 
     def test_reward_components_prev_comparison(self):
-        info = {"episode_reward_components": {"score": 10.0, "idle_bonus": 2.0}}
-        prev = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.0}}
+        info = {"episode_reward_components": {"score": 10.0, "idle_bonus": 2.0, "terminal": 0.0}}
+        prev = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.0, "terminal": 0.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
         self.assertEqual(len(lines), 4)
         all_text = "\n".join(lines)

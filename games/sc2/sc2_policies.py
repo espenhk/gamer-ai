@@ -109,12 +109,21 @@ class SC2MultiHeadLinearPolicy:
             else rng.standard_normal((N_SPATIAL_ROWS, obs_dim)).astype(np.float32)
         )
 
+        # Cache of available fn_ids from the most recent on_episode_start() /
+        # update() call.  None means all functions are available (no masking).
+        self._available_fn_ids: set[int] | None = None
+
     # ------------------------------------------------------------------
     # Callable interface
     # ------------------------------------------------------------------
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         """Select action given observation.
+
+        Unavailable function IDs (cached from the previous ``update()`` call
+        or from ``on_episode_start()``) are masked to ``-inf`` before taking
+        the ``argmax``, so the policy never emits an action that the SC2
+        client would have to substitute with ``no_op`` or ``select_army``.
 
         Returns
         -------
@@ -126,9 +135,19 @@ class SC2MultiHeadLinearPolicy:
         norm_obs  = obs / self._obs_spec.scales
         fn_scores = self._fn_weights @ norm_obs   # (N_FUNCTION_IDS,)
         sp_scores = self._sp_weights @ norm_obs   # (2,) — raw x and y logits
-        fn_idx    = int(np.argmax(fn_scores))
-        x         = _sigmoid(float(sp_scores[0]))
-        y         = _sigmoid(float(sp_scores[1]))
+
+        # Mask unavailable function IDs so argmax never selects them.
+        if self._available_fn_ids is not None:
+            for i in range(N_FUNCTION_IDS):
+                if i not in self._available_fn_ids:
+                    fn_scores[i] = -np.inf
+            # If all scored to -inf (empty set), fall back to no_op (idx 0).
+            if not np.any(np.isfinite(fn_scores)):
+                fn_scores[0] = 0.0
+
+        fn_idx = int(np.argmax(fn_scores))
+        x      = _sigmoid(float(sp_scores[0]))
+        y      = _sigmoid(float(sp_scores[1]))
         return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
 
     # ------------------------------------------------------------------
@@ -259,11 +278,33 @@ class SC2MultiHeadLinearPolicy:
     # ------------------------------------------------------------------
 
     def on_episode_start(self, **kwargs) -> None:
-        """No-op — required by training loop interface."""
+        """Cache available_fn_ids from the reset info for the first step.
+
+        The ``info`` kwarg carries the dict returned by ``env.reset()``.
+        If it contains ``"available_fn_ids"``, it is used to prime the
+        available-actions mask so the very first action of the episode is
+        chosen from the correct set.  If the key is absent the mask is
+        cleared (all functions enabled).
+        """
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
+        else:
+            self._available_fn_ids = None
 
     def update(self, obs: np.ndarray, action: np.ndarray, reward: float,
                next_obs: np.ndarray, done: bool, **kwargs) -> None:
-        """No-op — evolutionary policy; updated between episodes."""
+        """Cache available_fn_ids for the next __call__; no weight update.
+
+        Evolutionary policies update weights between episodes (via the genetic
+        loop), not per-step.  This method only caches the available function
+        IDs so that the next ``__call__`` can mask unavailable actions.
+        """
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
 
 
 # ---------------------------------------------------------------------------

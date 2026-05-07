@@ -66,7 +66,7 @@
 
 895 tests across 54 files (unit-test suite, excluding `tests/integration/`). Runs in ~50 seconds via `python -m pytest tests/ --ignore=tests/integration/` (also excluding tests that require tminterface, pysc2 live env, gym_torcs, or the SC2 binary). The full suite including those files has 1030 tests.
 
-Additionally, **28 integration tests** live in `tests/integration/` (14 CarRacing + 14 SC2). These are run separately by the `integration-tests` workflow on every push to `main`.  To run them locally:
+Additionally, **28 integration tests** live in `tests/integration/` (14 CarRacing + 14 SC2). These are run by the `integration-tests` workflow after PR approval (as a final merge gate) and on-demand via `workflow_dispatch`.  To run them locally:
 
 ```bash
 # CarRacing only (requires gymnasium[box2d])
@@ -564,8 +564,8 @@ Assetto Corsa shared-memory client.
 
 End-to-end tests that spin up a real gymnasium environment (no mocking) and
 exercise actual game physics.  Marked `integration` so they are excluded from
-the fast unit-test suite.  Run by the `integration-tests` workflow on every
-push to `main`; also available on demand via::
+the fast unit-test suite.  Run by the `integration-tests` workflow after PR
+approval (final gate before merge to `main`); also available on demand via::
 
     pytest tests/integration/ -m integration -v
 

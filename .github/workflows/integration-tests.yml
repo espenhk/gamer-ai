@@ -1,12 +1,14 @@
 name: Integration Tests
 
-# Run heavier end-to-end tests on every push to main and on-demand.
-# These tests spin up real game environments (no mocking) so they are kept
-# separate from the fast unit-test suite that runs on every pull request.
+# Run heavier end-to-end tests after a PR is approved — acts as a final
+# gate before merge to main.  Also available on-demand via workflow_dispatch.
+#
+# To enforce this as a merge gate, add "Integration Tests / car-racing" and
+# "Integration Tests / sc2" as required status checks in the repository's
+# branch-protection rules for `main`.
 on:
-  push:
-    branches:
-      - main
+  pull_request_review:
+    types: [submitted]
   workflow_dispatch:
 
 jobs:
@@ -15,6 +17,11 @@ jobs:
   # -----------------------------------------------------------------
   car-racing:
     runs-on: ubuntu-latest
+    # Only run after an approving review or a manual dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.state == 'approved')
 
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +46,11 @@ jobs:
   # -----------------------------------------------------------------
   sc2:
     runs-on: ubuntu-latest
+    # Only run after an approving review or a manual dispatch.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_review' &&
+       github.event.review.state == 'approved')
     # SC2 binary download is ~2 GB; keep this job separate so CarRacing
     # results are not blocked by a slow download.
 

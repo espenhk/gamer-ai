@@ -560,3 +560,29 @@ When `grid_search.py` runs many SC2 experiments, `games/sc2/analytics.py::save_g
 | `comparison_rewards.png` | One curve per grid combination overlaying best-reward-so-far over the greedy-sim axis — direct visual comparison of hyperparameter settings, ranked by final best reward |
 | `comparison_task_metrics.png` | Same axis, plotted against the task-progress metric (track progress / minigame progress when available). For SC2 minigames this metric is currently zero everywhere, so the plot exists but is informative only on TMNF/TORCS |
 | `summary.md` | Two ranked tables: one by task progress, one by best reward, with the varied parameters on each row plus per-experiment best-reward, improvements, finish rate, and greedy runtime |
+
+---
+
+## Suggested follow-up issues (non-overlapping with current open SC2 issues)
+
+These are candidate issues discovered while reviewing the current SC2 code/docs, excluding overlap with #146, #153, #155, #156, #159, #160 (and broad integration-testing issue #133):
+
+1. **SC2 docs drift audit + sync pass**
+   - `games/sc2/README.md` still describes older observation dimensions and policy compatibility in several places.
+   - Proposed issue: align all SC2 docs to the current implementation (`minigame=15`, `ladder=45`, `rich=102`; and current policy compatibility constraints).
+
+2. **Fail-fast validation for incompatible SC2 policy types**
+   - The adapter currently accepts policy types that are known to be poor fits for SC2 output semantics.
+   - Proposed issue: validate `policy_type` early and raise a clear config error with migration guidance instead of allowing silent misconfiguration.
+
+3. **Enemy-unit feature ownership filtering**
+   - `enemy_count_*` features currently count every non-self owner in `feature_units`, which can include neutral entities.
+   - Proposed issue: count only true enemy ownership values and add tests covering neutral/non-enemy rows.
+
+4. **Score-cumulative extraction robustness**
+   - Score features are read by positional index from `score_cumulative`.
+   - Proposed issue: prefer field-name-driven extraction with safe fallback for PySC2 schema/version differences.
+
+5. **SC2 client hot-path action-mask caching**
+   - Available-action feature extraction repeatedly resolves PySC2 function metadata on step hot paths.
+   - Proposed issue: cache fn-id lookups in the client and add a small benchmark/regression test around per-step overhead.

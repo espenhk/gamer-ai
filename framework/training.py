@@ -269,6 +269,26 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float,
                             truncated: bool) -> None:
     finished = bool(info.get("finished", False))
     outcome  = "truncated" if truncated else ("finished" if finished else "terminated")
+    sc2_outcome = info.get("player_outcome")
+    sc2_raw_reward = info.get("raw_reward")
+    if sc2_outcome is not None or sc2_raw_reward is not None:
+        if sc2_outcome is not None:
+            sc2_outcome_v = float(sc2_outcome)
+            if sc2_outcome_v > 0:
+                sc2_outcome_s = "win"
+            elif sc2_outcome_v < 0:
+                sc2_outcome_s = "loss"
+            else:
+                sc2_outcome_s = "draw"
+        else:
+            sc2_outcome_s = str(info.get("termination_reason", outcome))
+        reward_v = float(sc2_raw_reward if sc2_raw_reward is not None else 0.0)
+        score = float(info.get("score", 0.0))
+        logger.info(
+            "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f",
+            outcome, total_reward, steps, sc2_outcome_s, reward_v, score,
+        )
+        return
     logger.info("ep end  %s  r=%+.1f  steps=%d", outcome, total_reward, steps)
 
 
@@ -291,11 +311,26 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
     rc = info.get("episode_reward_components")
     if rc:
         prev_rc: dict = prev.get("episode_reward_components") or {}
+        terminal = float(rc.get("terminal", 0.0))
+        prev_terminal = float(prev_rc.get("terminal", 0.0))
         for k, v in sorted(rc.items()):
-            if abs(v) > 0.001:
+            if k == "terminal":
+                continue
+            if abs(v) > 0.001 or k == "score":
                 pv = prev_rc.get(k)
                 cmp_s = f" (prev {pv:+.1f})" if pv is not None else ""
                 logger.info("    %s=%+.1f%s", k, v, cmp_s)
+
+        win_bonus = terminal if terminal > 0 else 0.0
+        loss_penalty = terminal if terminal < 0 else 0.0
+        prev_win_bonus = prev_terminal if prev_terminal > 0 else 0.0
+        prev_loss_penalty = prev_terminal if prev_terminal < 0 else 0.0
+        if "terminal" in prev_rc:
+            logger.info("    win_bonus=%+.1f (prev %+.1f)", win_bonus, prev_win_bonus)
+            logger.info("    loss_penalty=%+.1f (prev %+.1f)", loss_penalty, prev_loss_penalty)
+        else:
+            logger.info("    win_bonus=%+.1f", win_bonus)
+            logger.info("    loss_penalty=%+.1f", loss_penalty)
 
     # 2. Action-frequency breakdown (SC2Env only) ----------------------------
     ac = info.get("episode_action_counts")

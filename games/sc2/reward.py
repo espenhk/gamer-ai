@@ -81,6 +81,14 @@ class SC2RewardConfig:
         Per-step penalty when a ``Move_screen`` command targets the centroid of
         currently-visible friendly units (a common "keep moving to where we
         already are" failure mode).
+    attack_friendly_penalty :
+        Per-step penalty when the agent issues ``Attack_screen`` (fn_idx 3)
+        *and* the click target lands on or near the centroid of currently-visible
+        **friendly** units.  In-game this issues an attack command against an ally
+        (friendly fire), causing units to shoot team-mates to death.  The penalty
+        fires whenever ``screen_self_count > 0`` and the target pixel is within
+        ``_ATTACK_SELF_RADIUS_FRAC`` of the friendly centroid.  Set to a large
+        negative default to strongly discourage this behaviour.
     """
 
     score_weight:               float = 1.0
@@ -96,6 +104,7 @@ class SC2RewardConfig:
     move_exploration_bonus:     float = 0.01
     move_repeat_penalty:        float = -0.02
     move_self_penalty:          float = -0.01
+    attack_friendly_penalty:    float = -5.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -158,6 +167,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # At the 64-pixel default this is 8 px — roughly one unit sprite.
     _CLICK_ATTACK_RADIUS_FRAC: float = 8.0 / 64.0
 
+    # Radius (as screen fraction) within which an Attack_screen target is
+    # considered to be on a friendly unit — triggers attack_friendly_penalty.
+    # Matches _CLICK_ATTACK_RADIUS_FRAC so the same sprite-footprint heuristic
+    # applies consistently to both ally and enemy targeting: one unit sprite ≈ 8 px
+    # at the 64-pixel default.  If you widen click-attack detection you will
+    # likely want to widen friendly-fire detection equally.
+    _ATTACK_SELF_RADIUS_FRAC: float = 8.0 / 64.0
+
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
         self._last_click_x: float | None = None
@@ -200,7 +217,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``step_penalty`` and ``terminal`` separately.
+        ``attack_friendly_penalty``, ``step_penalty`` and ``terminal``
+        separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -293,11 +311,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
         click_attack_bonus = 0.0
         if info.get("action_fn_idx") == 3:
             screen_size = float(info.get("screen_size", 64))
+            # Use (screen_size - 1) to match the client's pixel conversion:
+            # x_screen = int(clip(norm, 0, 1) * (screen_size - 1))
+            # Centroids from games.sc2.client.SC2Client._centroid() are raw
+            # pixel indices in [0, screen_size-1].
+            scale = max(1.0, screen_size - 1.0)
             enemy_count = info.get("screen_enemy_count", 0.0)
             tx_norm = float(info.get("action_target_x", 0.5))
             ty_norm = float(info.get("action_target_y", 0.5))
-            tx_px = tx_norm * screen_size
-            ty_px = ty_norm * screen_size
+            tx_px = tx_norm * scale
+            ty_px = ty_norm * scale
             ecx = float(info.get("screen_enemy_cx", 0.0))
             ecy = float(info.get("screen_enemy_cy", 0.0))
             click_radius_px = self._CLICK_ATTACK_RADIUS_FRAC * screen_size
@@ -333,6 +356,30 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         components["attack_move_bonus"]  = float(attack_move_bonus)
         components["click_attack_bonus"] = float(click_attack_bonus)
+
+        # Friendly-fire penalty: Attack_screen aimed at own units.
+        attack_friendly_penalty = 0.0
+        if (
+            cfg.attack_friendly_penalty != 0.0
+            and info.get("action_fn_idx") == 3
+        ):
+            self_count = float(info.get("screen_self_count", 0.0))
+            if self_count > 0:
+                screen_size = max(1.0, float(info.get("screen_size", 64)))
+                # Use (screen_size - 1) to match client pixel conversion.
+                scale = max(1.0, screen_size - 1.0)
+                scx = float(info.get("screen_self_cx", 0.0))
+                scy = float(info.get("screen_self_cy", 0.0))
+                tx_norm = float(info.get("action_target_x", 0.5))
+                ty_norm = float(info.get("action_target_y", 0.5))
+                tx_px = tx_norm * scale
+                ty_px = ty_norm * scale
+                dx = tx_px - scx
+                dy = ty_px - scy
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist <= self._ATTACK_SELF_RADIUS_FRAC * screen_size:
+                    attack_friendly_penalty = cfg.attack_friendly_penalty * n_ticks
+        components["attack_friendly_penalty"] = float(attack_friendly_penalty)
 
         # Time cost.
         components["step_penalty"] = float(cfg.step_penalty * n_ticks)

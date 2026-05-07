@@ -65,6 +65,13 @@ click_attack_bonus: 0.0
 # rapidly is withheld until this many steps have elapsed since the last switch.
 click_attack_cooldown_steps: 8
 
+# --- Friendly-fire penalty ---
+# Per-step penalty when the agent issues Attack_screen (fn_idx 3) and the
+# click target lands on or near the centroid of visible friendly units.
+# This causes ally units to shoot team-mates — penalise it heavily.
+# Set to 0.0 to disable.
+attack_friendly_penalty: -5.0
+
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.0

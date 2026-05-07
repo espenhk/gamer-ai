@@ -656,12 +656,51 @@ class SC2Client:
         # (lazily) so we never duplicate them.  'score' is renamed 'score_total'
         # to avoid confusion with the per-step reward signal.
         names = _get_score_field_names()
-        score_arr = self._safe_array(ob, "score_cumulative")
-        if score_arr is None:
+        # Retrieve the raw value without coercing to ndarray so that PySC2's
+        # NamedNumpyArray field-name access is preserved for the primary path.
+        raw = None
+        try:
+            raw = ob["score_cumulative"] if hasattr(ob, "__getitem__") else None
+        except (KeyError, IndexError, TypeError):
+            pass
+        if raw is None:
+            raw = getattr(ob, "score_cumulative", None)
+        if raw is None:
             return {n: 0.0 for n in names}
+        # Precompute the positional-fallback array once, outside the per-field
+        # loop.  For plain ndarray inputs every named-access attempt raises an
+        # exception; detecting that here avoids 13 × 2 exception catches per
+        # call and keeps the hot path clean.
+        pos_arr: np.ndarray | None
+        try:
+            pos_arr = raw if isinstance(raw, np.ndarray) else np.asarray(raw)
+            if pos_arr.ndim < 1:
+                pos_arr = None
+        except (TypeError, ValueError):
+            pos_arr = None
+
         out: dict[str, float] = {}
         for i, n in enumerate(names):
-            out[n] = float(score_arr[i]) if i < score_arr.size else 0.0
+            # Prefer field-name access for robustness against PySC2 schema
+            # changes.  The rename score → score_total means we also try the
+            # original PySC2 name ("score") for that entry.  Deduplicate when
+            # the two names are identical (every field except score_total).
+            pysc2_name = "score" if n == "score_total" else n
+            attrs = (pysc2_name,) if pysc2_name == n else (pysc2_name, n)
+            v = None
+            for attr in attrs:
+                try:
+                    v = float(raw[attr])
+                    break
+                except (KeyError, IndexError, TypeError, ValueError):
+                    pass
+            # Fall back to positional index when named access is unavailable.
+            if v is None and pos_arr is not None and i < pos_arr.size:
+                try:
+                    v = float(pos_arr[i])
+                except (IndexError, TypeError, ValueError):
+                    pass
+            out[n] = v if v is not None else 0.0
         return out
 
     def _screen_hp_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:

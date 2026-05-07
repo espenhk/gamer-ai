@@ -527,6 +527,197 @@ def plot_build_order(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Grid-search SC2-specific summary plots
+# ---------------------------------------------------------------------------
+
+def _entropy_from_counts(action_counts: dict[int, int] | None) -> float | None:
+    """Return action entropy in bits for one sim's action-count mapping."""
+    if not action_counts:
+        return None
+    counts = np.array([max(0.0, float(v)) for v in action_counts.values()], dtype=float)
+    total = float(counts.sum())
+    if total <= 0.0:
+        return None
+    probs = counts / total
+    positive = probs > 0
+    return float(-np.sum(probs[positive] * np.log2(probs[positive])))
+
+
+def plot_gs_action_entropy(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-run comparison of mean per-sim action entropy (bits)."""
+    if not _HAS_MPL:
+        return
+    rows: list[tuple[str, float]] = []
+    for name, data in runs:
+        entropies = [
+            e
+            for e in (_entropy_from_counts(s.action_counts) for s in data.greedy_sims)
+            if e is not None
+        ]
+        if entropies:
+            rows.append((name, float(np.mean(entropies))))
+    if not rows:
+        return
+
+    rows.sort(key=lambda x: x[1])
+    names = [r[0] for r in rows]
+    values = [r[1] for r in rows]
+    n = len(rows)
+    colors = cm.RdYlGn(np.linspace(0.15, 0.85, n))
+
+    fig, ax = plt.subplots(figsize=(10, max(4, n * 0.45)))
+    bars = ax.barh(names, values, color=colors, edgecolor="white", linewidth=0.5)
+    for bar, v in zip(bars, values):
+        ax.text(v, bar.get_y() + bar.get_height() / 2, f"  {v:.2f}", va="center", fontsize=8)
+    ax.set_xlabel("Mean action entropy (bits)")
+    ax.set_title("SC2 Grid Search — Mean Action Entropy per Experiment")
+    ax.tick_params(axis="y", labelsize=7)
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_action_entropy.png"))
+
+
+def plot_gs_outcome_breakdown(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-run stacked horizontal bars of greedy-sim outcome fractions."""
+    if not _HAS_MPL:
+        return
+    categories = ["win", "finish", "timeout", "loss", "other"]
+    rows: list[tuple[str, dict[str, float]]] = []
+    for name, data in runs:
+        sims = data.greedy_sims
+        if not sims:
+            continue
+        counts = {c: 0 for c in categories}
+        for s in sims:
+            r = s.termination_reason or "other"
+            counts[r if r in counts else "other"] += 1
+        total = float(sum(counts.values()))
+        if total <= 0:
+            continue
+        rows.append((name, {k: (v / total) for k, v in counts.items()}))
+    if not rows:
+        return
+
+    rows.sort(key=lambda x: (-(x[1]["win"] + x[1]["finish"]), x[1]["loss"]))
+    names = [r[0] for r in rows]
+    n = len(rows)
+    y = np.arange(n)
+    fig, ax = plt.subplots(figsize=(10, max(4, n * 0.5)))
+    left = np.zeros(n, dtype=float)
+    for cat in categories:
+        vals = np.array([r[1][cat] for r in rows], dtype=float)
+        if np.all(vals == 0):
+            continue
+        ax.barh(
+            y, vals, left=left, label=cat,
+            color=_OUTCOME_COLORS[cat], edgecolor="white", linewidth=0.5
+        )
+        left += vals
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=7)
+    ax.set_xlim(0, 1.0)
+    ax.set_xlabel("Greedy-sim outcome fraction")
+    ax.set_title("SC2 Grid Search — Outcome Breakdown per Experiment")
+    ax.legend(fontsize=8, loc="lower right")
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_outcomes.png"))
+
+
+def plot_gs_supply_capped(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-run comparison of average supply-capped fraction."""
+    if not _HAS_MPL:
+        return
+    rows: list[tuple[str, float]] = []
+    for name, data in runs:
+        values = [
+            float(s.supply_capped_fraction)
+            for s in data.greedy_sims
+            if s.supply_capped_fraction is not None
+        ]
+        if values:
+            rows.append((name, float(np.mean(values))))
+    if not rows:
+        return
+
+    rows.sort(key=lambda x: x[1], reverse=True)
+    names = [r[0] for r in rows]
+    values = [r[1] for r in rows]
+    colors = ["#e74c3c" if v > 0.5 else "#f39c12" if v > 0.25 else "#27ae60" for v in values]
+
+    fig, ax = plt.subplots(figsize=(10, max(4, len(rows) * 0.45)))
+    bars = ax.barh(names, values, color=colors, edgecolor="white", linewidth=0.5)
+    for bar, v in zip(bars, values):
+        ax.text(v, bar.get_y() + bar.get_height() / 2, f"  {100*v:.1f}%", va="center", fontsize=8)
+    ax.set_xlim(0, 1.0)
+    ax.set_xlabel("Mean supply-capped fraction")
+    ax.set_title("SC2 Grid Search — Supply-Capped Time per Experiment")
+    ax.tick_params(axis="y", labelsize=7)
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_supply_capped.png"))
+
+
+def plot_gs_spatial_heatmap(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Aggregate cross-run spatial heatmap using all greedy-sim target histograms."""
+    if not _HAS_MPL:
+        return
+    agg = np.zeros((8, 8), dtype=float)
+    for _, data in runs:
+        for s in data.greedy_sims:
+            if s.xy_hist is None:
+                continue
+            agg += np.array(s.xy_hist, dtype=float)
+    if agg.sum() == 0:
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    img = ax.imshow(np.log1p(agg), cmap="YlOrRd", origin="upper", extent=[0, 1, 1, 0], aspect="equal")
+    fig.colorbar(img, ax=ax, label="log1p(steps)")
+    ax.set_title("SC2 Grid Search — Aggregate Spatial Target Heatmap")
+    ax.set_xlabel("Screen X (normalised)")
+    ax.set_ylabel("Screen Y (normalised)")
+    for v in np.linspace(0, 1, 9):
+        ax.axhline(v, color="white", linewidth=0.4, alpha=0.5)
+        ax.axvline(v, color="white", linewidth=0.4, alpha=0.5)
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_spatial_heatmap.png"))
+
+
+def _append_sc2_grid_summary_section(summary_dir: str) -> None:
+    """Append SC2-specific chart links to framework-generated summary.md."""
+    summary_path = os.path.join(summary_dir, "summary.md")
+    if not os.path.exists(summary_path):
+        return
+    items = [
+        ("comparison_action_entropy.png", "Action entropy comparison"),
+        ("comparison_outcomes.png", "Outcome breakdown comparison"),
+        ("comparison_supply_capped.png", "Supply-capped comparison"),
+        ("comparison_spatial_heatmap.png", "Aggregate spatial heatmap"),
+    ]
+    present = [(f, alt) for f, alt in items if os.path.exists(os.path.join(summary_dir, f))]
+    if not present:
+        return
+    with open(summary_path, encoding="utf-8") as f:
+        content = f.read()
+    if "## SC2-specific cross-run charts" in content:
+        return
+    lines = ["\n## SC2-specific cross-run charts\n\n"]
+    lines.extend(f"![{alt}]({filename})\n\n" for filename, alt in present)
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.writelines(lines)
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -729,4 +920,15 @@ def save_grid_summary(
         (name, _normalise_rewards_for_summary(data))
         for name, data in runs
     ]
-    _framework_save_grid_summary(normalised_runs, varied_keys, summary_dir, base_name)
+
+    def _sc2_extra(r: list[tuple[str, ExperimentData]], d: str) -> None:
+        plot_gs_action_entropy(r, d)
+        plot_gs_outcome_breakdown(r, d)
+        plot_gs_supply_capped(r, d)
+        plot_gs_spatial_heatmap(r, d)
+
+    _framework_save_grid_summary(
+        normalised_runs, varied_keys, summary_dir, base_name,
+        extra_plots_fn=_sc2_extra,
+    )
+    _append_sc2_grid_summary_section(summary_dir)

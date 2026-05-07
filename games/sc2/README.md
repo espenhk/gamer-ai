@@ -692,10 +692,14 @@ Scatter plot of per-episode reward across **all** phases on one cumulative-simul
 
 ### Grid-search summary
 
-When `grid_search.py` runs many SC2 experiments, `games/sc2/analytics.py::save_grid_summary` delegates to `framework.analytics.save_grid_summary`. Output goes to the configured summary directory (typically `experiments/sc2_<map>/grid_search_<base_name>/`):
+When `grid_search.py` runs many SC2 experiments, `games/sc2/analytics.py::save_grid_summary` delegates to `framework.analytics.save_grid_summary` and then appends SC2-specific cross-run plots. Output goes to the configured summary directory (typically `experiments/sc2_<map>/grid_search_<base_name>/`):
 
 | File | Description |
 |---|---|
 | `comparison_rewards.png` | One curve per grid combination overlaying best-reward-so-far over the greedy-sim axis — direct visual comparison of hyperparameter settings, ranked by final best reward |
 | `comparison_task_metrics.png` | Same axis, plotted against the task-progress metric (track progress / minigame progress when available). For SC2 minigames this metric is currently zero everywhere, so the plot exists but is informative only on TMNF/TORCS |
-| `summary.md` | Two ranked tables: one by task progress, one by best reward, with the varied parameters on each row plus per-experiment best-reward, improvements, finish rate, and greedy runtime |
+| `comparison_action_entropy.png` | Cross-run bar chart of mean per-sim action entropy (bits), summarising how diverse each run's action mix was |
+| `comparison_outcomes.png` | Stacked cross-run outcome fractions (win / finish / timeout / loss / other) over greedy sims per experiment |
+| `comparison_supply_capped.png` | Cross-run bar chart of average fraction of time each experiment spent supply-capped |
+| `comparison_spatial_heatmap.png` | Aggregate spatial-target heatmap built from all greedy sims across all runs (SC2 screen-target concentration overview) |
+| `summary.md` | Framework tables plus an appended **SC2-specific cross-run charts** section embedding the SC2 summary plots above |

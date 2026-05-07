@@ -406,6 +406,15 @@ class TestSaveExperimentResults(unittest.TestCase):
 
 class TestSaveGridSummary(unittest.TestCase):
 
+    def test_passes_sc2_extra_plots_hook_to_framework(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = _make_experiment([_make_sim(sim=1, reward=1.0)], name="exp_hook")
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
+                save_grid_summary([("exp_hook", data)], [], d, "gs_test")
+
+            self.assertIn("extra_plots_fn", m.call_args.kwargs)
+            self.assertTrue(callable(m.call_args.kwargs["extra_plots_fn"]))
+
     def test_normalises_rewards_from_components_before_summary(self):
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
@@ -526,6 +535,66 @@ class TestSaveGridSummary(unittest.TestCase):
                     for call in warn.call_args_list
                 )
             )
+
+    def test_writes_sc2_cross_run_summary_charts(self):
+        with tempfile.TemporaryDirectory() as d:
+            runs = [
+                (
+                    "exp_a",
+                    _make_experiment(
+                        [
+                            _make_sim(
+                                sim=1,
+                                reward=5.0,
+                                action_counts={0: 20, 2: 80},
+                                termination_reason="win",
+                                supply_capped_fraction=0.2,
+                                xy_hist=_xy_hist(3),
+                            ),
+                            _make_sim(
+                                sim=2,
+                                reward=6.0,
+                                action_counts={0: 50, 2: 50},
+                                termination_reason="finish",
+                                supply_capped_fraction=0.1,
+                                xy_hist=_xy_hist(4),
+                            ),
+                        ],
+                        name="exp_a",
+                    ),
+                ),
+                (
+                    "exp_b",
+                    _make_experiment(
+                        [
+                            _make_sim(
+                                sim=1,
+                                reward=1.0,
+                                action_counts={0: 100},
+                                termination_reason="loss",
+                                supply_capped_fraction=0.7,
+                                xy_hist=_xy_hist(1),
+                            ),
+                        ],
+                        name="exp_b",
+                    ),
+                ),
+            ]
+            save_grid_summary(runs, [], d, "gs_test")
+
+            files = set(os.listdir(d))
+            self.assertIn("comparison_action_entropy.png", files)
+            self.assertIn("comparison_outcomes.png", files)
+            self.assertIn("comparison_supply_capped.png", files)
+            self.assertIn("comparison_spatial_heatmap.png", files)
+
+            with open(os.path.join(d, "summary.md"), encoding="utf-8") as f:
+                summary = f.read()
+            self.assertIn("SC2-specific cross-run charts", summary)
+            self.assertIn("comparison_action_entropy.png", summary)
+            self.assertIn("comparison_outcomes.png", summary)
+            self.assertIn("comparison_supply_capped.png", summary)
+            self.assertIn("comparison_spatial_heatmap.png", summary)
 
 
 # ---------------------------------------------------------------------------

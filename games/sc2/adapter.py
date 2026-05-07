@@ -12,6 +12,96 @@ from framework.run_config import GameSpec, ProbeSpec, WarmupSpec, PolicyExtras
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# SC2-specific policy validation
+# ---------------------------------------------------------------------------
+
+# Policy types structurally incompatible with SC2's action encoding.
+# The framework WeightedLinearPolicy clips fn_idx to [-1, 1] and thresholds
+# x/y to binary — both wrong for SC2 where fn_idx ∈ [0, 5] and x, y ∈ [0, 1].
+_SC2_INCOMPATIBLE_POLICY_TYPES: frozenset[str] = frozenset({
+    "hill_climbing",
+    "neural_net",
+    "genetic",
+})
+
+# Migration hint for each incompatible type.
+_SC2_MIGRATION_HINT: dict[str, str] = {
+    "hill_climbing": "sc2_genetic",
+    "neural_net":    "sc2_neural_dqn or sc2_reinforce",
+    "genetic":       "sc2_genetic",
+}
+
+# Valid policy_params keys for each SC2-registered policy type.
+# All types handled either here or in the factories dict are listed so that
+# unknown keys are caught early.  Note: epsilon_greedy and mcts also use
+# .get() for each param and silently ignore unknown keys — they are included
+# here to provide the same fail-fast guarantee as SC2-native types.
+_SC2_VALID_POLICY_PARAMS: dict[str, frozenset[str]] = {
+    "sc2_genetic":    frozenset({
+        "population_size", "elite_k", "mutation_scale", "mutation_share", "eval_episodes",
+    }),
+    "neural_dqn":     frozenset({
+        "hidden_sizes", "replay_buffer_size", "batch_size", "min_replay_size",
+        "target_update_freq", "learning_rate", "epsilon_start", "epsilon_end",
+        "epsilon_decay_steps", "gamma",
+    }),
+    "sc2_neural_dqn": frozenset({
+        "hidden_sizes", "replay_buffer_size", "batch_size", "min_replay_size",
+        "target_update_freq", "learning_rate", "epsilon_start", "epsilon_end",
+        "epsilon_decay_steps", "gamma",
+    }),
+    "cmaes":          frozenset({"population_size", "initial_sigma", "eval_episodes"}),
+    "reinforce":      frozenset({
+        "hidden_sizes", "learning_rate", "gamma", "entropy_coeff", "baseline",
+    }),
+    "sc2_reinforce":  frozenset({
+        "hidden_sizes", "learning_rate", "gamma", "entropy_coeff", "baseline",
+    }),
+    "lstm":           frozenset({"hidden_size", "population_size", "initial_sigma"}),
+    "sc2_cnn":        frozenset({"population_size", "initial_sigma", "eval_episodes"}),
+    "sc2_cmaes":      frozenset({"population_size", "initial_sigma", "eval_episodes"}),
+    "sc2_lstm":       frozenset({
+        "hidden_size", "population_size", "initial_sigma", "reset_on_episode",
+    }),
+    "epsilon_greedy": frozenset({
+        "epsilon", "n_bins", "epsilon_decay", "epsilon_min", "alpha", "gamma",
+    }),
+    "mcts":           frozenset({"c", "alpha", "gamma", "n_bins"}),
+}
+
+
+def _validate_sc2_policy_config(policy_type: str, policy_params: dict) -> None:
+    """Raise ValueError early for misconfigured SC2 policy settings.
+
+    Checks two things:
+    1. ``policy_type`` is not in the set of types that are structurally
+       incompatible with SC2's action encoding (fn_idx, x, y, queue).
+    2. ``policy_params`` contains only keys that are consumed by the chosen
+       ``policy_type``; extra keys are silently ignored by each factory, so
+       they would otherwise lead to silent misconfiguration.
+    """
+    if policy_type in _SC2_INCOMPATIBLE_POLICY_TYPES:
+        hint = _SC2_MIGRATION_HINT.get(policy_type, "sc2_genetic")
+        raise ValueError(
+            f"policy_type={policy_type!r} is not compatible with SC2.  "
+            f"The framework {policy_type!r} policy clips fn_idx to [-1, 1] "
+            f"and thresholds x/y to binary, which is incorrect for SC2 "
+            f"(fn_idx ∈ [0, 5], x/y ∈ [0, 1] continuous).  "
+            f"Use {hint!r} instead — see CLAUDE.md 'Supported policies' under 'StarCraft 2'."
+        )
+
+    if policy_type in _SC2_VALID_POLICY_PARAMS and policy_params:
+        valid_keys = _SC2_VALID_POLICY_PARAMS[policy_type]
+        unknown_keys = sorted(set(policy_params) - valid_keys)
+        if unknown_keys:
+            raise ValueError(
+                f"policy_params contains keys that have no effect for "
+                f"policy_type={policy_type!r}: {unknown_keys}.  "
+                f"Valid keys for {policy_type!r}: {sorted(valid_keys)}."
+            )
+
+
 def _get_obs_spec(map_name: str, preset: str | None, enable_belief: bool):
     """Return the obs spec for *map_name*, extending with belief dims when requested."""
     from games.sc2.obs_spec import get_spec
@@ -127,13 +217,16 @@ class SC2Adapter:
     def build_extras(
         self, weights_file: str, training_params: dict, re_initialize: bool,
     ) -> PolicyExtras | None:
+        policy_type = training_params.get("policy_type", "sc2_genetic")
+        policy_params = training_params.get("policy_params") or {}
+        _validate_sc2_policy_config(policy_type, policy_params)
+
         from games.sc2.sc2_policies import SC2GeneticPolicy
 
         map_name = training_params.get("map_name", "MoveToBeacon")
         obs_spec_preset = training_params.get("obs_spec_preset")
         enable_belief = training_params.get("enable_belief", False)
         obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
-        policy_params = training_params.get("policy_params") or {}
         trainer_state_file = os.path.join(
             os.path.dirname(weights_file), "trainer_state.npz",
         )
@@ -456,6 +549,7 @@ class SC2Adapter:
             factories={
                 "sc2_genetic":   _make_sc2_genetic,
                 "neural_dqn":    _make_neural_dqn,
+                "sc2_neural_dqn": _make_sc2_neural_dqn,
                 "cmaes":         _make_cmaes,
                 "reinforce":     _make_reinforce,
                 "sc2_reinforce": _make_sc2_reinforce,
@@ -467,6 +561,7 @@ class SC2Adapter:
             loop_dispatch={
                 "sc2_genetic":   "genetic",
                 "neural_dqn":    "q_learning",
+                "sc2_neural_dqn": "q_learning",
                 "cmaes":         "cmaes",
                 "reinforce":     "q_learning",
                 "sc2_reinforce": "q_learning",

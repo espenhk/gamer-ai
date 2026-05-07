@@ -288,6 +288,72 @@ class TestSC2ClientFeatureExtractors(unittest.TestCase):
         self.assertEqual(feats["score_total"], 0.0)
         self.assertEqual(feats["collected_minerals"], 0.0)
 
+    def test_score_features_uses_field_names_over_position(self):
+        """Field-name access takes priority so a reordered PySC2 schema still
+        maps values to the correct output keys (score → score_total rename
+        handled automatically).
+
+        The mock supports *both* string and integer indexing.  The integer
+        (positional) layout is deliberately shuffled so that index 7 returns
+        a sentinel value (9999) that is different from the named value for
+        ``collected_minerals`` (777).  If positional access were used first,
+        the assertion would fail."""
+
+        class _NamedScoreArr:
+            """Stand-in for pysc2.lib.named_array.NamedNumpyArray.
+
+            Supports both string (named) and integer (positional) indexing so
+            we can verify that named access wins when both paths are available.
+            The positional list has a different ordering / values than the
+            named dict to make any positional-first bug visible.
+            """
+
+            def __init__(self, named: dict, positional: list):
+                self._named = named
+                self._pos = positional
+                self.size = len(positional)
+
+            def __getitem__(self, key):
+                if isinstance(key, str):
+                    if key not in self._named:
+                        raise KeyError(key)
+                    return self._named[key]
+                # Integer indexing returns the deliberately reordered values.
+                return self._pos[key]
+
+            def __array__(self, dtype=None):
+                arr = np.array(self._pos)
+                return arr.astype(dtype) if dtype is not None else arr
+
+        # Named values — these are the correct values for each field.
+        named_values = {
+            "score": 100.0,
+            "idle_production_time": 200.0,
+            "idle_worker_time": 300.0,
+            "total_value_units": 400.0,
+            "total_value_structures": 500.0,
+            "killed_value_units": 600.0,
+            "killed_value_structures": 700.0,
+            "collected_minerals": 777.0,  # correct named value
+            "collected_vespene": 888.0,
+            "collection_rate_minerals": 1000.0,
+            "collection_rate_vespene": 1100.0,
+            "spent_minerals": 1200.0,
+            "spent_vespene": 1300.0,
+        }
+        # Positional values — index 7 returns 9999, *not* 777.  Any code that
+        # reaches the positional path for collected_minerals would return the
+        # wrong value and be caught by the assertions below.
+        positional_values = [9999.0] * 13  # all sentinels
+
+        ob = {"score_cumulative": _NamedScoreArr(named_values, positional_values)}
+        feats = self.client._score_features(ob)
+        # 'score' → 'score_total' rename must be applied via named access.
+        self.assertEqual(feats["score_total"], 100.0)
+        # Named access must pick 777, not the positional sentinel 9999.
+        self.assertEqual(feats["collected_minerals"], 777.0)
+        self.assertEqual(feats["spent_vespene"], 1300.0)
+
     def test_screen_summary_friendly_only(self):
         screen = np.zeros((17, 64, 64), dtype=np.int32)
         screen[5, 10, 20] = 1   # one friendly pixel

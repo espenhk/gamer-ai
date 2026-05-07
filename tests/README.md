@@ -426,6 +426,7 @@ handful of iterations only).
 - click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 - movement shaping: exploration bonus for varied `Move_screen` targets; repeat-target penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible
+- attack_friendly_penalty: fires when Attack_screen targets near friendly centroid; skipped for target far from friendly / no friendly on screen / Move_screen; disabled when zero; n_ticks scaling; appears in components dict; default is strongly negative
 
 ### test_sc2_client.py — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded

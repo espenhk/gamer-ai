@@ -532,6 +532,7 @@ def _save(fig: "Figure", path: str) -> None:
 
 
 def _safe_scale(weight: float | int | None) -> float:
+    """Absolute normalization scale; tiny weights are treated as effectively zero."""
     scale = abs(float(weight or 0.0))
     return scale if scale > 1e-12 else 1.0
 
@@ -545,19 +546,30 @@ def _normalised_reward_for_sim(sim, reward_cfg: dict[str, float]) -> float:
         return float(sim.reward)
 
     total = 0.0
+    unknown_keys: set[str] = set()
     for key, value in sim.reward_components.items():
         v = float(value)
         if key == "terminal":
             if v > 0.0:
                 scale = _safe_scale(reward_cfg.get("win_bonus", 1.0))
             elif v < 0.0:
+                # Divide by abs(loss_penalty): exact configured loss maps to -1.0.
                 scale = _safe_scale(reward_cfg.get("loss_penalty", -1.0))
             else:
                 scale = 1.0
         else:
             cfg_key = _REWARD_COMPONENT_TO_CFG_KEY.get(key)
-            scale = _safe_scale(reward_cfg.get(cfg_key, 1.0)) if cfg_key else 1.0
+            if cfg_key:
+                scale = _safe_scale(reward_cfg.get(cfg_key, 1.0))
+            else:
+                scale = 1.0
+                unknown_keys.add(key)
         total += v / scale
+    if unknown_keys:
+        logger.warning(
+            "SC2 reward normalisation: unmapped reward component key(s): %s",
+            sorted(unknown_keys),
+        )
     return float(total)
 
 

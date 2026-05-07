@@ -55,7 +55,7 @@
   - [test\_sc2\_reinforce\_policy.py (39) — REINFORCE policy for SC2](#test_sc2_reinforce_policypy-39--reinforce-policy-for-sc2)
   - [test\_sc2\_play.py (21) — `play_sc2.py` script](#test_sc2_playpy-21--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py (31) — Simple64 ladder integration](#test_sc2_simple64_trainingpy-31--simple64-ladder-integration)
-  - [test\_sc2\_analytics.py (51) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-51--sc2-specific-analytics-plots-and-flags)
+  - [test\_sc2\_analytics.py (58) — SC2-specific analytics plots and flags](#test_sc2_analyticspy-58--sc2-specific-analytics-plots-and-flags)
 - [CLI / misc](#cli--misc)
   - [cli/test\_game\_flag.py (14) — `--game` CLI flag in `main.py`](#clitest_game_flagpy-14----game-cli-flag-in-mainpy)
   - [assetto\_corsa/test\_smoke.py (8) — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy-8--assetto-corsa-smoke-tests-against-fake-client)
@@ -526,7 +526,7 @@ handful of iterations only).
 - Training loops (mocked env): sc2_genetic / cmaes / neural_dqn / reinforce / lstm
 - Trainer state roundtrips: cmaes / neural_dqn
 
-### test_sc2_analytics.py (51) — SC2-specific analytics plots and flags
+### test_sc2_analytics.py (58) — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags
 - `GreedySimResult` new fields: `action_counts` / `obs_averages` / `xy_hist` — default None; stored correctly
 - `GreedySimResult` end-screen fields: `supply_capped_fraction` / `build_order` / `army_count_series` / `resource_series` — default None; stored correctly
@@ -539,6 +539,7 @@ handful of iterations only).
 - `plot_army_count`: renders to file / skips when no series / skips when no sims
 - `plot_build_order`: renders to file / skips when no build order / skips when no sims / single unit type / multiple unit types
 - `save_experiment_results`: writes results.md / writes SC2 plots (incl. new 4) / mentions game / no crash empty sims / no racing plots written
+- `save_grid_summary`: forwards config-normalized rewards (derived from reward components + reward weights) so cross-run ranking is scale-invariant; covers no-components fallback, multi-sim normalization, malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, and allow-listed `scout` component (no unmapped-key warning spam)
 
 ## CLI / misc
 
@@ -565,7 +566,7 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 911 tests run in ~50 s
+## Why 918 tests run in ~50 s
 ## Integration tests (`tests/integration/`)
 
 End-to-end tests that spin up a real gymnasium environment (no mocking) and
@@ -643,8 +644,8 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 4. **Whole files are config / dataclass tests.** `test_grid_search.py` (32), `test_reward.py` (44), `test_sc2_genetic_policy.py` (70), `test_torcs_obs_spec.py` (14), `test_analytics_task_metrics.py` (17), `test_game_adapter.py` (26) are mostly "from_yaml round-trip / shape / default-value / cartesian product" — microseconds each.
 5. **No matplotlib rendering.** TORCS analytics tests use `Agg` (non-interactive) and dump to `tmp_path`; `test_analytics_no_matplotlib.py` explicitly checks the import path that *avoids* it.
 6. **Filesystem work uses `tmp_path`** (RAM-backed `/tmp`), and the only network is `test_distributed.py` binding `localhost` for HTTP coordinator tests — which is why that's the one file with `time.sleep` and is still milliseconds because it talks to itself.
-7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 909 mostly-arithmetic asserts run in the remaining ~49 seconds.
+7. **Heavy collection work is amortised.** `pytest`'s ~1 second startup + 53 collection modules is a small share of the wall clock; once collected, 916 mostly-arithmetic asserts run in the remaining ~49 seconds.
 
-Roughly: 907 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
+Roughly: 914 tests × ~58 ms average = ~49 s of work + ~1 s of import/collection ≈ 50 s total — nothing in the suite waits on a game tick, a network packet, or a GPU.
 
 The 28 integration tests in `tests/integration/` are excluded from this count.  CarRacing tests run real Box2D physics and take ~2 s; SC2 tests launch the Blizzard headless binary and take ~1–3 minutes for test execution (the CI workflow additionally downloads the ~2 GB binary once during the setup step).

@@ -20,6 +20,7 @@ Entry point called by main.py / grid_search.py:
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 
@@ -34,6 +35,7 @@ except ImportError:
     _HAS_MPL = False
 
 import numpy as np
+import yaml
 
 from framework.analytics import (
     ExperimentData,
@@ -50,6 +52,7 @@ from framework.analytics import (
     save_grid_summary as _framework_save_grid_summary,
 )
 from games.sc2.actions import FUNCTION_IDS
+from games.sc2.reward import SC2RewardConfig
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SUPPORTS_THROTTLE: bool = False   # no accel/brake distribution plots for SC2
 SUPPORTS_PATH:     bool = False   # no pos_x / pos_z path-trace plots for SC2
+
+_REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
+    "score": "score_weight",
+    "economy": "economy_weight",
+    "idle_penalty": "idle_penalty",
+    "idle_bonus": "idle_bonus",
+    "move_exploration": "move_exploration_bonus",
+    "move_repeat_penalty": "move_repeat_penalty",
+    "move_self_penalty": "move_self_penalty",
+    "attack_move_bonus": "attack_move_bonus",
+    "click_attack_bonus": "click_attack_bonus",
+    "step_penalty": "step_penalty",
+}
+_DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())
+_NO_SCALE_COMPONENT_KEYS: set[str] = {"scout"}
+_WARNED_NON_NUMERIC_WEIGHT: bool = False
 
 # ---------------------------------------------------------------------------
 # Action-label helpers
@@ -516,6 +535,105 @@ def _save(fig: "Figure", path: str) -> None:
     plt.close(fig)
 
 
+def _safe_scale(weight: float | int | None) -> float:
+    """Absolute normalization scale; tiny weights are treated as effectively zero."""
+    global _WARNED_NON_NUMERIC_WEIGHT
+    try:
+        scale = abs(float(weight or 0.0))
+    except (TypeError, ValueError):
+        if not _WARNED_NON_NUMERIC_WEIGHT:
+            logger.warning(
+                "SC2 reward normalisation: non-numeric reward weight encountered; "
+                "using neutral scale 1.0."
+            )
+            _WARNED_NON_NUMERIC_WEIGHT = True
+        return 1.0
+    return scale if scale > 1e-12 else 1.0
+
+
+def _normalised_reward_for_sim(sim, reward_cfg: dict[str, float | int]) -> float:
+    """Return config-normalized reward for one greedy sim.
+
+    Falls back to the stored reward when reward-components are unavailable.
+    """
+    if not sim.reward_components:
+        return float(sim.reward)
+
+    total = 0.0
+    unknown_keys: set[str] = set()
+    for key, value in sim.reward_components.items():
+        v = float(value)
+        if key == "terminal":
+            if v > 0.0:
+                scale = _safe_scale(reward_cfg["win_bonus"])
+            elif v < 0.0:
+                # Divide by abs(loss_penalty): exact configured loss maps to -1.0.
+                scale = _safe_scale(reward_cfg["loss_penalty"])
+            else:
+                scale = 1.0
+        else:
+            if key in _NO_SCALE_COMPONENT_KEYS:
+                total += v
+                continue
+            cfg_key = _REWARD_COMPONENT_TO_CFG_KEY.get(key)
+            if cfg_key:
+                scale = _safe_scale(reward_cfg[cfg_key])
+            else:
+                scale = 1.0
+                unknown_keys.add(key)
+        total += v / scale
+    if unknown_keys:
+        logger.warning(
+            "SC2 reward normalisation: unmapped reward component key(s): %s",
+            sorted(unknown_keys),
+        )
+    return float(total)
+
+
+def _normalise_rewards_for_summary(data: ExperimentData) -> ExperimentData:
+    """Return a copy of *data* with greedy rewards normalized for comparisons."""
+    if not data.greedy_sims:
+        return data
+    reward_cfg: dict[str, float | int] = dict(_DEFAULT_REWARD_CFG)
+    if data.reward_config_file and os.path.exists(data.reward_config_file):
+        try:
+            with open(data.reward_config_file) as f:
+                loaded_cfg = yaml.safe_load(f) or {}
+            if isinstance(loaded_cfg, dict):
+                non_string_keys: list[object] = []
+                string_key_cfg: dict[str, object] = {}
+                for k, v in loaded_cfg.items():
+                    if isinstance(k, str):
+                        string_key_cfg[k] = v
+                    else:
+                        non_string_keys.append(k)
+                if non_string_keys:
+                    logger.warning(
+                        "SC2 reward normalisation: ignored non-string reward config keys in %s: %s",
+                        data.reward_config_file,
+                        sorted(repr(k) for k in non_string_keys),
+                    )
+                reward_cfg.update(string_key_cfg)
+            else:
+                logger.warning(
+                    "SC2 reward normalisation: reward config %s is not a mapping; "
+                    "falling back to defaults.",
+                    data.reward_config_file,
+                )
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
+            logger.warning(
+                "SC2 reward normalisation: failed to parse reward config %s (%s); "
+                "falling back to neutral scales.",
+                data.reward_config_file,
+                exc,
+            )
+    sims = [
+        dataclasses.replace(sim, reward=_normalised_reward_for_sim(sim, reward_cfg))
+        for sim in data.greedy_sims
+    ]
+    return dataclasses.replace(data, greedy_sims=sims)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -606,5 +724,9 @@ def save_grid_summary(
     summary_dir: str,
     base_name: str,
 ) -> None:
-    """Grid search cross-experiment summary using framework defaults."""
-    _framework_save_grid_summary(runs, varied_keys, summary_dir, base_name)
+    """Grid search summary with config-normalized SC2 rewards for fair comparison."""
+    normalised_runs = [
+        (name, _normalise_rewards_for_summary(data))
+        for name, data in runs
+    ]
+    _framework_save_grid_summary(normalised_runs, varied_keys, summary_dir, base_name)

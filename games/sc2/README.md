@@ -569,7 +569,7 @@ These are candidate issues discovered while reviewing the current SC2 code/docs,
 
 1. **SC2 docs drift audit + sync pass**
    - `games/sc2/README.md` still describes older observation dimensions and policy compatibility in several places.
-   - Proposed issue: align all SC2 docs to the current implementation (`minigame=15`, `ladder=45`, `rich=102`; and current policy compatibility constraints).
+   - Proposed issue: align all SC2 docs to the current implementation (`games/sc2/obs_spec.py` + `tests/test_sc2_obs_spec.py`) and current policy compatibility constraints.
 
 2. **Fail-fast validation for incompatible SC2 policy types**
    - The adapter currently accepts policy types that are known to be poor fits for SC2 output semantics.

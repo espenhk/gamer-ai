@@ -631,7 +631,7 @@ class TestSC2AttackMoveBonusAndClickAttackBonus(unittest.TestCase):
 
     def test_attack_friendly_penalty_default_is_negative(self):
         cfg = SC2RewardConfig()
-        self.assertLess(cfg.attack_friendly_penalty, 0.0)
+        self.assertAlmostEqual(cfg.attack_friendly_penalty, -5.0)
 
     def test_attack_friendly_penalty_fires_when_target_on_friendly(self):
         """Attack_screen aimed at friendly centroid → penalty fires."""

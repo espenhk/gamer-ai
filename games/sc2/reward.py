@@ -170,7 +170,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # Radius (as screen fraction) within which an Attack_screen target is
     # considered to be on a friendly unit — triggers attack_friendly_penalty.
     # Matches _CLICK_ATTACK_RADIUS_FRAC so the same sprite-footprint heuristic
-    # applies to ally detection.
+    # applies consistently to both ally and enemy targeting: one unit sprite ≈ 8 px
+    # at the 64-pixel default.  If you widen click-attack detection you will
+    # likely want to widen friendly-fire detection equally.
     _ATTACK_SELF_RADIUS_FRAC: float = 8.0 / 64.0
 
     def __init__(self, config: SC2RewardConfig) -> None:

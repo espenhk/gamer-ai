@@ -61,7 +61,7 @@ class TestGeneticPolicy(unittest.TestCase):
         self.assertAlmostEqual(gp.mutation_scale, 0.5)
         self.assertAlmostEqual(gp._mutation_scale, 0.5)
 
-
+    def test_evaluate_and_evolve_updates_champion_reward(self):
         gp = _make_genetic(pop=4, elite=2)
         gp.initialize_random()
         gp.evaluate_and_evolve([10.0, 20.0, 5.0, 1.0])

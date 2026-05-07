@@ -318,7 +318,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
                     same_target = True
                 else:
                     dx = tx_px - self._last_click_x
-                    dy = ty_px - self._last_click_y  # always set together
+                    dy = ty_px - self._last_click_y  # _last_click_x/_last_click_y are set together
                     same_target = (dx * dx + dy * dy) ** 0.5 <= click_radius_px
                 if same_target or steps_since >= cfg.click_attack_cooldown_steps:
                     click_attack_bonus = cfg.click_attack_bonus * n_ticks

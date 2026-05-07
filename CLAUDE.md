@@ -370,15 +370,20 @@ python main.py myrun --game sc2
 #   1. Edit experiments/sc2_Simple64/<name>/training_params.yaml:
 #        map_name: Simple64
 #        in_game_episode_s: 600.0
-#        policy_type: sc2_genetic    # or cmaes, neural_dqn, reinforce, lstm
+#        policy_type: sc2_genetic    # or sc2_cmaes, sc2_reinforce, sc2_lstm
 #   2. Edit experiments/sc2_Simple64/<name>/reward_config.yaml:
 #        score_weight: 0.0
 #        economy_weight: 0.001
 #   3. Run:
 python main.py myrun --game sc2 --no-interrupt
+
+# Interactive human-vs-AI play (loads champion from a completed experiment):
+python main.py myrun --game sc2 --play
 ```
 
 The first run creates `experiments/sc2_<map>/<name>/` and copies both master configs in. Edit the experiment-local copies to tune without affecting other runs.
+
+`--play` launches a two-player PySC2 session; you control one side via the SC2 UI while the trained champion policy drives the other. No weight updates occur.
 
 ### Config knobs
 
@@ -386,28 +391,40 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 |---|---|---|
 | `map_name` | `MoveToBeacon` | Any of the 7 minigame names or a ladder map (e.g. `Simple64`). |
 | `agent_race` | `random` | `protoss` / `terran` / `zerg` / `random`. |
-| `bot_difficulty` | `very_easy` | Only for ladder maps. |
+| `bot_difficulty` | `very_easy` | Only for ladder maps; ignored for minigames. |
 | `step_mul` | `8` | Game ticks per env step (~0.5 s real-time). |
 | `screen_size`, `minimap_size` | `64` | Square feature-layer resolutions. |
 | `in_game_episode_s` | `120.0` | Seconds before truncation; use `600.0` for ladder maps. |
+| `obs_spec_preset` | *(map-based)* | Override observation preset: `"minigame"` (15 dims), `"ladder"` (46 dims), `"rich"` (103 dims). Unset = minigame names → minigame, others → ladder. |
+| `screen_layers` | `[]` | Spatial feature-layer names for `sc2_cnn` (e.g. `[player_relative, unit_hit_points]`). Ignored by all other policies. |
+| `minimap_layers` | `[]` | Minimap channel names to concatenate with screen channels for `sc2_cnn`. |
+| `adaptive_mutation` | `true` | Apply the 1/5 success rule to adapt `mutation_scale` during the greedy phase. |
+| `patience` | `0` | Stop the greedy loop early if no improvement for this many consecutive sims (0 = run all). |
+| `max_apm` | *(null)* | APM cap using a rolling token-bucket limiter. Unset = no limit. |
+| `apm_burst_s` | `2.0` | Token-bucket burst window in seconds. |
+| `enable_belief` | `false` | Activate the fog-of-war belief + info-gain observation extension (adds ~192 dims for an 8×8 grid). |
 
 ### Supported policies
 
-SC2-specific policies and tabular framework policies work on both the 13-dim
-minigame and 21-dim ladder observation spaces.  The framework's generic linear
+SC2-specific policies and tabular framework policies work on both the 15-dim
+minigame and 46-dim ladder observation spaces.  The framework's generic linear
 policies (`hill_climbing`, `neural_net`, and the base `genetic`) are **not**
 compatible with SC2 because their output encoding clips `fn_idx` to `[-1, 1]`
 and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
-| `sc2_genetic` | Evolutionary (population of `SC2LinearPolicy`) | Default; recommended for first runs. |
-| `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | |
-| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | |
-| `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights | `games/sc2/policies.py` |
-| `neural_dqn` | Deep Q-network with experience replay | `games/sc2/policies.py` |
-| `reinforce` | Monte Carlo policy gradient | `games/sc2/policies.py` |
-| `lstm` | LSTM policy trained by evolutionary search | `games/sc2/policies.py` |
+| `sc2_genetic` | Evolutionary (population of `SC2MultiHeadLinearPolicy`) | Default; recommended. Separate fn_idx (6×obs_dim) and sigmoid spatial (2×obs_dim) heads. |
+| `sc2_reinforce` | Two-head REINFORCE MLP (softmax fn + sigmoid spatial) | `games/sc2/sc2_policies.py`; gradient-trained per episode |
+| `sc2_cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2MultiHeadLinearPolicy` flat weights | `games/sc2/sc2_policies.py` |
+| `sc2_lstm` | LSTM with SC2-native action encoding, trained by isotropic ES | `games/sc2/sc2_policies.py` |
+| `sc2_cnn` | CNN (two conv layers + FC) + isotropic ES; spatial pixel obs | `games/sc2/cnn_policy.py`; requires non-empty `screen_layers` |
+| `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
+| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
+| `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights *(legacy)* | `games/sc2/policies.py`; prefer `sc2_cmaes` |
+| `neural_dqn` | Deep Q-network with experience replay *(legacy)* | `games/sc2/policies.py`; selects from `DISCRETE_ACTIONS` |
+| `reinforce` | Monte Carlo policy gradient *(legacy)* | `games/sc2/policies.py`; selects from `DISCRETE_ACTIONS` |
+| `lstm` | LSTM policy trained by evolutionary search *(legacy)* | `games/sc2/policies.py`; prefer `sc2_lstm` |
 
 ### Reward tuning (`reward_config.yaml`)
 
@@ -418,6 +435,12 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `step_penalty` | `-0.001` | Per-tick time cost. |
 | `idle_penalty` | `0.0` | Per-step penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps). |
 | `idle_bonus` | `0.0` | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen.  Issue #127 — opt-in, default `0.0`.  Useful for combat minigames (DefeatRoaches, DefeatZerglingsAndBanelings) where standing still lets units shoot. |
+| `move_exploration_bonus` | `0.01` | Bonus for `Move_screen` targets that differ from the previous move target (encourages exploration). |
+| `move_repeat_penalty` | `-0.02` | Penalty for repeatedly issuing `Move_screen` to (nearly) the same point. |
+| `move_self_penalty` | `-0.01` | Penalty for issuing `Move_screen` to the centroid of currently-visible friendly units. |
+| `attack_move_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` (fn_idx 3) with the target on empty ground while enemies are visible (A-move). Opt-in. |
+| `click_attack_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` with the target directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
+| `click_attack_cooldown_steps` | `8` | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
 | `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
 
 For ladder maps (`Simple64` etc.) the recommended preset is:
@@ -450,7 +473,7 @@ Three preset specs, opt-in via the `obs_spec_preset` training param:
 |---|---|---|---|
 | `minigame` | 15 | All minigame names | Player totals, selected-unit summary, screen `player_relative` summary, and minimap beacon centroid (`minimap_enemy_cx`/`minimap_enemy_cy`). |
 | `ladder` | 46 | All non-minigame maps | Adds `food_workers`/`food_army`, idle worker / warp gate / larva counts, minimap stats (`minimap_self_count`, `minimap_enemy_count`, `minimap_visible_frac`, `minimap_explored_frac`, `minimap_camera_x/y`, `game_loop`), the 13 PySC2 score-cumulative entries, screen unit-density / mean-HP, top-K enemy counts (`topk_enemy_within_8`, `topk_enemy_within_24`), and `alert_count` (non-zero when under major attack). |
-| `rich`  | 103 | Opt-in only | Adds 8 per-unit-type friendly counts (Marine / SCV / Zergling / Drone / Probe / Stalker / Roach / Mutalisk), screen quadrant counts (NE/NW/SE/SW × self/enemy), top-3 closest enemies' (rel_x, rel_y, hp_ratio), available-actions binary mask, last-action one-hot, 8 enemy unit-type counts, screen shield/energy means (self_shield, enemy_shield, self_energy), minimap creep fraction, and economy-pipeline scalars (upgrade_count, build_queue_size, cargo_count). |
+| `rich`  | 103 | Opt-in only | Adds 8 friendly unit-type counts (Marine…Mutalisk), 8 screen-quadrant counts (NE/NW/SE/SW × self/enemy), top-3 closest enemies (rel_x, rel_y, hp_ratio), available-actions binary mask (6), last-action one-hot (6), 8 enemy unit-type counts, screen shield/energy means (self_shield, enemy_shield, self_energy), minimap creep fraction, economy pipeline (upgrade_count, build_queue_size, cargo_count), selected-unit shield/energy averages, screen visibility fraction, anti-air density, and mean weapon cooldown. |
 
 Set `obs_spec_preset: rich` in `training_params.yaml` to opt into the rich preset on any map.  Existing weight files migrate via the standard "missing key → 0.0" path — old champions can be loaded under any preset, and the new feature weights default to zero.
 

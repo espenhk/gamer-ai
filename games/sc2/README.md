@@ -14,9 +14,9 @@ StarCraft II (PySC2) integration for the tmnf-ai reinforcement learning framewor
 - [Observation space](#observation-space)
   - [How a step's observation is built](#how-a-steps-observation-is-built)
   - [Choosing a preset](#choosing-a-preset)
-  - [Preset: `minigame` (13 dims)](#preset-minigame-13-dims)
-  - [Preset: `ladder` (43 dims)](#preset-ladder-43-dims)
-  - [Preset: `rich` (80 dims)](#preset-rich-80-dims)
+  - [Preset: `minigame` (15 dims)](#preset-minigame-15-dims)
+  - [Preset: `ladder` (46 dims)](#preset-ladder-46-dims)
+  - [Preset: `rich` (103 dims)](#preset-rich-103-dims)
   - [Backward compatibility / weight migration](#backward-compatibility--weight-migration)
 - [Action space](#action-space)
 - [Reward](#reward)
@@ -83,7 +83,7 @@ Key config parameters:
 
 ### Minigames
 
-Default observation preset: `minigame` (13 dims).
+Default observation preset: `minigame` (15 dims).
 
 | Map name | Task |
 |---|---|
@@ -97,13 +97,13 @@ Default observation preset: `minigame` (13 dims).
 
 ### Ladder maps
 
-Default observation preset: `ladder` (43 dims). Any standard 1v1 map (e.g. `Simple64`, `AbyssalReef`) runs the agent against a built-in bot and uses the extended observation that adds economy, score-cumulative and minimap-visibility features.
+Default observation preset: `ladder` (46 dims). Any standard 1v1 map (e.g. `Simple64`, `AbyssalReef`) runs the agent against a built-in bot and uses the extended observation that adds economy, score-cumulative and minimap-visibility features.
 
 ---
 
 ## Observation space
 
-The flat observation vector is assembled per step from PySC2's structured fields (`obs.player`, `obs.score_cumulative`, `obs.feature_screen`, `obs.feature_minimap`, `obs.feature_units`, `obs.available_actions`). Three named **presets** decide which feature blocks land in the vector — `minigame` (13 dims), `ladder` (43 dims, default for non-minigame maps), and `rich` (80 dims, opt-in superset).
+The flat observation vector is assembled per step from PySC2's structured fields (`obs.player`, `obs.score_cumulative`, `obs.feature_screen`, `obs.feature_minimap`, `obs.feature_units`, `obs.available_actions`). Three named **presets** decide which feature blocks land in the vector — `minigame` (15 dims), `ladder` (46 dims, default for non-minigame maps), and `rich` (103 dims, opt-in superset).
 
 ### How a step's observation is built
 
@@ -119,14 +119,14 @@ This name-driven assembly is why **switching presets is just a config change** �
 Set `obs_spec_preset` in `games/sc2/config/training_params.yaml` (or the per-experiment copy under `experiments/`):
 
 ```yaml
-# obs_spec_preset: minigame   # 13 dims — default for the 7 minigames
-# obs_spec_preset: ladder     # 43 dims — default for ladder maps
-obs_spec_preset: rich         # 80 dims — research-tier superset
+# obs_spec_preset: minigame   # 15 dims — default for the 7 minigames
+# obs_spec_preset: ladder     # 46 dims — default for ladder maps
+obs_spec_preset: rich         # 103 dims — research-tier superset
 ```
 
 Leave it unset for the historic map-based default. Setting `rich` explicitly upgrades any map (including minigames) to the full superset.
 
-### Preset: `minigame` (13 dims)
+### Preset: `minigame` (15 dims)
 
 Compact spec for the 7 standard PySC2 minigames. Unchanged since before issue #126 so existing minigame champion weight files keep loading.
 
@@ -145,92 +145,115 @@ Compact spec for the 7 standard PySC2 minigames. Unchanged since before issue #1
 | 10 | `screen_self_cy` | 64 | Friendly unit centroid y (screen) |
 | 11 | `screen_enemy_cx` | 64 | Enemy unit centroid x (screen) |
 | 12 | `screen_enemy_cy` | 64 | Enemy unit centroid y (screen) |
+| 13 | `minimap_enemy_cx` | 64 | Enemy (beacon) centroid x on minimap |
+| 14 | `minimap_enemy_cy` | 64 | Enemy (beacon) centroid y on minimap |
 
-**Block view:** player base (5) + selected summary (2) + screen summary (6) = 13.
+**Block view:** player base (5) + selected summary (2) + screen summary (6) + minimap beacon (2) = 15.
 
-### Preset: `ladder` (43 dims)
+### Preset: `ladder` (46 dims)
 
-Default for non-minigame maps. Adds the supply/economy split, minimap stats, the full `score_cumulative` breakdown, screen HP summaries and top-K enemy counts.
+Default for non-minigame maps. Adds the supply/economy split, minimap stats, the full `score_cumulative` breakdown, screen HP summaries, top-K enemy counts, and an alert scalar.
 
 | # | Name | Scale | Description |
 |---|---|---:|---|
-| 0–12 | *(13 minigame features above)* | — | — |
-| 13 | `idle_worker_count` | 50 | Idle worker count |
-| 14 | `warp_gate_count` | 20 | Warp gate count |
-| 15 | `larva_count` | 20 | Larva count |
-| 16 | `food_workers` | 200 | Supply tied up in workers |
-| 17 | `food_army` | 200 | Supply tied up in army units |
-| 18 | `minimap_self_count` | 200 | Friendly pixel count on minimap |
-| 19 | `minimap_enemy_count` | 200 | Enemy pixel count on minimap (visible only) |
-| 20 | `minimap_visible_frac` | 1 | Fraction of minimap currently visible |
-| 21 | `minimap_explored_frac` | 1 | Fraction of minimap ever explored |
-| 22 | `minimap_camera_x` | 64 | Camera centroid x on minimap |
-| 23 | `minimap_camera_y` | 64 | Camera centroid y on minimap |
-| 24 | `game_loop` | 20000 | Current game loop tick |
-| 25 | `score_total` | 10000 | Cumulative environment score |
-| 26 | `idle_production_time` | 10000 | Time structures spent idle (sum) |
-| 27 | `idle_worker_time` | 10000 | Time workers spent idle (sum) |
-| 28 | `total_value_units` | 10000 | Mineral+vespene value of all units built |
-| 29 | `total_value_structures` | 10000 | Mineral+vespene value of all structures built |
-| 30 | `killed_value_units` | 10000 | Mineral+vespene value of enemy units killed |
-| 31 | `killed_value_structures` | 10000 | Mineral+vespene value of enemy structures killed |
-| 32 | `collected_minerals` | 10000 | Cumulative minerals collected |
-| 33 | `collected_vespene` | 10000 | Cumulative vespene collected |
-| 34 | `collection_rate_minerals` | 2000 | Mineral collection rate (per minute) |
-| 35 | `collection_rate_vespene` | 2000 | Vespene collection rate (per minute) |
-| 36 | `spent_minerals` | 10000 | Cumulative minerals spent |
-| 37 | `spent_vespene` | 10000 | Cumulative vespene spent |
-| 38 | `screen_unit_density_mean` | 16 | Mean unit density across screen |
-| 39 | `screen_self_hp_mean` | 100 | Mean friendly unit HP on screen |
-| 40 | `screen_enemy_hp_mean` | 100 | Mean enemy unit HP on screen |
-| 41 | `topk_enemy_within_8` | 50 | Enemy units within 8 px of friendly centroid |
-| 42 | `topk_enemy_within_24` | 50 | Enemy units within 24 px of friendly centroid |
+| 0–14 | *(15 minigame features above)* | — | — |
+| 15 | `idle_worker_count` | 50 | Idle worker count |
+| 16 | `warp_gate_count` | 20 | Warp gate count |
+| 17 | `larva_count` | 20 | Larva count |
+| 18 | `food_workers` | 200 | Supply tied up in workers |
+| 19 | `food_army` | 200 | Supply tied up in army units |
+| 20 | `minimap_self_count` | 200 | Friendly pixel count on minimap |
+| 21 | `minimap_enemy_count` | 200 | Enemy pixel count on minimap (visible only) |
+| 22 | `minimap_visible_frac` | 1 | Fraction of minimap currently visible |
+| 23 | `minimap_explored_frac` | 1 | Fraction of minimap ever explored |
+| 24 | `minimap_camera_x` | 64 | Camera centroid x on minimap |
+| 25 | `minimap_camera_y` | 64 | Camera centroid y on minimap |
+| 26 | `game_loop` | 20000 | Current game loop tick |
+| 27 | `score_total` | 10000 | Cumulative environment score |
+| 28 | `idle_production_time` | 10000 | Time structures spent idle (sum) |
+| 29 | `idle_worker_time` | 10000 | Time workers spent idle (sum) |
+| 30 | `total_value_units` | 10000 | Mineral+vespene value of all units built |
+| 31 | `total_value_structures` | 10000 | Mineral+vespene value of all structures built |
+| 32 | `killed_value_units` | 10000 | Mineral+vespene value of enemy units killed |
+| 33 | `killed_value_structures` | 10000 | Mineral+vespene value of enemy structures killed |
+| 34 | `collected_minerals` | 10000 | Cumulative minerals collected |
+| 35 | `collected_vespene` | 10000 | Cumulative vespene collected |
+| 36 | `collection_rate_minerals` | 2000 | Mineral collection rate (per minute) |
+| 37 | `collection_rate_vespene` | 2000 | Vespene collection rate (per minute) |
+| 38 | `spent_minerals` | 10000 | Cumulative minerals spent |
+| 39 | `spent_vespene` | 10000 | Cumulative vespene spent |
+| 40 | `screen_unit_density_mean` | 16 | Mean unit density across screen |
+| 41 | `screen_self_hp_mean` | 100 | Mean friendly unit HP on screen |
+| 42 | `screen_enemy_hp_mean` | 100 | Mean enemy unit HP on screen |
+| 43 | `topk_enemy_within_8` | 50 | Enemy units within 8 px of friendly centroid |
+| 44 | `topk_enemy_within_24` | 50 | Enemy units within 24 px of friendly centroid |
+| 45 | `alert_count` | 2 | Number of active alerts (0–2); >0 means under major attack |
 
-**Block view:** minigame (13) + player extras (5) + minimap summary (7) + score-cumulative (13) + screen HP (3) + top-K counts (2) = 43.
+**Block view:** minigame (15) + player extras (5) + minimap summary (7) + score-cumulative (13) + screen HP (3) + top-K counts (2) + alerts (1) = 46.
 
-### Preset: `rich` (80 dims)
+### Preset: `rich` (103 dims)
 
 Full superset for research / ablation / CNN-conditioning experiments.
 
 | # | Name | Scale | Description |
 |---|---|---:|---|
-| 0–42 | *(43 ladder features above)* | — | — |
-| 43 | `unit_count_Marine` | 50 | Friendly count of unit type Marine |
-| 44 | `unit_count_SCV` | 50 | Friendly count of unit type SCV |
-| 45 | `unit_count_Zergling` | 50 | Friendly count of unit type Zergling |
-| 46 | `unit_count_Drone` | 50 | Friendly count of unit type Drone |
-| 47 | `unit_count_Probe` | 50 | Friendly count of unit type Probe |
-| 48 | `unit_count_Stalker` | 50 | Friendly count of unit type Stalker |
-| 49 | `unit_count_Roach` | 50 | Friendly count of unit type Roach |
-| 50 | `unit_count_Mutalisk` | 50 | Friendly count of unit type Mutalisk |
-| 51 | `screen_self_NE_count` | 100 | Friendly count, NE screen quadrant |
-| 52 | `screen_self_NW_count` | 100 | Friendly count, NW screen quadrant |
-| 53 | `screen_self_SE_count` | 100 | Friendly count, SE screen quadrant |
-| 54 | `screen_self_SW_count` | 100 | Friendly count, SW screen quadrant |
-| 55 | `screen_enemy_NE_count` | 100 | Enemy count, NE screen quadrant |
-| 56 | `screen_enemy_NW_count` | 100 | Enemy count, NW screen quadrant |
-| 57 | `screen_enemy_SE_count` | 100 | Enemy count, SE screen quadrant |
-| 58 | `screen_enemy_SW_count` | 100 | Enemy count, SW screen quadrant |
-| 59 | `topk_enemy_0_rel_x` | 64 | Top-1 closest enemy: rel x to friendly centroid |
-| 60 | `topk_enemy_1_rel_x` | 64 | Top-2 closest enemy: rel x to friendly centroid |
-| 61 | `topk_enemy_2_rel_x` | 64 | Top-3 closest enemy: rel x to friendly centroid |
-| 62 | `topk_enemy_0_rel_y` | 64 | Top-1 closest enemy: rel y to friendly centroid |
-| 63 | `topk_enemy_1_rel_y` | 64 | Top-2 closest enemy: rel y to friendly centroid |
-| 64 | `topk_enemy_2_rel_y` | 64 | Top-3 closest enemy: rel y to friendly centroid |
-| 65 | `topk_enemy_0_hp_ratio` | 1 | Top-1 closest enemy: HP / max HP |
-| 66 | `topk_enemy_1_hp_ratio` | 1 | Top-2 closest enemy: HP / max HP |
-| 67 | `topk_enemy_2_hp_ratio` | 1 | Top-3 closest enemy: HP / max HP |
-| 68–73 | `available_fn_{0..5}` | 1 | Binary mask of currently-available SC2 function ids |
-| 74–79 | `last_fn_{0..5}` | 1 | One-hot of the last *executed* fn_idx (post-fallback) |
+| 0–45 | *(46 ladder features above)* | — | — |
+| 46 | `unit_count_Marine` | 50 | Friendly count of unit type Marine |
+| 47 | `unit_count_SCV` | 50 | Friendly count of unit type SCV |
+| 48 | `unit_count_Zergling` | 50 | Friendly count of unit type Zergling |
+| 49 | `unit_count_Drone` | 50 | Friendly count of unit type Drone |
+| 50 | `unit_count_Probe` | 50 | Friendly count of unit type Probe |
+| 51 | `unit_count_Stalker` | 50 | Friendly count of unit type Stalker |
+| 52 | `unit_count_Roach` | 50 | Friendly count of unit type Roach |
+| 53 | `unit_count_Mutalisk` | 50 | Friendly count of unit type Mutalisk |
+| 54 | `screen_self_NE_count` | 100 | Friendly count, NE screen quadrant |
+| 55 | `screen_self_NW_count` | 100 | Friendly count, NW screen quadrant |
+| 56 | `screen_self_SE_count` | 100 | Friendly count, SE screen quadrant |
+| 57 | `screen_self_SW_count` | 100 | Friendly count, SW screen quadrant |
+| 58 | `screen_enemy_NE_count` | 100 | Enemy count, NE screen quadrant |
+| 59 | `screen_enemy_NW_count` | 100 | Enemy count, NW screen quadrant |
+| 60 | `screen_enemy_SE_count` | 100 | Enemy count, SE screen quadrant |
+| 61 | `screen_enemy_SW_count` | 100 | Enemy count, SW screen quadrant |
+| 62 | `topk_enemy_0_rel_x` | 64 | Top-1 closest enemy: rel x to friendly centroid |
+| 63 | `topk_enemy_1_rel_x` | 64 | Top-2 closest enemy: rel x to friendly centroid |
+| 64 | `topk_enemy_2_rel_x` | 64 | Top-3 closest enemy: rel x to friendly centroid |
+| 65 | `topk_enemy_0_rel_y` | 64 | Top-1 closest enemy: rel y to friendly centroid |
+| 66 | `topk_enemy_1_rel_y` | 64 | Top-2 closest enemy: rel y to friendly centroid |
+| 67 | `topk_enemy_2_rel_y` | 64 | Top-3 closest enemy: rel y to friendly centroid |
+| 68 | `topk_enemy_0_hp_ratio` | 1 | Top-1 closest enemy: HP / max HP |
+| 69 | `topk_enemy_1_hp_ratio` | 1 | Top-2 closest enemy: HP / max HP |
+| 70 | `topk_enemy_2_hp_ratio` | 1 | Top-3 closest enemy: HP / max HP |
+| 71–76 | `available_fn_{0..5}` | 1 | Binary mask of currently-available SC2 function ids |
+| 77–82 | `last_fn_{0..5}` | 1 | One-hot of the last *executed* fn_idx (post-fallback) |
+| 83 | `enemy_count_Marine` | 50 | Enemy count of unit type Marine |
+| 84 | `enemy_count_SCV` | 50 | Enemy count of unit type SCV |
+| 85 | `enemy_count_Zergling` | 50 | Enemy count of unit type Zergling |
+| 86 | `enemy_count_Drone` | 50 | Enemy count of unit type Drone |
+| 87 | `enemy_count_Probe` | 50 | Enemy count of unit type Probe |
+| 88 | `enemy_count_Stalker` | 50 | Enemy count of unit type Stalker |
+| 89 | `enemy_count_Roach` | 50 | Enemy count of unit type Roach |
+| 90 | `enemy_count_Mutalisk` | 50 | Enemy count of unit type Mutalisk |
+| 91 | `screen_self_shield_mean` | 100 | Mean shield of friendly units on screen |
+| 92 | `screen_enemy_shield_mean` | 100 | Mean shield of enemy units on screen |
+| 93 | `screen_self_energy_mean` | 200 | Mean energy of friendly units on screen |
+| 94 | `minimap_creep_frac` | 1 | Fraction of minimap covered by Zerg creep |
+| 95 | `upgrade_count` | 30 | Number of completed upgrades |
+| 96 | `build_queue_size` | 20 | Units/structures currently under construction |
+| 97 | `cargo_count` | 10 | Units currently in transports |
+| 98 | `selected_avg_shields` | 100 | Mean shield of currently selected units |
+| 99 | `selected_avg_energy` | 200 | Mean energy of currently selected units |
+| 100 | `screen_visibility_frac` | 1 | Fraction of screen tiles currently visible |
+| 101 | `screen_unit_density_aa_mean` | 16 | Mean anti-air unit density across screen |
+| 102 | `self_weapon_cooldown_mean` | 50 | Mean weapon cooldown for friendly units (0 = all ready) |
 
-**Block view:** ladder (43) + per-unit-type counts (8) + screen quadrants (8) + top-3 closest enemies × {rel_x, rel_y, hp_ratio} (9) + available-actions mask (6) + last-action one-hot (6) = 80.
+**Block view:** ladder (46) + per-unit-type counts (8) + screen quadrants (8) + top-3 closest enemies × {rel_x, rel_y, hp_ratio} (9) + available-actions mask (6) + last-action one-hot (6) + enemy unit-type counts (8) + shield/energy means (3) + creep (1) + economy pipeline (3) + selected extras (2) + screen visibility (1) + anti-air density (1) + weapon cooldown (1) = 103.
 
-> The unit-type lookup uses `pysc2.lib.units` lazily — when PySC2 isn't installed (e.g. CI), the eight `unit_count_*` features stay at zero and the rest of the preset still works.
+> The unit-type lookup uses `pysc2.lib.units` lazily — when PySC2 isn't installed (e.g. CI), the eight `unit_count_*` and `enemy_count_*` features stay at zero and the rest of the preset still works.
 
 ### Backward compatibility / weight migration
 
-- Existing minigame champions (13-dim) keep loading under any preset because the minigame block is the prefix of all three presets and `WeightedLinearPolicy.from_cfg` / `SC2MultiHeadLinearPolicy.from_cfg` default missing weights to zero.
-- Existing pre-#126 ladder champions (21-dim) load against the new 43-dim ladder spec the same way: weights for the new feature names initialise to zero, weights for the original 21 keys load unchanged.
+- Existing minigame champions (15-dim) keep loading under any preset because the minigame block is the prefix of all three presets and `WeightedLinearPolicy.from_cfg` / `SC2MultiHeadLinearPolicy.from_cfg` default missing weights to zero.
+- Existing pre-#126 ladder champions (21-dim) load against the new 46-dim ladder spec the same way: weights for the new feature names initialise to zero, weights for the original 21 keys load unchanged.
 - Pre-#122 weight files with `spatial_{0..8}_weights` keys are silently ignored; the new `x_weights` / `y_weights` initialise to zero (sigmoid head emits the centre of the screen until training drifts the weights).
 
 ---
@@ -316,15 +339,12 @@ python grid_search.py my_sc2_grid.yaml --game sc2
 
 ## Supported policies
 
-All policies in the framework work with SC2. Set `policy_type` in `games/sc2/config/training_params.yaml`.
+SC2-compatible policies are listed below. The framework's generic `hill_climbing`, `neural_net`, and base `genetic` policies are **not** compatible with SC2: their output encoding clips `fn_idx` to `[−1, 1]` and thresholds `x`/`y` to binary, which is unsuitable for the SC2 action space — use `sc2_genetic` or `cmaes` instead.
 
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
-| `hill_climbing` | Mutate-and-keep linear policy (WeightedLinearPolicy) | Good starting point; includes probe + cold-start phases |
-| `neural_net` | MLP mutate-and-keep | Non-linear behaviour; configure `hidden_sizes` |
 | `epsilon_greedy` | Tabular Q-learning, ε-greedy | Classical RL baseline |
 | `mcts` | UCT-style Q-learning (UCB1 exploration) | More systematic exploration than ε-greedy |
-| `genetic` | Population of WeightedLinearPolicy, evolutionary crossover+mutation | Good for escaping local optima |
 | `sc2_genetic` | Population of SC2MultiHeadLinearPolicy, evolutionary crossover+mutation | SC2-native multi-head individuals; separate fn_idx and spatial heads |
 | `cmaes` | (μ/μ_w, λ)-CMA-ES over flat weight vector | Best general-purpose choice for linear policies |
 | `neural_dqn` | Deep Q-network, experience replay, target network | Gradient-based neural training |
@@ -339,9 +359,9 @@ Policy-specific hyperparameters go under `policy_params:` in `training_params.ya
 An SC2-optimised variant of the genetic algorithm. Unlike the generic `genetic` policy (which uses a single linear head per output), `sc2_genetic` maintains a population of `SC2MultiHeadLinearPolicy` individuals, each with:
 
 - **fn_idx head** — 6×obs_dim weight matrix; `argmax` selects the SC2 function ID.
-- **spatial head** — 9×obs_dim weight matrix; `argmax` selects the target grid cell.
+- **spatial head** — 2×obs_dim weight matrix; sigmoid produces continuous `(x, y) ∈ [0, 1]²` screen coordinates (issue #122).
 
-This gives each individual **15 × obs_dim** parameters (195 for minigames, 315 for ladder maps), compared to the 4 × obs_dim from the generic `genetic` policy.
+This gives each individual **(6+2) × obs_dim = 8 × obs_dim** parameters (120 for minigames, 368 for ladder maps), compared to the 4 × obs_dim from the generic `genetic` policy.
 
 ```yaml
 policy_type: sc2_genetic
@@ -363,7 +383,7 @@ Champion weights are saved in `SC2MultiHeadLinearPolicy` YAML format.
 
 The CNN policy is **the only SC2 policy that consumes spatial (pixel-level) observations**. All other policies receive a flat `np.ndarray`; `sc2_cnn` receives a `dict` with two keys:
 
-- `obs["flat"]` — the standard flat obs vector (13/43/97 dims, selected by `obs_spec_preset`)
+- `obs["flat"]` — the standard flat obs vector (15/46/103 dims, selected by `obs_spec_preset`)
 - `obs["spatial"]` — a `(C, 64, 64)` float32 array of normalised feature-layer values, where `C = len(screen_layers) + len(minimap_layers)`
 
 This dual-stream input is the **foundational difference** relative to every other policy in the framework. It is what makes the CNN uniquely capable of detecting spatial structure — enemy formations, unit clusters, HP gradients across the map — that flat scalar summaries (enemy centroid, screen pixel counts) necessarily discard.
@@ -405,11 +425,11 @@ Example totals:
 
 | C | obs_dim (preset) | Total params |
 |---|---|---|
-| 2 | 13 (minigame) | ~289 K |
-| 2 | 97 (rich) | ~310 K |
-| 4 | 13 (minigame) | ~290 K |
+| 2 | 15 (minigame) | ~289 K |
+| 2 | 103 (rich) | ~310 K |
+| 4 | 15 (minigame) | ~290 K |
 
-The FC layer `256 × (1024 + obs_dim)` dominates (~265 K of ~289 K). This is **400× the CMA-ES linear space** (~760 params, rich obs) and **17× the LSTM space** (h=32, rich obs: ~17 K params).
+The FC layer `256 × (1024 + obs_dim)` dominates (~265 K of ~289 K). This is **~350× the CMA-ES linear space** (~824 params, rich obs) and **17× the LSTM space** (h=32, rich obs: ~17 K params).
 
 #### What is fundamentally different from every other SC2 policy
 

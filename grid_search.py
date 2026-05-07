@@ -162,6 +162,7 @@ _EXPECTED_POLICY_PARAM_MAP = {
     "mutation_scale": "mutation_scale",
     "mutation_share": "mutation_share",
     "initial_sigma": "initial_sigma",
+    "eval_episodes": "eval_episodes",
 }
 
 

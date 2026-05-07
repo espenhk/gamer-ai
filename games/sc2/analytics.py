@@ -566,7 +566,7 @@ def _normalise_rewards_for_summary(data: ExperimentData) -> ExperimentData:
     if not data.greedy_sims:
         return data
     reward_cfg: dict[str, float] = {}
-    if os.path.exists(data.reward_config_file):
+    if data.reward_config_file and os.path.exists(data.reward_config_file):
         with open(data.reward_config_file) as f:
             reward_cfg = yaml.safe_load(f) or {}
     sims = [

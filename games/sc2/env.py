@@ -81,7 +81,8 @@ class SC2Env(BaseGameEnv):
         Optional maximum actions per minute.  When set, a token-bucket
         limiter replaces non-no-op actions with ``no_op`` when the budget
         is exhausted.  ``None`` (default) disables limiting.  No-op actions
-        (``fn_idx == 0``) are always free and do not consume budget.
+        (``fn_idx == 0``) are always free and do not consume budget.  While
+        combat danger is inactive, actions cannot consume burst-reserve tokens.
     apm_burst_s :
         Token-bucket burst window in seconds.  Controls how many seconds'
         worth of tokens can accumulate before the limiter kicks in.
@@ -201,6 +202,8 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_step_count: int = 0
         self._ep_xy_hist: np.ndarray = np.zeros((8, 8), dtype=np.int64)
         self._ep_apm_throttled_steps: int = 0
+        self._prev_screen_self_hp_mean: float = 0.0
+        self._apm_danger_active: bool = False
         # Per-episode SC2 end-screen analytics (supply cap, time-series, build order).
         self._ep_supply_capped_steps: int = 0
         self._ep_army_series: list = []       # [[game_time_s, army_count], ...]
@@ -235,6 +238,8 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_step_count = 0
         self._ep_xy_hist = np.zeros((8, 8), dtype=np.int64)
         self._ep_apm_throttled_steps = 0
+        self._prev_screen_self_hp_mean = float(info.get("screen_self_hp_mean", 0.0))
+        self._apm_danger_active = float(info.get("self_weapon_cooldown_mean", 0.0)) > 0.0
         self._ep_supply_capped_steps = 0
         self._ep_army_series = []
         self._ep_resource_series = []
@@ -269,7 +274,12 @@ class SC2Env(BaseGameEnv):
         # rolling token bucket tracks real elapsed time.
         _now = time.monotonic()
         _fn_idx_requested = int(action[0]) if len(action) > 0 else 0
-        if self._apm_limiter is not None and not self._apm_limiter.allow(_now, _fn_idx_requested):
+        _protect_burst_budget = not self._apm_danger_active
+        if self._apm_limiter is not None and not self._apm_limiter.allow(
+            _now,
+            _fn_idx_requested,
+            protect_burst_budget=_protect_burst_budget,
+        ):
             action = DISCRETE_ACTIONS[0].copy()
             _apm_throttled = True
             self._ep_apm_throttled_steps += 1
@@ -295,6 +305,12 @@ class SC2Env(BaseGameEnv):
         # APM throttle metadata — useful for diagnostics and analytics.
         info["apm_throttled"] = _apm_throttled
         info["episode_apm_throttled_steps"] = self._ep_apm_throttled_steps
+
+        _self_hp = float(info.get("screen_self_hp_mean", 0.0))
+        _is_shooting = float(info.get("self_weapon_cooldown_mean", 0.0)) > 0.0
+        _is_being_shot = _self_hp < self._prev_screen_self_hp_mean
+        self._apm_danger_active = _is_shooting or _is_being_shot
+        self._prev_screen_self_hp_mean = _self_hp
 
         time_over = self._elapsed_s > self._max_episode_time_s
         finished = done

@@ -424,12 +424,12 @@ handful of iterations only).
 - close calls client.close; info keys; prev_score threaded; custom reward config
 - end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
 
-### test_sc2_apm_limiter.py (29) — token-bucket APM limiter + SC2Env integration
+### test_sc2_apm_limiter.py (32) — token-bucket APM limiter + SC2Env integration
 - Construction: valid / zero/negative max_apm raises / zero/negative burst_s raises / max_tokens formula / starts full
-- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token
+- Basic behaviour: no-op always allowed; no-op free (no token consumed); first action passes; second blocked when empty; refills over time; tokens capped at max; reset refills; burst capacity; high-APM burst; default fn_idx consumes token; burst-budget protection mode caps non-dangerous bursts at steady one-second capacity
 - Rolling budget: 300 APM over 60 s allows ~300 total; first second capped at burst window
 - Env integration (disabled): no limiter attribute; action passed unchanged; apm_throttled=False; episode count stays zero
-- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill
+- Env integration (enabled): limiter created; first action passes; second throttled to no_op; no_op never throttled; throttled-steps counter accumulates; counter resets on new episode; action passes after refill; non-dangerous bursts blocked to steady capacity while dangerous (shooting) state may consume full burst budget
 
 ### test_sc2_belief_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)
 - obs shape = base + 192 dims with `enable_belief=True` for both minigame and ladder maps

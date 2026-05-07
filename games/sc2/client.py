@@ -431,6 +431,8 @@ class SC2Client:
             "screen_self_cy":     feats.get("screen_self_cy", 0.0),
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
+            "screen_self_hp_mean": feats.get("screen_self_hp_mean", 0.0),
+            "self_weapon_cooldown_mean": feats.get("self_weapon_cooldown_mean", 0.0),
             # Per-unit-type counts for build-order tracking (analytics).
             # Keys follow _RICH_UNIT_TYPES naming: "Marine", "SCV", etc.
             "unit_counts": {

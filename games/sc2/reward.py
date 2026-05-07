@@ -71,12 +71,17 @@ class SC2RewardConfig:
         Coefficient on (minerals + vespene) delta.  Useful for economy
         minigames.  Set to 0 for pure-combat minigames.
     move_exploration_bonus :
-        Per-step bonus for issuing ``Move_screen`` commands to spatial targets
-        that differ from the previous move target.  Encourages exploration
-        instead of spamming one point repeatedly.
+        Per-step bonus for issuing ``Move_screen`` commands whose target is at
+        least ``SC2RewardCalculator._MOVE_MIN_MEANINGFUL_FRAC`` of the screen
+        away from the previous move target.  Bonus scales linearly with
+        distance up to ``_MOVE_EXPLORATION_NORM``.  Sub-threshold moves receive
+        no bonus — this prevents stutter-stepping (tiny back-and-forth moves)
+        from farming exploration rewards.
     move_repeat_penalty :
-        Per-step penalty when a ``Move_screen`` command targets almost the same
-        point as the previous ``Move_screen`` command.
+        Per-step penalty when a ``Move_screen`` command targets a point that is
+        less than ``_MOVE_MIN_MEANINGFUL_FRAC`` of the screen away from the
+        previous move target (covers both exact repeats and tiny stutter
+        steps).
     move_self_penalty :
         Per-step penalty when a ``Move_screen`` command targets the centroid of
         currently-visible friendly units (a common "keep moving to where we
@@ -154,9 +159,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # scales with non-default screen_size values (~Marine range at the
     # 64-pixel default ≈ 25 px).
     _COMBAT_RANGE_FRAC: float = 25.0 / 64.0
-    # Radius (as a screen fraction) considered "same target" for repeated
-    # move commands.
-    _MOVE_REPEAT_RADIUS_FRAC: float = 2.0 / 64.0
+    # Minimum move distance (as a screen fraction) that counts as a
+    # "meaningful" move.  Below this threshold the exploration bonus is
+    # withheld and the repeat penalty is applied instead.  At the default
+    # 64-pixel screen this corresponds to ~6 px — more than a single
+    # stutter step but less than a typical tactical repositioning.
+    _MOVE_MIN_MEANINGFUL_FRAC: float = 6.0 / 64.0
     # Radius (as a screen fraction) considered "targeting where my units are".
     _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
     # Distance normaliser for movement exploration bonus.
@@ -284,11 +292,13 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 dx_prev = x - float(prev_x)
                 dy_prev = y - float(prev_y)
                 dist_prev = (dx_prev * dx_prev + dy_prev * dy_prev) ** 0.5
-                if cfg.move_exploration_bonus != 0.0:
-                    novelty = min(1.0, dist_prev / self._MOVE_EXPLORATION_NORM)
-                    move_exploration = cfg.move_exploration_bonus * novelty * n_ticks
-                if cfg.move_repeat_penalty != 0.0 and dist_prev <= self._MOVE_REPEAT_RADIUS_FRAC:
-                    move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
+                if dist_prev >= self._MOVE_MIN_MEANINGFUL_FRAC:
+                    if cfg.move_exploration_bonus != 0.0:
+                        novelty = min(1.0, dist_prev / self._MOVE_EXPLORATION_NORM)
+                        move_exploration = cfg.move_exploration_bonus * novelty * n_ticks
+                else:
+                    if cfg.move_repeat_penalty != 0.0:
+                        move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
 
             if cfg.move_self_penalty != 0.0:
                 self_count = float(info.get("screen_self_count", 0.0))

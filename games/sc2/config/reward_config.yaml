@@ -41,8 +41,16 @@ idle_penalty: 0.0
 idle_bonus: 0.0
 
 # --- Move exploration / anti-hyperfixation ---
-# Encourages varying Move_screen targets and penalizes repeatedly targeting
-# the same point or targeting where friendly units already are.
+# move_exploration_bonus: per-step bonus when a Move_screen command targets a
+#   point at least _MOVE_MIN_MEANINGFUL_FRAC (6/64 ≈ 9% of screen) away from
+#   the previous move target.  Sub-threshold moves earn no bonus — this
+#   prevents stutter-stepping (tiny back-and-forth moves) from farming reward.
+# move_repeat_penalty: per-step penalty when a Move_screen command targets a
+#   point less than _MOVE_MIN_MEANINGFUL_FRAC from the previous move target
+#   (covers both exact repeats and tiny stutter steps).
+# move_self_penalty: per-step penalty when a Move_screen command targets the
+#   centroid of currently-visible friendly units (discourages "move where we
+#   already are").
 move_exploration_bonus: 0.01
 move_repeat_penalty: -0.02
 move_self_penalty: -0.01

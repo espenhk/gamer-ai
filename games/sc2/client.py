@@ -848,8 +848,10 @@ class SC2Client:
             return out
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
+        # PySC2 player_relative values: 1=self, 2=ally, 3=neutral, 4=enemy.
+        # Count only true enemy rows (owner == 4); neutrals and allies are excluded.
         for row, owner in zip(feat_units, feat_units[:, 1]):
-            if int(owner) == 1:
+            if int(owner) != 4:
                 continue
             name = self._unit_type_id_to_name.get(int(row[0]))
             if name is not None:

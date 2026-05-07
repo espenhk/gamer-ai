@@ -43,7 +43,7 @@
   - [test\_sc2\_obs\_spec.py (18) — SC2 obs spec](#test_sc2_obs_specpy-18--sc2-obs-spec)
   - [test\_sc2\_actions.py (14) — discrete action grid](#test_sc2_actionspy-14--discrete-action-grid)
   - [test\_sc2\_reward.py (43) — SC2 reward calc](#test_sc2_rewardpy-43--sc2-reward-calc)
-  - [test\_sc2\_client.py (71) — PySC2 client wrapper](#test_sc2_clientpy-71--pysc2-client-wrapper)
+  - [test\_sc2\_client.py (73) — PySC2 client wrapper](#test_sc2_clientpy-73--pysc2-client-wrapper)
   - [test\_sc2\_env.py (27) — SC2 env wrapper](#test_sc2_envpy-27--sc2-env-wrapper)
   - [test\_sc2\_apm\_limiter.py (29) — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy-29--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py (15) — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy-15--fog-of-war-belief-system-wired-into-sc2env-issue-111)
@@ -426,10 +426,10 @@ handful of iterations only).
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 - movement shaping: exploration bonus for varied `Move_screen` targets; repeat-target penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible
 
-### test_sc2_client.py (71) — PySC2 client wrapper
+### test_sc2_client.py (73) — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
-- rich extractors (#135): enemy unit-type counts (owner filter, missing field, unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
+- rich extractors (#135): enemy unit-type counts (owner==4 only; neutral owner==3 excluded; ally owner==2 excluded; missing field; unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
 - selected-unit extras: shields + energy from cols 3/4 of single/multi_select; empty selection → zeros; short rows don't crash
 - screen_visibility_frac: all visible → 1.0; half visible → 0.25; fogged not counted; None screen / missing layer → 0
 - screen_unit_density_aa_mean: mean of unit_density_aa layer; zero layer; None screen / missing layer → 0
@@ -568,7 +568,7 @@ Assetto Corsa shared-memory client.
 
 ---
 
-## Why 918 tests run in ~50 s
+## Why 920 tests run in ~50 s
 ## Integration tests (`tests/integration/`)
 
 End-to-end tests that spin up a real gymnasium environment (no mocking) and

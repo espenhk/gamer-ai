@@ -735,7 +735,7 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
     # --- enemy unit type counts ---
 
     def test_enemy_unit_type_features_counts_enemy_only(self):
-        """Rows with owner != 1 are counted; owner == 1 rows are skipped."""
+        """Only rows with owner == 4 (enemy) are counted; all others are skipped."""
         # Inject a synthetic unit_type_id_to_name mapping.
         self.client._unit_type_id_to_name = {1: "Marine", 2: "Zergling"}
         # feature_units: columns [unit_type, owner]
@@ -748,6 +748,31 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
         feats = self.client._enemy_unit_type_features(ob)
         self.assertEqual(feats["enemy_count_Zergling"], 2.0)
         self.assertEqual(feats["enemy_count_Marine"],   0.0)
+
+    def test_enemy_unit_type_features_neutral_excluded(self):
+        """Neutral units (owner == 3) must NOT be counted as enemies."""
+        self.client._unit_type_id_to_name = {1: "Marine", 2: "Zergling"}
+        feat_units = np.array([
+            [1, 3],  # neutral Marine → skip
+            [2, 3],  # neutral Zergling → skip
+            [1, 4],  # enemy Marine → count
+        ], dtype=np.int32)
+        ob = {"feature_units": feat_units}
+        feats = self.client._enemy_unit_type_features(ob)
+        self.assertEqual(feats["enemy_count_Marine"],   1.0)
+        self.assertEqual(feats["enemy_count_Zergling"], 0.0)
+
+    def test_enemy_unit_type_features_ally_excluded(self):
+        """Ally units (owner == 2) must NOT be counted as enemies."""
+        self.client._unit_type_id_to_name = {1: "Marine", 2: "Zergling"}
+        feat_units = np.array([
+            [2, 2],  # ally Zergling → skip
+            [1, 4],  # enemy Marine → count
+        ], dtype=np.int32)
+        ob = {"feature_units": feat_units}
+        feats = self.client._enemy_unit_type_features(ob)
+        self.assertEqual(feats["enemy_count_Marine"],   1.0)
+        self.assertEqual(feats["enemy_count_Zergling"], 0.0)
 
     def test_enemy_unit_type_features_missing_feature_units(self):
         out = self.client._enemy_unit_type_features({})

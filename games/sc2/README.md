@@ -339,8 +339,8 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `step_penalty` | −0.001 | Per-step time cost |
 | `idle_penalty` | 0.0 | Penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps) |
 | `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen (issue #127). Useful for combat minigames |
-| `move_exploration_bonus` | 0.01 | Bonus for `Move_screen` targets that differ from the previous move target (encourages exploration) |
-| `move_repeat_penalty` | −0.02 | Penalty for repeatedly issuing `Move_screen` to (nearly) the same point |
+| `move_exploration_bonus` | 0.01 | Bonus for `Move_screen` targets that are at least `_MOVE_MIN_MEANINGFUL_FRAC` (6/64 ≈ 9% of screen) away from the previous move target. Sub-threshold moves receive no bonus, preventing stutter-stepping. |
+| `move_repeat_penalty` | −0.02 | Penalty when a `Move_screen` command is less than `_MOVE_MIN_MEANINGFUL_FRAC` from the previous move target (covers both exact repeats and tiny stutter steps) |
 | `move_self_penalty` | −0.01 | Penalty for issuing `Move_screen` to the friendly-unit centroid (discourages "move where we already are") |
 | `attack_move_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` with the target on empty ground while enemies are visible (A-move). Opt-in. |
 | `click_attack_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |

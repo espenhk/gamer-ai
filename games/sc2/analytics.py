@@ -20,6 +20,7 @@ Entry point called by main.py / grid_search.py:
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 
@@ -34,6 +35,7 @@ except ImportError:
     _HAS_MPL = False
 
 import numpy as np
+import yaml
 
 from framework.analytics import (
     ExperimentData,
@@ -58,6 +60,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SUPPORTS_THROTTLE: bool = False   # no accel/brake distribution plots for SC2
 SUPPORTS_PATH:     bool = False   # no pos_x / pos_z path-trace plots for SC2
+
+_REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
+    "score": "score_weight",
+    "economy": "economy_weight",
+    "idle_penalty": "idle_penalty",
+    "idle_bonus": "idle_bonus",
+    "move_exploration": "move_exploration_bonus",
+    "move_repeat_penalty": "move_repeat_penalty",
+    "move_self_penalty": "move_self_penalty",
+    "attack_move_bonus": "attack_move_bonus",
+    "click_attack_bonus": "click_attack_bonus",
+    "step_penalty": "step_penalty",
+}
 
 # ---------------------------------------------------------------------------
 # Action-label helpers
@@ -516,6 +531,51 @@ def _save(fig: "Figure", path: str) -> None:
     plt.close(fig)
 
 
+def _safe_scale(weight: float | int | None) -> float:
+    scale = abs(float(weight or 0.0))
+    return scale if scale > 1e-12 else 1.0
+
+
+def _normalised_reward_for_sim(sim, reward_cfg: dict[str, float]) -> float:
+    """Return config-normalized reward for one greedy sim.
+
+    Falls back to the stored reward when reward-components are unavailable.
+    """
+    if not sim.reward_components:
+        return float(sim.reward)
+
+    total = 0.0
+    for key, value in sim.reward_components.items():
+        v = float(value)
+        if key == "terminal":
+            if v > 0.0:
+                scale = _safe_scale(reward_cfg.get("win_bonus", 1.0))
+            elif v < 0.0:
+                scale = _safe_scale(reward_cfg.get("loss_penalty", -1.0))
+            else:
+                scale = 1.0
+        else:
+            cfg_key = _REWARD_COMPONENT_TO_CFG_KEY.get(key)
+            scale = _safe_scale(reward_cfg.get(cfg_key, 1.0)) if cfg_key else 1.0
+        total += v / scale
+    return float(total)
+
+
+def _normalise_rewards_for_summary(data: ExperimentData) -> ExperimentData:
+    """Return a copy of *data* with greedy rewards normalized for comparisons."""
+    if not data.greedy_sims:
+        return data
+    reward_cfg: dict[str, float] = {}
+    if os.path.exists(data.reward_config_file):
+        with open(data.reward_config_file) as f:
+            reward_cfg = yaml.safe_load(f) or {}
+    sims = [
+        dataclasses.replace(sim, reward=_normalised_reward_for_sim(sim, reward_cfg))
+        for sim in data.greedy_sims
+    ]
+    return dataclasses.replace(data, greedy_sims=sims)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -606,5 +666,9 @@ def save_grid_summary(
     summary_dir: str,
     base_name: str,
 ) -> None:
-    """Grid search cross-experiment summary using framework defaults."""
-    _framework_save_grid_summary(runs, varied_keys, summary_dir, base_name)
+    """Grid search summary with config-normalized SC2 rewards for fair comparison."""
+    normalised_runs = [
+        (name, _normalise_rewards_for_summary(data))
+        for name, data in runs
+    ]
+    _framework_save_grid_summary(normalised_runs, varied_keys, summary_dir, base_name)

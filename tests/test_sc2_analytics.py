@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from framework.analytics import ExperimentData, GreedySimResult
 from games.sc2.analytics import (
@@ -32,6 +33,7 @@ from games.sc2.analytics import (
     plot_resource_series,
     plot_spatial_heatmap,
     plot_supply_capped,
+    save_grid_summary,
     save_experiment_results,
 )
 
@@ -399,6 +401,42 @@ class TestSaveExperimentResults(unittest.TestCase):
                 files.isdisjoint(racing_files),
                 f"Racing-specific files found: {files & racing_files}",
             )
+
+
+class TestSaveGridSummary(unittest.TestCase):
+
+    def test_normalises_rewards_from_components_before_summary(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write("score_weight: 100.0\nstep_penalty: -2.0\n")
+
+            sim = _make_sim(
+                sim=1,
+                reward=496.0,
+                reward_components={"score": 500.0, "step_penalty": -4.0},
+            )
+            data = _make_experiment([sim], name="exp_a")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch("games.sc2.analytics._framework_save_grid_summary") as m:
+                save_grid_summary([("exp_a", data)], ["score_weight"], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 3.0, places=6)
+
+    def test_falls_back_to_raw_reward_without_components(self):
+        with tempfile.TemporaryDirectory() as d:
+            sim = _make_sim(sim=1, reward=12.5, reward_components=None)
+            data = _make_experiment([sim], name="exp_b")
+
+            with mock.patch("games.sc2.analytics._framework_save_grid_summary") as m:
+                save_grid_summary([("exp_b", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, 12.5, places=6)
 
 
 # ---------------------------------------------------------------------------

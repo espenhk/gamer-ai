@@ -293,6 +293,7 @@ class SC2Env(BaseGameEnv):
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
         info["elapsed_s"] = self._elapsed_s
+        info["raw_reward"] = float(_raw_reward)
         # Action fn_idx and target coords — required by reward shaping.
         # action_target_x/y are normalised [0, 1] screen coordinates used by
         # click_attack_bonus to distinguish "click on unit" from "attack move".

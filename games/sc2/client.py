@@ -49,6 +49,21 @@ _LAYER_SCALE: dict[str, float] = {
     "buildable":          1.0,
 }
 
+# Approximate SC2 weapon ranges in game units for tracked rich unit types.
+# Used by idle_bonus shaping to gate no_op rewards by unit-specific range.
+_UNIT_ATTACK_RANGE_GU: dict[str, float] = {
+    "Marine": 5.0,
+    "SCV": 0.1,
+    "Zergling": 0.1,
+    "Drone": 0.1,
+    "Probe": 0.1,
+    "Stalker": 6.0,
+    "Roach": 4.0,
+    "Mutalisk": 3.0,
+}
+_MARINE_RANGE_GU: float = 5.0
+_MARINE_RANGE_PX_AT_64: float = 20.0
+
 # Lazy cache: maps PySC2 native function ID → our fn_idx (0-5 in FUNCTION_IDS).
 # Built on first use when pysc2 is available.
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
@@ -506,6 +521,9 @@ class SC2Client:
                 for name in self._get_rich_unit_types()
             },
         }
+        self_attack_range_px = self._self_attack_range_px(ob)
+        if self_attack_range_px is not None:
+            info["self_attack_range_px"] = self_attack_range_px
 
         # Raw minimap visibility layer — only stored when the belief module is
         # active (store_minimap_vis=True) to avoid the per-step payload cost
@@ -969,6 +987,34 @@ class SC2Client:
         cooldowns = feat_units[self_mask, 25].astype(np.float32)
         out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
         return out
+
+    def _self_attack_range_px(self, ob: Any) -> float | None:
+        """Approximate max friendly attack range in screen pixels."""
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return None
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return None
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+
+        max_range_gu = 0.0
+        for row, owner in zip(feat_units, feat_units[:, 1]):
+            if int(owner) != 1:
+                continue
+            name = self._unit_type_id_to_name.get(int(row[0]))
+            if name is None:
+                continue
+            max_range_gu = max(max_range_gu, _UNIT_ATTACK_RANGE_GU.get(name, 0.0))
+        if max_range_gu <= 0.0:
+            return None
+
+        scale = (
+            _MARINE_RANGE_PX_AT_64
+            / _MARINE_RANGE_GU
+            * (float(self._screen_size) / 64.0)
+        )
+        return float(max_range_gu * scale)
 
     @staticmethod
     def _build_unit_type_lookup() -> dict[int, str]:

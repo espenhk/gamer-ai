@@ -422,7 +422,7 @@ handful of iterations only).
 ### test_sc2_reward.py — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
-- idle bonus: fires when no_op in combat range (including exact attack-range boundary); skipped for non-no_op / just-outside-range enemy / out-of-range enemy / no enemy / no self; disabled by default; n_ticks scaling
+- idle bonus: uses unit-aware max attack range when available and only fires at 95% inside that range (e.g. 19/20 fires, 20/20 skips); skipped for non-no_op / far enemy / no enemy / no self; disabled by default; n_ticks scaling
 - attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling
 - click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
@@ -432,6 +432,7 @@ handful of iterations only).
 ### test_sc2_client.py — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
+- info dict includes unit-aware `self_attack_range_px` derived from visible friendly `feature_units` (uses max friendly range)
 - rich extractors (#135): enemy unit-type counts (owner==4 only; neutral owner==3 excluded; ally owner==2 excluded; missing field; unknown type); shield/energy (self shield mean, no units, None screen); creep (half coverage, no creep, None minimap); economy pipeline (upgrade count, build queue, cargo, all missing); rich spec contains new names; ladder spec unchanged
 - selected-unit extras: shields + energy from cols 3/4 of single/multi_select; empty selection → zeros; short rows don't crash
 - screen_visibility_frac: all visible → 1.0; half visible → 0.25; fogged not counted; None screen / missing layer → 0

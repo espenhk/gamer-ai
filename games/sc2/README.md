@@ -338,7 +338,7 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `loss_penalty` | −100.0 | One-time penalty for losing (ladder maps) |
 | `step_penalty` | −0.001 | Per-step time cost |
 | `idle_penalty` | 0.0 | Penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps) |
-| `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen (issue #127). Useful for combat minigames |
+| `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within effective attack range of an enemy (unit-aware when `feature_units` is available). The gate uses a 5% inside-range margin to avoid edge-of-range stalling (issue #127). |
 | `move_exploration_bonus` | 0.01 | Bonus for `Move_screen` targets that are at least `_MOVE_MIN_MEANINGFUL_FRAC` (6/64 ≈ 9% of screen) away from the previous move target. Sub-threshold moves receive no bonus, preventing stutter-stepping. |
 | `move_repeat_penalty` | −0.02 | Penalty when a `Move_screen` command is less than `_MOVE_MIN_MEANINGFUL_FRAC` from the previous move target (covers both exact repeats and tiny stutter steps) |
 | `move_self_penalty` | −0.01 | Penalty for issuing `Move_screen` to the friendly-unit centroid (discourages "move where we already are") |

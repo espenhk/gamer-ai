@@ -416,7 +416,8 @@ class TestSaveGridSummary(unittest.TestCase):
             self.assertTrue(callable(m.call_args.kwargs["extra_plots_fn"]))
 
     def test_normalises_rewards_from_components_before_summary(self):
-        # score is scaled by score_weight; step_penalty passes through unscaled.
+        # score is scaled by score_weight; step_penalty is scaled by its weight (floor=0.001).
+        # Here step_penalty weight=-2.0 (well above floor), so divided by 2.0.
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
             with open(reward_cfg_path, "w", encoding="utf-8") as f:
@@ -435,8 +436,8 @@ class TestSaveGridSummary(unittest.TestCase):
 
             forwarded_runs = m.call_args.args[0]
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
-            # score: 500.0/100.0 = 5.0; step_penalty: -4.0 (unscaled) → total = 1.0
-            self.assertAlmostEqual(forwarded_sim.reward, 1.0, places=6)
+            # score: 500.0/100.0 = 5.0; step_penalty: -4.0/2.0 = -2.0 → total = 3.0
+            self.assertAlmostEqual(forwarded_sim.reward, 3.0, places=6)
 
     def test_falls_back_to_raw_reward_without_components(self):
         with tempfile.TemporaryDirectory() as d:
@@ -451,7 +452,7 @@ class TestSaveGridSummary(unittest.TestCase):
             self.assertAlmostEqual(forwarded_sim.reward, 12.5, places=6)
 
     def test_normalises_multiple_sims_independently(self):
-        # score is scaled; step_penalty passes through unscaled regardless of config weight.
+        # step_penalty weight=-2.0 (above floor), so divided by 2.0 as normal.
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
             with open(reward_cfg_path, "w", encoding="utf-8") as f:
@@ -469,9 +470,9 @@ class TestSaveGridSummary(unittest.TestCase):
 
             forwarded_runs = m.call_args.args[0]
             forwarded_sims = forwarded_runs[0][1].greedy_sims
-            # sim1: score 20/10 = 2.0; sim2: step_penalty -6.0 (unscaled)
+            # sim1: score 20/10 = 2.0; sim2: step_penalty -6/2.0 = -3.0
             self.assertAlmostEqual(forwarded_sims[0].reward, 2.0, places=6)
-            self.assertAlmostEqual(forwarded_sims[1].reward, -6.0, places=6)
+            self.assertAlmostEqual(forwarded_sims[1].reward, -3.0, places=6)
 
     def test_malformed_reward_config_yaml_does_not_crash(self):
         with tempfile.TemporaryDirectory() as d:
@@ -540,12 +541,14 @@ class TestSaveGridSummary(unittest.TestCase):
                 )
             )
 
-    def test_step_penalty_passes_through_unscaled(self):
-        """step_penalty must not be divided by its (tiny) weight — that amplifies it 1000×."""
+    def test_step_penalty_divided_by_weight_with_floor(self):
+        """step_penalty is divided by max(abs(weight), 0.001).
+        For weight=-0.001 (the minimum), the floor applies and acts as
+        the divisor — so -0.5 / 0.001 = -500 (scales by number of steps).
+        """
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
             with open(reward_cfg_path, "w", encoding="utf-8") as f:
-                # Tiny step_penalty weight: dividing by 0.001 would amplify 1000×.
                 f.write("step_penalty: -0.001\n")
 
             sim = _make_sim(
@@ -560,11 +563,11 @@ class TestSaveGridSummary(unittest.TestCase):
 
             forwarded_runs = m.call_args.args[0]
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
-            # Must remain -0.5, not the amplified -500 that the old code produced.
-            self.assertAlmostEqual(forwarded_sim.reward, -0.5, places=6)
+            # scale = max(0.001, 0.001) = 0.001 → -0.5 / 0.001 = -500
+            self.assertAlmostEqual(forwarded_sim.reward, -500.0, places=6)
 
-    def test_idle_penalty_passes_through_unscaled(self):
-        """idle_penalty must not be scaled by its weight."""
+    def test_idle_penalty_divided_by_weight_with_floor(self):
+        """idle_penalty is divided by max(abs(weight), 0.001)."""
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
             with open(reward_cfg_path, "w", encoding="utf-8") as f:
@@ -582,38 +585,32 @@ class TestSaveGridSummary(unittest.TestCase):
 
             forwarded_runs = m.call_args.args[0]
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
-            self.assertAlmostEqual(forwarded_sim.reward, -0.3, places=6)
+            # scale = max(0.001, 0.001) = 0.001 → -0.3 / 0.001 = -300
+            self.assertAlmostEqual(forwarded_sim.reward, -300.0, places=6)
 
-    def test_tiny_step_penalty_does_not_make_positive_reward_negative(self):
-        """Realistic scenario: idle_bonus > step_penalty raw → normalized reward positive."""
+    def test_weight_below_floor_clamped_to_prevent_extreme_amplification(self):
+        """A weight smaller than 0.001 is clamped to 0.001, preventing ×10000 amplification."""
         with tempfile.TemporaryDirectory() as d:
             reward_cfg_path = os.path.join(d, "reward_config.yaml")
             with open(reward_cfg_path, "w", encoding="utf-8") as f:
-                f.write("idle_bonus: 0.5\nstep_penalty: -0.001\nscore_weight: 1.0\n")
+                # weight=0.0001 would amplify by 10000× without the floor
+                f.write("step_penalty: -0.0001\n")
 
-            # Mirrors a real SC2 sim: 648 idle steps, 1504 total steps, score=-9.
             sim = _make_sim(
-                sim=1, reward=313.5,
-                reward_components={
-                    "score": -9.0,
-                    "idle_bonus": 324.0,   # 648 idle steps × 0.5
-                    "step_penalty": -1.504, # 1504 steps × 0.001
-                },
+                sim=1, reward=-0.5,
+                reward_components={"step_penalty": -0.5},
             )
-            data = _make_experiment([sim], name="exp_real")
+            data = _make_experiment([sim], name="exp_floor")
             data.reward_config_file = reward_cfg_path
 
             with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m:
-                save_grid_summary([("exp_real", data)], [], d, "gs_test")
+                save_grid_summary([("exp_floor", data)], [], d, "gs_test")
 
             forwarded_runs = m.call_args.args[0]
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
-            # score: -9/1.0 = -9; idle_bonus: 324/0.5 = 648; step_penalty: -1.504 (unscaled)
-            # → -9 + 648 + (-1.504) = 637.496
-            self.assertGreater(forwarded_sim.reward, 0.0,
-                               "normalized reward must be positive when idle_bonus "
-                               "outweighs step_penalty even with negative score component")
-            self.assertAlmostEqual(forwarded_sim.reward, 637.496, places=2)
+            # scale = max(0.0001, 0.001) = 0.001 (floor clamped, not 0.0001)
+            # → -0.5 / 0.001 = -500  (not -5000 that weight 0.0001 would give)
+            self.assertAlmostEqual(forwarded_sim.reward, -500.0, places=6)
 
     def test_writes_sc2_cross_run_summary_charts(self):
         with tempfile.TemporaryDirectory() as d:

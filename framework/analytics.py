@@ -648,15 +648,15 @@ def plot_gs_reward_trajectories(
 
     n = len(runs_with_sims)
     cmap = cm.tab10(np.linspace(0, 1, min(n, 10)))
-    fig, ax = plt.subplots(figsize=(max(8, 12), 5))
+    fig, ax = plt.subplots(figsize=(12, 5))
 
     for i, (name, data) in enumerate(runs_with_sims):
-        rewards = [s.reward for s in data.greedy_sims]
-        xs = list(range(1, len(rewards) + 1))
+        sims_sorted = sorted(data.greedy_sims, key=lambda s: s.sim)
+        xs = [s.sim for s in sims_sorted]
         running_best: list[float] = []
         best = float("-inf")
-        for r in rewards:
-            best = max(best, r)
+        for s in sims_sorted:
+            best = max(best, s.reward)
             running_best.append(best)
         color = cmap[i % len(cmap)]
         ax.step(xs, running_best, where="post", color=color, linewidth=1.4,

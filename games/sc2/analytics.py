@@ -65,6 +65,7 @@ SUPPORTS_PATH:     bool = False   # no pos_x / pos_z path-trace plots for SC2
 _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "score": "score_weight",
     "economy": "economy_weight",
+    "idle_penalty": "idle_penalty",
     "idle_bonus": "idle_bonus",
     "move_exploration": "move_exploration_bonus",
     "move_repeat_penalty": "move_repeat_penalty",
@@ -72,13 +73,11 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "attack_move_bonus": "attack_move_bonus",
     "click_attack_bonus": "click_attack_bonus",
     "attack_friendly_penalty": "attack_friendly_penalty",
+    "step_penalty": "step_penalty",
 }
 _DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())
-# Components that pass through unscaled.  These are either inherently
-# scale-free (scout) or per-step background costs whose weights are
-# intentionally tiny; dividing by a weight like 0.001 would amplify them
-# 1000× and make every normalized reward falsely negative.
-_NO_SCALE_COMPONENT_KEYS: set[str] = {"scout", "step_penalty", "idle_penalty"}
+# Components that are inherently scale-free and pass through unscaled.
+_NO_SCALE_COMPONENT_KEYS: set[str] = {"scout"}
 _WARNED_NON_NUMERIC_WEIGHT: bool = False
 
 # ---------------------------------------------------------------------------
@@ -730,7 +729,14 @@ def _save(fig: "Figure", path: str) -> None:
 
 
 def _safe_scale(weight: float | int | None) -> float:
-    """Absolute normalization scale; tiny weights are treated as effectively zero."""
+    """Normalisation scale for a reward component weight.
+
+    Returns ``abs(weight)``, clamped to a minimum of ``0.001`` so that no
+    weight causes amplification beyond ×1000.  Reward weights are assumed
+    never to be configured below ±0.001 in magnitude; the floor is a safety
+    guard against accidentally tiny values.  A zero or absent weight returns
+    1.0 (pass-through).
+    """
     global _WARNED_NON_NUMERIC_WEIGHT
     try:
         scale = abs(float(weight or 0.0))
@@ -742,7 +748,7 @@ def _safe_scale(weight: float | int | None) -> float:
             )
             _WARNED_NON_NUMERIC_WEIGHT = True
         return 1.0
-    return scale if scale > 1e-12 else 1.0
+    return max(scale, 0.001) if scale > 1e-12 else 1.0
 
 
 def _normalised_reward_for_sim(sim, reward_cfg: dict[str, float | int]) -> float:

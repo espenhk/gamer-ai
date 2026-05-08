@@ -545,7 +545,7 @@ handful of iterations only).
 - `plot_army_count`: renders to file / skips when no series / skips when no sims
 - `plot_build_order`: renders to file / skips when no build order / skips when no sims / single unit type / multiple unit types
 - `save_experiment_results`: writes results.md / writes SC2 plots (incl. new 4) / mentions game / no crash empty sims / no racing plots written
-- `save_grid_summary`: forwards config-normalized rewards (step_penalty and idle_penalty pass through unscaled — they are tiny per-step background costs that would be amplified 1000× if divided by their weight); wires SC2 extra-plot hook into framework summary generation; covers no-components fallback, multi-sim normalization (step_penalty unscaled), malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, allow-listed `scout`/`step_penalty`/`idle_penalty` components (no unmapped-key warning), step_penalty with tiny weight stays unscaled, idle_penalty stays unscaled, positive raw best reward stays positive after normalization, and emits SC2 cross-run charts + summary links
+- `save_grid_summary`: forwards config-normalized rewards (`v / max(abs(weight), 0.001)` — general 0.001 floor prevents extreme amplification from accidentally sub-floor weights, no hardcoded per-component allowlist); wires SC2 extra-plot hook into framework summary generation; covers no-components fallback, multi-sim normalization, malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, allow-listed `scout` component (no unmapped-key warning), step_penalty divided by weight floor, idle_penalty divided by weight floor, sub-floor weight (0.0001) clamped to 0.001 (not amplified 10000×), and emits SC2 cross-run charts + summary links
 
 ## CLI / misc
 

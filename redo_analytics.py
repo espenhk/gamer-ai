@@ -30,6 +30,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from typing import Any
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +42,26 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SC2_KEYS = {"map_name", "agent_race", "step_mul", "screen_size"}
+_GAME_ALIASES = {
+    "assetto_corsa": "assetto",
+    "assetto-corsa": "assetto",
+}
+_ANALYTICS_MODULES = {
+    "assetto": "assetto_corsa",
+}
+
+
+def _normalize_game_name(game: str) -> str:
+    game = (game or "").strip().lower()
+    game = _GAME_ALIASES.get(game, game)
+    return game
 
 
 def _detect_game(training_params: dict) -> str:
     """Infer game from training-param keys; defaults to 'tmnf'."""
+    game = _normalize_game_name(str(training_params.get("game", "")))
+    if game:
+        return game
     if _SC2_KEYS & set(training_params):
         return "sc2"
     return "tmnf"
@@ -59,9 +78,11 @@ def _load_analytics_fns(game: str):
     game-specific module does not export one.
     """
     save_exp = save_grid = None
+    game = _normalize_game_name(game)
+    module_game = _ANALYTICS_MODULES.get(game, game)
     try:
         mod = __import__(
-            f"games.{game}.analytics",
+            f"games.{module_game}.analytics",
             fromlist=["save_experiment_results", "save_grid_summary"],
         )
         save_exp = getattr(mod, "save_experiment_results", None)
@@ -78,6 +99,43 @@ def _load_analytics_fns(game: str):
         save_grid = _fn
 
     return save_exp, save_grid
+
+
+def _load_reward_cfg(path: str) -> dict[str, Any]:
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return data if isinstance(data, dict) else {}
+    except yaml.YAMLError:
+        logger.warning("Failed to parse reward config: %s", path)
+        return {}
+
+
+def _infer_varied_keys(all_runs: list[tuple[str, object]]) -> list[str]:
+    """Infer varied params across training_params and reward_config files."""
+    training_keys: set[str] = set()
+    reward_keys: set[str] = set()
+    reward_cfg_by_name: dict[str, dict[str, Any]] = {}
+
+    for _, data in all_runs:
+        training_keys.update(data.training_params.keys())
+        reward_cfg = _load_reward_cfg(data.reward_config_file)
+        reward_cfg_by_name[data.experiment_name] = reward_cfg
+        reward_keys.update(reward_cfg.keys())
+
+    varied_training = {
+        k
+        for k in training_keys
+        if len({str(data.training_params.get(k)) for _, data in all_runs}) > 1
+    }
+    varied_reward = {
+        k
+        for k in reward_keys
+        if len({str(reward_cfg_by_name[data.experiment_name].get(k)) for _, data in all_runs}) > 1
+    }
+    return sorted(varied_training | varied_reward)
 
 
 # ---------------------------------------------------------------------------
@@ -181,14 +239,7 @@ def redo_analytics(
 
     all_runs = [(data.experiment_name, data) for _, data in loaded]
 
-    # Infer which training_params keys differ across runs.
-    all_keys: set[str] = set()
-    for _, data in all_runs:
-        all_keys.update(data.training_params.keys())
-    varied_keys: list[str] = [
-        k for k in sorted(all_keys)
-        if len({str(data.training_params.get(k)) for _, data in all_runs}) > 1
-    ]
+    varied_keys = _infer_varied_keys(all_runs)
 
     logger.info("Writing summary (%d experiment(s)) → %s/summary.md", len(all_runs), summary_dir)
     save_grid_summary(all_runs, varied_keys, summary_dir, name)
@@ -213,12 +264,12 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default=None,
-        choices=["tmnf", "sc2", "torcs"],
+        choices=["tmnf", "sc2", "torcs", "beamng", "car_racing", "assetto", "assetto_corsa"],
         help=(
             "Game analytics module to use. "
             "Auto-detected from training_params when not given "
-            "(SC2 is inferred from 'map_name'/'agent_race' keys; "
-            "specify --game torcs explicitly for TORCS experiments)."
+            "(uses training_params['game'] when available, "
+            "otherwise SC2 is inferred from 'map_name'/'agent_race' keys)."
         ),
     )
     parser.add_argument(

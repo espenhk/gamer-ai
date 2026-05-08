@@ -164,7 +164,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # withheld and the repeat penalty is applied instead.  At the default
     # 64-pixel screen this corresponds to ~6 px — more than a single
     # stutter step but less than a typical tactical repositioning.
-    _MOVE_MIN_MEANINGFUL_FRAC: float = 12.0 / 64.0
+    _MOVE_MIN_MEANINGFUL_FRAC: float = 6.0 / 64.0
     # Radius (as a screen fraction) considered "targeting where my units are".
     _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
     # Distance normaliser for movement exploration bonus.

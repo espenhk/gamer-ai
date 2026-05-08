@@ -30,8 +30,12 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from framework.analytics import ExperimentData
 
 
 # ---------------------------------------------------------------------------
@@ -39,10 +43,28 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SC2_KEYS = {"map_name", "agent_race", "step_mul", "screen_size"}
+_GAME_ALIASES = {
+    "assetto_corsa": "assetto",
+    "assetto-corsa": "assetto",
+}
+_ANALYTICS_MODULES = {
+    "assetto": "assetto_corsa",
+}
+
+
+def _normalize_game_name(game: str | None) -> str:
+    if game is None:
+        return ""
+    game = str(game).strip().lower()
+    game = _GAME_ALIASES.get(game, game)
+    return game
 
 
 def _detect_game(training_params: dict) -> str:
     """Infer game from training-param keys; defaults to 'tmnf'."""
+    game = _normalize_game_name(training_params.get("game", ""))
+    if game:
+        return game
     if _SC2_KEYS & set(training_params):
         return "sc2"
     return "tmnf"
@@ -59,9 +81,11 @@ def _load_analytics_fns(game: str):
     game-specific module does not export one.
     """
     save_exp = save_grid = None
+    game = _normalize_game_name(game)
+    module_game = _ANALYTICS_MODULES.get(game, game)
     try:
         mod = __import__(
-            f"games.{game}.analytics",
+            f"games.{module_game}.analytics",
             fromlist=["save_experiment_results", "save_grid_summary"],
         )
         save_exp = getattr(mod, "save_experiment_results", None)
@@ -78,7 +102,6 @@ def _load_analytics_fns(game: str):
         save_grid = _fn
 
     return save_exp, save_grid
-
 
 # ---------------------------------------------------------------------------
 # Core function (importable for testing)
@@ -113,10 +136,10 @@ def redo_analytics(
         Skip regenerating individual experiment results; only write the
         combined summary (requires *summary_name* or multiple experiments).
     """
-    from framework.analytics import load_experiment_data
+    from framework.analytics import infer_varied_summary_keys, load_experiment_data
 
     # Load all experiments.
-    loaded: list[tuple[str, object]] = []  # (experiment_dir, ExperimentData)
+    loaded: list[tuple[str, "ExperimentData"]] = []  # (experiment_dir, ExperimentData)
     effective_game: str | None = game
 
     for d in experiment_dirs:
@@ -181,14 +204,7 @@ def redo_analytics(
 
     all_runs = [(data.experiment_name, data) for _, data in loaded]
 
-    # Infer which training_params keys differ across runs.
-    all_keys: set[str] = set()
-    for _, data in all_runs:
-        all_keys.update(data.training_params.keys())
-    varied_keys: list[str] = [
-        k for k in sorted(all_keys)
-        if len({str(data.training_params.get(k)) for _, data in all_runs}) > 1
-    ]
+    varied_keys = infer_varied_summary_keys(all_runs)
 
     logger.info("Writing summary (%d experiment(s)) → %s/summary.md", len(all_runs), summary_dir)
     save_grid_summary(all_runs, varied_keys, summary_dir, name)
@@ -213,12 +229,12 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default=None,
-        choices=["tmnf", "sc2", "torcs"],
+        choices=["tmnf", "sc2", "torcs", "beamng", "car_racing", "assetto"],
         help=(
             "Game analytics module to use. "
             "Auto-detected from training_params when not given "
-            "(SC2 is inferred from 'map_name'/'agent_race' keys; "
-            "specify --game torcs explicitly for TORCS experiments)."
+            "(uses training_params['game'] when available, "
+            "otherwise SC2 is inferred from 'map_name'/'agent_race' keys)."
         ),
     )
     parser.add_argument(

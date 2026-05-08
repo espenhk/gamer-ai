@@ -467,7 +467,7 @@ Trainer state (network weights + Adam moments) is saved to `trainer_state.npz` a
 
 TMNF-style MLP trained with the same mutation-and-keep hill-climbing loop as `neural_net`, but with SC2 action encoding:
 
-- `fn_idx`: sigmoid-scaled to `[0, 5]` and snapped to an available function ID.
+- `fn_idx`: sigmoid-scaled to `[0, N_FUNCTION_IDS-1]` and snapped to an available function ID.
 - `x`, `y`: sigmoid outputs in `[0, 1]`.
 - `queue`: thresholded to `{0, 1}`.
 

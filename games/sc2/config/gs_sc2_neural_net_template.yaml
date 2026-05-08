@@ -3,7 +3,7 @@
 # Usage:
 #   python grid_search.py games/sc2/config/gs_sc2_neural_net_template.yaml --game sc2
 #
-# Designed to test whether extremely large TMNF-style MLPs (multi-million
+# Designed to test whether extremely large TMNF-style MLPs (multimillion
 # parameters) can learn useful SC2 behaviour under hill-climbing.
 
 base_name: "gs_sc2_neural_net_massive_v1"

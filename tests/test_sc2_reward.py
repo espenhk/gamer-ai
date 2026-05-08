@@ -188,9 +188,14 @@ class TestSC2IdleBonus(unittest.TestCase):
         cfg_kwargs.update(kwargs)
         return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
 
-    def _combat_info(self, fn_idx: int, dist: float = 5.0) -> dict:
+    def _combat_info(
+        self,
+        fn_idx: int,
+        dist: float = 5.0,
+        self_attack_range_px: float | None = None,
+    ) -> dict:
         """Info dict with a friendly unit at (10, 10) and enemy near it."""
-        return {
+        out = {
             "prev_score": 0.0, "score": 0.0,
             "action_fn_idx": fn_idx,
             "screen_self_count":  1.0,
@@ -200,6 +205,9 @@ class TestSC2IdleBonus(unittest.TestCase):
             "screen_enemy_cx": 10.0 + dist,
             "screen_enemy_cy": 10.0,
         }
+        if self_attack_range_px is not None:
+            out["self_attack_range_px"] = self_attack_range_px
+        return out
 
     def test_idle_bonus_fires_on_no_op_in_combat_range(self):
         calc = self._make_calc(idle_bonus=2.0)
@@ -210,12 +218,38 @@ class TestSC2IdleBonus(unittest.TestCase):
         )
         self.assertAlmostEqual(r, 2.0)
 
+    def test_idle_bonus_fires_when_inside_unit_range_margin(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(
+                fn_idx=0,
+                dist=19.0,
+                self_attack_range_px=20.0,
+            ),
+        )
+        self.assertAlmostEqual(r, 2.0)
+
     def test_idle_bonus_skipped_when_action_is_not_no_op(self):
         calc = self._make_calc(idle_bonus=2.0)
         r = calc.compute(
             prev_state=None, curr_state=None, finished=False,
             elapsed_s=1.0,
             info=self._combat_info(fn_idx=2, dist=5.0),  # Move_screen
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_idle_bonus_skipped_at_unit_max_range_due_to_inside_margin(self):
+        calc = self._make_calc(idle_bonus=2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._combat_info(
+                fn_idx=0,
+                dist=20.0,
+                self_attack_range_px=20.0,
+            ),
         )
         self.assertAlmostEqual(r, 0.0)
 

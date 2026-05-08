@@ -41,12 +41,12 @@ class SC2RewardConfig:
         used by ``BuildMarines`` to discourage doing nothing.
     idle_bonus :
         Per-step bonus awarded when the agent issues ``no_op`` *and* friendly
-        units are within combat range of an enemy on the screen (issue #127).
-        Default ``0.0`` — opt-in.  Makes the "stand still so units can shoot"
-        lesson learnable rather than only discoverable through luck.  Requires
-        the screen summary features (``screen_self_count`` / ``screen_enemy_count``
-        / centroids) populated by the client; with the default obs preset
-        these are always present.
+        units are within effective attack range of an enemy on the screen
+        (issue #127).  The gate applies at 95% of max range so idling exactly
+        at the edge is not rewarded. Default ``0.0`` — opt-in.  Makes the
+        "stand still so units can shoot" lesson learnable rather than only
+        discoverable through luck. Requires screen summary features and, for
+        unit-aware range gating, ``self_attack_range_px`` from the client.
     attack_move_bonus :
         Per-step bonus awarded when the agent issues ``Attack_screen``
         (fn_idx 3) *and* the click target is **not** on a visible enemy unit
@@ -151,14 +151,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``screen_self_cx`` / ``screen_self_cy`` / ``screen_enemy_cx`` /
             ``screen_enemy_cy`` — centroids in screen pixels
         ``screen_size`` — screen feature-layer side length (default 64)
+        ``self_attack_range_px`` — optional estimated max friendly attack
+            range in pixels (from SC2 client feature_units)
     """
 
-    # Maximum centroid-distance for friendly units to be considered
-    # "in combat range" for the ``idle_bonus`` shaping reward.  Expressed
-    # as a fraction of the screen feature-layer side so the threshold
-    # scales with non-default screen_size values (~Marine range at the
-    # 64-pixel default ≈ 25 px).
-    _COMBAT_RANGE_FRAC: float = 25.0 / 64.0
+    # Fallback max attack range (fraction of screen) when unit-specific range
+    # metadata is unavailable.
+    _DEFAULT_COMBAT_RANGE_FRAC: float = 20.0 / 64.0
+    # Idle bonus only applies slightly inside max range to avoid "edge of range"
+    # stalling behavior.
+    _IDLE_RANGE_INSIDE_FRAC: float = 0.95
     # Minimum move distance (as a screen fraction) that counts as a
     # "meaningful" move.  Below this threshold the exploration bonus is
     # withheld and the repeat penalty is applied instead.  At the default
@@ -266,9 +268,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         components["idle_penalty"] = float(idle_pen)
 
         # Idle bonus (issue #127): reward standing still when units are in
-        # combat range of an enemy.  The pixel threshold scales with the
-        # screen feature-layer size so non-default screen_size resolutions
-        # behave consistently.
+        # effective attack range of an enemy. If the client provides
+        # self_attack_range_px, use that unit-aware threshold; otherwise use a
+        # conservative screen-size-scaled fallback.
         idle_bonus = 0.0
         if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
             self_count = info.get("screen_self_count", 0.0)
@@ -282,7 +284,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 )
                 dist = (dx * dx + dy * dy) ** 0.5
                 screen_size = float(info.get("screen_size", 64))
-                if dist <= self._COMBAT_RANGE_FRAC * screen_size:
+                max_attack_range_px = float(
+                    info.get(
+                        "self_attack_range_px",
+                        self._DEFAULT_COMBAT_RANGE_FRAC * screen_size,
+                    )
+                )
+                idle_gate_px = max(0.0, max_attack_range_px) * self._IDLE_RANGE_INSIDE_FRAC
+                if dist <= idle_gate_px:
                     idle_bonus = cfg.idle_bonus * n_ticks
         components["idle_bonus"] = float(idle_bonus)
 

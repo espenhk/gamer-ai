@@ -49,6 +49,70 @@ _LAYER_SCALE: dict[str, float] = {
     "buildable":          1.0,
 }
 
+# Approximate SC2 weapon ranges in game units for common combat units.
+# PySC2 exposes unit IDs via pysc2.lib.units but does not expose weapon ranges
+# directly, so we keep a curated name->range table and map it to unit IDs
+# lazily at runtime.
+#
+# Reference for checking/updating ranges:
+# - Blizzard s2client protocol unit weapon schema:
+#   https://github.com/Blizzard/s2client-proto/blob/master/s2clientprotocol/data.proto
+# - Community unit-stat tables:
+#   https://liquipedia.net/starcraft2/Unit_Statistics_(Legacy_of_the_Void)
+_UNIT_ATTACK_RANGE_GU: dict[str, float] = {
+    "Marine": 5.0,
+    "SCV": 0.1,
+    "Marauder": 6.0,
+    "Reaper": 5.0,
+    "Ghost": 6.0,
+    "Hellion": 5.0,
+    "Cyclone": 7.0,
+    "WidowMine": 5.0,
+    "SiegeTank": 7.0,
+    "SiegeTankSieged": 13.0,
+    "Thor": 7.0,
+    "ThorAP": 7.0,
+    "VikingAssault": 6.0,
+    "Banshee": 6.0,
+    "Battlecruiser": 6.0,
+    "Liberator": 5.0,
+    "LiberatorAG": 10.0,
+    "Zealot": 0.1,
+    "Adept": 4.0,
+    "Sentry": 5.0,
+    "HighTemplar": 6.0,
+    "DarkTemplar": 0.1,
+    "Immortal": 6.0,
+    "Colossus": 7.0,
+    "Archon": 3.0,
+    "Phoenix": 5.0,
+    "VoidRay": 6.0,
+    "Carrier": 8.0,
+    "Tempest": 14.0,
+    "Oracle": 4.0,
+    "Mothership": 7.0,
+    "Zergling": 0.1,
+    "Drone": 0.1,
+    "Probe": 0.1,
+    "Stalker": 6.0,
+    "Roach": 4.0,
+    "Mutalisk": 3.0,
+    "Queen": 5.0,
+    "Hydralisk": 6.0,
+    "Ravager": 6.0,
+    "Baneling": 0.1,
+    "Infestor": 0.1,
+    "Ultralisk": 1.0,
+    "Corruptor": 6.0,
+    "BroodLord": 10.0,
+    "SpineCrawler": 7.0,
+    "SporeCrawler": 7.0,
+    "LurkerMP": 8.0,
+    "LurkerMPBurrowed": 10.0,
+}
+_MARINE_RANGE_GU: float = 5.0
+_MARINE_RANGE_PX_AT_64: float = 20.0
+
 # Lazy cache: maps PySC2 native function ID → our fn_idx (0-5 in FUNCTION_IDS).
 # Built on first use when pysc2 is available.
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
@@ -211,6 +275,9 @@ class SC2Client:
         # Lookup table for unit-type ids → label, populated lazily so unit
         # tests don't import pysc2.lib.units at module load.
         self._unit_type_id_to_name: dict[int, str] | None = None
+        # Lookup table for unit-type ids → attack range (game units), used by
+        # self_attack_range_px for idle-bonus gating.
+        self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -506,6 +573,9 @@ class SC2Client:
                 for name in self._get_rich_unit_types()
             },
         }
+        self_attack_range_px = self._self_attack_range_px(ob)
+        if self_attack_range_px is not None:
+            info["self_attack_range_px"] = self_attack_range_px
 
         # Raw minimap visibility layer — only stored when the belief module is
         # active (store_minimap_vis=True) to avoid the per-step payload cost
@@ -969,6 +1039,57 @@ class SC2Client:
         cooldowns = feat_units[self_mask, 25].astype(np.float32)
         out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
         return out
+
+    def _self_attack_range_px(self, ob: Any) -> float | None:
+        """Approximate max friendly attack range in screen pixels."""
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return None
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return None
+        if self._unit_type_id_to_attack_range_gu is None:
+            self._unit_type_id_to_attack_range_gu = self._build_attack_range_lookup()
+
+        max_range_gu = 0.0
+        for row, owner in zip(feat_units, feat_units[:, 1]):
+            if int(owner) != 1:
+                continue
+            max_range_gu = max(
+                max_range_gu,
+                self._unit_type_id_to_attack_range_gu.get(int(row[0]), 0.0),
+            )
+        if max_range_gu <= 0.0:
+            return None
+
+        scale = (
+            _MARINE_RANGE_PX_AT_64
+            / _MARINE_RANGE_GU
+            * (float(self._screen_size) / 64.0)
+        )
+        return float(max_range_gu * scale)
+
+    @staticmethod
+    def _build_attack_range_lookup() -> dict[int, float]:
+        """Build {unit_type_id: attack_range_gu} for range-aware reward shaping."""
+        try:
+            from pysc2.lib import units as pysc2_units  # type: ignore[import-untyped]
+        except ImportError:
+            return {}
+        lookup: dict[int, float] = {}
+        races = (
+            getattr(pysc2_units, "Terran", None),
+            getattr(pysc2_units, "Protoss", None),
+            getattr(pysc2_units, "Zerg", None),
+            getattr(pysc2_units, "Neutral", None),
+        )
+        for race in races:
+            if race is None:
+                continue
+            for member in race:
+                r = _UNIT_ATTACK_RANGE_GU.get(member.name)
+                if r is not None:
+                    lookup[int(member.value)] = float(r)
+        return lookup
 
     @staticmethod
     def _build_unit_type_lookup() -> dict[int, str]:

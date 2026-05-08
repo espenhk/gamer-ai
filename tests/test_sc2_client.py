@@ -124,6 +124,36 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         self.assertIsNone(info["player_outcome"])
         self.assertTrue(info["is_last"])
 
+    def test_info_includes_unit_aware_attack_range_px(self):
+        self.client._unit_type_id_to_attack_range_gu = {1: 5.0}
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_units": np.array([[1, 1], [1, 4]], dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertAlmostEqual(info["self_attack_range_px"], 20.0)
+
+    def test_info_attack_range_uses_max_visible_friendly_type(self):
+        self.client._unit_type_id_to_attack_range_gu = {1: 5.0, 2: 6.0}
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_units": np.array([[1, 1], [2, 1]], dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertAlmostEqual(info["self_attack_range_px"], 24.0)
+
 
 class TestSC2ClientLadderFlatten(unittest.TestCase):
 

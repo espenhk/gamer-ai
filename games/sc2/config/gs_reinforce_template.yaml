@@ -34,7 +34,7 @@ base_name: "gs_sc2_reinforce_v1"
 game: sc2
 
 training_params:
-  map_name: DefeatRoaches
+  map_name: Simple64
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
@@ -43,12 +43,12 @@ training_params:
   agent_race: random
   n_sims: 200                 # 200 episodes; REINFORCE needs more episodes than evolutionary methods
   policy_type: reinforce
-  obs_spec_preset: [ladder, rich]   # 43-dim ladder vs 95-dim rich
+  obs_spec_preset: rich
   enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout return
   learning_rate: [0.001, 0.003, 0.005]
   entropy_coeff: [0.01, 0.05]
+  hidden_sizes: [64, 64]
   policy_params:
-    hidden_sizes: [64, 64]
     gamma: 0.99
     baseline: running_mean    # "none" disables baseline; rarely better for minigames
 

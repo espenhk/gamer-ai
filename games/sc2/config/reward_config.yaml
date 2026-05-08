@@ -52,8 +52,8 @@ idle_bonus: 0.5
 # move_self_penalty: per-step penalty when a Move_screen command targets the
 #   centroid of currently-visible friendly units (discourages "move where we
 #   already are").
-move_exploration_bonus: 0.2
-move_repeat_penalty: -0.2
+move_exploration_bonus: 1.0
+move_repeat_penalty: -0.05
 move_self_penalty: -0.1
 
 # --- Attack bonuses ---

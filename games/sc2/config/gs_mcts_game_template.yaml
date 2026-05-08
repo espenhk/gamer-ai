@@ -39,9 +39,9 @@ base_name: "gs_sc2_mcts_game_v1"
 game: sc2
 
 training_params:
+  map_name: Simple64
   obs_spec_preset: rich   # see state-space note above; ladder/rich runs are diagnostic
   enable_belief: true              # tabular state-space explosion; see comment above
-  map_name: Simple64
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
@@ -55,8 +55,3 @@ training_params:
   policy_params:
     n_bins: 3
     gamma: 0.99
-
-reward_params:
-  move_exploration_bonus: [0.5, 1.0, 2.0]
-  move_repeat_penalty: [-0.2, -0.1, -0.05]
-  move_self_penalty: [-0.1, -0.05, -0.02]

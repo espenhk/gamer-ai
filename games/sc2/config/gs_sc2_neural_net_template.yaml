@@ -10,18 +10,12 @@ base_name: "gs_sc2_neural_net_massive_v1"
 game: sc2
 
 training_params:
-  map_name: MoveToBeacon
+  map_name: Simple64
   in_game_episode_s: 120.0
   step_mul: 8
   obs_spec_preset: rich
   policy_type: sc2_neural_net
   n_sims: 800                # many generations for high-dimensional search
-  mutation_scale: [0.005, 0.01]
-  mutation_share: [0.05, 0.1]
   hidden_sizes:
     - [1024, 2048, 2048, 1024]
     - [2048, 4096, 4096, 2048]
-
-reward_params:
-  score_weight: 1.0
-  step_penalty: -0.001

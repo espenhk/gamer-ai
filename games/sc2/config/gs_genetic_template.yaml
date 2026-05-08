@@ -37,7 +37,7 @@ base_name: "gs_sc2_genetic_v1"
 game: sc2
 
 training_params:
-  map_name: DefeatRoaches
+  map_name: Simeple64
   in_game_episode_s: 120.0
   step_mul: 8
   screen_size: 64
@@ -52,8 +52,3 @@ training_params:
   eval_episodes: [2, 4]    # higher = less reward variance per fitness estimate
   mutation_scale: [0.05, 0.1, 0.2]
   mutation_share: [0.3, 1.0]     # sparse vs dense mutation
-
-reward_params:
-  move_exploration_bonus: 0.02
-  move_repeat_penalty: -0.05
-  move_self_penalty: -0.02

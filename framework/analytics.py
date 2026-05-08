@@ -630,6 +630,47 @@ def plot_gs_comparison_rewards(runs: list[tuple[str, dict]], summary_dir: str) -
     _save(fig, os.path.join(summary_dir, "comparison_rewards.png"))
 
 
+def plot_gs_reward_trajectories(
+    runs: list[tuple[str, ExperimentData]], summary_dir: str
+) -> None:
+    """Cross-run line chart of best-reward-so-far over the greedy sim axis.
+
+    Each experiment is one line.  When normalized rewards have been applied to
+    the runs before this call (e.g. via SC2's ``_normalise_rewards_for_summary``),
+    the chart reflects those normalized values, satisfying the requirement that
+    all summary charts use comparable reward scales.
+    """
+    if not _HAS_MPL:
+        return
+    runs_with_sims = [(name, data) for name, data in runs if data.greedy_sims]
+    if not runs_with_sims:
+        return
+
+    n = len(runs_with_sims)
+    cmap = cm.tab10(np.linspace(0, 1, min(n, 10)))
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    for i, (name, data) in enumerate(runs_with_sims):
+        sims_sorted = sorted(data.greedy_sims, key=lambda s: s.sim)
+        xs = [s.sim for s in sims_sorted]
+        running_best: list[float] = []
+        best = float("-inf")
+        for s in sims_sorted:
+            best = max(best, s.reward)
+            running_best.append(best)
+        color = cmap[i % len(cmap)]
+        ax.step(xs, running_best, where="post", color=color, linewidth=1.4,
+                alpha=0.85, label=name)
+
+    ax.axhline(0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
+    ax.set_xlabel("Greedy simulation")
+    ax.set_ylabel("Best reward so far")
+    ax.set_title("Grid Search — Reward Trajectory per Experiment")
+    ax.legend(fontsize=7, loc="lower right", ncol=max(1, n // 8))
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_reward_trajectories.png"))
+
+
 def plot_gs_comparison_task_metrics(runs: list[tuple[str, dict]], summary_dir: str) -> None:
     """Horizontal bar chart of best track progress per experiment (config-independent)."""
     if not _HAS_MPL:
@@ -672,6 +713,7 @@ def save_grid_summary(
 
     plot_gs_comparison_rewards([(name, s) for name, s in ranked_by_reward], summary_dir)
     plot_gs_comparison_task_metrics([(name, s) for name, s in ranked_by_progress], summary_dir)
+    plot_gs_reward_trajectories(runs, summary_dir)
     if extra_plots_fn is not None:
         extra_plots_fn(runs, summary_dir)
 
@@ -696,6 +738,7 @@ def save_grid_summary(
     lines += [
         "## Rankings by Reward\n\n",
         "![Reward comparison](comparison_rewards.png)\n\n",
+        "![Reward trajectories](comparison_reward_trajectories.png)\n\n",
         "| Rank | Experiment | Best Reward | Improvements | First Improv. Sim | Accel % | Greedy Time |\n",
         "|------|-----------|-------------|--------------|-------------------|---------|-------------|\n",
     ]

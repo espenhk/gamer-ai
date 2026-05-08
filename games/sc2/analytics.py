@@ -76,6 +76,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "step_penalty": "step_penalty",
 }
 _DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())
+# Components that are inherently scale-free and pass through unscaled.
 _NO_SCALE_COMPONENT_KEYS: set[str] = {"scout"}
 _WARNED_NON_NUMERIC_WEIGHT: bool = False
 
@@ -728,7 +729,26 @@ def _save(fig: "Figure", path: str) -> None:
 
 
 def _safe_scale(weight: float | int | None) -> float:
-    """Absolute normalization scale; tiny weights are treated as effectively zero."""
+    """Normalisation scale for a reward component weight.
+
+    Returns ``max(abs(weight), 1.0)`` so that:
+
+    * Weights **≥ 1.0** are divided by their actual value — making
+      large-weight components comparable across runs where that weight
+      differs (e.g. ``score_weight`` swept from 1 to 100 in a grid search).
+    * Weights **< 1.0** produce a scale of 1.0, passing the raw reward
+      value through unchanged.  For per-step background costs such as
+      ``step_penalty`` (weight ≈ 0.001) the raw value already *encodes*
+      the weight (``raw = steps × weight``), so dividing again would
+      amplify it by ×1000 and swamp every other component.
+
+    Two runs that differ only in a sub-1.0 weight (e.g. 0.001 vs 0.002)
+    therefore compare on their proportional raw contributions — the larger
+    weight naturally produces a larger raw value, preserving the correct
+    relative ordering without any hard-coded component allowlist.
+
+    A zero or absent weight returns 1.0 (pass-through).
+    """
     global _WARNED_NON_NUMERIC_WEIGHT
     try:
         scale = abs(float(weight or 0.0))
@@ -740,7 +760,7 @@ def _safe_scale(weight: float | int | None) -> float:
             )
             _WARNED_NON_NUMERIC_WEIGHT = True
         return 1.0
-    return scale if scale > 1e-12 else 1.0
+    return max(scale, 1.0) if scale > 1e-12 else 1.0
 
 
 def _normalised_reward_for_sim(sim, reward_cfg: dict[str, float | int]) -> float:

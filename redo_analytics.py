@@ -30,10 +30,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-from typing import Any
 from typing import TYPE_CHECKING
-
-import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -106,44 +103,6 @@ def _load_analytics_fns(game: str):
 
     return save_exp, save_grid
 
-
-def _load_reward_config(path: str | None) -> dict[str, Any]:
-    if not path or not os.path.exists(path):
-        return {}
-    try:
-        with open(path) as f:
-            data = yaml.safe_load(f) or {}
-        return data if isinstance(data, dict) else {}
-    except yaml.YAMLError:
-        logger.warning("Failed to parse reward config: %s", path)
-        return {}
-
-
-def _infer_varied_keys(all_runs: list[tuple[str, "ExperimentData"]]) -> list[str]:
-    """Infer varied params across training_params and reward_config files."""
-    training_keys: set[str] = set()
-    reward_keys: set[str] = set()
-    reward_cfg_by_name: dict[str, dict[str, Any]] = {}
-
-    for _, data in all_runs:
-        training_keys.update(data.training_params.keys())
-        reward_cfg = _load_reward_config(data.reward_config_file)
-        reward_cfg_by_name[data.experiment_name] = reward_cfg
-        reward_keys.update(reward_cfg.keys())
-
-    varied_training = {
-        k
-        for k in training_keys
-        if len({str(data.training_params.get(k)) for _, data in all_runs}) > 1
-    }
-    varied_reward = {
-        k
-        for k in reward_keys
-        if len({str(reward_cfg_by_name[data.experiment_name].get(k)) for _, data in all_runs}) > 1
-    }
-    return sorted(varied_training | varied_reward)
-
-
 # ---------------------------------------------------------------------------
 # Core function (importable for testing)
 # ---------------------------------------------------------------------------
@@ -177,10 +136,10 @@ def redo_analytics(
         Skip regenerating individual experiment results; only write the
         combined summary (requires *summary_name* or multiple experiments).
     """
-    from framework.analytics import load_experiment_data
+    from framework.analytics import infer_varied_summary_keys, load_experiment_data
 
     # Load all experiments.
-    loaded: list[tuple[str, object]] = []  # (experiment_dir, ExperimentData)
+    loaded: list[tuple[str, "ExperimentData"]] = []  # (experiment_dir, ExperimentData)
     effective_game: str | None = game
 
     for d in experiment_dirs:
@@ -245,7 +204,7 @@ def redo_analytics(
 
     all_runs = [(data.experiment_name, data) for _, data in loaded]
 
-    varied_keys = _infer_varied_keys(all_runs)
+    varied_keys = infer_varied_summary_keys(all_runs)
 
     logger.info("Writing summary (%d experiment(s)) → %s/summary.md", len(all_runs), summary_dir)
     save_grid_summary(all_runs, varied_keys, summary_dir, name)

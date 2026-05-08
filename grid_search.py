@@ -466,7 +466,7 @@ def _consolidate(
     summary_dir: str | None,
 ) -> None:
     """Load experiment data from *experiment_dirs* and produce a combined summary."""
-    from framework.analytics import load_experiment_data
+    from framework.analytics import infer_varied_summary_keys, load_experiment_data
 
     all_runs: list[tuple[str, Any]] = []
     for d in experiment_dirs:
@@ -487,16 +487,7 @@ def _consolidate(
         logger.error("No experiment data loaded — nothing to consolidate.")
         return
 
-    # Infer varied keys: collect all training_params keys whose values differ
-    # across runs.
-    all_keys: set[str] = set()
-    for _, data in all_runs:
-        all_keys.update(data.training_params.keys())
-    varied_keys: list[str] = []
-    for k in sorted(all_keys):
-        values = [data.training_params.get(k) for _, data in all_runs]
-        if len(set(str(v) for v in values)) > 1:
-            varied_keys.append(k)
+    varied_keys = infer_varied_summary_keys(all_runs)
 
     # Determine summary output dir
     if summary_dir is None:

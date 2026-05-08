@@ -142,7 +142,7 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - game detection: honors explicit `training_params.game` (incl. `assetto_corsa` alias), SC2 inferred from `map_name` / `agent_race`, TMNF default, empty params → TMNF
 - analytics loader: tmnf returns callables; unknown game falls back gracefully; `assetto` alias resolves to `games.assetto_corsa.analytics`
 - single experiment: regenerates results.md / greedy_rewards.png; no summary without `--summary-name`; summary produced when `--summary-name` given; missing dir skipped without crash; `--no-individual` without summary raises ValueError
-- multiple experiments: summary.md written; contains experiment names; individual results regenerated; `--no-individual` skips results.md but writes summary; summary dir inferred from common parent; default summary name is 'combined'; missing experiment skipped; SC2 auto-detected and run without crash; summary varied-params include reward-config differences
+- multiple experiments: summary.md written; contains experiment names; individual results regenerated; `--no-individual` skips results.md but writes summary; summary dir inferred from common parent; default summary name is 'combined'; missing experiment skipped; SC2 auto-detected and run without crash; summary varied-params include reward-config differences; duplicate experiment names no longer collide in varied-key detection; malformed/unreadable reward configs are tolerated
 
 ### test_curiosity.py — ICM/RND curiosity bonuses
 - ICM: reward decreases on repeat / non-negative / dim mismatch raises / β raises / η scales

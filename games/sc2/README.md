@@ -347,6 +347,11 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `click_attack_cooldown_steps` | 8 | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
 | `economy_weight` | 0.0 | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps |
 
+`idle_bonus` uses PySC2 unit IDs plus a curated unit-range table in `games/sc2/client.py`.
+PySC2 does not expose weapon ranges directly in `pysc2.lib.units`; to update ranges, use
+Blizzard `s2client-proto` unit weapon data (`Weapon.range`) and/or Liquipedia unit stats:
+`s2clientprotocol/data.proto` and `Unit_Statistics_(Legacy_of_the_Void)`.
+
 For ladder maps (`Simple64` etc.) the recommended preset is:
 
 ```yaml

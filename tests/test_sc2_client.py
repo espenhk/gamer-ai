@@ -125,7 +125,7 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         self.assertTrue(info["is_last"])
 
     def test_info_includes_unit_aware_attack_range_px(self):
-        self.client._unit_type_id_to_name = {1: "Marine"}
+        self.client._unit_type_id_to_attack_range_gu = {1: 5.0}
         ob = {
             "player": _NamedArr({
                 "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
@@ -140,7 +140,7 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         self.assertAlmostEqual(info["self_attack_range_px"], 20.0)
 
     def test_info_attack_range_uses_max_visible_friendly_type(self):
-        self.client._unit_type_id_to_name = {1: "Marine", 2: "Stalker"}
+        self.client._unit_type_id_to_attack_range_gu = {1: 5.0, 2: 6.0}
         ob = {
             "player": _NamedArr({
                 "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,

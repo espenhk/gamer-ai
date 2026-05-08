@@ -328,6 +328,51 @@ class TestSC2MoveShaping(unittest.TestCase):
         )
         self.assertAlmostEqual(r, -2.0)
 
+    def test_stutter_step_below_threshold_gets_no_exploration_bonus(self):
+        """A tiny move (well below _MOVE_MIN_MEANINGFUL_FRAC) earns no bonus."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        # dist = 2/64 ≈ 0.03125 — well below the 6/64 meaningful threshold
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.5 + 2.0 / 64.0, y=0.5, prev_x=0.5, prev_y=0.5),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_stutter_step_below_threshold_gets_repeat_penalty(self):
+        """A tiny non-zero move (below threshold) triggers the repeat penalty."""
+        calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
+        # dist = 2/64 ≈ 0.03125 — below threshold, so repeat penalty must fire
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.5 + 2.0 / 64.0, y=0.5, prev_x=0.5, prev_y=0.5),
+        )
+        self.assertAlmostEqual(r, -2.0)
+
+    def test_meaningful_move_at_threshold_gets_exploration_bonus(self):
+        """A move exactly at the meaningful threshold earns the exploration bonus."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        # dist = 6/64 = _MOVE_MIN_MEANINGFUL_FRAC (exactly on the boundary)
+        threshold = 6.0 / 64.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.5 + threshold, y=0.5, prev_x=0.5, prev_y=0.5),
+        )
+        self.assertGreater(r, 0.0)
+
+    def test_meaningful_move_at_threshold_no_repeat_penalty(self):
+        """A move at or above the threshold must NOT trigger the repeat penalty."""
+        calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
+        threshold = 6.0 / 64.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.5 + threshold, y=0.5, prev_x=0.5, prev_y=0.5),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
     def test_move_self_penalty_when_targeting_friendly_centroid(self):
         calc = self._make_calc(move_exploration_bonus=0.0, move_repeat_penalty=0.0)
         r = calc.compute(

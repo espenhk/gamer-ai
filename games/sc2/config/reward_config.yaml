@@ -19,13 +19,14 @@
 #   maps regardless of score_weight.
 
 # --- Primary signal ---
-score_weight: 1.0
+score_weight: 10.0
 
 # --- Terminal outcome (ladder maps) ---
 # These are applied whenever player_outcome != None (terminal ladder step).
 # For minigames player_outcome is always None, so these have no effect.
-win_bonus: 100.0
+win_bonus: 1000.0
 loss_penalty: -100.0
+
 
 # --- Time cost ---
 step_penalty: -0.001
@@ -38,19 +39,28 @@ idle_penalty: 0.0
 # combat range of an enemy.  Off by default; enable on combat minigames
 # (DefeatRoaches, DefeatZerglingsAndBanelings) to make "stand still and shoot"
 # learnable rather than only discoverable through luck.
-idle_bonus: 0.0
+idle_bonus: 0.5
 
 # --- Move exploration / anti-hyperfixation ---
-# Encourages varying Move_screen targets and penalizes repeatedly targeting
-# the same point or targeting where friendly units already are.
-move_exploration_bonus: 0.01
-move_repeat_penalty: -0.02
-move_self_penalty: -0.01
+# move_exploration_bonus: per-step bonus when a Move_screen command targets a
+#   point at least _MOVE_MIN_MEANINGFUL_FRAC (6/64 ≈ 9% of screen) away from
+#   the previous move target.  Sub-threshold moves earn no bonus — this
+#   prevents stutter-stepping (tiny back-and-forth moves) from farming reward.
+# move_repeat_penalty: per-step penalty when a Move_screen command targets a
+#   point less than _MOVE_MIN_MEANINGFUL_FRAC from the previous move target
+#   (covers both exact repeats and tiny stutter steps).
+# move_self_penalty: per-step penalty when a Move_screen command targets the
+#   centroid of currently-visible friendly units (discourages "move where we
+#   already are").
+move_exploration_bonus: 0.2
+move_repeat_penalty: -0.2
+move_self_penalty: -0.1
+
 # --- Attack bonuses ---
 # attack_move_bonus: per-step bonus when the agent issues Attack_screen
 #   (fn_idx 3) with the target on empty ground while enemies are visible.
 #   Encourages A-move behaviour over plain Move_screen so units fight back.
-attack_move_bonus: 0.0
+attack_move_bonus: 0.5
 
 # click_attack_bonus: per-step bonus when the agent issues Attack_screen
 #   with the target directly on (or very close to) a visible enemy unit.
@@ -58,7 +68,7 @@ attack_move_bonus: 0.0
 #   Rapid switching between different enemy targets is not rewarded — a new
 #   target must be either the same unit OR the agent must wait
 #   click_attack_cooldown_steps before the bonus fires again.
-click_attack_bonus: 0.0
+click_attack_bonus: 1.0
 
 # Minimum env steps between rewarded target switches for click_attack_bonus.
 # Clicking repeatedly on the same unit passes immediately; changing target
@@ -70,8 +80,8 @@ click_attack_cooldown_steps: 8
 # click target lands on or near the centroid of visible friendly units.
 # This causes ally units to shoot team-mates — penalise it heavily.
 # Set to 0.0 to disable.
-attack_friendly_penalty: -5.0
+attack_friendly_penalty: -10.0
 
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
-economy_weight: 0.0
+economy_weight: 0.001

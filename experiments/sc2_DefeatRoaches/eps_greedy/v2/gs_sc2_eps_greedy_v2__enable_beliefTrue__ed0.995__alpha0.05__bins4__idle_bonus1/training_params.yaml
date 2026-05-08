@@ -1,0 +1,16 @@
+map_name: DefeatRoaches
+obs_spec_preset: rich
+enable_belief: true
+in_game_episode_s: 120.0
+step_mul: 8
+screen_size: 64
+minimap_size: 64
+agent_race: terran
+n_sims: 300
+policy_type: epsilon_greedy
+epsilon_decay: 0.995
+alpha: 0.05
+n_bins: 4
+epsilon: 1.0
+epsilon_min: 0.05
+gamma: 0.99

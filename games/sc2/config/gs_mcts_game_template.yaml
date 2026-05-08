@@ -1,0 +1,62 @@
+# Grid search template: mcts — MoveToBeacon
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_mcts_template.yaml --game sc2
+#
+# UCT-style online Q-learner.  Action selection uses UCB1:
+#   score(s, a) = Q(s,a) + c × sqrt(ln(N(s)+1) / (N(s,a)+ε))
+# No env cloning — value tables are built incrementally over real episodes.
+#
+# c controls the exploration–exploitation tradeoff: c=1.41 (√2) is the
+# theoretical UCB constant; lower c (→ 1.0) is more exploitative once a
+# state is well-visited; higher c (→ 2.0) keeps exploring longer.
+#
+# Good first sweep: c × alpha.
+# c is the primary knob: larger values are better early when the Q-table is
+# sparse, but hurt once values converge.  alpha controls how fast Q-values
+# update — too high causes oscillation, too low leaves stale estimates.
+#
+# obs_spec_preset for tabular policies
+# --------------------------------------
+# The tabular state key is a discretised bin-tuple of the full observation.
+# Theoretical max states with n_bins=3:
+#   minigame (13 dims):  3^13  ≈  1.6 M   — manageable
+#   ladder   (43 dims):  3^43  ≈  10^20   — intractable; Q-table rarely revisits states
+#   rich     (95 dims):  3^95  ≈  10^45   — deeply intractable
+# In practice only visited states are stored, so the Q-table stays small.
+# But generalisation degrades sharply as obs_dim grows: with 300 episodes the
+# agent sees ~72 000 unique states at most, giving almost no revisits under
+# a 43-dim or 95-dim obs.  Expect ladder/rich runs to converge more slowly
+# than the minigame default; this sweep is primarily diagnostic.
+#
+# Belief system: NOT compatible with tabular policies
+# ---------------------------------------------------
+# enable_belief is fixed to false.  Adding 192 belief dims on top of 43–95
+# obs dims gives 3^235–3^287 ≈ 10^112–10^137 possible states — no state
+# would ever be revisited.  Use neural_dqn for belief + Q-learning.
+
+base_name: "gs_sc2_mcts_game_v1"
+game: sc2
+
+training_params:
+  obs_spec_preset: rich   # see state-space note above; ladder/rich runs are diagnostic
+  enable_belief: true              # tabular state-space explosion; see comment above
+  map_name: Simple64
+  in_game_episode_s: 120.0
+  step_mul: 8
+  screen_size: 64
+  minimap_size: 64
+  max_apm: 300
+  agent_race: [terran, zerg, protoss]
+  n_sims: 300                 # 300 episodes; UCT needs a dense Q-table before exploitation is reliable
+  policy_type: mcts
+  mcts_c: [1.0, 1.41, 2.0]
+  alpha: [0.05, 0.1, 0.2]
+  policy_params:
+    n_bins: 3
+    gamma: 0.99
+
+reward_params:
+  move_exploration_bonus: [0.5, 1.0, 2.0]
+  move_repeat_penalty: [-0.2, -0.1, -0.05]
+  move_self_penalty: [-0.1, -0.05, -0.02]

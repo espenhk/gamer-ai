@@ -1,0 +1,7 @@
+score_weight: 1.0
+win_bonus: 20.0
+loss_penalty: 0.0
+step_penalty: -0.001
+idle_penalty: 0.0
+idle_bonus: 5.0
+economy_weight: 0.0

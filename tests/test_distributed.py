@@ -174,7 +174,7 @@ class TestExperimentDataSerialization:
         assert s1.reward_components is None
 
     def test_round_trip_sc2_analytics_fields(self):
-        """action_counts, obs_averages, xy_hist survive round-trip.
+        """action_counts, obs_averages, xy_hist, skipped_frames survive round-trip.
 
         JSON serialises int dict keys as strings; the loader must restore them
         to int so callers continue to index by fn_idx integer.
@@ -191,6 +191,7 @@ class TestExperimentDataSerialization:
                     action_counts={0: 10, 1: 5, 2: 85},
                     obs_averages={"army_count": 3.0, "minerals": 150.0},
                     xy_hist=hist,
+                    skipped_frames=12,
                 ),
                 GreedySimResult(
                     sim=2, reward=3.0, improved=False,
@@ -207,10 +208,12 @@ class TestExperimentDataSerialization:
         assert all(isinstance(k, int) for k in s0.action_counts)
         assert s0.obs_averages == {"army_count": 3.0, "minerals": 150.0}
         assert s0.xy_hist == hist
+        assert s0.skipped_frames == 12
         s1 = recovered.greedy_sims[1]
         assert s1.action_counts is None
         assert s1.obs_averages is None
         assert s1.xy_hist is None
+        assert s1.skipped_frames is None
 
     def test_numpy_arrays_serialised(self):
         """Numpy arrays in RunTrace should be serialised to lists without error."""

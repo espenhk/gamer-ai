@@ -647,6 +647,7 @@ Output directory: `experiments/sc2_<map>/<name>/results/`.
 | `obs_averages.png` | At least one greedy sim has non-empty `obs_averages` AND at least one feature value is non-zero | `plot_obs_averages` |
 | `spatial_heatmap.png` | At least one greedy sim has a non-zero `xy_hist` | `plot_spatial_heatmap` |
 | `outcome_breakdown.png` | At least one greedy sim has a non-None `termination_reason` | `plot_outcome_breakdown` |
+| `skipped_frames.png` | At least one greedy sim has non-None `skipped_frames` telemetry | `plot_skipped_frames` |
 | `supply_capped.png` | At least one greedy sim has a non-None `supply_capped_fraction` | `plot_supply_capped` |
 | `resource_series.png` | The best greedy sim has a non-empty `resource_series` | `plot_resource_series` |
 | `army_count.png` | The best greedy sim has a non-empty `army_count_series` | `plot_army_count` |
@@ -686,16 +687,19 @@ Aggregate 8×8 heatmap of normalised `(x, y)` screen coordinates targeted by the
 #### `outcome_breakdown.png` — Episode termination reasons (issue #128/2e)
 Stacked-bar chart, one bar per greedy sim, showing the termination category: **win** (green), **finish** (light green), **timeout** (orange), **loss** (red), **other** (grey). Useful for ladder maps where win/loss outcomes are meaningful. On pure minigames all bars will be `finish` or `timeout`, confirming the plot is non-noisy in that setting.
 
-#### `supply_capped.png` — Time supply-capped per sim (2f)
+#### `skipped_frames.png` — Skipped frames per sim (2f)
+Bar chart of per-sim skipped-frame count. A skipped frame means the SC2 `game_loop` advanced by more than `step_mul` since the previous action (the action arrived too late for those extra loops). Bars are green at `0` and red above `0`. Improvement sims are marked with a dark triangle so you can compare whether larger models trade quality for responsiveness.
+
+#### `supply_capped.png` — Time supply-capped per sim (2g)
 Bar chart showing the fraction of each greedy sim's steps where `food_used >= food_cap`. Bars are colour-coded: **green** (≤25%), **orange** (25–50%), **red** (>50%). Supply-cap time is a classic SC2 macro-management metric: a high fraction indicates the agent should be training more units rather than idling production. Improvement sims are marked with a dark triangle.
 
-#### `resource_series.png` — Resources available over time (2g)
+#### `resource_series.png` — Resources available over time (2h)
 Line chart of `minerals + vespene` over game time (seconds) for the **best** greedy sim (last improved, or last sim if none improved). A shaded region fills under the curve; a red dashed line marks the episode average. High average resources indicate the agent is collecting but not spending — an economy bottleneck rather than a production bottleneck.
 
-#### `army_count.png` — Army count over time (2h)
+#### `army_count.png` — Army count over time (2i)
 Line chart of `army_count` (total friendly army units) over game time for the **best** greedy sim. A shaded region fills under the curve. Reveals when army grows (training units) or collapses (combat losses). Flat at zero indicates the agent never builds an army.
 
-#### `build_order.png` — Unit-build timeline (2i)
+#### `build_order.png` — Unit-build timeline (2j)
 Horizontal scatter plot of unit-count increase events for the **best** greedy sim. Each row on the y-axis is a distinct unit type (e.g. Marine, SCV, Zergling); each dot marks a game-time moment when that unit type's count increased above its previous observed value (i.e. a unit of that type was built or spawned). Multiple dots per unit type are possible if several units are built over the episode. Starting units present at episode reset are excluded from the baseline so they are not recorded as "built" events. A secondary x-axis above the chart shows `mm:ss` wall-clock labels. Only unit types recognised by the rich observation preset (`Marine`, `SCV`, `Zergling`, `Drone`, `Probe`, `Stalker`, `Roach`, `Mutalisk`) appear in the plot.
 
 #### `reward_trajectory.png` — All phases on a single timeline
@@ -710,7 +714,7 @@ Scatter plot of per-episode reward across **all** phases on one cumulative-simul
 3. **Summary** — single paragraph with policy type, total sims, best reward, etc. (`_summary_md`)
 4. **Probe Phase** *(if probes were run)* — table of `(action, reward)` pairs + the probe-rewards plot
 5. **Cold-start Phase** *(if cold-start was run)* — table of `(restart, best_reward, beat_floor)` + the cold-start plot
-6. **Greedy Phase** *(if any greedy sims)* — table of `(sim, reward, improved, sigma, …)` + the greedy plot, and — when populated — the reward-components, action-frequency, obs-averages, spatial-heatmap, outcome-breakdown, supply-capped, resource-series, army-count, and build-order plots
+6. **Greedy Phase** *(if any greedy sims)* — table of `(sim, reward, improved, sigma, …)` + the greedy plot, and — when populated — the reward-components, action-frequency, obs-averages, spatial-heatmap, outcome-breakdown, skipped-frames, supply-capped, resource-series, army-count, and build-order plots
 7. **Reward trajectory** — the best-episode trajectory plot
 
 ### Grid-search summary
@@ -723,6 +727,7 @@ When `grid_search.py` runs many SC2 experiments, `games/sc2/analytics.py::save_g
 | `comparison_task_metrics.png` | Same axis, plotted against the task-progress metric (track progress / minigame progress when available). For SC2 minigames this metric is currently zero everywhere, so the plot exists but is informative only on TMNF/TORCS |
 | `comparison_action_entropy.png` | Cross-run bar chart of mean per-sim action entropy (bits), summarising how diverse each run's action mix was |
 | `comparison_outcomes.png` | Stacked cross-run outcome fractions (win / finish / timeout / loss / other) over greedy sims per experiment |
+| `comparison_skipped_frames.png` | Cross-run bar chart of mean skipped frames per greedy sim (lower is better responsiveness) |
 | `comparison_supply_capped.png` | Cross-run bar chart of average fraction of time each experiment spent supply-capped |
 | `comparison_spatial_heatmap.png` | Aggregate spatial-target heatmap built from all greedy sims across all runs (SC2 screen-target concentration overview) |
 | `summary.md` | Framework tables plus an appended **SC2-specific cross-run charts** section embedding the SC2 summary plots above |

@@ -76,7 +76,7 @@ class TestPrintEpisodeSummary(unittest.TestCase):
         self.assertNotIn("progress", lines[0])
 
     def test_sc2_outcome_reward_score_logged_as_scalars(self):
-        info = {"player_outcome": 1, "raw_reward": 1, "score": 0}
+        info = {"player_outcome": 1, "raw_reward": 1, "score": 0, "episode_skipped_frames": 3}
         lines = _capture_training_logs(
             lambda: _print_episode_summary(info, steps=240, total_reward=-30.1,
                                            truncated=False)
@@ -85,6 +85,7 @@ class TestPrintEpisodeSummary(unittest.TestCase):
         self.assertIn("outcome=win", lines[0])
         self.assertIn("reward=+1.0", lines[0])
         self.assertIn("score=+0.0", lines[0])
+        self.assertIn("skipped_frames=3", lines[0])
 
 
 class TestLogNewBestDetails(unittest.TestCase):

@@ -9,6 +9,7 @@ module skips those racing-specific plots entirely and instead produces:
 - Economy/state feature averages (2c — per-sim line chart)
 - Spatial target heatmap (2d — 8×8 imshow, log-scaled)
 - Episode outcome breakdown (2e — win/loss/finish/timeout stacked bars)
+- Skipped-frame trend (2f — per-sim bars, with improved-run markers)
 
 Flags consumed by any caller that needs to know which plot families this
 game supports:
@@ -341,7 +342,41 @@ def plot_outcome_breakdown(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2f — Supply-capped fraction per sim
+# 2f — Skipped frames per sim
+# ---------------------------------------------------------------------------
+
+def plot_skipped_frames(data: ExperimentData, results_dir: str) -> None:
+    """Bar chart of skipped frames per greedy sim."""
+    if not _HAS_MPL:
+        return
+    sims = [s for s in data.greedy_sims if s.skipped_frames is not None]
+    if not sims:
+        return
+
+    xs = [s.sim for s in sims]
+    ys = [max(0, int(s.skipped_frames or 0)) for s in sims]
+    colors = ["#e74c3c" if v > 0 else "#27ae60" for v in ys]
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.15), 4))
+    ax.bar(xs, ys, color=colors, edgecolor="none", width=1.0)
+
+    improved_xs = [s.sim for s in sims if s.improved]
+    improved_ys = [max(0, int(s.skipped_frames or 0)) for s in sims if s.improved]
+    if improved_xs:
+        ax.scatter(improved_xs, improved_ys, color="#2c3e50", s=40,
+                   zorder=4, marker="^", label="improved")
+        ax.legend(fontsize=9)
+
+    ax.set_ylim(0, max(1.0, float(max(ys) * 1.1)))
+    ax.set_title(f"{data.experiment_name} — Skipped Frames per Greedy Sim")
+    ax.set_xlabel("Simulation")
+    ax.set_ylabel("Skipped frames")
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "skipped_frames.png"))
+
+
+# ---------------------------------------------------------------------------
+# 2g — Supply-capped fraction per sim
 # ---------------------------------------------------------------------------
 
 def plot_supply_capped(data: ExperimentData, results_dir: str) -> None:
@@ -385,7 +420,7 @@ def plot_supply_capped(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2g — Resources available over time (best run)
+# 2h — Resources available over time (best run)
 # ---------------------------------------------------------------------------
 
 def _best_sim(data: ExperimentData) -> "GreedySimResult | None":
@@ -433,7 +468,7 @@ def plot_resource_series(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2h — Army count over time (best run)
+# 2i — Army count over time (best run)
 # ---------------------------------------------------------------------------
 
 def plot_army_count(data: ExperimentData, results_dir: str) -> None:
@@ -467,7 +502,7 @@ def plot_army_count(data: ExperimentData, results_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2i — Build order (best run)
+# 2j — Build order (best run)
 # ---------------------------------------------------------------------------
 
 def _game_time_to_mmss(game_time_s: float) -> str:
@@ -666,6 +701,41 @@ def plot_gs_supply_capped(
     _save(fig, os.path.join(summary_dir, "comparison_supply_capped.png"))
 
 
+def plot_gs_skipped_frames(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-run comparison of average skipped frames per greedy sim."""
+    if not _HAS_MPL:
+        return
+    rows: list[tuple[str, float]] = []
+    for name, data in runs:
+        values = [
+            float(max(0, int(s.skipped_frames or 0)))
+            for s in data.greedy_sims
+            if s.skipped_frames is not None
+        ]
+        if values:
+            rows.append((name, float(np.mean(values))))
+    if not rows:
+        return
+
+    rows.sort(key=lambda x: x[1], reverse=True)
+    names = [r[0] for r in rows]
+    values = [r[1] for r in rows]
+    colors = ["#e74c3c" if v > 0 else "#27ae60" for v in values]
+
+    fig, ax = plt.subplots(figsize=(10, max(4, len(rows) * 0.45)))
+    bars = ax.barh(names, values, color=colors, edgecolor="white", linewidth=0.5)
+    for bar, v in zip(bars, values):
+        ax.text(v, bar.get_y() + bar.get_height() / 2, f"  {v:.1f}", va="center", fontsize=8)
+    ax.set_xlabel("Mean skipped frames / sim")
+    ax.set_title("SC2 Grid Search — Skipped Frames per Experiment")
+    ax.tick_params(axis="y", labelsize=7)
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_skipped_frames.png"))
+
+
 def plot_gs_spatial_heatmap(
     runs: list[tuple[str, ExperimentData]],
     summary_dir: str,
@@ -703,6 +773,7 @@ def _append_sc2_grid_summary_section(summary_dir: str) -> None:
     items = [
         ("comparison_action_entropy.png", "Action entropy comparison"),
         ("comparison_outcomes.png", "Outcome breakdown comparison"),
+        ("comparison_skipped_frames.png", "Skipped-frames comparison"),
         ("comparison_supply_capped.png", "Supply-capped comparison"),
         ("comparison_spatial_heatmap.png", "Aggregate spatial heatmap"),
     ]
@@ -903,19 +974,23 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         plot_outcome_breakdown(data, results_dir)
         sections.append(_img("outcome_breakdown.png", "Outcome breakdown"))
 
-        # 2f — Supply-capped fraction per sim.
+        # 2f — Skipped frames per sim.
+        plot_skipped_frames(data, results_dir)
+        sections.append(_img("skipped_frames.png", "Skipped frames"))
+
+        # 2g — Supply-capped fraction per sim.
         plot_supply_capped(data, results_dir)
         sections.append(_img("supply_capped.png", "Time supply-capped"))
 
-        # 2g — Resources available over time (best run).
+        # 2h — Resources available over time (best run).
         plot_resource_series(data, results_dir)
         sections.append(_img("resource_series.png", "Resources available over time"))
 
-        # 2h — Army count over time (best run).
+        # 2i — Army count over time (best run).
         plot_army_count(data, results_dir)
         sections.append(_img("army_count.png", "Army count over time"))
 
-        # 2i — Build order (best run).
+        # 2j — Build order (best run).
         plot_build_order(data, results_dir)
         sections.append(_img("build_order.png", "Build order"))
 
@@ -945,6 +1020,7 @@ def save_grid_summary(
     def _sc2_extra(r: list[tuple[str, ExperimentData]], d: str) -> None:
         plot_gs_action_entropy(r, d)
         plot_gs_outcome_breakdown(r, d)
+        plot_gs_skipped_frames(r, d)
         plot_gs_supply_capped(r, d)
         plot_gs_spatial_heatmap(r, d)
 

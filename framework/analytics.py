@@ -103,6 +103,7 @@ class GreedySimResult:
     obs_averages: dict | None = None          # {feature_name: mean_value} for the episode
     xy_hist: list | None = None               # 2-D list[list[int]] — 8×8 action-target histogram
     # --- SC2 end-screen analytics (issue: build-order plots) ---
+    skipped_frames: int | None = None         # SC2 realtime missed frames for this episode/sim
     supply_capped_fraction: float | None = None  # fraction of steps where food_used >= food_cap
     build_order: list | None = None           # [[game_time_s, unit_name], ...] — unit-build events
     army_count_series: list | None = None     # [[game_time_s, army_count], ...] — sampled per step
@@ -144,6 +145,7 @@ class GreedySimResult:
             action_counts=data.get("action_counts"),
             obs_averages=data.get("obs_averages"),
             xy_hist=data.get("xy_hist"),
+            skipped_frames=data.get("skipped_frames"),
             supply_capped_fraction=data.get("supply_capped_fraction"),
             build_order=data.get("build_order"),
             army_count_series=data.get("army_count_series"),
@@ -692,6 +694,45 @@ def plot_gs_comparison_task_metrics(runs: list[tuple[str, dict]], summary_dir: s
     _save(fig, os.path.join(summary_dir, "comparison_task_metrics.png"))
 
 
+def infer_varied_summary_keys(runs: list[tuple[str, ExperimentData]]) -> list[str]:
+    """Infer varied keys across training params and reward config files.
+
+    This is used by summary-generation paths that reconstruct runs from
+    experiment_data.json (e.g. redo/consolidate), keeping their varied-key
+    detection aligned with the analytics summary strategy.
+    """
+    training_keys: set[str] = set()
+    reward_keys: set[str] = set()
+    reward_cfg_by_run: dict[int, dict] = {}
+
+    for idx, (_, data) in enumerate(runs):
+        training_keys.update(data.training_params.keys())
+        reward_cfg: dict = {}
+        path = data.reward_config_file
+        if path and os.path.exists(path):
+            try:
+                with open(path) as f:
+                    parsed = yaml.safe_load(f) or {}
+                if isinstance(parsed, dict):
+                    reward_cfg = parsed
+            except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                logger.warning("Failed to read reward config: %s", path)
+        reward_cfg_by_run[idx] = reward_cfg
+        reward_keys.update(reward_cfg.keys())
+
+    varied_training = {
+        k
+        for k in training_keys
+        if len({str(data.training_params.get(k)) for _, data in runs}) > 1
+    }
+    varied_reward = {
+        k
+        for k in reward_keys
+        if len({str(reward_cfg_by_run[idx].get(k)) for idx, _ in enumerate(runs)}) > 1
+    }
+    return sorted(varied_training | varied_reward)
+
+
 def save_grid_summary(
     runs: list[tuple[str, ExperimentData]],
     varied_keys: list[str],
@@ -765,8 +806,13 @@ def save_grid_summary(
         if varied_keys and data.training_params:
             reward_cfg = {}
             if os.path.exists(data.reward_config_file):
-                with open(data.reward_config_file) as f:
-                    reward_cfg = yaml.safe_load(f) or {}
+                try:
+                    with open(data.reward_config_file) as f:
+                        parsed = yaml.safe_load(f) or {}
+                    if isinstance(parsed, dict):
+                        reward_cfg = parsed
+                except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                    logger.warning("Failed to read reward config: %s", data.reward_config_file)
             all_params = {**data.training_params, **reward_cfg}
             lines.append("| Param | Value |\n|---|---|\n")
             for k in varied_keys:

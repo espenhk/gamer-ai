@@ -135,6 +135,7 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
             action_counts=action_counts,
             obs_averages=s.get("obs_averages"),
             xy_hist=s.get("xy_hist"),
+            skipped_frames=s.get("skipped_frames"),
         )
 
     return ExperimentData(

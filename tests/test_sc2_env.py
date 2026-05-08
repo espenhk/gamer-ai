@@ -145,8 +145,50 @@ class TestSC2EnvStepLogic(unittest.TestCase):
         _, _, _, _, info = self.env.step(np.zeros(4, dtype=np.float32))
         for key in ("score", "prev_score", "minerals", "prev_minerals",
                      "vespene", "prev_vespene", "elapsed_s",
-                     "termination_reason"):
+                     "termination_reason", "skipped_frames_this_step",
+                     "episode_skipped_frames"):
             self.assertIn(key, info, f"missing key {key}")
+
+    def test_skipped_frames_default_zero_without_game_loop(self):
+        """Missing game_loop telemetry should keep skipped-frame counters at zero."""
+        self.env.reset()
+        _, _, _, _, info = self.env.step(np.zeros(4, dtype=np.float32))
+        self.assertEqual(info["skipped_frames_this_step"], 0)
+        self.assertEqual(info["episode_skipped_frames"], 0)
+
+    def test_skipped_frames_accumulate_from_game_loop_delta(self):
+        """Delta above step_mul counts as skipped frames and accumulates."""
+        self.mock_client.reset.return_value = (
+            np.zeros(BASE_OBS_DIM, dtype=np.float32),
+            {"score": 0.0, "minerals": 50.0, "vespene": 0.0,
+             "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0,
+             "game_loop": 0.0},
+        )
+        self.mock_client.step.side_effect = [
+            (
+                np.zeros(BASE_OBS_DIM, dtype=np.float32),
+                0.0,
+                False,
+                {"score": 1.0, "minerals": 50.0, "vespene": 0.0,
+                 "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0,
+                 "game_loop": 8.0},
+            ),
+            (
+                np.zeros(BASE_OBS_DIM, dtype=np.float32),
+                0.0,
+                False,
+                {"score": 2.0, "minerals": 50.0, "vespene": 0.0,
+                 "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0,
+                 "game_loop": 20.0},
+            ),
+        ]
+        self.env.reset()
+        _, _, _, _, info1 = self.env.step(np.zeros(4, dtype=np.float32))
+        _, _, _, _, info2 = self.env.step(np.zeros(4, dtype=np.float32))
+        self.assertEqual(info1["skipped_frames_this_step"], 0)
+        self.assertEqual(info1["episode_skipped_frames"], 0)
+        self.assertEqual(info2["skipped_frames_this_step"], 4)
+        self.assertEqual(info2["episode_skipped_frames"], 4)
 
     def test_step_info_carries_reward_components(self):
         """Issue #128/2b: env populates info['episode_reward_components']."""

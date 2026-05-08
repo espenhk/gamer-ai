@@ -6,6 +6,7 @@ Covers:
 - plot_obs_averages: renders without error; skips when no data
 - plot_spatial_heatmap: renders without error; skips when no data
 - plot_outcome_breakdown: renders without error; skips when no data
+- plot_skipped_frames: renders without error; skips when no data
 - plot_supply_capped: renders without error; skips when no data
 - plot_resource_series: renders without error; skips when no data
 - plot_army_count: renders without error; skips when no data
@@ -31,6 +32,7 @@ from games.sc2.analytics import (
     plot_build_order,
     plot_obs_averages,
     plot_outcome_breakdown,
+    plot_skipped_frames,
     plot_resource_series,
     plot_spatial_heatmap,
     plot_supply_capped,
@@ -52,6 +54,7 @@ def _make_sim(
     xy_hist: list | None = None,
     termination_reason: str | None = "timeout",
     reward_components: dict | None = None,
+    skipped_frames: int | None = None,
     supply_capped_fraction: float | None = None,
     build_order: list | None = None,
     army_count_series: list | None = None,
@@ -68,6 +71,7 @@ def _make_sim(
         xy_hist=xy_hist,
         termination_reason=termination_reason,
         reward_components=reward_components,
+        skipped_frames=skipped_frames,
         supply_capped_fraction=supply_capped_fraction,
         build_order=build_order,
         army_count_series=army_count_series,
@@ -151,6 +155,17 @@ class TestGreedySimResultNewFields(unittest.TestCase):
         hist = _xy_hist(3)
         s = _make_sim(xy_hist=hist)
         self.assertEqual(s.xy_hist, hist)
+
+    def test_skipped_frames_default_none(self):
+        s = GreedySimResult(
+            sim=1, reward=5.0, improved=False,
+            throttle_counts=[0, 0, 0], total_steps=1,
+        )
+        self.assertIsNone(s.skipped_frames)
+
+    def test_skipped_frames_stored(self):
+        s = _make_sim(skipped_frames=7)
+        self.assertEqual(s.skipped_frames, 7)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +334,50 @@ class TestPlotOutcomeBreakdown(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# plot_skipped_frames
+# ---------------------------------------------------------------------------
+
+class TestPlotSkippedFrames(unittest.TestCase):
+
+    def test_renders_to_file(self):
+        sims = [
+            _make_sim(1, skipped_frames=0),
+            _make_sim(2, skipped_frames=4, improved=True),
+            _make_sim(3, skipped_frames=10),
+        ]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_skipped_frames(data, d)
+            self.assertIn("skipped_frames.png", os.listdir(d))
+
+    def test_skips_when_all_none(self):
+        sims = [_make_sim(i) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_skipped_frames(data, d)
+            self.assertNotIn("skipped_frames.png", os.listdir(d))
+
+    def test_zero_only_still_renders(self):
+        sims = [_make_sim(1, skipped_frames=0)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_skipped_frames(data, d)
+            self.assertIn("skipped_frames.png", os.listdir(d))
+
+    def test_negative_skipped_frames_clamped_to_zero_for_plotting(self):
+        sims = [_make_sim(1, skipped_frames=-5)]
+        data = _make_experiment(sims)
+        captured = {}
+
+        def _capture_save(fig, _path):
+            captured["heights"] = [patch.get_height() for patch in fig.axes[0].patches]
+
+        with mock.patch.object(sc2_analytics, "_save", side_effect=_capture_save):
+            plot_skipped_frames(data, "/tmp")
+        self.assertEqual(captured["heights"], [0])
+
+
+# ---------------------------------------------------------------------------
 # save_experiment_results — integration
 # ---------------------------------------------------------------------------
 
@@ -335,6 +394,7 @@ class TestSaveExperimentResults(unittest.TestCase):
                       xy_hist=_xy_hist(4),
                       termination_reason="timeout",
                       reward_components={"score": 5.0, "step_penalty": -0.5},
+                      skipped_frames=3,
                       supply_capped_fraction=0.3,
                       resource_series=series_pts,
                       army_count_series=army_pts,
@@ -345,6 +405,7 @@ class TestSaveExperimentResults(unittest.TestCase):
                       xy_hist=_xy_hist(6),
                       termination_reason="finish",
                       reward_components={"score": 8.5, "step_penalty": -0.5},
+                      skipped_frames=1,
                       supply_capped_fraction=0.1,
                       resource_series=series_pts,
                       army_count_series=army_pts,
@@ -368,6 +429,7 @@ class TestSaveExperimentResults(unittest.TestCase):
             self.assertIn("obs_averages.png", files)
             self.assertIn("spatial_heatmap.png", files)
             self.assertIn("outcome_breakdown.png", files)
+            self.assertIn("skipped_frames.png", files)
             self.assertIn("supply_capped.png", files)
             self.assertIn("resource_series.png", files)
             self.assertIn("army_count.png", files)
@@ -658,6 +720,7 @@ class TestSaveGridSummary(unittest.TestCase):
                                 reward=5.0,
                                 action_counts={0: 20, 2: 80},
                                 termination_reason="win",
+                                skipped_frames=2,
                                 supply_capped_fraction=0.2,
                                 xy_hist=_xy_hist(3),
                             ),
@@ -666,6 +729,7 @@ class TestSaveGridSummary(unittest.TestCase):
                                 reward=6.0,
                                 action_counts={0: 50, 2: 50},
                                 termination_reason="finish",
+                                skipped_frames=1,
                                 supply_capped_fraction=0.1,
                                 xy_hist=_xy_hist(4),
                             ),
@@ -682,6 +746,7 @@ class TestSaveGridSummary(unittest.TestCase):
                                 reward=1.0,
                                 action_counts={0: 100},
                                 termination_reason="loss",
+                                skipped_frames=0,
                                 supply_capped_fraction=0.7,
                                 xy_hist=_xy_hist(1),
                             ),
@@ -695,6 +760,7 @@ class TestSaveGridSummary(unittest.TestCase):
             files = set(os.listdir(d))
             self.assertIn("comparison_action_entropy.png", files)
             self.assertIn("comparison_outcomes.png", files)
+            self.assertIn("comparison_skipped_frames.png", files)
             self.assertIn("comparison_supply_capped.png", files)
             self.assertIn("comparison_spatial_heatmap.png", files)
 
@@ -703,6 +769,7 @@ class TestSaveGridSummary(unittest.TestCase):
             self.assertIn("SC2-specific cross-run charts", summary)
             self.assertIn("comparison_action_entropy.png", summary)
             self.assertIn("comparison_outcomes.png", summary)
+            self.assertIn("comparison_skipped_frames.png", summary)
             self.assertIn("comparison_supply_capped.png", summary)
             self.assertIn("comparison_spatial_heatmap.png", summary)
 

@@ -50,7 +50,12 @@ def _make_data(
     )
 
 
-def _write_experiment(base_dir: str, name: str, **kwargs) -> str:
+def _write_experiment(
+    base_dir: str,
+    name: str,
+    experiment_name: str | None = None,
+    **kwargs,
+) -> str:
     """Write experiment_data.json to base_dir/name/results/ and return the experiment dir."""
     experiment_dir = os.path.join(base_dir, name)
     results_dir = os.path.join(experiment_dir, "results")
@@ -66,7 +71,7 @@ def _write_experiment(base_dir: str, name: str, **kwargs) -> str:
         f.write("progress_weight: 10000.0\n")
 
     data = _make_data(
-        name,
+        experiment_name or name,
         weights_file=weights_file,
         reward_config_file=reward_config_file,
         **kwargs,
@@ -80,6 +85,14 @@ def _write_experiment(base_dir: str, name: str, **kwargs) -> str:
 # ---------------------------------------------------------------------------
 
 class TestDetectGame(unittest.TestCase):
+    def test_game_key_used_when_present(self):
+        from redo_analytics import _detect_game
+        self.assertEqual(_detect_game({"game": "torcs", "n_sims": 50}), "torcs")
+
+    def test_assetto_alias_is_normalized(self):
+        from redo_analytics import _detect_game
+        self.assertEqual(_detect_game({"game": "assetto_corsa"}), "assetto")
+
     def test_sc2_detected_by_map_name(self):
         from redo_analytics import _detect_game
         self.assertEqual(_detect_game({"map_name": "MoveToBeacon", "n_sims": 50}), "sc2")
@@ -113,6 +126,13 @@ class TestLoadAnalyticsFns(unittest.TestCase):
         save_exp, save_grid = _load_analytics_fns("nonexistent_game")
         self.assertTrue(callable(save_exp))
         self.assertTrue(callable(save_grid))
+
+    def test_assetto_alias_loads_assetto_module(self):
+        from redo_analytics import _load_analytics_fns
+        save_exp, _ = _load_analytics_fns("assetto")
+        self.assertTrue(callable(save_exp))
+        self.assertEqual(save_exp.__name__, "save_experiment_results")
+        self.assertIn("assetto_corsa.analytics", save_exp.__module__)
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +297,83 @@ class TestRedoAnalyticsMultiple(unittest.TestCase):
             # Should not raise; SC2 analytics will be used.
             redo_analytics([d])
             self.assertTrue(os.path.exists(os.path.join(d, "results", "results.md")))
+
+    def test_summary_varied_params_include_reward_config_changes(self):
+        from redo_analytics import redo_analytics
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d1 = _write_experiment(
+                tmpdir,
+                "exp1",
+                training_params={"n_sims": 5},
+            )
+            d2 = _write_experiment(
+                tmpdir,
+                "exp2",
+                training_params={"n_sims": 5},
+            )
+
+            with open(os.path.join(d1, "reward_config.yaml"), "w") as f:
+                f.write("progress_weight: 10000.0\n")
+            with open(os.path.join(d2, "reward_config.yaml"), "w") as f:
+                f.write("progress_weight: 9000.0\n")
+
+            summary_dir = os.path.join(tmpdir, "summary")
+            redo_analytics(
+                [d1, d2],
+                game="tmnf",
+                summary_name="s",
+                summary_dir=summary_dir,
+                no_individual=True,
+            )
+
+            with open(os.path.join(summary_dir, "summary.md")) as f:
+                content = f.read()
+
+            self.assertIn("`progress_weight`", content)
+
+    def test_summary_varied_params_handle_duplicate_experiment_names(self):
+        from redo_analytics import redo_analytics
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d1 = _write_experiment(tmpdir, "run_a", experiment_name="same_name", training_params={"n_sims": 5})
+            d2 = _write_experiment(tmpdir, "run_b", experiment_name="same_name", training_params={"n_sims": 5})
+
+            with open(os.path.join(d1, "reward_config.yaml"), "w") as f:
+                f.write("progress_weight: 10000.0\n")
+            with open(os.path.join(d2, "reward_config.yaml"), "w") as f:
+                f.write("progress_weight: 9000.0\n")
+
+            summary_dir = os.path.join(tmpdir, "summary")
+            redo_analytics(
+                [d1, d2],
+                game="tmnf",
+                summary_name="s",
+                summary_dir=summary_dir,
+                no_individual=True,
+            )
+
+            with open(os.path.join(summary_dir, "summary.md")) as f:
+                content = f.read()
+
+            self.assertIn("`progress_weight`", content)
+
+    def test_summary_tolerates_unreadable_reward_config(self):
+        from redo_analytics import redo_analytics
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            d1 = _write_experiment(tmpdir, "exp1", training_params={"n_sims": 5})
+            d2 = _write_experiment(tmpdir, "exp2", training_params={"n_sims": 6})
+            with open(os.path.join(d2, "reward_config.yaml"), "wb") as f:
+                f.write(b"\x80\x81\x82")
+
+            summary_dir = os.path.join(tmpdir, "summary")
+            redo_analytics(
+                [d1, d2],
+                game="tmnf",
+                summary_name="s",
+                summary_dir=summary_dir,
+                no_individual=True,
+            )
+
+            self.assertTrue(os.path.exists(os.path.join(summary_dir, "summary.md")))

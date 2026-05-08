@@ -269,6 +269,11 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float,
                             truncated: bool) -> None:
     finished = bool(info.get("finished", False))
     outcome  = "truncated" if truncated else ("finished" if finished else "terminated")
+    skipped_frames = _episode_skipped_frames(info)
+    skipped_suffix = (
+        f"  skipped_frames={skipped_frames}"
+        if skipped_frames is not None else ""
+    )
     sc2_outcome = info.get("player_outcome")
     sc2_raw_reward = info.get("raw_reward")
     if sc2_outcome is not None or sc2_raw_reward is not None:
@@ -285,11 +290,22 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float,
         reward_v = float(sc2_raw_reward if sc2_raw_reward is not None else 0.0)
         score = float(info.get("score", 0.0))
         logger.info(
-            "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f",
-            outcome, total_reward, steps, sc2_outcome_s, reward_v, score,
+            "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f%s",
+            outcome, total_reward, steps, sc2_outcome_s, reward_v, score, skipped_suffix,
         )
         return
-    logger.info("ep end  %s  r=%+.1f  steps=%d", outcome, total_reward, steps)
+    logger.info("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
+
+
+def _episode_skipped_frames(info: dict) -> int | None:
+    """Return non-negative episode skipped-frame count when present in info."""
+    skipped = info.get("episode_skipped_frames")
+    if skipped is None:
+        return None
+    try:
+        return max(0, int(skipped))
+    except (TypeError, ValueError):
+        return None
 
 
 def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
@@ -645,6 +661,7 @@ def _greedy_loop(
                     action_counts=info.get("episode_action_counts"),
                     obs_averages=info.get("episode_obs_averages"),
                     xy_hist=info.get("episode_xy_hist"),
+                    skipped_frames=_episode_skipped_frames(info),
                     supply_capped_fraction=info.get("episode_supply_capped_fraction"),
                     build_order=info.get("episode_build_order"),
                     army_count_series=info.get("episode_army_series"),
@@ -756,6 +773,7 @@ def _greedy_loop(
                 action_counts=best_info.get("episode_action_counts"),
                 obs_averages=best_info.get("episode_obs_averages"),
                 xy_hist=best_info.get("episode_xy_hist"),
+                skipped_frames=_episode_skipped_frames(best_info),
                 supply_capped_fraction=best_info.get("episode_supply_capped_fraction"),
                 build_order=best_info.get("episode_build_order"),
                 army_count_series=best_info.get("episode_army_series"),
@@ -876,6 +894,7 @@ def _greedy_loop_cmaes(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                skipped_frames=_episode_skipped_frames(info),
                 supply_capped_fraction=info.get("episode_supply_capped_fraction"),
                 build_order=info.get("episode_build_order"),
                 army_count_series=info.get("episode_army_series"),
@@ -958,6 +977,7 @@ def _greedy_loop_q_learning(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                skipped_frames=_episode_skipped_frames(info),
                 supply_capped_fraction=info.get("episode_supply_capped_fraction"),
                 build_order=info.get("episode_build_order"),
                 army_count_series=info.get("episode_army_series"),
@@ -1097,6 +1117,7 @@ def _greedy_loop_genetic(
                 action_counts=info.get("episode_action_counts"),
                 obs_averages=info.get("episode_obs_averages"),
                 xy_hist=info.get("episode_xy_hist"),
+                skipped_frames=_episode_skipped_frames(info),
                 supply_capped_fraction=info.get("episode_supply_capped_fraction"),
                 build_order=info.get("episode_build_order"),
                 army_count_series=info.get("episode_army_series"),

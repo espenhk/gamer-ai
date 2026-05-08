@@ -710,7 +710,7 @@ def plot_gs_skipped_frames(
     rows: list[tuple[str, float]] = []
     for name, data in runs:
         values = [
-            float(max(0, int(s.skipped_frames)))
+            float(max(0, int(s.skipped_frames or 0)))
             for s in data.greedy_sims
             if s.skipped_frames is not None
         ]

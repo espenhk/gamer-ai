@@ -364,6 +364,18 @@ class TestPlotSkippedFrames(unittest.TestCase):
             plot_skipped_frames(data, d)
             self.assertIn("skipped_frames.png", os.listdir(d))
 
+    def test_negative_skipped_frames_clamped_to_zero_for_plotting(self):
+        sims = [_make_sim(1, skipped_frames=-5)]
+        data = _make_experiment(sims)
+        captured = {}
+
+        def _capture_save(fig, _path):
+            captured["heights"] = [patch.get_height() for patch in fig.axes[0].patches]
+
+        with mock.patch.object(sc2_analytics, "_save", side_effect=_capture_save):
+            plot_skipped_frames(data, "/tmp")
+        self.assertEqual(captured["heights"], [0])
+
 
 # ---------------------------------------------------------------------------
 # save_experiment_results — integration

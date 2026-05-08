@@ -239,14 +239,7 @@ class SC2Env(BaseGameEnv):
         self._ep_obs_step_count = 0
         self._ep_xy_hist = np.zeros((8, 8), dtype=np.int64)
         self._ep_apm_throttled_steps = 0
-        _reset_game_loop = info.get("game_loop")
-        if _reset_game_loop is None:
-            self._prev_step_game_loop = None
-        else:
-            try:
-                self._prev_step_game_loop = float(_reset_game_loop)
-            except (TypeError, ValueError):
-                self._prev_step_game_loop = None
+        self._prev_step_game_loop = self._safe_float_or_none(info.get("game_loop"))
         self._ep_skipped_frames = 0
         self._ep_supply_capped_steps = 0
         self._ep_army_series = []
@@ -327,15 +320,7 @@ class SC2Env(BaseGameEnv):
         # expected step_mul since the previous action, the excess is counted as
         # skipped frames (action arrived too late for those loops).
         _skipped_frames_this_step = 0
-        _raw_game_loop = info.get("game_loop")
-        _curr_game_loop: float | None
-        if _raw_game_loop is None:
-            _curr_game_loop = None
-        else:
-            try:
-                _curr_game_loop = float(_raw_game_loop)
-            except (TypeError, ValueError):
-                _curr_game_loop = None
+        _curr_game_loop = self._safe_float_or_none(info.get("game_loop"))
         if _curr_game_loop is not None and self._prev_step_game_loop is not None:
             _delta = max(0.0, _curr_game_loop - self._prev_step_game_loop)
             _skipped_frames_this_step = int(
@@ -515,6 +500,16 @@ class SC2Env(BaseGameEnv):
         if spatial is None:
             spatial = np.zeros(self._spatial_shape, dtype=np.float32)
         return {"flat": flat_obs, "spatial": spatial}
+
+    @staticmethod
+    def _safe_float_or_none(value: Any) -> float | None:
+        """Convert *value* to float or return None when conversion is invalid."""
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     # ------------------------------------------------------------------
     # BaseGameEnv API

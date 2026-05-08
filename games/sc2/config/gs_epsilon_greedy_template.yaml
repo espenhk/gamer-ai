@@ -53,11 +53,6 @@ training_params:
   gamma: 0.99
 
 reward_params:
-  score_weight: 1.0
-  step_penalty: -0.001
-  win_bonus: 20.0
-  loss_penalty: 0.0
-  idle_bonus: [0.5, 1.0, 5.0]
   move_exploration_bonus: 0.01
   move_repeat_penalty: -0.02
   move_self_penalty: -0.01

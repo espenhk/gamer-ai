@@ -90,7 +90,7 @@ base_name: "gs_sc2_cnn_v1"
 game: sc2
 
 training_params:
-  map_name: DefeatRoaches
+  map_name: Simple64
   in_game_episode_s: 60.0
   step_mul: 8
   screen_size: 64
@@ -102,19 +102,18 @@ training_params:
   obs_spec_preset: rich
   screen_layers:
     - player_relative         # friend/foe/neutral (values 0–4)
-    - unit_hit_points         # per-cell HP; allows health-aware spatial decisions
-  minimap_layers: []          # no minimap channels in this sweep
-  population_size: [10, 20]
+    - hit_points         # per-cell HP; allows health-aware spatial decisions
+    - shields
+    - energy
+    - height_map
+    - unit_density_aa
+    - creep
+    - power
+    - selected
+  minimap_layers:
+    - creep
+    - visibility
+  population_size: [10, 20, 50]
   initial_sigma: [0.005, 0.01]
   policy_params:
     eval_episodes: 5
-
-reward_params:
-  score_weight: 1.0
-  step_penalty: -0.001
-  win_bonus: 0.0
-  loss_penalty: 0.0
-  idle_bonus: 0.5     # encourage no_op when enemies are in combat range
-  move_exploration_bonus: 0.01
-  move_repeat_penalty: -0.02
-  move_self_penalty: -0.01

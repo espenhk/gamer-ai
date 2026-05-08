@@ -96,20 +96,20 @@ class SC2RewardConfig:
         negative default to strongly discourage this behaviour.
     """
 
-    score_weight:               float = 1.0
-    win_bonus:                  float = 100.0
-    loss_penalty:               float = -100.0
-    step_penalty:               float = -0.001
-    idle_penalty:               float = 0.0
-    idle_bonus:                 float = 0.0
-    attack_move_bonus:          float = 0.0
-    click_attack_bonus:         float = 0.0
-    click_attack_cooldown_steps: int  = 8
-    economy_weight:             float = 0.0
-    move_exploration_bonus:     float = 0.01
-    move_repeat_penalty:        float = -0.02
-    move_self_penalty:          float = -0.01
-    attack_friendly_penalty:    float = -5.0
+    score_weight: float = 1.0
+    win_bonus: float = 100.0
+    loss_penalty: float = -100.0
+    step_penalty: float = -0.001
+    idle_penalty: float = 0.0
+    idle_bonus: float = 0.0
+    attack_move_bonus: float = 0.0
+    click_attack_bonus: float = 0.0
+    click_attack_cooldown_steps: int = 8
+    economy_weight: float = 0.0
+    move_exploration_bonus: float = 0.01
+    move_repeat_penalty: float = -0.02
+    move_self_penalty: float = -0.01
+    attack_friendly_penalty: float = -5.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -164,7 +164,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # withheld and the repeat penalty is applied instead.  At the default
     # 64-pixel screen this corresponds to ~6 px — more than a single
     # stutter step but less than a typical tactical repositioning.
-    _MOVE_MIN_MEANINGFUL_FRAC: float = 6.0 / 64.0
+    _MOVE_MIN_MEANINGFUL_FRAC: float = 12.0 / 64.0
     # Radius (as a screen fraction) considered "targeting where my units are".
     _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
     # Distance normaliser for movement exploration bonus.
@@ -207,7 +207,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
         n_ticks: int = 1,
     ) -> float:
         return self.compute_with_components(
-            prev_state, curr_state, finished, elapsed_s, info, n_ticks,
+            prev_state,
+            curr_state,
+            finished,
+            elapsed_s,
+            info,
+            n_ticks,
         )[0]
 
     def compute_with_components(
@@ -244,9 +249,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
             curr_min = info.get("minerals", 0.0)
             prev_vesp = info.get("prev_vespene", 0.0)
             curr_vesp = info.get("vespene", 0.0)
-            components["economy"] = float(cfg.economy_weight * (
-                (curr_min - prev_min) + (curr_vesp - prev_vesp)
-            ))
+            components["economy"] = float(
+                cfg.economy_weight * ((curr_min - prev_min) + (curr_vesp - prev_vesp))
+            )
         else:
             components["economy"] = 0.0
 
@@ -266,11 +271,15 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # behave consistently.
         idle_bonus = 0.0
         if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
-            self_count  = info.get("screen_self_count", 0.0)
+            self_count = info.get("screen_self_count", 0.0)
             enemy_count = info.get("screen_enemy_count", 0.0)
             if self_count > 0 and enemy_count > 0:
-                dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
-                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dx = float(info.get("screen_self_cx", 0.0)) - float(
+                    info.get("screen_enemy_cx", 0.0)
+                )
+                dy = float(info.get("screen_self_cy", 0.0)) - float(
+                    info.get("screen_enemy_cy", 0.0)
+                )
                 dist = (dx * dx + dy * dy) ** 0.5
                 screen_size = float(info.get("screen_size", 64))
                 if dist <= self._COMBAT_RANGE_FRAC * screen_size:
@@ -295,7 +304,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist_prev >= self._MOVE_MIN_MEANINGFUL_FRAC:
                     if cfg.move_exploration_bonus != 0.0:
                         novelty = min(1.0, dist_prev / self._MOVE_EXPLORATION_NORM)
-                        move_exploration = cfg.move_exploration_bonus * novelty * n_ticks
+                        move_exploration = (
+                            cfg.move_exploration_bonus * novelty * n_ticks
+                        )
                 else:
                     if cfg.move_repeat_penalty != 0.0:
                         move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
@@ -339,8 +350,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
             # centroid and at least one enemy is visible.
             on_enemy = (
                 enemy_count > 0
-                and ((tx_px - ecx) ** 2 + (ty_px - ecy) ** 2) ** 0.5
-                    <= click_radius_px
+                and ((tx_px - ecx) ** 2 + (ty_px - ecy) ** 2) ** 0.5 <= click_radius_px
             )
 
             if on_enemy and cfg.click_attack_bonus != 0.0:
@@ -351,7 +361,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
                     same_target = True
                 else:
                     dx = tx_px - self._last_click_x
-                    dy = ty_px - self._last_click_y  # _last_click_x/_last_click_y are set together
+                    dy = (
+                        ty_px - self._last_click_y
+                    )  # _last_click_x/_last_click_y are set together
                     same_target = (dx * dx + dy * dy) ** 0.5 <= click_radius_px
                 if same_target or steps_since >= cfg.click_attack_cooldown_steps:
                     click_attack_bonus = cfg.click_attack_bonus * n_ticks
@@ -364,15 +376,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 # Attack-move to ground while enemies are visible.
                 attack_move_bonus = cfg.attack_move_bonus * n_ticks
 
-        components["attack_move_bonus"]  = float(attack_move_bonus)
+        components["attack_move_bonus"] = float(attack_move_bonus)
         components["click_attack_bonus"] = float(click_attack_bonus)
 
         # Friendly-fire penalty: Attack_screen aimed at own units.
         attack_friendly_penalty = 0.0
-        if (
-            cfg.attack_friendly_penalty != 0.0
-            and info.get("action_fn_idx") == 3
-        ):
+        if cfg.attack_friendly_penalty != 0.0 and info.get("action_fn_idx") == 3:
             self_count = float(info.get("screen_self_count", 0.0))
             if self_count > 0:
                 screen_size = max(1.0, float(info.get("screen_size", 64)))

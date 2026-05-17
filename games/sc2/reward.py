@@ -94,6 +94,25 @@ class SC2RewardConfig:
         fires whenever ``screen_self_count > 0`` and the target pixel is within
         ``_ATTACK_SELF_RADIUS_FRAC`` of the friendly centroid.  Set to a large
         negative default to strongly discourage this behaviour.
+    unit_loss_penalty :
+        Penalty per unit lost this step (army_count drop).  Applied when
+        ``army_count < prev_army_count``.  Scaled by the number of units lost
+        so losing two units at once yields twice the penalty.  Default ``0.0``
+        — opt-in.  Requires ``prev_army_count`` in info (set by ``SC2Env``).
+    damage_taken_penalty :
+        Penalty per raw HP+shield point lost this step across all visible
+        friendly units.  Computed from ``feature_units`` health+shield sum
+        delta (``prev_total_self_hp - total_self_hp``).  Only visible units
+        contribute, so units that leave the camera frame can cause false
+        positives; keep the weight small.  Default ``0.0`` — opt-in.
+    passive_under_fire_penalty :
+        Per-step penalty applied when enemy units are within effective attack
+        range of friendly units **and** the agent did not issue ``Attack_screen``
+        (fn_idx 3).  Encourages the agent to fight back rather than run or idle
+        while taking fire.  Uses the same range gate as ``idle_bonus``
+        (``self_attack_range_px`` from info, or the screen-fraction fallback)
+        but without the 95% inside-margin so the penalty fires at the full
+        attack range.  Default ``0.0`` — opt-in.
     """
 
     score_weight: float = 1.0
@@ -110,6 +129,9 @@ class SC2RewardConfig:
     move_repeat_penalty: float = -0.02
     move_self_penalty: float = -0.01
     attack_friendly_penalty: float = -5.0
+    unit_loss_penalty: float = 0.0
+    damage_taken_penalty: float = 0.0
+    passive_under_fire_penalty: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -153,6 +175,11 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``screen_size`` — screen feature-layer side length (default 64)
         ``self_attack_range_px`` — optional estimated max friendly attack
             range in pixels (from SC2 client feature_units)
+        ``prev_army_count`` / ``army_count`` — friendly army counts for the
+            unit-loss penalty (set by SC2Env)
+        ``prev_total_self_hp`` / ``total_self_hp`` — summed health+shield of
+            visible friendly units; used by the damage-taken penalty (set by
+            SC2Client / SC2Env)
     """
 
     # Fallback max attack range (fraction of screen) when unit-specific range
@@ -232,7 +259,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_friendly_penalty``, ``step_penalty`` and ``terminal``
+        ``attack_friendly_penalty``, ``unit_loss``, ``damage_taken``,
+        ``passive_under_fire``, ``step_penalty`` and ``terminal``
         separately.
         """
         cfg = self.config
@@ -334,6 +362,44 @@ class SC2RewardCalculator(RewardCalculatorBase):
         components["move_exploration"] = float(move_exploration)
         components["move_repeat_penalty"] = float(move_repeat_penalty)
         components["move_self_penalty"] = float(move_self_penalty)
+
+        # Unit loss: penalty per army unit that died this step.
+        unit_loss = 0.0
+        if cfg.unit_loss_penalty != 0.0:
+            prev_army = float(info.get("prev_army_count", 0.0))
+            curr_army = float(info.get("army_count", 0.0))
+            units_lost = max(0.0, prev_army - curr_army)
+            unit_loss = cfg.unit_loss_penalty * units_lost
+        components["unit_loss"] = float(unit_loss)
+
+        # Damage taken: penalty per HP+shield point lost across visible friendly units.
+        damage_taken = 0.0
+        if cfg.damage_taken_penalty != 0.0:
+            prev_hp = float(info.get("prev_total_self_hp", 0.0))
+            curr_hp = float(info.get("total_self_hp", 0.0))
+            hp_lost = max(0.0, prev_hp - curr_hp)
+            damage_taken = cfg.damage_taken_penalty * hp_lost
+        components["damage_taken"] = float(damage_taken)
+
+        # Passive under fire: enemies in attack range but agent not attacking.
+        passive_under_fire = 0.0
+        if cfg.passive_under_fire_penalty != 0.0 and info.get("action_fn_idx") != 3:
+            self_count = info.get("screen_self_count", 0.0)
+            enemy_count = info.get("screen_enemy_count", 0.0)
+            if self_count > 0 and enemy_count > 0:
+                dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dist = (dx * dx + dy * dy) ** 0.5
+                screen_size = float(info.get("screen_size", 64))
+                max_attack_range_px = float(
+                    info.get(
+                        "self_attack_range_px",
+                        self._DEFAULT_COMBAT_RANGE_FRAC * screen_size,
+                    )
+                )
+                if dist <= max_attack_range_px:
+                    passive_under_fire = cfg.passive_under_fire_penalty * n_ticks
+        components["passive_under_fire"] = float(passive_under_fire)
 
         # Attack bonuses: split Attack_screen into attack-move (ground target)
         # and click-to-attack (target on/near a visible enemy unit).

@@ -439,6 +439,10 @@ handful of iterations only).
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 - movement shaping: exploration bonus for varied `Move_screen` targets above the minimum-distance threshold; stutter-step below threshold earns no bonus and triggers the repeat penalty instead; move exactly at threshold gets bonus but not penalty; repeat-target penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible
 - attack_friendly_penalty: fires when Attack_screen targets near friendly centroid; skipped for target far from friendly / no friendly on screen / Move_screen; disabled when zero; n_ticks scaling; appears in components dict; default is strongly negative
+- unit_loss_penalty: fires per unit lost (army_count drop); zero when no loss / army grows; disabled by default; appears in components dict
+- damage_taken_penalty: fires per HP+shield point lost across visible friendlies; zero when unchanged / healing; safe default when info keys absent; disabled by default; appears in components dict
+- passive_under_fire_penalty: fires on no_op or Move_screen when enemies within attack range; suppressed by Attack_screen; skipped when enemy out of range / no enemy / no self; respects explicit self_attack_range_px; n_ticks scaling; disabled by default; appears in components dict
+- components sum: new terms included in total (extended sum test)
 
 ### test_sc2_client.py — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded

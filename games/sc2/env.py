@@ -217,6 +217,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals: float = 0.0
         self._prev_vespene: float = 0.0
         self._prev_score: float = 0.0
+        self._prev_army_count: float = 0.0
+        self._prev_total_self_hp: float = 0.0
         self._prev_move_target: tuple[float, float] | None = None
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
@@ -256,6 +258,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        self._prev_army_count = info.get("army_count", 0.0)
+        self._prev_total_self_hp = info.get("total_self_hp", 0.0)
         self._prev_move_target = None
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
@@ -323,6 +327,8 @@ class SC2Env(BaseGameEnv):
         info["prev_minerals"] = self._prev_minerals
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
+        info["prev_army_count"] = self._prev_army_count
+        info["prev_total_self_hp"] = self._prev_total_self_hp
         info["elapsed_s"] = self._elapsed_s
         info["raw_reward"] = float(_raw_reward)
         # Action fn_idx and target coords — required by reward shaping.
@@ -459,6 +465,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        self._prev_army_count = info.get("army_count", 0.0)
+        self._prev_total_self_hp = info.get("total_self_hp", 0.0)
         if info["action_fn_idx"] == 2:
             self._prev_move_target = (info["action_target_x"], info["action_target_y"])
 

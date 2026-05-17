@@ -90,13 +90,20 @@ tests need.
 
 ### Smoke test
 
+Run the same command CI runs so you don't get blocked by tests that need
+optional binaries (TMInterface, SC2, Box2D):
+
 ```bash
-poetry run python -m pytest tests/
+PYTHONPATH=. poetry run python -m pytest tests/ \
+    --ignore=tests/test_env_termination.py \
+    --ignore=tests/test_grid_search.py \
+    --ignore=tests/integration/
 ```
 
-You should get a green run in well under a minute. If a handful of tests
-are skipped, that's normal — some integration suites require optional
-binaries (SC2, Box2D).
+You should get a green run in well under a minute. The ignored top-level
+files import `tminterface` (Windows-only); `tests/integration/` needs
+either `gymnasium[box2d]` or the SC2 binary. On a fully-provisioned
+Windows dev box you can drop the `--ignore` flags to run the full suite.
 
 ---
 
@@ -107,8 +114,9 @@ Practically:
 
 | Command | What it runs |
 |---|---|
-| `poetry run python -m pytest tests/` | Full unit-test suite, excluding integration. |
-| `poetry run python -m pytest tests/integration/ -m integration` | Integration tests (need `gymnasium[box2d]` for CarRacing, the SC2 binary for SC2). |
+| `PYTHONPATH=. poetry run python -m pytest tests/ --ignore=tests/test_env_termination.py --ignore=tests/test_grid_search.py --ignore=tests/integration/` | Cross-platform unit-test suite — same set of files the `Tests / test` CI job runs. The two ignored top-level files import `tminterface` (Windows-only); `tests/integration/` needs optional binaries. |
+| `poetry run python -m pytest tests/` | Full suite. Only green if you've installed the `tmnf` group on Windows **and** the integration extras (`gymnasium[box2d]`, SC2 binary). Skip this unless you're on a fully-provisioned dev box. |
+| `poetry run python -m pytest tests/integration/ -m integration` | Integration tests on their own (need `gymnasium[box2d]` for CarRacing, the SC2 binary for SC2). |
 | `poetry run python -m pytest tests/test_<area>.py -v` | Focus a single area. |
 | `python main.py smoke --game car_racing --no-interrupt` | End-to-end smoke run that doesn't need any external binary. Great for spot-checking framework changes. |
 
@@ -280,8 +288,16 @@ PR review *will* push back if any of these are out of date.
    `add-rocket-league-game`, `fix-sc2-replay-overwrite`, etc.
 2. **Make small, focused commits**. A bug fix and an unrelated refactor
    should be two PRs.
-3. **Run `poetry run python -m pytest tests/` locally** before opening
-   the PR.
+3. **Run the unit tests locally** before opening the PR, using the same
+   command CI runs so you get the same result:
+   ```bash
+   PYTHONPATH=. poetry run python -m pytest tests/ \
+       --ignore=tests/test_env_termination.py \
+       --ignore=tests/test_grid_search.py \
+       --ignore=tests/integration/
+   ```
+   If you're on a fully-provisioned Windows dev box with `tminterface`
+   installed, drop the `--ignore` flags to run the full suite.
 4. **Open the PR against `main`**. The
    [PR template](.github/PULL_REQUEST_TEMPLATE.md) has a checklist —
    tick what applies, leave the rest unticked.

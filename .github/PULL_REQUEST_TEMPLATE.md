@@ -39,8 +39,12 @@ Closes #
      more useful than "looks good". Paste commands you ran. -->
 
 ```
-# e.g.
-poetry run python -m pytest tests/
+# e.g. — same unit-test command CI runs:
+PYTHONPATH=. poetry run python -m pytest tests/ \
+    --ignore=tests/test_env_termination.py \
+    --ignore=tests/test_grid_search.py \
+    --ignore=tests/integration/
+
 python main.py smoke_test --game car_racing --no-interrupt
 ```
 
@@ -55,7 +59,7 @@ python main.py smoke_test --game car_racing --no-interrupt
 ### Tests
 
 - [ ] Added or updated unit tests for new logic (`tests/`)
-- [ ] `poetry run python -m pytest tests/` passes locally
+- [ ] Cross-platform unit tests pass locally (`PYTHONPATH=. poetry run python -m pytest tests/ --ignore=tests/test_env_termination.py --ignore=tests/test_grid_search.py --ignore=tests/integration/`) — same command the `Tests / test` CI job runs
 - [ ] For game-specific changes: ran at least one short end-to-end training run (`python main.py …`) and confirmed it doesn't crash
 - [ ] For integration-test-eligible changes (CarRacing / SC2): integration tests are green or there is a clear reason they're skipped
 

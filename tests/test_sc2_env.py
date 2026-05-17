@@ -99,11 +99,11 @@ class TestSC2EnvStepLogic(unittest.TestCase):
     def test_score_delta_reward(self):
         """With default reward config (score_weight=1.0), a +1 score delta
         should produce a reward close to +1 minus step_penalty scaled by
-        step_mul (default 8)."""
+        step_mul (default 1)."""
         self.env.reset()
         _, reward, _, _, _ = self.env.step(np.zeros(4, dtype=np.float32))
-        # score went 0 -> 1, default step_penalty -0.001 × 8 ticks → reward ≈ 0.992.
-        self.assertAlmostEqual(reward, 1.0 - 0.001 * 8, places=5)
+        # score went 0 -> 1, default step_penalty -0.001 × 1 tick → reward ≈ 0.999.
+        self.assertAlmostEqual(reward, 1.0 - 0.001 * 1, places=5)
 
     def test_done_terminates(self):
         """When the client signals done, terminated should be True."""
@@ -171,7 +171,7 @@ class TestSC2EnvStepLogic(unittest.TestCase):
                 False,
                 {"score": 1.0, "minerals": 50.0, "vespene": 0.0,
                  "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0,
-                 "game_loop": 8.0},
+                 "game_loop": 1.0},   # delta == step_mul → 0 skipped
             ),
             (
                 np.zeros(BASE_OBS_DIM, dtype=np.float32),
@@ -179,7 +179,7 @@ class TestSC2EnvStepLogic(unittest.TestCase):
                 False,
                 {"score": 2.0, "minerals": 50.0, "vespene": 0.0,
                  "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0,
-                 "game_loop": 20.0},
+                 "game_loop": 6.0},   # delta 5 = step_mul 1 + 4 skipped
             ),
         ]
         self.env.reset()

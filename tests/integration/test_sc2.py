@@ -61,7 +61,7 @@ _skip_no_sc2 = pytest.mark.skipif(
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Use step_mul=16 (instead of default 8) so episodes finish faster in CI.
+# Use step_mul=16 (instead of default 1) so episodes finish faster in CI.
 _STEP_MUL = 16
 _MAX_EPISODE_TIME_S = 30.0  # wall-clock truncation — short for CI
 _MAP_NAME = "MoveToBeacon"

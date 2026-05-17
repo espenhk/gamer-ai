@@ -43,7 +43,7 @@ training_params:
   enable_belief: false              # tabular state-space explosion; see comment above
   map_name: DefeatRoaches
   in_game_episode_s: 120.0
-  step_mul: 8
+  step_mul: 1
   screen_size: 64
   minimap_size: 64
   max_apm: 300

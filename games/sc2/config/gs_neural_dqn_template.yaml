@@ -7,8 +7,8 @@
 # after min_replay_size transitions are collected; ε decays linearly from 1.0
 # to epsilon_end over epsilon_decay_steps environment steps.
 #
-# At step_mul=8 a 120 s episode yields ~240 steps.  n_sims=200 gives ~48 000
-# total steps, comfortably covering a 5 000–10 000 step ε-decay schedule.
+# At step_mul=1 a 120 s episode yields ~2 688 steps (22.4 ticks/s × 120 s).
+# n_sims=200 gives ~537 000 total steps; set epsilon_decay_steps accordingly.
 #
 # Good first sweep: learning_rate × epsilon_decay_steps.
 # learning_rate is the most sensitive knob; epsilon_decay_steps controls how
@@ -36,7 +36,7 @@ game: sc2
 training_params:
   map_name: Simple64
   in_game_episode_s: 120.0
-  step_mul: 8
+  step_mul: 1
   screen_size: 64
   minimap_size: 64
   max_apm: 300

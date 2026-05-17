@@ -73,7 +73,7 @@ def play_sc2(experiment_name: str, args: argparse.Namespace) -> None:
             p = yaml.safe_load(f)
 
     map_name    = track_override or p.get("map_name", "MoveToBeacon")
-    step_mul    = p.get("step_mul", 8)
+    step_mul    = p.get("step_mul", 1)
     screen_size = p.get("screen_size", 64)
     minimap_size = p.get("minimap_size", 64)
     agent_race  = p.get("agent_race", "random")

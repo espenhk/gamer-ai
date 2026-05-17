@@ -392,7 +392,7 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 | `map_name` | `MoveToBeacon` | Any of the 7 minigame names or a ladder map (e.g. `Simple64`). |
 | `agent_race` | `random` | `protoss` / `terran` / `zerg` / `random`. |
 | `bot_difficulty` | `very_easy` | Only for ladder maps; ignored for minigames. |
-| `step_mul` | `8` | Game ticks per env step. SC2 runs at 22.4 ticks/s, so 8 ticks ≈ 357 ms of game time, capping game-time APM at ~168. PySC2 runs faster than real-time by default (headless, no `realtime=True`), so wall-clock APM is higher than the game-time formula implies. |
+| `step_mul` | `1` | Game ticks per env step. `1` = finest granularity; the policy can act every engine tick (22.4 ticks/s). Higher values coarsen control and raise the game-time APM ceiling (`step_mul=8` ≈ 168 game-time APM). With `step_mul=1`, `max_apm` is the sole throttle. PySC2 runs faster than real-time by default (headless, no `realtime=True`), so wall-clock APM exceeds game-time APM — see `max_apm` note. |
 | `screen_size`, `minimap_size` | `64` | Square feature-layer resolutions. |
 | `in_game_episode_s` | `120.0` | Seconds before truncation; use `600.0` for ladder maps. |
 | `obs_spec_preset` | *(map-based)* | Override observation preset: `"minigame"` (15 dims), `"ladder"` (46 dims), `"rich"` (103 dims). Unset = minigame names → minigame, others → ladder. |

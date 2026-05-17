@@ -43,7 +43,7 @@ training_params:
   obs_spec_preset: rich   # see state-space note above; ladder/rich runs are diagnostic
   enable_belief: true              # tabular state-space explosion; see comment above
   in_game_episode_s: 120.0
-  step_mul: 8
+  step_mul: 1
   screen_size: 64
   minimap_size: 64
   max_apm: 300

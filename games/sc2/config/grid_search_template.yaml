@@ -38,7 +38,7 @@ game: sc2
 training_params:
   map_name: MoveToBeacon
   in_game_episode_s: 120.0
-  step_mul: 8
+  step_mul: 1
   screen_size: 64
   minimap_size: 64
   max_apm: 300

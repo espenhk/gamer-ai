@@ -184,7 +184,7 @@ class SC2Adapter:
                 experiment_dir=experiment_dir,
                 map_name=map_name,
                 max_episode_time_s=training_params["in_game_episode_s"],
-                step_mul=training_params.get("step_mul", 8),
+                step_mul=training_params.get("step_mul", 1),
                 screen_size=training_params.get("screen_size", 64),
                 minimap_size=training_params.get("minimap_size", 64),
                 agent_race=training_params.get("agent_race", "random"),

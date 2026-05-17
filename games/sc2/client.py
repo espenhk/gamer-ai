@@ -237,7 +237,7 @@ class SC2Client:
     def __init__(
         self,
         map_name: str,
-        step_mul: int = 8,
+        step_mul: int = 1,
         screen_size: int = 64,
         minimap_size: int = 64,
         agent_race: str = "random",

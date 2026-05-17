@@ -64,10 +64,11 @@ class TestSC2EnvStepLogic(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
         self.mock_client = self.mock_client_cls.return_value
+        self.mock_client.last_fn_idx = 0
         self.mock_client.reset.return_value = (
             np.zeros(BASE_OBS_DIM, dtype=np.float32),
             {"score": 0.0, "minerals": 50.0, "vespene": 0.0,
-             "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0},
+              "food_used": 1.0, "food_cap": 15.0, "army_count": 0.0},
         )
         self.mock_client.step.return_value = (
             np.zeros(BASE_OBS_DIM, dtype=np.float32),
@@ -254,6 +255,92 @@ class TestSC2EnvStepLogic(unittest.TestCase):
         self.assertEqual(info2["prev_score"], 10.0)
         self.assertEqual(info2["score"], 15.0)
 
+    def test_prev_army_and_total_self_hp_threaded_through(self):
+        """prev_army_count / prev_total_self_hp seed from reset then update per step."""
+        self.mock_client.reset.return_value = (
+            np.zeros(BASE_OBS_DIM, dtype=np.float32),
+            {"score": 0.0, "minerals": 50.0, "vespene": 0.0,
+             "food_used": 1.0, "food_cap": 15.0,
+             "army_count": 4.0, "total_self_hp": 110.0},
+        )
+        self.mock_client.step.side_effect = [
+            (
+                np.zeros(BASE_OBS_DIM, dtype=np.float32),
+                0.0,
+                False,
+                {"score": 1.0, "minerals": 50.0, "vespene": 0.0,
+                 "food_used": 1.0, "food_cap": 15.0,
+                 "army_count": 3.0, "total_self_hp": 90.0},
+            ),
+            (
+                np.zeros(BASE_OBS_DIM, dtype=np.float32),
+                0.0,
+                False,
+                {"score": 2.0, "minerals": 50.0, "vespene": 0.0,
+                 "food_used": 1.0, "food_cap": 15.0,
+                 "army_count": 2.0, "total_self_hp": 70.0},
+            ),
+        ]
+        self.env.reset()
+
+        _, _, _, _, info1 = self.env.step(np.zeros(4, dtype=np.float32))
+        self.assertEqual(info1["prev_army_count"], 4.0)
+        self.assertEqual(info1["army_count"], 3.0)
+        self.assertEqual(info1["prev_total_self_hp"], 110.0)
+        self.assertEqual(info1["total_self_hp"], 90.0)
+
+        _, _, _, _, info2 = self.env.step(np.zeros(4, dtype=np.float32))
+        self.assertEqual(info2["prev_army_count"], 3.0)
+        self.assertEqual(info2["army_count"], 2.0)
+        self.assertEqual(info2["prev_total_self_hp"], 90.0)
+        self.assertEqual(info2["total_self_hp"], 70.0)
+
+    def test_action_fn_idx_uses_executed_client_action(self):
+        """Blocked Attack_screen requests should not suppress passive-under-fire."""
+        self.mock_client.reset.return_value = (
+            np.zeros(BASE_OBS_DIM, dtype=np.float32),
+            {"score": 0.0, "minerals": 50.0, "vespene": 0.0,
+             "food_used": 1.0, "food_cap": 15.0, "army_count": 1.0},
+        )
+
+        def _step_with_substituted_select_army(_action):
+            self.mock_client.last_fn_idx = 1
+            return (
+                np.zeros(BASE_OBS_DIM, dtype=np.float32),
+                0.0,
+                False,
+                {"score": 0.0, "minerals": 50.0, "vespene": 0.0,
+                 "food_used": 1.0, "food_cap": 15.0, "army_count": 1.0,
+                 "screen_self_count": 1.0, "screen_enemy_count": 1.0,
+                 "screen_self_cx": 32.0, "screen_self_cy": 32.0,
+                 "screen_enemy_cx": 42.0, "screen_enemy_cy": 32.0,
+                 "self_attack_range_px": 20.0},
+            )
+
+        self.mock_client.step.side_effect = _step_with_substituted_select_army
+        cfg = SC2RewardConfig(
+            score_weight=0.0,
+            step_penalty=0.0,
+            win_bonus=0.0,
+            loss_penalty=0.0,
+            economy_weight=0.0,
+            move_exploration_bonus=0.0,
+            move_repeat_penalty=0.0,
+            move_self_penalty=0.0,
+            attack_move_bonus=0.0,
+            click_attack_bonus=0.0,
+            attack_friendly_penalty=0.0,
+            passive_under_fire_penalty=-2.0,
+        )
+        self.env = SC2Env(map_name="MoveToBeacon", reward_config=cfg)
+
+        self.env.reset()
+        attack = np.array([3, 0.5, 0.5, 0], dtype=np.float32)
+        _, reward, _, _, info = self.env.step(attack)
+        self.assertEqual(info["action_fn_idx"], 1)
+        self.assertAlmostEqual(info["episode_reward_components"]["passive_under_fire"], -2.0)
+        self.assertAlmostEqual(reward, -2.0)
+
 
 class TestSC2EnvCustomReward(unittest.TestCase):
 
@@ -299,6 +386,7 @@ class TestSC2EnvEndScreenAnalytics(unittest.TestCase):
             "game_loop": 100.0,
         }
         mock_client = mock_cls.return_value
+        mock_client.last_fn_idx = 0
         mock_client.reset.return_value = (
             np.zeros(BASE_OBS_DIM, dtype=np.float32),
             dict(_base_reset, **(reset_info or {})),

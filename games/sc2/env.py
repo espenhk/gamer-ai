@@ -217,6 +217,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals: float = 0.0
         self._prev_vespene: float = 0.0
         self._prev_score: float = 0.0
+        self._prev_army_count: float = 0.0
+        self._prev_total_self_hp: float = 0.0
         self._prev_move_target: tuple[float, float] | None = None
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
@@ -256,6 +258,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        self._prev_army_count = info.get("army_count", 0.0)
+        self._prev_total_self_hp = info.get("total_self_hp", 0.0)
         self._prev_move_target = None
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
@@ -323,12 +327,18 @@ class SC2Env(BaseGameEnv):
         info["prev_minerals"] = self._prev_minerals
         info["prev_vespene"] = self._prev_vespene
         info["prev_score"] = self._prev_score
+        info["prev_army_count"] = self._prev_army_count
+        info["prev_total_self_hp"] = self._prev_total_self_hp
         info["elapsed_s"] = self._elapsed_s
         info["raw_reward"] = float(_raw_reward)
         # Action fn_idx and target coords — required by reward shaping.
+        # Use the action actually sent to PySC2 (after client-side fallback
+        # substitutions), not the policy-requested fn_idx, so blocked
+        # Attack_screen/Move_screen requests do not masquerade as executed.
+        _executed_fn_idx = int(getattr(self._client, "last_fn_idx", -1))
         # action_target_x/y are normalised [0, 1] screen coordinates used by
         # click_attack_bonus to distinguish "click on unit" from "attack move".
-        info["action_fn_idx"] = int(action[0]) if len(action) > 0 else -1
+        info["action_fn_idx"] = _executed_fn_idx
         info["action_target_x"] = float(np.clip(action[1], 0.0, 1.0)) if len(action) > 1 else 0.5
         info["action_target_y"] = float(np.clip(action[2], 0.0, 1.0)) if len(action) > 2 else 0.5
         if self._prev_move_target is not None:
@@ -382,11 +392,11 @@ class SC2Env(BaseGameEnv):
             )
         info["episode_reward_components"] = dict(self._ep_reward_components)
 
-        # Track per-episode action counts (analytics 2a).
-        # Use the same sentinel as info["action_fn_idx"] when the action is empty
-        # so analytics and debug/reward-shaping metadata stay consistent.
-        _fn_idx = int(action[0]) if len(action) > 0 else -1
-        self._ep_action_counts[_fn_idx] = self._ep_action_counts.get(_fn_idx, 0) + 1
+        # Track per-episode action counts (analytics 2a) using the executed
+        # action for consistency with reward shaping and debug metadata.
+        self._ep_action_counts[_executed_fn_idx] = (
+            self._ep_action_counts.get(_executed_fn_idx, 0) + 1
+        )
         # Track 8×8 spatial-target histogram (analytics 2d).
         if len(action) >= 3:
             _xi = min(7, int(float(np.clip(action[1], 0.0, 1.0)) * 8))
@@ -459,6 +469,8 @@ class SC2Env(BaseGameEnv):
         self._prev_minerals = info.get("minerals", 0.0)
         self._prev_vespene = info.get("vespene", 0.0)
         self._prev_score = info.get("score", 0.0)
+        self._prev_army_count = info.get("army_count", 0.0)
+        self._prev_total_self_hp = info.get("total_self_hp", 0.0)
         if info["action_fn_idx"] == 2:
             self._prev_move_target = (info["action_target_x"], info["action_target_y"])
 

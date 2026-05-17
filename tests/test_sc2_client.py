@@ -154,6 +154,45 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertAlmostEqual(info["self_attack_range_px"], 24.0)
 
+    def test_info_includes_total_self_hp_from_visible_friendlies(self):
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "feature_units": np.array([
+                [1, 1, 10, 2],   # self
+                [2, 1, 20, 3],   # self
+                [3, 4, 99, 99],  # enemy -> excluded
+            ], dtype=np.float32),
+            "score_cumulative": np.array([0]),
+        }
+        _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertAlmostEqual(info["total_self_hp"], 35.0)
+
+    def test_total_self_hp_no_self_units_returns_zero(self):
+        feat_units = np.array([
+            [1, 4, 10, 2],
+            [2, 4, 20, 3],
+        ], dtype=np.float32)
+        self.assertEqual(
+            self.client._total_self_hp({"feature_units": feat_units}),
+            0.0,
+        )
+
+    def test_total_self_hp_missing_feature_units_returns_zero(self):
+        self.assertEqual(self.client._total_self_hp({}), 0.0)
+
+    def test_total_self_hp_too_few_columns_returns_zero(self):
+        feat_units = np.zeros((2, 3), dtype=np.float32)
+        feat_units[:, 1] = 1.0
+        self.assertEqual(
+            self.client._total_self_hp({"feature_units": feat_units}),
+            0.0,
+        )
+
 
 class TestSC2ClientLadderFlatten(unittest.TestCase):
 

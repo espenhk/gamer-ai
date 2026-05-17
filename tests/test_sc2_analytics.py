@@ -708,6 +708,37 @@ class TestSaveGridSummary(unittest.TestCase):
             self.assertGreater(forwarded_sim.reward, 0.0)
             self.assertAlmostEqual(forwarded_sim.reward, 313.496, places=2)
 
+    def test_new_penalty_components_are_normalized_via_config_weights(self):
+        with tempfile.TemporaryDirectory() as d:
+            reward_cfg_path = os.path.join(d, "reward_config.yaml")
+            with open(reward_cfg_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "unit_loss_penalty: -3.0\n"
+                    "damage_taken_penalty: -4.0\n"
+                    "passive_under_fire_penalty: -2.0\n"
+                )
+
+            sim = _make_sim(
+                sim=1,
+                reward=-23.0,
+                reward_components={
+                    "unit_loss": -9.0,
+                    "damage_taken": -8.0,
+                    "passive_under_fire": -6.0,
+                },
+            )
+            data = _make_experiment([sim], name="exp_penalties")
+            data.reward_config_file = reward_cfg_path
+
+            with mock.patch.object(sc2_analytics, "_framework_save_grid_summary") as m, \
+                    mock.patch.object(sc2_analytics.logger, "warning") as warn:
+                save_grid_summary([("exp_penalties", data)], [], d, "gs_test")
+
+            forwarded_runs = m.call_args.args[0]
+            forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
+            self.assertAlmostEqual(forwarded_sim.reward, -8.0, places=6)
+            warn.assert_not_called()
+
     def test_writes_sc2_cross_run_summary_charts(self):
         with tempfile.TemporaryDirectory() as d:
             runs = [

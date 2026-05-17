@@ -814,5 +814,285 @@ class TestSC2AttackMoveBonusAndClickAttackBonus(unittest.TestCase):
         self.assertAlmostEqual(comp_click["click_attack_bonus"], 2.0)
 
 
+class TestSC2UnitLossPenalty(unittest.TestCase):
+    """Tests for the unit_loss_penalty reward term."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {"score_weight": 0.0, "step_penalty": 0.0,
+                "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0}
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def test_penalty_fires_when_units_die(self):
+        calc = self._make_calc(unit_loss_penalty=-5.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_army_count": 4.0, "army_count": 2.0},
+        )
+        self.assertAlmostEqual(r, -10.0)  # 2 units lost × -5.0
+
+    def test_penalty_zero_when_no_units_lost(self):
+        calc = self._make_calc(unit_loss_penalty=-5.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_army_count": 4.0, "army_count": 4.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_no_penalty_when_army_grows(self):
+        """Producing new units should not yield a penalty."""
+        calc = self._make_calc(unit_loss_penalty=-5.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_army_count": 2.0, "army_count": 4.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.unit_loss_penalty, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(unit_loss_penalty=-5.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_army_count": 3.0, "army_count": 2.0},
+        )
+        self.assertAlmostEqual(comp["unit_loss"], -5.0)
+
+
+class TestSC2DamageTakenPenalty(unittest.TestCase):
+    """Tests for the damage_taken_penalty reward term."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {"score_weight": 0.0, "step_penalty": 0.0,
+                "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0}
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def test_penalty_fires_on_hp_loss(self):
+        calc = self._make_calc(damage_taken_penalty=-0.1)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_total_self_hp": 100.0, "total_self_hp": 60.0},
+        )
+        self.assertAlmostEqual(r, -4.0)  # 40 HP lost × -0.1
+
+    def test_no_penalty_when_hp_unchanged(self):
+        calc = self._make_calc(damage_taken_penalty=-0.1)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_total_self_hp": 100.0, "total_self_hp": 100.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_no_penalty_when_hp_increases(self):
+        """Healing or new units appearing on-screen should not penalise."""
+        calc = self._make_calc(damage_taken_penalty=-0.1)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_total_self_hp": 50.0, "total_self_hp": 100.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.damage_taken_penalty, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(damage_taken_penalty=-0.5)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_total_self_hp": 80.0, "total_self_hp": 60.0},
+        )
+        self.assertAlmostEqual(comp["damage_taken"], -10.0)  # 20 × -0.5
+
+    def test_zero_when_info_keys_absent(self):
+        """Missing prev/curr HP keys → no penalty (safe default)."""
+        calc = self._make_calc(damage_taken_penalty=-0.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+
+class TestSC2PassiveUnderFirePenalty(unittest.TestCase):
+    """Tests for passive_under_fire_penalty."""
+
+    _SS = 64.0
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {
+            "score_weight": 0.0, "step_penalty": 0.0,
+            "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0,
+            # Silence other shaping terms so only passive_under_fire is active.
+            "move_exploration_bonus": 0.0, "move_repeat_penalty": 0.0,
+            "move_self_penalty": 0.0, "attack_friendly_penalty": 0.0,
+            "attack_move_bonus": 0.0, "click_attack_bonus": 0.0,
+        }
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _info(self, fn_idx: int, dist: float = 10.0,
+              self_attack_range_px: float | None = None) -> dict:
+        out = {
+            "prev_score": 0.0, "score": 0.0,
+            "action_fn_idx": fn_idx,
+            "screen_self_count": 1.0,
+            "screen_enemy_count": 1.0,
+            "screen_self_cx": 32.0,
+            "screen_self_cy": 32.0,
+            "screen_enemy_cx": 32.0 + dist,
+            "screen_enemy_cy": 32.0,
+            "screen_size": self._SS,
+        }
+        if self_attack_range_px is not None:
+            out["self_attack_range_px"] = self_attack_range_px
+        return out
+
+    def test_fires_on_no_op_when_enemy_in_range(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=10.0),  # no_op, enemy close
+        )
+        self.assertAlmostEqual(r, -2.0)
+
+    def test_fires_on_move_screen_when_enemy_in_range(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2, dist=10.0),  # Move_screen, enemy close
+        )
+        self.assertAlmostEqual(r, -2.0)
+
+    def test_skipped_when_attack_screen_issued(self):
+        """Attack_screen (fn_idx 3) suppresses the penalty."""
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, dist=10.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_skipped_when_enemy_out_of_range(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=60.0),  # enemy far away
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_skipped_when_no_enemy_on_screen(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        info = self._info(fn_idx=0, dist=10.0)
+        info["screen_enemy_count"] = 0.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=info,
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_skipped_when_no_self_on_screen(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        info = self._info(fn_idx=0, dist=10.0)
+        info["screen_self_count"] = 0.0
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=info,
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_uses_self_attack_range_px_when_provided(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        # Enemy at dist=25 px; default range (~20) would miss but explicit 30 catches it.
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=25.0, self_attack_range_px=30.0),
+        )
+        self.assertAlmostEqual(r, -2.0)
+
+    def test_skipped_beyond_explicit_range(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        # Enemy at dist=35 px, explicit range=30 → outside range.
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=35.0, self_attack_range_px=30.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_scales_with_n_ticks(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=10.0),
+            n_ticks=3,
+        )
+        self.assertAlmostEqual(r, -6.0)
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.passive_under_fire_penalty, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(passive_under_fire_penalty=-2.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, dist=10.0),
+        )
+        self.assertAlmostEqual(comp["passive_under_fire"], -2.0)
+
+
+class TestSC2RewardComponentsExtended(unittest.TestCase):
+    """Verify the three new component keys appear in compute_with_components."""
+
+    def test_new_component_keys_present(self):
+        calc = SC2RewardCalculator(SC2RewardConfig(
+            score_weight=1.0, economy_weight=0.001, step_penalty=-0.001,
+            unit_loss_penalty=-1.0, damage_taken_penalty=-0.1,
+            passive_under_fire_penalty=-1.0,
+        ))
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0,
+                  "prev_minerals": 0.0, "minerals": 0.0,
+                  "prev_vespene": 0.0, "vespene": 0.0},
+        )
+        for key in ("unit_loss", "damage_taken", "passive_under_fire"):
+            self.assertIn(key, comp)
+
+    def test_components_sum_equals_total_with_new_terms(self):
+        calc = SC2RewardCalculator(SC2RewardConfig(
+            score_weight=1.0, step_penalty=0.0, economy_weight=0.0,
+            unit_loss_penalty=-5.0, damage_taken_penalty=-0.1,
+            passive_under_fire_penalty=-2.0,
+            win_bonus=0.0, loss_penalty=0.0,
+        ))
+        info = {
+            "prev_score": 0.0, "score": 10.0,
+            "prev_army_count": 4.0, "army_count": 3.0,
+            "prev_total_self_hp": 100.0, "total_self_hp": 70.0,
+            "action_fn_idx": 0,
+            "screen_self_count": 1.0, "screen_enemy_count": 1.0,
+            "screen_self_cx": 32.0, "screen_self_cy": 32.0,
+            "screen_enemy_cx": 42.0, "screen_enemy_cy": 32.0,
+            "screen_size": 64.0,
+        }
+        total, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=info,
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+
 if __name__ == "__main__":
     unittest.main()

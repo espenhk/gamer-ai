@@ -229,6 +229,10 @@ class SC2Client:
         Bot difficulty for 1v1 maps; ignored for minigames.
     visualize :
         If True, render the PySC2 visualizer window.
+    realtime :
+        If True, synchronise env steps with wall-clock time so the game
+        runs at natural game speed rather than as fast as possible.
+        Useful for evaluation / watch sessions.
     play_mode :
         If True, set up a Human + Agent session instead of Agent (+ Bot).
         The human plays via the standard SC2 UI; the agent acts via PySC2.
@@ -243,6 +247,7 @@ class SC2Client:
         agent_race: str = "random",
         bot_difficulty: str = "very_easy",
         visualize: bool = False,
+        realtime: bool = False,
         screen_layers: list[str] | None = None,
         minimap_layers: list[str] | None = None,
         play_mode: bool = False,
@@ -256,6 +261,7 @@ class SC2Client:
         self._agent_race = agent_race
         self._bot_difficulty = bot_difficulty
         self._visualize = visualize
+        self._realtime = realtime
         self._play_mode = play_mode
         self._store_minimap_vis = store_minimap_vis
         self._screen_layers: list[str] = list(screen_layers or [])
@@ -320,6 +326,16 @@ class SC2Client:
             self._sc2_env.close()
             self._sc2_env = None
 
+    @property
+    def last_fn_idx(self) -> int:
+        """fn_idx of the action actually sent to PySC2 in the last step.
+
+        Reflects fallback substitutions: if the policy requested a blocked
+        action and the client substituted ``select_army`` or ``no_op``,
+        this returns the substituted fn_idx, not the requested one.
+        """
+        return self._last_fn_idx
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -375,6 +391,7 @@ class SC2Client:
             step_mul=self._step_mul,
             game_steps_per_episode=0,
             visualize=self._visualize,
+            realtime=self._realtime,
             disable_fog=False,
         )
 

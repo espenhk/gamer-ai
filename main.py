@@ -72,6 +72,45 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--eval", action="store_true",
+        help=(
+            "Evaluation mode (SC2 only).  "
+            "Loads the champion policy from the experiment and runs it against "
+            "AI opponents for evaluation.  Runs multiple episodes and reports "
+            "aggregate statistics: win rate, average score, average game length.  "
+            "No weight updates occur."
+        ),
+    )
+    parser.add_argument(
+        "--num-episodes", type=int, default=1,
+        help="Number of evaluation episodes to run (default: 1, used with --eval)",
+    )
+    parser.add_argument(
+        "--bot-difficulty",
+        default=None,
+        choices=[
+            "very_easy", "easy", "medium", "medium_hard",
+            "hard", "harder", "very_hard", "elite",
+            "cheater_easy", "cheater_medium", "cheater_hard",
+        ],
+        help=(
+            "SC2 built-in bot difficulty for ladder maps during --eval "
+            "(default: use experiment config, fallback very_easy).  "
+            "Ignored for minigame maps."
+        ),
+    )
+    parser.add_argument(
+        "--eval-speed", type=int, default=None, metavar="STEP_MUL",
+        help=(
+            "Override step_mul during --eval.  Lower values produce more "
+            "decisions per second of real game time (more granular); higher "
+            "values advance the game further between decisions (faster but "
+            "jumpier).  Defaults to the experiment's configured step_mul.  "
+            "Tip: pair with a lower value (e.g. 2–4) to watch at a "
+            "comfortable pace."
+        ),
+    )
+    parser.add_argument(
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
@@ -87,12 +126,19 @@ def main() -> None:
     if args.play and args.game != "sc2":
         raise SystemExit("--play is only supported with --game sc2")
 
+    if args.eval and args.game != "sc2":
+        raise SystemExit("--eval is only supported with --game sc2")
+
     if args.game == "assetto":
         _run_assetto(args)
         return
 
     if args.play:
         _run_play_sc2(args)
+        return
+
+    if args.eval:
+        _run_eval_sc2(args)
         return
 
     adapter = GAME_ADAPTERS[args.game]()
@@ -157,6 +203,21 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
         no_interrupt=args.no_interrupt,
         re_initialize=re_initialize,
     )
+
+
+# ======================================================================
+# SC2 evaluation entry point
+# ======================================================================
+
+def _run_eval_sc2(args: argparse.Namespace) -> None:
+    try:
+        from games.sc2.eval import eval_sc2  # noqa: PLC0415
+        eval_sc2(args.experiment, args)
+    except ImportError as exc:
+        raise SystemExit(
+            f"Cannot import SC2 eval dependencies: {exc}\n"
+            "Install pysc2 with:  poetry install --with sc2"
+        ) from exc
 
 
 # ======================================================================

@@ -1,0 +1,15 @@
+map_name: DefeatZerglingsAndBanelings
+in_game_episode_s: 120.0
+step_mul: 8
+screen_size: 64
+minimap_size: 64
+max_apm: 300
+agent_race: protoss
+n_sims: 50
+policy_type: cmaes
+obs_spec_preset: rich
+enable_belief: true
+population_size: 25
+initial_sigma: 0.5
+policy_params:
+  eval_episodes: 5

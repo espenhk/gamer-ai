@@ -116,11 +116,20 @@ def eval_sc2(experiment_name: str, args: argparse.Namespace) -> None:
     agent_race: str = p.get("agent_race", "random")
     obs_spec_preset: str | None = p.get("obs_spec_preset")
     enable_belief: bool = bool(p.get("enable_belief", False))
-    screen_layers: list[str] = p.get("screen_layers") or []
-    minimap_layers: list[str] = p.get("minimap_layers") or []
     max_apm: int | None = p.get("max_apm")
     apm_burst_s: float = float(p.get("apm_burst_s", 2.0))
     max_episode_time_s: float = float(p.get("in_game_episode_s", 120.0))
+
+    # Spatial layers are only valid for sc2_cnn.  For every other policy type
+    # SC2Env would produce dict observations that the flat policy cannot consume.
+    # Read policy_type from the weights file so eval matches the adapter's logic.
+    _weights_policy_type: str | None = None
+    if os.path.exists(weights_file):
+        with open(weights_file) as _f:
+            _weights_cfg = yaml.safe_load(_f) or {}
+        _weights_policy_type = _weights_cfg.get("policy_type") or p.get("policy_type")
+    screen_layers: list[str] = (p.get("screen_layers") or []) if _weights_policy_type == "sc2_cnn" else []
+    minimap_layers: list[str] = (p.get("minimap_layers") or []) if _weights_policy_type == "sc2_cnn" else []
 
     # step_mul: --eval-speed overrides experiment config.
     config_step_mul: int = p.get("step_mul", 8)
@@ -213,7 +222,7 @@ def _run_episode(
     obs, info = env.reset()
 
     if hasattr(policy, "on_episode_start"):
-        policy.on_episode_start(**info)
+        policy.on_episode_start(info=info)
 
     step_count = 0
     cumulative_reward = 0.0
@@ -222,6 +231,7 @@ def _run_episode(
 
     done = False
     while not done:
+        prev_obs = obs
         action = policy(obs)
 
         requested_fn_name = FUNCTION_IDS.get(int(action[0]), "no_op")
@@ -230,8 +240,9 @@ def _run_episode(
         executed_fn_name = FUNCTION_IDS.get(env._client.last_fn_idx, "no_op")
 
         # Let policies that use available_fn_ids masks refresh them.
+        # Signature: update(obs, action, reward, next_obs, done, info=...)
         if hasattr(policy, "update"):
-            policy.update(obs, action, reward, info)
+            policy.update(prev_obs, action, reward, obs, done, info=info)
 
         action_counts[executed_fn_name] += 1
         if executed_fn_name != requested_fn_name:

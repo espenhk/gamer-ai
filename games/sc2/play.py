@@ -115,7 +115,7 @@ def _run_episode(client: SC2Client, policy) -> None:
     obs, info = client.reset()
 
     if hasattr(policy, "on_episode_start"):
-        policy.on_episode_start(**info)
+        policy.on_episode_start(info=info)
 
     step_count = 0
 
@@ -198,6 +198,27 @@ def _load_champion_policy(
     if policy_type == "sc2_lstm":
         from games.sc2.sc2_policies import SC2LSTMPolicy
         return SC2LSTMPolicy.from_cfg(cfg, obs_spec)
+
+    if policy_type == "sc2_neural_dqn":
+        from games.sc2.policies import SC2NeuralDQNPolicy
+        return SC2NeuralDQNPolicy.from_cfg(cfg, obs_spec)
+
+    if policy_type == "sc2_cnn":
+        # SC2CNNEvolutionPolicy saves its champion as a .npz file (not YAML).
+        # The companion .npz path is weights_file with .yaml → .npz.
+        npz_path = weights_file.replace(".yaml", ".npz")
+        if not os.path.exists(npz_path):
+            raise SystemExit(
+                f"sc2_cnn champion not found at: {npz_path}\n"
+                "Train the agent first to generate champion weights."
+            )
+        from games.sc2.cnn_policy import SC2CNNEvolutionPolicy
+        import numpy as _np
+        with _np.load(npz_path) as _data:
+            n_channels = int(_data["n_channels"])
+        policy = SC2CNNEvolutionPolicy(n_channels=n_channels, obs_spec=obs_spec)
+        policy.load_champion(npz_path)
+        return policy
 
     if policy_type == "neural_dqn":
         from games.sc2.policies import NeuralDQNPolicy

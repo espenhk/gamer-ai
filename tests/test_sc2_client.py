@@ -1255,7 +1255,9 @@ class TestSC2ClientLastFnIdx(unittest.TestCase):
                 2: _FakeFunctions.Move_screen.id,
             }.get(fn_idx, _FakeFunctions.no_op.id)
             return _FakeFunctionCall(fn_id, [])
-        patch.object(client_mod, "action_to_function_call", _fake_atfc).start()
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_atfc)
+        patcher_helper.start()
+        self.addCleanup(patcher_helper.stop)
 
         from games.sc2.client import SC2Client
         self.client = SC2Client(map_name="MoveToBeacon")

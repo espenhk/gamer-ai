@@ -50,80 +50,47 @@ def _make_args(**kwargs) -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 class TestArgValidation(unittest.TestCase):
-    """--num-episodes and --eval-speed must be ≥ 1."""
+    """--num-episodes and --eval-speed must be ≥ 1; exercises the real main.py parser."""
 
-    def _make_parser(self):
-        import argparse as ap
-
-        def _positive_int(name):
-            def _check(v):
-                iv = int(v)
-                if iv < 1:
-                    raise ap.ArgumentTypeError(f"{name} must be ≥ 1, got {v}")
-                return iv
-            return _check
-
-        parser = ap.ArgumentParser()
-        parser.add_argument("--num-episodes", type=_positive_int("--num-episodes"), default=1)
-        parser.add_argument("--eval-speed", type=_positive_int("--eval-speed"), default=None)
-        return parser
+    def _parser(self):
+        from main import _build_arg_parser
+        return _build_arg_parser()
 
     def test_num_episodes_zero_rejected(self):
-        parser = self._make_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--num-episodes", "0"])
+            self._parser().parse_args(["myexp", "--num-episodes", "0"])
 
     def test_num_episodes_negative_rejected(self):
-        parser = self._make_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--num-episodes", "-3"])
+            self._parser().parse_args(["myexp", "--num-episodes", "-3"])
 
     def test_num_episodes_one_accepted(self):
-        parser = self._make_parser()
-        ns = parser.parse_args(["--num-episodes", "1"])
+        ns = self._parser().parse_args(["myexp", "--num-episodes", "1"])
         self.assertEqual(ns.num_episodes, 1)
 
     def test_eval_speed_zero_rejected(self):
-        parser = self._make_parser()
         with self.assertRaises(SystemExit):
-            parser.parse_args(["--eval-speed", "0"])
+            self._parser().parse_args(["myexp", "--eval-speed", "0"])
 
     def test_eval_speed_positive_accepted(self):
-        parser = self._make_parser()
-        ns = parser.parse_args(["--eval-speed", "4"])
+        ns = self._parser().parse_args(["myexp", "--eval-speed", "4"])
         self.assertEqual(ns.eval_speed, 4)
 
+    def test_play_and_eval_mutually_exclusive(self):
+        with self.assertRaises(SystemExit):
+            self._parser().parse_args(["myexp", "--play", "--eval"])
+
     def test_bot_difficulty_invalid_name_rejected(self):
-        """cheater_easy / cheater_hard are not real PySC2 Difficulty names."""
-        import argparse as ap
-        parser = ap.ArgumentParser()
-        parser.add_argument(
-            "--bot-difficulty",
-            choices=[
-                "very_easy", "easy", "medium", "medium_hard",
-                "hard", "harder", "very_hard",
-                "cheat_vision", "cheat_money", "cheat_insane",
-            ],
-        )
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--bot-difficulty", "cheater_easy"])
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["--bot-difficulty", "elite"])
+        """cheater_easy / cheater_hard / elite are not real PySC2 Difficulty names."""
+        for bad in ("cheater_easy", "cheater_hard", "elite"):
+            with self.subTest(name=bad), self.assertRaises(SystemExit):
+                self._parser().parse_args(["myexp", "--bot-difficulty", bad])
 
     def test_bot_difficulty_valid_names_accepted(self):
-        import argparse as ap
-        parser = ap.ArgumentParser()
-        parser.add_argument(
-            "--bot-difficulty",
-            choices=[
-                "very_easy", "easy", "medium", "medium_hard",
-                "hard", "harder", "very_hard",
-                "cheat_vision", "cheat_money", "cheat_insane",
-            ],
-        )
         for name in ("very_easy", "hard", "cheat_insane"):
-            ns = parser.parse_args(["--bot-difficulty", name])
-            self.assertEqual(ns.bot_difficulty, name)
+            with self.subTest(name=name):
+                ns = self._parser().parse_args(["myexp", "--bot-difficulty", name])
+                self.assertEqual(ns.bot_difficulty, name)
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +226,9 @@ class TestRunEpisode(unittest.TestCase):
         result = _run_episode(env, policy, ep_idx=1, total_episodes=1)
         self.assertEqual(result["steps"], 5)
 
-    def test_on_episode_start_receives_info(self):
-        """on_episode_start(**info) should receive the reset info dict."""
+    def test_on_episode_start_called_with_info_kwarg(self):
+        """on_episode_start(info=reset_info) — info dict passed as 'info' kwarg,
+        not spread as top-level kwargs, so policies can read available_fn_ids."""
         from games.sc2.eval import _run_episode
         env = self._make_env(n_steps=1)
         policy = self._make_policy()
@@ -268,16 +236,39 @@ class TestRunEpisode(unittest.TestCase):
         _run_episode(env, policy, ep_idx=1, total_episodes=1)
         policy.on_episode_start.assert_called_once()
         kwargs = policy.on_episode_start.call_args[1]
-        self.assertIn("available_fn_ids", kwargs)
+        # Must be passed as info=<dict>, not as **info.
+        self.assertIn("info", kwargs, "on_episode_start must receive info=<dict>")
+        self.assertIn("available_fn_ids", kwargs["info"])
 
-    def test_policy_update_called_each_step(self):
-        """update() is called once per step so available_fn_ids stay fresh."""
+    def test_policy_update_receives_correct_signature(self):
+        """update(prev_obs, action, reward, next_obs, done, info=info) —
+        verify positional and keyword args match the policy contract."""
         from games.sc2.eval import _run_episode
-        env = self._make_env(n_steps=3)
-        policy = self._make_policy()
-        policy.update = MagicMock()
-        _run_episode(env, policy, ep_idx=1, total_episodes=1)
-        self.assertEqual(policy.update.call_count, 3)
+        obs_dim = BASE_OBS_DIM
+
+        received_calls = []
+
+        class _FakePolicy:
+            def __call__(self, obs):
+                return np.array([1, 0.0, 0.0, 0], dtype=np.float32)
+            def update(self, obs, action, reward, next_obs, done, **kwargs):
+                received_calls.append({
+                    "obs": obs, "action": action, "reward": reward,
+                    "next_obs": next_obs, "done": done,
+                    "info": kwargs.get("info"),
+                })
+
+        env = self._make_env(n_steps=2, obs_dim=obs_dim)
+        _run_episode(env, _FakePolicy(), ep_idx=1, total_episodes=1)
+
+        self.assertEqual(len(received_calls), 2)
+        for i, call in enumerate(received_calls):
+            self.assertEqual(call["obs"].shape, (obs_dim,), f"step {i}: obs wrong shape")
+            self.assertEqual(call["next_obs"].shape, (obs_dim,), f"step {i}: next_obs wrong shape")
+            self.assertIsNotNone(call["info"], f"step {i}: info must be passed")
+            self.assertIn("available_fn_ids", call["info"], f"step {i}: available_fn_ids missing")
+        # done=True on the last step.
+        self.assertTrue(received_calls[-1]["done"])
 
     def test_result_outcome_from_terminal_info(self):
         from games.sc2.eval import _run_episode

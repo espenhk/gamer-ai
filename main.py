@@ -32,7 +32,12 @@ from framework.training import train_rl
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Return the fully configured argument parser for main().
+
+    Extracted so tests can import and exercise the real parser without
+    invoking the full training stack.
+    """
     parser = argparse.ArgumentParser(description="RL training (multi-game)")
     parser.add_argument(
         "experiment",
@@ -125,6 +130,11 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
     )
+    return parser
+
+
+def main() -> None:
+    parser = _build_arg_parser()
     args = parser.parse_args()
 
     logging.basicConfig(

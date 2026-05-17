@@ -536,15 +536,15 @@ handful of iterations only).
 - Serialisation: cfg keys / policy_type / from_cfg roundtrip / save+reload / wrong obs dim raises
 
 ### test_sc2_eval.py — `--eval` evaluation mode
-- CLI validation: num_episodes 0/negative rejected; 1 accepted; eval_speed 0 rejected; positive accepted; cheater_easy / elite rejected; valid names accepted
+- CLI validation (real main.py parser): num_episodes 0/negative rejected; 1 accepted; eval_speed 0 rejected; positive accepted; --play/--eval mutually exclusive; cheater_easy/elite rejected; valid names accepted
 - _print_action_breakdown: fn names present; 70/30% correct; substitution line shown when nonzero / hidden when zero; zero total_steps no divide-by-zero
 - _print_aggregate_summary: 66.7% win rate for 2/3 wins; 100% all wins; single episode no crash
-- _run_episode: policy called each step; step count matches env steps; on_episode_start receives info dict (available_fn_ids present); update() called each step; outcome from terminal info; substitution counted when executed≠requested; no substitution when match; cumulative reward summed
+- _run_episode: policy called each step; step count matches env steps; on_episode_start(info=<dict>) — info kwarg present with available_fn_ids; update(prev_obs, action, reward, next_obs, done, info=info) — shapes, available_fn_ids, done=True on last step; outcome from terminal info; substitution counted when executed≠requested; no substitution when match; cumulative reward summed
 
 ### test_sc2_play.py — `play_sc2.py` script
 - Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / neural_dqn / reinforce / lstm; cmaes no policy_type → SC2Linear; unknown → SC2Linear
 - Outcome handling: win / loss / draw / none
-- Episode loop: calls policy each step / client until done / on_episode_start+end / works without lifecycle hooks
+- Episode loop: calls policy each step / client until done / on_episode_start(info=<dict>)+end / works without lifecycle hooks
 - Play-mode flag: stored / default false; `make_sc2_env` lazy on reset
 - Game loop: present in info / value extracted from obs
 

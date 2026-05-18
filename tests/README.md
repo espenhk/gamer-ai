@@ -434,8 +434,8 @@ handful of iterations only).
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
 - idle bonus: uses unit-aware max attack range when available and only fires at 95% inside that range (e.g. 19/20 fires, 20/20 skips); skipped for non-no_op / far enemy / no enemy / no self; disabled by default; n_ticks scaling
-- attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling
-- click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling
+- attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
+- click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
 - movement shaping: exploration bonus for varied `Move_screen` targets above the minimum-distance threshold; stutter-step below threshold earns no bonus and triggers the repeat penalty instead; move exactly at threshold gets bonus but not penalty; repeat-target penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible
 - attack_friendly_penalty: fires when Attack_screen targets near friendly centroid; skipped for target far from friendly / no friendly on screen / Move_screen; disabled when zero; n_ticks scaling; appears in components dict; default is strongly negative

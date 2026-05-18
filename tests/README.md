@@ -17,6 +17,7 @@
   - [test\_grid\_search.py — Cartesian-product expansion + naming](#test_grid_searchpy--cartesian-product-expansion--naming)
   - [test\_info\_gain.py — staleness-based intrinsic reward](#test_info_gainpy--staleness-based-intrinsic-reward)
   - [test\_obs\_memory.py — frame-stacking observation wrapper](#test_obs_memorypy--frame-stacking-observation-wrapper)
+  - [test\_parallel\_eval.py — intra-run parallel evaluator (issue #229)](#test_parallel_evalpy--intra-run-parallel-evaluator-issue-229)
   - [test\_reward.py — TMNF reward calculator + curiosity glue](#test_rewardpy--tmnf-reward-calculator--curiosity-glue)
   - [test\_train\_rl\_signature.py — public `train_rl()` API](#test_train_rl_signaturepy--public-train_rl-api)
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
@@ -116,12 +117,21 @@ graceful skip of missing experiments), plus `cross_grid_report.py`
 (recursive `<policy>/vX/` discovery, copied-summary link rewriting, and
 cross-grid family comparison tables).
 
+The intra-run parallel evaluator (`framework/parallel_eval.py`, issue #229)
+is unit-tested end-to-end against a picklable dummy env / policy: worker
+pool spawn (spawn context), per-individual ordering, crash isolation,
+sentinel shutdown, determinism under fixed seed, episode-time-limit
+broadcast, and the `train_rl` guard (`_maybe_build_evaluator`).  The
+underlying PySC2 binary spawn path is opt-in via `RUN_SC2_TESTS=1`.
+
 **Not tested.** Real distributed training across multiple machines (only the
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
 diff'ing (analytics tests assert files appear, not their contents); the Azure
 Terraform stack under `infrastructure/`; the Windows bootstrap script
 `setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI); long convergence
-behaviour of the actual `train_rl()` loop end-to-end on a real env.
+behaviour of the actual `train_rl()` loop end-to-end on a real env;
+the actual PySC2 binary spawn path under `ParallelEvaluator` — only the
+worker mechanics are unit-tested with a dummy env.
 
 ### test_analytics_no_matplotlib.py — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -217,6 +227,18 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - Track fields: default name / centerline path / custom / from yaml / backward-compat / default config back-compat
 - Curiosity: ICM adds positive intrinsic / scales w/ n_ticks / skipped when obs missing / reset propagates / yaml accepts new keys
 - `compute_with_components`: scalar matches / sum=total / keys present / progress / centerline / finish-bonus / finish-time over-par / no-finish / step-penalty / accel-bonus / curiosity zero w/o module
+
+### test_parallel_eval.py — intra-run parallel evaluator (issue #229)
+- `ParallelEvaluator` returns results sorted by `individual_idx` regardless of submission order
+- matches a serial-reference evaluation byte-for-byte on dummy env + dummy policy
+- `eval_episodes>1` reports the per-episode mean reward and summed total_steps
+- worker crash on one individual returns `-inf` for that idx; other workers keep serving
+- `close()` joins all workers (no zombies); idempotent across repeat calls; rejects post-close `evaluate()`
+- empty candidate list → empty result; `n_workers=0` raises; more candidates than workers all evaluated
+- determinism: identical `base_seed` produces identical results
+- `episode_time_limit_s` reaches workers without crashing the dispatch
+- `_maybe_build_evaluator` returns None for `n_workers=1`, raises `ValueError` for non-population policies and `q_learning` loop dispatch, caps `n_workers` at `population_size` with a warning
+- SC2 binary spawn smoke test is opt-in (skipped unless `RUN_SC2_TESTS=1`); the worker mechanics are exercised entirely against the dummy env in the unit tests
 
 ### test_train_rl_signature.py — public `train_rl()` API
 - accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params

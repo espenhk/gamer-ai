@@ -547,6 +547,41 @@ Three preset specs, opt-in via the `obs_spec_preset` training param:
 
 Set `obs_spec_preset: rich` in `training_params.yaml` to opt into the rich preset on any map.  Existing weight files migrate via the standard "missing key → 0.0" path — old champions can be loaded under any preset, and the new feature weights default to zero.
 
+### Intra-run parallel evaluation (issue #229)
+
+Population-based policies (`sc2_genetic`, `sc2_cmaes`, `sc2_lstm`,
+`sc2_cnn`) can evaluate individuals concurrently across multiple local
+SC2 binaries.  Each worker holds one persistent `SC2Env` so the
+~10–20 s binary startup is paid once per run, not once per generation.
+
+Set `n_workers > 1` in `training_params.yaml`:
+
+| Key | Default | Notes |
+|---|---|---|
+| `n_workers` | `1` | Number of parallel SC2 binaries.  `1` keeps the existing serial behaviour, zero overhead.  Capped automatically at `population_size` (extra workers would just idle). |
+| `worker_start_stagger_s` | `5.0` | Sleep between spawning child workers so PySC2's port-picker / `absl.flags` init don't race. |
+| `worker_warmup_timeout_s` | `90.0` | Per-worker startup budget folded into the evaluator's per-job deadline. |
+| `worker_base_seed` | `0` | Worker `i` is seeded with `base_seed + i`. |
+
+**Semantics.** Evaluation is generation-synchronous: every individual in
+the generation is scored before the distribution update runs, so
+`sc2_cmaes`/`sc2_lstm`/`sc2_cnn` and `sc2_genetic` produce the same
+champion sequence as the serial loop (just faster wallclock).  True
+asynchronous ES is deferred — see `plans/issue-229-...md` §9.
+
+**Sizing.** One headless SC2 binary on Linux uses ≈1 CPU + ≈1.5 GB RSS;
+a 16-core / 32 GB box sustains roughly 8 binaries with overhead for the
+trainer process.  Workers each open their own binary, so total binaries =
+`n_workers` (the main process holds an extra env for episode-time-limit
+queries today; this is single-digit MB of overhead).
+
+**Scope.**  Only the four population-based SC2 policies are eligible.
+Setting `n_workers > 1` for tabular / gradient-based policies
+(`epsilon_greedy`, `mcts`, `sc2_reinforce`, `neural_dqn`, `reinforce`)
+fails fast in `train_rl` before any binary spawns.  This is intra-run
+parallelism; for inter-run parallelism (one experiment per worker)
+keep using `python grid_search.py --local-workers N` (PR #244).
+
 ---
 
 ## Dependencies

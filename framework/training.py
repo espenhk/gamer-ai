@@ -812,6 +812,46 @@ def _maybe_adapt_scale(history, current, sim, window, up, down, mn, mx, enabled,
     out.append(new)
 
 
+def _evaluate_with_evaluator(
+    evaluator: Any,
+    individuals: list,
+    eval_episodes: int,
+    *,
+    warmup_action: np.ndarray | None,
+    warmup_steps: int,
+    episode_time_limit_s: float | None,
+) -> tuple[list[float], int, dict, Any]:
+    """Score *individuals* in parallel via ParallelEvaluator (issue #229).
+
+    Returns the per-individual reward list (in submission order), the
+    summed step count, and the info/trace tuple from the best-scoring
+    individual (so generation-level logging in the greedy loops sees
+    metadata for the champion of the generation, not an arbitrary one).
+    """
+    from framework.parallel_eval import Candidate
+
+    candidates = [
+        Candidate(
+            individual_idx=idx,
+            flat_weights=ind.to_flat(),
+            eval_episodes=eval_episodes,
+        )
+        for idx, ind in enumerate(individuals)
+    ]
+    results = evaluator.evaluate(
+        candidates,
+        warmup_action=warmup_action,
+        warmup_steps=warmup_steps,
+        episode_time_limit_s=episode_time_limit_s,
+    )
+    rewards     = [r.reward for r in results]
+    total_steps = sum(r.total_steps for r in results)
+    best_i      = int(np.argmax(rewards))
+    info        = results[best_i].info
+    trace       = results[best_i].trace
+    return rewards, total_steps, info, trace
+
+
 def _greedy_loop_cmaes(
     env,
     policy,                # CMAESPolicy duck type: sample_population / update_distribution
@@ -820,8 +860,15 @@ def _greedy_loop_cmaes(
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
     patience: int = 0,
+    evaluator: Any = None,
 ) -> tuple[Any, float, list[GreedySimResult], bool, int | None]:
-    """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution."""
+    """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution.
+
+    When *evaluator* is a :class:`framework.parallel_eval.ParallelEvaluator`,
+    the per-individual evaluation is dispatched to N worker processes
+    (issue #229).  Evaluation stays generation-synchronous so the
+    distribution update is byte-for-byte equivalent to the serial path.
+    """
     pop_size          = policy.population_size
     eval_episodes     = getattr(policy, "_eval_episodes", 1)
     best_reward       = policy.champion_reward
@@ -830,9 +877,11 @@ def _greedy_loop_cmaes(
     no_improve_streak = 0
     early_stopped     = False
     early_stop_sim    = None
+    parallel_label    = f" parallel n_workers={evaluator.n_workers}" if evaluator else ""
 
     logger.info(
-        "[CMA-ES] population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        "[CMA-ES]%s population_size=%d, eval_episodes=%d, total episodes = %d × %d × %d = %d",
+        parallel_label,
         pop_size, eval_episodes,
         n_generations, pop_size, eval_episodes,
         n_generations * pop_size * eval_episodes,
@@ -841,28 +890,37 @@ def _greedy_loop_cmaes(
     try:
         best_info_logged: dict = {}
         for gen in range(1, n_generations + 1):
-            if full_episode_time_s is not None:
-                env.set_episode_time_limit(_scaled_episode_time(
-                    gen, n_generations, full_episode_time_s,
-                ))
+            scaled_t = (
+                _scaled_episode_time(gen, n_generations, full_episode_time_s)
+                if full_episode_time_s is not None else None
+            )
+            if scaled_t is not None:
+                env.set_episode_time_limit(scaled_t)
             offspring    = policy.sample_population()
-            rewards      = []
-            total_steps  = 0
             info: dict   = {}
             trace        = None
 
-            for individual in offspring:
-                ep_rewards: list[float] = []
-                for _ in range(eval_episodes):
-                    obs, reset_info = env.reset()
-                    reward, info, _, steps, trace = _run_episode(
-                        env, individual, obs,
-                        warmup_action=warmup_action, warmup_steps=warmup_steps,
-                        reset_info=reset_info,
-                    )
-                    ep_rewards.append(reward)
-                    total_steps += steps
-                rewards.append(sum(ep_rewards) / len(ep_rewards))
+            if evaluator is not None:
+                rewards, total_steps, info, trace = _evaluate_with_evaluator(
+                    evaluator, offspring, eval_episodes,
+                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    episode_time_limit_s=scaled_t,
+                )
+            else:
+                rewards     = []
+                total_steps = 0
+                for individual in offspring:
+                    ep_rewards: list[float] = []
+                    for _ in range(eval_episodes):
+                        obs, reset_info = env.reset()
+                        reward, info, _, steps, trace = _run_episode(
+                            env, individual, obs,
+                            warmup_action=warmup_action, warmup_steps=warmup_steps,
+                            reset_info=reset_info,
+                        )
+                        ep_rewards.append(reward)
+                        total_steps += steps
+                    rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.update_distribution(rewards)
             gen_best = max(rewards)
@@ -1009,8 +1067,14 @@ def _greedy_loop_genetic(
     warmup_steps: int = 0,
     patience: int = 0,
     adaptive_mutation: bool = True,
+    evaluator: Any = None,
 ) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
     """Genetic algorithm loop: N_pop episodes per generation.
+
+    When *evaluator* is a :class:`framework.parallel_eval.ParallelEvaluator`,
+    the per-individual evaluation is dispatched to N worker processes
+    (issue #229).  The remaining single-process step (selection +
+    breeding via ``evaluate_and_evolve``) is unchanged.
 
     When *adaptive_mutation* is True, the population's mutation scale is
     adjusted every ``ADAPT_WINDOW`` generations using a 1/5 success rule
@@ -1046,27 +1110,36 @@ def _greedy_loop_genetic(
     try:
         best_info_logged: dict = {}
         for gen in range(1, n_generations + 1):
-            if full_episode_time_s is not None:
-                env.set_episode_time_limit(_scaled_episode_time(
-                    gen, n_generations, full_episode_time_s,
-                ))
-            rewards      = []
-            total_steps  = 0
+            scaled_t = (
+                _scaled_episode_time(gen, n_generations, full_episode_time_s)
+                if full_episode_time_s is not None else None
+            )
+            if scaled_t is not None:
+                env.set_episode_time_limit(scaled_t)
             trace        = None
             info: dict   = {}
 
-            for idx, individual in enumerate(policy.population):
-                ep_rewards: list[float] = []
-                for _ in range(eval_episodes):
-                    obs, reset_info = env.reset()
-                    reward, info, _, steps, trace = _run_episode(
-                        env, individual, obs,
-                        warmup_action=warmup_action, warmup_steps=warmup_steps,
-                        reset_info=reset_info,
-                    )
-                    ep_rewards.append(reward)
-                    total_steps += steps
-                rewards.append(sum(ep_rewards) / len(ep_rewards))
+            if evaluator is not None:
+                rewards, total_steps, info, trace = _evaluate_with_evaluator(
+                    evaluator, policy.population, eval_episodes,
+                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    episode_time_limit_s=scaled_t,
+                )
+            else:
+                rewards     = []
+                total_steps = 0
+                for idx, individual in enumerate(policy.population):
+                    ep_rewards: list[float] = []
+                    for _ in range(eval_episodes):
+                        obs, reset_info = env.reset()
+                        reward, info, _, steps, trace = _run_episode(
+                            env, individual, obs,
+                            warmup_action=warmup_action, warmup_steps=warmup_steps,
+                            reset_info=reset_info,
+                        )
+                        ep_rewards.append(reward)
+                        total_steps += steps
+                    rewards.append(sum(ep_rewards) / len(ep_rewards))
 
             improved = policy.evaluate_and_evolve(rewards)
             gen_best = max(rewards)
@@ -1138,6 +1211,83 @@ def _greedy_loop_genetic(
         logger.warning("Training interrupted.")
 
     return policy, best_reward, greedy_sims, early_stopped, early_stop_sim
+
+
+# ---------------------------------------------------------------------------
+# Intra-run parallel evaluation helpers (issue #229)
+# ---------------------------------------------------------------------------
+
+# loop_kind values that support parallel intra-run evaluation today.
+_PARALLEL_EVAL_LOOPS: frozenset[str] = frozenset({"genetic", "cmaes"})
+
+
+def _maybe_build_evaluator(
+    *,
+    n_workers: int,
+    policy_type: str,
+    loop_kind: str | None,
+    policy: Any,
+    make_env_fn: Callable[[], Any],
+    training_params: dict,
+    in_game_episode_s: float,
+) -> Any:
+    """Build a ParallelEvaluator if n_workers > 1 and the policy is compatible.
+
+    Returns None when running serially.  Raises ValueError up front for
+    non-population policies so we fail before spawning any SC2 binaries.
+    """
+    if n_workers <= 1:
+        return None
+    if loop_kind not in _PARALLEL_EVAL_LOOPS:
+        raise ValueError(
+            f"n_workers={n_workers} requires a population-based policy "
+            f"(genetic / cmaes loop dispatch); got policy_type={policy_type!r}. "
+            f"Set n_workers=1 or switch policy."
+        )
+    pop_size = getattr(policy, "population_size", None)
+    if pop_size is None:
+        # GeneticPolicy duck type — read population length.
+        pop = getattr(policy, "population", None)
+        pop_size = len(pop) if pop is not None else None
+    if pop_size is not None and n_workers > pop_size:
+        logger.warning(
+            "[parallel_eval] n_workers=%d > population_size=%d; capping at %d",
+            n_workers, pop_size, pop_size,
+        )
+        n_workers = pop_size
+
+    from framework.parallel_eval import ParallelEvaluator
+
+    template_policy = _select_template_policy(policy)
+    return ParallelEvaluator(
+        n_workers=n_workers,
+        make_env_fn=make_env_fn,
+        template_policy=template_policy,
+        worker_start_stagger_s=float(training_params.get("worker_start_stagger_s", 5.0)),
+        worker_warmup_timeout_s=float(training_params.get("worker_warmup_timeout_s", 90.0)),
+        per_episode_timeout_s=float(in_game_episode_s),
+        base_seed=int(training_params.get("worker_base_seed", 0)),
+    )
+
+
+def _select_template_policy(policy: Any) -> Any:
+    """Pick a picklable template policy from the population container.
+
+    GeneticPolicy stores individuals in ``policy.population``.  CMA-ES /
+    LSTM ES wrappers expose ``policy._template`` (or have it implicitly
+    via :meth:`sample_population`); we probe both.
+    """
+    if hasattr(policy, "_template"):
+        return policy._template
+    pop = getattr(policy, "population", None)
+    if pop:
+        return pop[0]
+    raise RuntimeError(
+        f"Cannot select template policy from {type(policy).__name__}; "
+        f"no .population or ._template available. "
+        f"(Note: sampling from .sample_population() would advance internal "
+        f"state, so it's not used as a fallback.)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1301,48 +1451,70 @@ def train_rl(
     kw = dict(warmup_action=warmup_action, warmup_steps=warmup_steps)
 
     _extra_dispatch = extra_loop_dispatch or {}
+    _loop_kind = (
+        "genetic" if policy_type == "genetic"
+        else _extra_dispatch.get(policy_type)
+    )
 
-    if policy_type in ("hill_climbing", "neural_net"):
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
-            env=env, policy=best_policy, n_sims=n_sims,
-            mutation_scale=mutation_scale, mutation_share=mutation_share,
-            best_reward=best_reward, weights_file=weights_file,
-            adaptive_mutation=adaptive_mutation, patience=patience, **kw,
-        )
-    elif policy_type in ("epsilon_greedy", "mcts"):
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
-            env=env, policy=best_policy, n_episodes=n_sims,
-            weights_file=weights_file, patience=patience, **kw,
-        )
-    elif policy_type == "genetic":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
-            env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file,
-            patience=patience, adaptive_mutation=adaptive_mutation, **kw,
-        )
-    elif _extra_dispatch.get(policy_type) == "q_learning":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
-            env=env, policy=best_policy, n_episodes=n_sims,
-            weights_file=weights_file, patience=patience, **kw,
-        )
-    elif _extra_dispatch.get(policy_type) == "cmaes":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_cmaes(
-            env=env, policy=best_policy,
-            n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
-        )
-    elif _extra_dispatch.get(policy_type) == "genetic":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
-            env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file,
-            patience=patience, adaptive_mutation=adaptive_mutation, **kw,  # type: ignore[arg-type]
-        )
-    else:
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
-            env=env, policy=best_policy, n_sims=n_sims,
-            mutation_scale=mutation_scale, mutation_share=mutation_share,
-            best_reward=best_reward, weights_file=weights_file,
-            adaptive_mutation=adaptive_mutation, patience=patience, **kw,
-        )
+    # ── intra-run parallel evaluation (issue #229) ────────────────────
+    evaluator = _maybe_build_evaluator(
+        n_workers=int(training_params.get("n_workers", 1) or 1),
+        policy_type=policy_type,
+        loop_kind=_loop_kind,
+        policy=best_policy,
+        make_env_fn=make_env_fn,
+        training_params=training_params,
+        in_game_episode_s=in_game_episode_s,
+    )
+
+    try:
+        if policy_type in ("hill_climbing", "neural_net"):
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
+                env=env, policy=best_policy, n_sims=n_sims,
+                mutation_scale=mutation_scale, mutation_share=mutation_share,
+                best_reward=best_reward, weights_file=weights_file,
+                adaptive_mutation=adaptive_mutation, patience=patience, **kw,
+            )
+        elif policy_type in ("epsilon_greedy", "mcts"):
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
+                env=env, policy=best_policy, n_episodes=n_sims,
+                weights_file=weights_file, patience=patience, **kw,
+            )
+        elif policy_type == "genetic":
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
+                env=env, policy=best_policy,  # type: ignore[arg-type]
+                n_generations=n_sims, weights_file=weights_file,
+                patience=patience, adaptive_mutation=adaptive_mutation,
+                evaluator=evaluator, **kw,
+            )
+        elif _extra_dispatch.get(policy_type) == "q_learning":
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
+                env=env, policy=best_policy, n_episodes=n_sims,
+                weights_file=weights_file, patience=patience, **kw,
+            )
+        elif _extra_dispatch.get(policy_type) == "cmaes":
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_cmaes(
+                env=env, policy=best_policy,
+                n_generations=n_sims, weights_file=weights_file, patience=patience,
+                evaluator=evaluator, **kw,
+            )
+        elif _extra_dispatch.get(policy_type) == "genetic":
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
+                env=env, policy=best_policy,  # type: ignore[arg-type]
+                n_generations=n_sims, weights_file=weights_file,
+                patience=patience, adaptive_mutation=adaptive_mutation,
+                evaluator=evaluator, **kw,  # type: ignore[arg-type]
+            )
+        else:
+            best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
+                env=env, policy=best_policy, n_sims=n_sims,
+                mutation_scale=mutation_scale, mutation_share=mutation_share,
+                best_reward=best_reward, weights_file=weights_file,
+                adaptive_mutation=adaptive_mutation, patience=patience, **kw,
+            )
+    finally:
+        if evaluator is not None:
+            evaluator.close()
 
     env.close()
 

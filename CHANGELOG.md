@@ -18,6 +18,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- **SC2 intra-run parallel evaluation** (issue #229).
+  Population-based SC2 policies (`sc2_genetic`, `sc2_cmaes`, `sc2_lstm`,
+  `sc2_cnn`) can now evaluate individuals concurrently across multiple
+  local SC2 binaries.  Set `n_workers > 1` in `training_params.yaml`
+  to spawn a persistent worker pool (one SC2 env per worker, spawn
+  start method) — each generation's offspring are scored in parallel
+  while the distribution update remains generation-synchronous.
+  New config keys: `n_workers` (default `1`),
+  `worker_start_stagger_s` (default `5.0`),
+  `worker_warmup_timeout_s` (default `90.0`),
+  `worker_base_seed` (default `0`).  See the *Intra-run parallel
+  evaluation* subsection in `CLAUDE.md` for sizing guidance.
+- `framework.parallel_eval.ParallelEvaluator` — game-agnostic worker
+  pool used internally by `train_rl` when `n_workers > 1`.
 - Versioning + release system. `framework/version.py` resolves a
   runtime `code_version` string of the form
   `<PACKAGE_VERSION>+g<sha7>[.dirty]`; the value is persisted in every

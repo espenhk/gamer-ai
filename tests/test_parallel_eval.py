@@ -310,6 +310,60 @@ class TestParallelEvaluator:
         assert all(not r.failed for r in results)
 
 
+class TestMaybeBuildEvaluator:
+    """Validation of train_rl's evaluator-construction guard (issue #229)."""
+
+    def test_returns_none_when_n_workers_is_one(self):
+        from framework.training import _maybe_build_evaluator
+        result = _maybe_build_evaluator(
+            n_workers=1, policy_type="sc2_genetic", loop_kind="genetic",
+            policy=object(), make_env_fn=make_dummy_env,
+            training_params={}, in_game_episode_s=10.0,
+        )
+        assert result is None
+
+    def test_rejects_non_population_policy(self):
+        from framework.training import _maybe_build_evaluator
+        with pytest.raises(ValueError, match="population-based"):
+            _maybe_build_evaluator(
+                n_workers=4, policy_type="hill_climbing", loop_kind=None,
+                policy=object(), make_env_fn=make_dummy_env,
+                training_params={}, in_game_episode_s=10.0,
+            )
+
+    def test_rejects_q_learning_loop(self):
+        from framework.training import _maybe_build_evaluator
+        with pytest.raises(ValueError, match="population-based"):
+            _maybe_build_evaluator(
+                n_workers=2, policy_type="epsilon_greedy", loop_kind="q_learning",
+                policy=object(), make_env_fn=make_dummy_env,
+                training_params={}, in_game_episode_s=10.0,
+            )
+
+    def test_caps_n_workers_at_population_size(self, caplog):
+        """n_workers=8 with population_size=4 should cap at 4 and warn."""
+        from framework.training import _maybe_build_evaluator
+
+        # Stand-in for a policy with a ._template and a population_size of 4.
+        class _FakePop:
+            population_size = 4
+            _template = DummyPolicy()
+
+        with caplog.at_level("WARNING"):
+            evaluator = _maybe_build_evaluator(
+                n_workers=8, policy_type="sc2_cmaes", loop_kind="cmaes",
+                policy=_FakePop(), make_env_fn=make_dummy_env,
+                training_params={"worker_start_stagger_s": 0.0,
+                                 "worker_warmup_timeout_s": 5.0},
+                in_game_episode_s=2.0,
+            )
+        try:
+            assert evaluator.n_workers == 4
+            assert any("capping at 4" in r.message for r in caplog.records)
+        finally:
+            evaluator.close()
+
+
 def test_smoke_sc2_parallel_evaluator():
     """Opt-in integration smoke test for SC2 binary spawn path (issue #229).
 

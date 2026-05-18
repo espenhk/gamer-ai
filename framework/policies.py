@@ -90,7 +90,8 @@ class BasePolicy(ABC):
     def _validate_params(cls, policy_params: dict) -> None:
         if not cls.VALID_POLICY_PARAMS:
             return
-        unknown = sorted(set(policy_params) - cls.VALID_POLICY_PARAMS)
+        user_keys = {k for k in policy_params if not k.startswith("_")}
+        unknown = sorted(user_keys - cls.VALID_POLICY_PARAMS)
         if unknown:
             raise ValueError(
                 f"policy_params contains keys that have no effect for "
@@ -609,7 +610,8 @@ class EpsilonGreedyPolicy(QTablePolicy):
         epsilon = policy_params.get("epsilon", 1.0)
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as f:
-                saved_cfg = yaml.safe_load(f) or {}
+                _raw = yaml.safe_load(f)
+            saved_cfg = _raw if isinstance(_raw, dict) else {}
             epsilon = float(saved_cfg.get("epsilon", epsilon))
         policy = cls(
             obs_spec=obs_spec,

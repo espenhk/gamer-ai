@@ -39,6 +39,7 @@ from framework.policies import (
     MCTSPolicy,
     GeneticPolicy,
     POLICY_REGISTRY,
+    trainer_state_path as _trainer_state_path_canonical,
 )
 from framework.obs_spec import ObsSpec
 from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
@@ -50,12 +51,7 @@ _TRACE_SAMPLE_EVERY = 2   # record position every N steps
 
 
 def _trainer_state_path(weights_file: str) -> str:
-    """Return the trainer-state checkpoint path alongside the weights file.
-
-    e.g. experiments/a03/my_run/policy_weights.yaml
-         → experiments/a03/my_run/trainer_state.npz
-    """
-    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "trainer_state.npz")
+    return _trainer_state_path_canonical(weights_file)
 
 
 # ---------------------------------------------------------------------------

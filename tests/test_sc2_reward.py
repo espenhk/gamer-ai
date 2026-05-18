@@ -604,6 +604,51 @@ class TestSC2AttackMoveBonusAndClickAttackBonus(unittest.TestCase):
         )
         self.assertAlmostEqual(r, 6.0)
 
+    def test_attack_move_bonus_carries_on_following_no_op_steps(self):
+        calc = self._make_calc(attack_move_bonus=1.0, idle_bonus=2.0)
+        calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        r, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, enemy_cx=32.0, enemy_cy=32.0),
+        )
+        self.assertAlmostEqual(r, 1.0)
+        self.assertAlmostEqual(comp["attack_move_bonus"], 1.0)
+        self.assertAlmostEqual(comp["idle_bonus"], 0.0)
+
+    def test_click_attack_bonus_carries_on_following_no_op_steps(self):
+        calc = self._make_calc(click_attack_bonus=2.0)
+        calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.5, target_y_norm=0.5),
+        )
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, enemy_cx=32.0, enemy_cy=32.0),
+        )
+        self.assertAlmostEqual(r, 2.0)
+
+    def test_attack_bonus_carry_stops_on_non_no_op_action(self):
+        calc = self._make_calc(attack_move_bonus=1.0)
+        calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3, enemy_cx=32.0, enemy_cy=32.0,
+                            target_x_norm=0.0, target_y_norm=0.0),
+        )
+        calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2, target_x_norm=0.2, target_y_norm=0.8),
+        )
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, enemy_cx=32.0, enemy_cy=32.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
     # --- cooldown (rapid target switching) ---
 
     def test_cooldown_default_is_eight(self):

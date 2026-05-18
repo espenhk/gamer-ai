@@ -43,6 +43,25 @@ PYTHONPATH=. poetry run python -m pytest tests/ \
 - Why this is safe:
 
 ## Checklist
+### AI usage
+
+- [ ] No AI was used to write this code
+- [ ] AI was used to write/generate some or all of this code
+
+**If AI was used:** Please describe which AI tool(s) and model(s) were used (e.g., Claude Opus, ChatGPT, etc.):
+
+<!-- e.g. "Claude Sonnet 4.6 for initial skeleton + types" -->
+
+**Human involvement:**
+
+<!-- Describe what human review/changes happened: validation of AI output, manual edits, testing, etc. -->
+
+## Screenshots / plots (optional)
+
+<!-- For training-loop, reward, or analytics changes: drop in the
+     before/after plots from experiments/<...>/results/. -->
+
+## Notes for the reviewer
 
 - [ ] Scope is limited to this issue/PR
 - [ ] Tests updated where needed

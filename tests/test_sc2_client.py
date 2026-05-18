@@ -171,6 +171,24 @@ class TestSC2ClientMinigameFlatten(unittest.TestCase):
         }
         _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertAlmostEqual(info["total_self_hp"], 35.0)
+        self.assertAlmostEqual(info["visible_self_unit_count"], 2.0)
+
+    def test_info_includes_selected_count(self):
+        ob = {
+            "player": _NamedArr({
+                "minerals": 0, "vespene": 0, "food_used": 0, "food_cap": 0,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "single_select": np.array([
+                [48, 1, 45, 0, 0, 0, 0],
+                [48, 1, 45, 0, 0, 0, 0],
+            ], dtype=np.int32),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        _, info = self.client._timestep_to_obs_info(_FakeTimeStep(ob))
+        self.assertAlmostEqual(info["selected_count"], 2.0)
 
     def test_total_self_hp_no_self_units_returns_zero(self):
         feat_units = np.array([

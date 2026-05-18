@@ -20,6 +20,7 @@ class TestSC2RewardConfig(unittest.TestCase):
         self.assertEqual(cfg.score_weight, 1.0)
         self.assertEqual(cfg.win_bonus, 100.0)
         self.assertEqual(cfg.loss_penalty, -100.0)
+        self.assertEqual(cfg.small_selection_bonus, 0.0)
         self.assertLess(cfg.step_penalty, 0.0)
         self.assertGreater(cfg.move_exploration_bonus, 0.0)
         self.assertLess(cfg.move_repeat_penalty, 0.0)
@@ -444,7 +445,8 @@ class TestSC2RewardComponents(unittest.TestCase):
         for key in ("score", "economy", "idle_penalty", "idle_bonus",
                     "move_exploration", "move_repeat_penalty", "move_self_penalty",
                     "attack_move_bonus", "click_attack_bonus",
-                    "attack_friendly_penalty", "step_penalty", "terminal"):
+                    "attack_friendly_penalty", "small_selection",
+                    "step_penalty", "terminal"):
             self.assertIn(key, comp)
 
     def test_components_sum_equals_total(self):
@@ -1050,6 +1052,72 @@ class TestSC2PassiveUnderFirePenalty(unittest.TestCase):
             info=self._info(fn_idx=0, dist=10.0),
         )
         self.assertAlmostEqual(comp["passive_under_fire"], -2.0)
+
+
+class TestSC2SmallSelectionBonus(unittest.TestCase):
+    """Tests for the small_selection_bonus reward term."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {
+            "score_weight": 0.0, "step_penalty": 0.0,
+            "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0,
+        }
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _info(
+        self,
+        fn_idx: int = 2,
+        selected_count: float = 1.0,
+        visible_self_unit_count: float = 4.0,
+    ) -> dict:
+        return {
+            "prev_score": 0.0,
+            "score": 0.0,
+            "action_fn_idx": fn_idx,
+            "selected_count": selected_count,
+            "visible_self_unit_count": visible_self_unit_count,
+        }
+
+    def test_fires_for_single_selected_unit(self):
+        calc = self._make_calc(small_selection_bonus=1.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(selected_count=1.0, visible_self_unit_count=6.0),
+        )
+        self.assertAlmostEqual(r, 1.5)
+
+    def test_fires_when_selection_is_under_half_visible_units(self):
+        calc = self._make_calc(small_selection_bonus=1.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(selected_count=2.0, visible_self_unit_count=6.0),
+        )
+        self.assertAlmostEqual(r, 1.5)
+
+    def test_skips_at_exactly_half_selected_units(self):
+        calc = self._make_calc(small_selection_bonus=1.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(selected_count=2.0, visible_self_unit_count=4.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_skips_for_non_unit_targeted_actions(self):
+        calc = self._make_calc(small_selection_bonus=1.5)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0, selected_count=1.0, visible_self_unit_count=4.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(small_selection_bonus=1.5)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(selected_count=1.0, visible_self_unit_count=4.0),
+        )
+        self.assertAlmostEqual(comp["small_selection"], 1.5)
 
 
 class TestSC2RewardComponentsExtended(unittest.TestCase):

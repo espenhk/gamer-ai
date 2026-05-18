@@ -346,6 +346,7 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `click_attack_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
 | `click_attack_cooldown_steps` | 8 | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
 | `economy_weight` | 0.0 | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps |
+| `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands when the active selection is one unit or under 50% of visible friendly units. Opt-in. |
 
 `idle_bonus` uses PySC2 unit IDs plus a curated unit-range table in `games/sc2/client.py`.
 PySC2 does not expose weapon ranges directly in `pysc2.lib.units`; to update ranges, use
@@ -364,7 +365,7 @@ economy_weight: 0.001
 
 `win_bonus` and `loss_penalty` always fire on terminal `player_outcome` regardless of `score_weight`.
 
-The reward calculator exposes a per-component breakdown via `compute_with_components()` (issue #128/2b). `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, which the analytics layer plots as `reward_components.png` so you can attribute episode reward to `score` / `economy` / `idle_penalty` / `idle_bonus` / `move_exploration` / `move_repeat_penalty` / `move_self_penalty` / `step_penalty` / `terminal` separately.
+The reward calculator exposes a per-component breakdown via `compute_with_components()` (issue #128/2b). `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, which the analytics layer plots as `reward_components.png` so you can attribute episode reward to `score` / `economy` / `idle_penalty` / `idle_bonus` / `move_exploration` / `move_repeat_penalty` / `move_self_penalty` / `small_selection` / `step_penalty` / `terminal` separately.
 
 ---
 

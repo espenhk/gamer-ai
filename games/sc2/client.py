@@ -589,6 +589,8 @@ class SC2Client:
             "screen_self_cy":     feats.get("screen_self_cy", 0.0),
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
+            "selected_count":     feats.get("selected_count", 0.0),
+            "visible_self_unit_count": self._visible_self_unit_count(ob),
             # Per-unit-type counts for build-order tracking (analytics).
             # Keys follow _RICH_UNIT_TYPES naming: "Marine", "SCV", etc.
             "unit_counts": {
@@ -1116,6 +1118,15 @@ class SC2Client:
         hp = feat_units[self_mask, 2].astype(np.float32)
         shields = feat_units[self_mask, 3].astype(np.float32)
         return float((hp + shields).sum())
+
+    def _visible_self_unit_count(self, ob: Any) -> float:
+        """Count visible friendly units from ``feature_units``."""
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return 0.0
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return 0.0
+        return float((feat_units[:, 1] == 1).sum())
 
     @staticmethod
     def _build_attack_range_lookup() -> dict[int, float]:

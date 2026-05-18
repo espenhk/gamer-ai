@@ -113,6 +113,12 @@ class SC2RewardConfig:
         (``self_attack_range_px`` from info, or the screen-fraction fallback)
         but without the 95% inside-margin so the penalty fires at the full
         attack range.  Default ``0.0`` — opt-in.
+    small_selection_bonus :
+        Per-step bonus for issuing unit-targeted commands with a small active
+        selection (``selected_count == 1`` or ``selected_count`` less than 50%
+        of ``visible_self_unit_count``).  Encourages micro-style control of one
+        or a few units rather than always commanding the full visible army.
+        Default ``0.0`` — opt-in.
     """
 
     score_weight: float = 1.0
@@ -132,6 +138,7 @@ class SC2RewardConfig:
     unit_loss_penalty: float = 0.0
     damage_taken_penalty: float = 0.0
     passive_under_fire_penalty: float = 0.0
+    small_selection_bonus: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -180,6 +187,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``prev_total_self_hp`` / ``total_self_hp`` — summed health+shield of
             visible friendly units; used by the damage-taken penalty (set by
             SC2Client / SC2Env)
+        ``selected_count`` / ``visible_self_unit_count`` — active selection
+            size and visible friendly unit count for the small-selection bonus
     """
 
     # Fallback max attack range (fraction of screen) when unit-specific range
@@ -260,7 +269,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
         ``attack_friendly_penalty``, ``unit_loss``, ``damage_taken``,
-        ``passive_under_fire``, ``step_penalty`` and ``terminal``
+        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
+        ``terminal``
         separately.
         """
         cfg = self.config
@@ -400,6 +410,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist <= max_attack_range_px:
                     passive_under_fire = cfg.passive_under_fire_penalty * n_ticks
         components["passive_under_fire"] = float(passive_under_fire)
+
+        # Reward small active selections when issuing unit-targeted commands.
+        small_selection = 0.0
+        if cfg.small_selection_bonus != 0.0 and info.get("action_fn_idx") in (2, 3, 5):
+            selected_count = float(info.get("selected_count", 0.0))
+            visible_self = float(info.get("visible_self_unit_count", 0.0))
+            if selected_count > 0.0 and visible_self > 0.0:
+                if selected_count <= 1.0 or selected_count < (0.5 * visible_self):
+                    small_selection = cfg.small_selection_bonus * n_ticks
+        components["small_selection"] = float(small_selection)
 
         # Attack bonuses: split Attack_screen into attack-move (ground target)
         # and click-to-attack (target on/near a visible enemy unit).

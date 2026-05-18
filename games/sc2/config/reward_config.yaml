@@ -100,6 +100,12 @@ damage_taken_penalty: -0.02
 # default config because discrete SC2 policies cannot issue Attack_screen.
 passive_under_fire_penalty: 0.0
 
+# --- Small-selection bonus ---
+# Per-step bonus for unit-targeted commands (Move_screen / Attack_screen /
+# Harvest_Gather_screen) when the active selection is one unit or less than
+# 50% of visible friendly units. Encourages micro over full-army commands.
+small_selection_bonus: 0.0
+
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.001

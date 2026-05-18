@@ -82,6 +82,30 @@ click_attack_cooldown_steps: 8
 # Set to 0.0 to disable.
 attack_friendly_penalty: -10.0
 
+# --- Unit-loss penalty ---
+# Penalty per army unit lost this step (army_count drop).  Two units dying
+# at once yields 2× the penalty.  Set to 0.0 to disable.
+unit_loss_penalty: -3.0
+
+# --- Damage-taken penalty ---
+# Penalty per raw HP+shield point lost across visible friendly units.
+# Only on-screen units count (feature_units limitation) — keep the weight
+# small to tolerate noise when units walk off-camera.
+damage_taken_penalty: -0.02
+
+# --- Passive-under-fire penalty ---
+# Per-step penalty when enemy units are within attack range of friendly
+# units and the agent did NOT issue Attack_screen.  Discourages running
+# away or idling while taking damage.  Keep this disabled in the shared
+# default config because discrete SC2 policies cannot issue Attack_screen.
+passive_under_fire_penalty: 0.0
+
+# --- Small-selection bonus ---
+# Per-step bonus for unit-targeted commands (Move_screen / Attack_screen /
+# Harvest_Gather_screen) when the active selection is one unit or less than
+# 50% of visible friendly units. Encourages micro over full-army commands.
+small_selection_bonus: 0.0
+
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.001

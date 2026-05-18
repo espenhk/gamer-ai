@@ -94,6 +94,31 @@ class SC2RewardConfig:
         fires whenever ``screen_self_count > 0`` and the target pixel is within
         ``_ATTACK_SELF_RADIUS_FRAC`` of the friendly centroid.  Set to a large
         negative default to strongly discourage this behaviour.
+    unit_loss_penalty :
+        Penalty per unit lost this step (army_count drop).  Applied when
+        ``army_count < prev_army_count``.  Scaled by the number of units lost
+        so losing two units at once yields twice the penalty.  Default ``0.0``
+        — opt-in.  Requires ``prev_army_count`` in info (set by ``SC2Env``).
+    damage_taken_penalty :
+        Penalty per raw HP+shield point lost this step across all visible
+        friendly units.  Computed from ``feature_units`` health+shield sum
+        delta (``prev_total_self_hp - total_self_hp``).  Only visible units
+        contribute, so units that leave the camera frame can cause false
+        positives; keep the weight small.  Default ``0.0`` — opt-in.
+    passive_under_fire_penalty :
+        Per-step penalty applied when enemy units are within effective attack
+        range of friendly units **and** the agent did not issue ``Attack_screen``
+        (fn_idx 3).  Encourages the agent to fight back rather than run or idle
+        while taking fire.  Uses the same range gate as ``idle_bonus``
+        (``self_attack_range_px`` from info, or the screen-fraction fallback)
+        but without the 95% inside-margin so the penalty fires at the full
+        attack range.  Default ``0.0`` — opt-in.
+    small_selection_bonus :
+        Per-step bonus for issuing unit-targeted commands with a small active
+        selection (``selected_count == 1`` or ``selected_count`` less than 50%
+        of ``visible_self_unit_count``).  Encourages micro-style control of one
+        or a few units rather than always commanding the full visible army.
+        Default ``0.0`` — opt-in.
     """
 
     score_weight: float = 1.0
@@ -110,6 +135,10 @@ class SC2RewardConfig:
     move_repeat_penalty: float = -0.02
     move_self_penalty: float = -0.01
     attack_friendly_penalty: float = -5.0
+    unit_loss_penalty: float = 0.0
+    damage_taken_penalty: float = 0.0
+    passive_under_fire_penalty: float = 0.0
+    small_selection_bonus: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -153,6 +182,13 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``screen_size`` — screen feature-layer side length (default 64)
         ``self_attack_range_px`` — optional estimated max friendly attack
             range in pixels (from SC2 client feature_units)
+        ``prev_army_count`` / ``army_count`` — friendly army counts for the
+            unit-loss penalty (set by SC2Env)
+        ``prev_total_self_hp`` / ``total_self_hp`` — summed health+shield of
+            visible friendly units; used by the damage-taken penalty (set by
+            SC2Client / SC2Env)
+        ``selected_count`` / ``visible_self_unit_count`` — active selection
+            size and visible friendly unit count for the small-selection bonus
     """
 
     # Fallback max attack range (fraction of screen) when unit-specific range
@@ -190,6 +226,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_click_x: float | None = None
         self._last_click_y: float | None = None
         self._last_click_step: int = -1
+        self._last_non_noop_fn_idx: int | None = None
+        self._last_non_noop_target_x: float = 0.5
+        self._last_non_noop_target_y: float = 0.5
         self._step_count: int = 0
 
     def reset(self) -> None:
@@ -197,6 +236,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_click_x = None
         self._last_click_y = None
         self._last_click_step = -1
+        self._last_non_noop_fn_idx = None
+        self._last_non_noop_target_x = 0.5
+        self._last_non_noop_target_y = 0.5
         self._step_count = 0
 
     def compute(
@@ -232,13 +274,30 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_friendly_penalty``, ``step_penalty`` and ``terminal``
+        ``attack_friendly_penalty``, ``unit_loss``, ``damage_taken``,
+        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
+        ``terminal``
         separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
 
         self._step_count += 1
+        raw_fn_idx = int(info.get("action_fn_idx", 0))
+        raw_target_x = float(info.get("action_target_x", 0.5))
+        raw_target_y = float(info.get("action_target_y", 0.5))
+        if raw_fn_idx != 0:
+            self._last_non_noop_fn_idx = raw_fn_idx
+            self._last_non_noop_target_x = raw_target_x
+            self._last_non_noop_target_y = raw_target_y
+        carried_attack_noop = raw_fn_idx == 0 and self._last_non_noop_fn_idx == 3
+        combat_fn_idx = 3 if carried_attack_noop else raw_fn_idx
+        combat_target_x = (
+            self._last_non_noop_target_x if carried_attack_noop else raw_target_x
+        )
+        combat_target_y = (
+            self._last_non_noop_target_y if carried_attack_noop else raw_target_y
+        )
 
         # Score delta — primary signal for minigames.
         prev_score = info.get("prev_score", 0.0)
@@ -272,7 +331,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # self_attack_range_px, use that unit-aware threshold; otherwise use a
         # conservative screen-size-scaled fallback.
         idle_bonus = 0.0
-        if cfg.idle_bonus != 0.0 and info.get("action_fn_idx") == 0:
+        if cfg.idle_bonus != 0.0 and combat_fn_idx == 0:
             self_count = info.get("screen_self_count", 0.0)
             enemy_count = info.get("screen_enemy_count", 0.0)
             if self_count > 0 and enemy_count > 0:
@@ -335,11 +394,59 @@ class SC2RewardCalculator(RewardCalculatorBase):
         components["move_repeat_penalty"] = float(move_repeat_penalty)
         components["move_self_penalty"] = float(move_self_penalty)
 
+        # Unit loss: penalty per army unit that died this step.
+        unit_loss = 0.0
+        if cfg.unit_loss_penalty != 0.0:
+            prev_army = float(info.get("prev_army_count", 0.0))
+            curr_army = float(info.get("army_count", 0.0))
+            units_lost = max(0.0, prev_army - curr_army)
+            unit_loss = cfg.unit_loss_penalty * units_lost
+        components["unit_loss"] = float(unit_loss)
+
+        # Damage taken: penalty per HP+shield point lost across visible friendly units.
+        damage_taken = 0.0
+        if cfg.damage_taken_penalty != 0.0:
+            prev_hp = float(info.get("prev_total_self_hp", 0.0))
+            curr_hp = float(info.get("total_self_hp", 0.0))
+            hp_lost = max(0.0, prev_hp - curr_hp)
+            damage_taken = cfg.damage_taken_penalty * hp_lost
+        components["damage_taken"] = float(damage_taken)
+
+        # Passive under fire: enemies in attack range but agent not attacking.
+        passive_under_fire = 0.0
+        if cfg.passive_under_fire_penalty != 0.0 and combat_fn_idx != 3:
+            self_count = info.get("screen_self_count", 0.0)
+            enemy_count = info.get("screen_enemy_count", 0.0)
+            if self_count > 0 and enemy_count > 0:
+                dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dist = (dx * dx + dy * dy) ** 0.5
+                screen_size = float(info.get("screen_size", 64))
+                max_attack_range_px = float(
+                    info.get(
+                        "self_attack_range_px",
+                        self._DEFAULT_COMBAT_RANGE_FRAC * screen_size,
+                    )
+                )
+                if dist <= max_attack_range_px:
+                    passive_under_fire = cfg.passive_under_fire_penalty * n_ticks
+        components["passive_under_fire"] = float(passive_under_fire)
+
+        # Reward small active selections when issuing unit-targeted commands.
+        small_selection = 0.0
+        if cfg.small_selection_bonus != 0.0 and info.get("action_fn_idx") in (2, 3, 5):
+            selected_count = float(info.get("selected_count", 0.0))
+            visible_self = float(info.get("visible_self_unit_count", 0.0))
+            if selected_count > 0.0 and visible_self > 0.0:
+                if selected_count <= 1.0 or selected_count < (0.5 * visible_self):
+                    small_selection = cfg.small_selection_bonus * n_ticks
+        components["small_selection"] = float(small_selection)
+
         # Attack bonuses: split Attack_screen into attack-move (ground target)
         # and click-to-attack (target on/near a visible enemy unit).
         attack_move_bonus = 0.0
         click_attack_bonus = 0.0
-        if info.get("action_fn_idx") == 3:
+        if combat_fn_idx == 3:
             screen_size = float(info.get("screen_size", 64))
             # Use (screen_size - 1) to match the client's pixel conversion:
             # x_screen = int(clip(norm, 0, 1) * (screen_size - 1))
@@ -347,8 +454,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
             # pixel indices in [0, screen_size-1].
             scale = max(1.0, screen_size - 1.0)
             enemy_count = info.get("screen_enemy_count", 0.0)
-            tx_norm = float(info.get("action_target_x", 0.5))
-            ty_norm = float(info.get("action_target_y", 0.5))
+            tx_norm = combat_target_x
+            ty_norm = combat_target_y
             tx_px = tx_norm * scale
             ty_px = ty_norm * scale
             ecx = float(info.get("screen_enemy_cx", 0.0))
@@ -390,7 +497,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         # Friendly-fire penalty: Attack_screen aimed at own units.
         attack_friendly_penalty = 0.0
-        if cfg.attack_friendly_penalty != 0.0 and info.get("action_fn_idx") == 3:
+        if cfg.attack_friendly_penalty != 0.0 and combat_fn_idx == 3:
             self_count = float(info.get("screen_self_count", 0.0))
             if self_count > 0:
                 screen_size = max(1.0, float(info.get("screen_size", 64)))
@@ -398,8 +505,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 scale = max(1.0, screen_size - 1.0)
                 scx = float(info.get("screen_self_cx", 0.0))
                 scy = float(info.get("screen_self_cy", 0.0))
-                tx_norm = float(info.get("action_target_x", 0.5))
-                ty_norm = float(info.get("action_target_y", 0.5))
+                tx_norm = combat_target_x
+                ty_norm = combat_target_y
                 tx_px = tx_norm * scale
                 ty_px = ty_norm * scale
                 dx = tx_px - scx

@@ -2,6 +2,8 @@
 
 A reinforcement-learning agent that drives Trackmania Nations Forever autonomously. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES — all trained live against TMInterface against the reference track A03. See [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
 
+> **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the shared [issue template](.github/ISSUE_TEMPLATE/issue_template.md).
+
 --- [TMNF — Trackmania Nations Forever RL](#tmnf--trackmania-nations-forever-rl)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -282,6 +284,7 @@ Useful flags:
 | `--no-interrupt` | off | Skip all "Press Enter" prompts |
 | `--re-initialize` | off | Ignore existing weights files |
 | `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
+| `--local-workers N` *(coordinator flag)* | `0` | Auto-launch `N` local worker subprocesses in distributed mode |
 
 The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
 
@@ -316,6 +319,24 @@ python -m distributed.worker --coordinator http://localhost:5555 --token hunter2
 ```
 
 When the worker finishes every combo, both processes exit on their own.
+
+### SC2: local multi-instance grid search
+
+For SC2 specifically, you can run distributed mode on one machine and let the
+coordinator auto-start multiple local workers:
+
+```bash
+python grid_search.py games/sc2/config/gs_sc2_cnn_template.yaml \
+  --game sc2 \
+  --distribute \
+  --local-workers 3 \
+  --token hunter2
+```
+
+This launches three `distributed.worker` subprocesses (`local-1..N`) against
+`http://127.0.0.1:<port>`. Each worker runs one experiment at a time and PySC2
+spawns a separate SC2 process per worker, so combinations are processed in
+parallel on the same host.
 
 ---
 

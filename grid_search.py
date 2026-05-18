@@ -28,6 +28,8 @@ import argparse
 import itertools
 import logging
 import os
+import subprocess
+import sys
 from time import sleep
 from typing import Any
 import uuid as _uuid
@@ -132,6 +134,10 @@ _ABBREV = {
     "win_bonus": "wb",
     "loss_penalty": "lp",
     "economy_weight": "ew",
+    "unit_loss_penalty": "ulp",
+    "damage_taken_penalty": "dtp",
+    "passive_under_fire_penalty": "pufp",
+    "small_selection_bonus": "ssb",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
@@ -433,6 +439,9 @@ def _run_distributed(
     port: int,
     heartbeat_timeout: float,
     game_name: str,
+    local_workers: int = 0,
+    no_interrupt: bool = False,
+    re_initialize: bool = False,
 ) -> list[tuple[str, Any]]:
     """Start coordinator, write local config files, block until all results arrive."""
 
@@ -457,16 +466,27 @@ def _run_distributed(
     coord = Coordinator(
         combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout
     )
-    coord.start()
-    logger.info(
-        "Coordinator ready on port %d — start workers with:\n"
-        "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
-        port,
-        port,
-    )
-
-    raw_runs = coord.wait_for_all()
-    coord.stop()
+    worker_procs: list[subprocess.Popen] = []
+    try:
+        coord.start()
+        worker_procs = _launch_local_workers(
+            coordinator_port=coord.port,
+            token=token,
+            game_name=game_name,
+            local_workers=local_workers,
+            no_interrupt=no_interrupt,
+            re_initialize=re_initialize,
+        )
+        logger.info(
+            "Coordinator ready on port %d — start workers with:\n"
+            "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
+            coord.port,
+            coord.port,
+        )
+        raw_runs = coord.wait_for_all()
+    finally:
+        _stop_local_workers(worker_procs)
+        coord.stop()
 
     # Override reward_config_file to the local path written above, then save results.
     all_runs = []
@@ -492,6 +512,79 @@ def _run_distributed(
         all_runs.append((name, data))
 
     return all_runs
+
+
+def _launch_local_workers(
+    coordinator_port: int,
+    token: str,
+    game_name: str,
+    local_workers: int,
+    no_interrupt: bool,
+    re_initialize: bool,
+) -> list[subprocess.Popen]:
+    """Start local worker subprocesses for distributed mode."""
+    if local_workers <= 0:
+        return []
+
+    coordinator_url = f"http://127.0.0.1:{coordinator_port}"
+    procs: list[subprocess.Popen] = []
+    logger.info(
+        "Launching %d local worker process(es) for game=%s at %s",
+        local_workers,
+        game_name,
+        coordinator_url,
+    )
+    try:
+        for i in range(local_workers):
+            cmd = [
+                sys.executable,
+                "-m",
+                "distributed.worker",
+                "--coordinator",
+                coordinator_url,
+                "--token",
+                token,
+                "--game",
+                game_name,
+                "--worker-id",
+                f"local-{i + 1}",
+            ]
+            if no_interrupt:
+                cmd.append("--no-interrupt")
+            if re_initialize:
+                cmd.append("--re-initialize")
+            procs.append(subprocess.Popen(cmd))
+    except Exception:
+        _stop_local_workers(procs)
+        raise
+    return procs
+
+
+def _parse_non_negative_int(value: Any, source_name: str) -> int:
+    """Parse *value* as an int >= 0, raising ValueError with source context."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source_name} must be an integer >= 0") from exc
+    if parsed < 0:
+        raise ValueError(f"{source_name} must be >= 0")
+    return parsed
+
+
+def _stop_local_workers(worker_procs: list[subprocess.Popen]) -> None:
+    """Best-effort cleanup for local worker subprocesses."""
+    for proc in worker_procs:
+        try:
+            if proc.poll() is not None:
+                continue
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        except Exception as exc:
+            logger.debug("Failed to stop local worker pid=%s: %s", proc.pid, exc)
 
 
 def _consolidate(
@@ -618,6 +711,13 @@ def main() -> None:
         "(default: 60, or value from config distribute.heartbeat_timeout)",
     )
     parser.add_argument(
+        "--local-workers",
+        type=int,
+        default=None,
+        help="Spawn N local distributed.worker subprocesses automatically. "
+        "Useful for running multiple SC2 instances on one machine.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -637,6 +737,16 @@ def main() -> None:
 
     if args.config is None:
         parser.error("config is required when not using --consolidate")
+
+    if args.local_workers is not None:
+        try:
+            args.local_workers = _parse_non_negative_int(
+                args.local_workers, "--local-workers"
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+    if args.local_workers not in (None, 0) and not args.distribute:
+        parser.error("--local-workers requires --distribute")
 
     base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg = (
         _load_grid_config(args.config)
@@ -675,6 +785,16 @@ def main() -> None:
         logger.info("  %s", name)
 
     if args.distribute:
+        if args.local_workers is not None:
+            local_workers = args.local_workers
+        else:
+            try:
+                local_workers = _parse_non_negative_int(
+                    distribute_cfg.get("local_workers", 0),
+                    "distribute.local_workers",
+                )
+            except ValueError as exc:
+                parser.error(str(exc))
         port = args.port or distribute_cfg.get("port", 5555)
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
             "heartbeat_timeout", 60.0
@@ -695,6 +815,9 @@ def main() -> None:
             port=port,
             heartbeat_timeout=hb_timeout,
             game_name=game_name,
+            local_workers=local_workers,
+            no_interrupt=args.no_interrupt,
+            re_initialize=args.re_initialize,
         )
     else:
         all_runs = _run_local(

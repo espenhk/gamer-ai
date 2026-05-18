@@ -589,6 +589,8 @@ class SC2Client:
             "screen_self_cy":     feats.get("screen_self_cy", 0.0),
             "screen_enemy_cx":    feats.get("screen_enemy_cx", 0.0),
             "screen_enemy_cy":    feats.get("screen_enemy_cy", 0.0),
+            "selected_count":     feats.get("selected_count", 0.0),
+            "visible_self_unit_count": self._visible_self_unit_count(ob),
             # Per-unit-type counts for build-order tracking (analytics).
             # Keys follow _RICH_UNIT_TYPES naming: "Marine", "SCV", etc.
             "unit_counts": {
@@ -599,6 +601,8 @@ class SC2Client:
         self_attack_range_px = self._self_attack_range_px(ob)
         if self_attack_range_px is not None:
             info["self_attack_range_px"] = self_attack_range_px
+        info["total_self_hp"] = self._total_self_hp(ob)
+        info["self_weapon_cooldown_mean"] = feats.get("self_weapon_cooldown_mean", 0.0)
 
         # Raw minimap visibility layer — only stored when the belief module is
         # active (store_minimap_vis=True) to avoid the per-step payload cost
@@ -1090,6 +1094,39 @@ class SC2Client:
             * (float(self._screen_size) / 64.0)
         )
         return float(max_range_gu * scale)
+
+    def _total_self_hp(self, ob: Any) -> float:
+        """Sum of health+shield for all visible friendly units from ``feature_units``.
+
+        Used by the damage-taken penalty: when the sum drops step-over-step,
+        friendly units absorbed damage.  Only units currently on-screen are
+        counted (feature_units limitation), so units walking off-camera will
+        cause the sum to drop without actual damage — keep ``damage_taken_penalty``
+        weights small to account for this noise.
+
+        PySC2 feature_units column layout (0-indexed):
+          0=unit_type, 1=alliance, 2=health, 3=shield
+        """
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return 0.0
+        if feat_units.ndim != 2 or feat_units.shape[1] < 4:
+            return 0.0
+        self_mask = feat_units[:, 1] == 1  # alliance == self
+        if not self_mask.any():
+            return 0.0
+        hp = feat_units[self_mask, 2].astype(np.float32)
+        shields = feat_units[self_mask, 3].astype(np.float32)
+        return float((hp + shields).sum())
+
+    def _visible_self_unit_count(self, ob: Any) -> float:
+        """Count visible friendly units from ``feature_units``."""
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return 0.0
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return 0.0
+        return float((feat_units[:, 1] == 1).sum())
 
     @staticmethod
     def _build_attack_range_lookup() -> dict[int, float]:

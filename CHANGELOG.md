@@ -21,7 +21,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so
   spamming `Move_screen` to many locations without moving units yields no
-  repeated reward. The bonus fires at most once per grid cell per episode.
+  repeated reward. Grid cells are marked visited whenever friendly units are
+  visible, and the bonus fires at most once per grid cell per episode.
 
 ### Added
 - Versioning + release system. `framework/version.py` resolves a

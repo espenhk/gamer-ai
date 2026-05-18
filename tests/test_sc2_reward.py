@@ -380,6 +380,22 @@ class TestSC2MoveShaping(unittest.TestCase):
         )
         self.assertAlmostEqual(r, 1.0)
 
+    def test_move_exploration_bonus_skips_cells_visited_on_non_move_steps(self):
+        """Cells visited during non-move steps are not bonus-eligible later."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        info = self._move_info(x=0.8, y=0.2, self_cx=40.0, self_cy=40.0)
+        info["action_fn_idx"] = 0  # no_op
+        r_non_move = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(r_non_move, 0.0)
+
+        info["action_fn_idx"] = 2  # Move_screen
+        r_move = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(r_move, 0.0)
+
     def test_exploit_fixed_spam_commands_no_unit_movement(self):
         """Spamming move commands to far-apart targets earns at most one bonus when units don't move."""
         calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)

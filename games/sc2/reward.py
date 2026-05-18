@@ -73,9 +73,10 @@ class SC2RewardConfig:
     move_exploration_bonus :
         Per-step bonus awarded when a ``Move_screen`` command is issued and
         the current friendly-unit centroid is in a **new** grid cell of the
-        8×8 screen grid that has not been visited during this episode.  Fires
-        at most once per cell per episode; units must be visible
-        (``screen_self_count > 0``).  This prevents the command-spam exploit:
+        8×8 screen grid that has not been visited during this episode. Cells
+        are marked visited whenever friendlies are visible, regardless of
+        action type. Fires at most once per cell per episode; units must be
+        visible (``screen_self_count > 0``). This prevents the command-spam exploit:
         issuing many move commands to different screen regions earns no bonus
         unless units physically reach those regions.
     move_repeat_penalty :
@@ -358,6 +359,25 @@ class SC2RewardCalculator(RewardCalculatorBase):
                     idle_bonus = cfg.idle_bonus * n_ticks
         components["idle_bonus"] = float(idle_bonus)
 
+        self_count = float(info.get("screen_self_count", 0.0))
+        newly_visited_unit_cell = False
+        if self_count > 0:
+            screen_size = max(1.0, float(info.get("screen_size", 64)))
+            cx = float(info.get("screen_self_cx", 0.0))
+            cy = float(info.get("screen_self_cy", 0.0))
+            cell_x = min(
+                self._VISIT_GRID_SIZE - 1,
+                int(cx / screen_size * self._VISIT_GRID_SIZE),
+            )
+            cell_y = min(
+                self._VISIT_GRID_SIZE - 1,
+                int(cy / screen_size * self._VISIT_GRID_SIZE),
+            )
+            cell = (cell_x, cell_y)
+            if cell not in self._visited_unit_cells:
+                self._visited_unit_cells.add(cell)
+                newly_visited_unit_cell = True
+
         # Move shaping: encourage varied move targets and
         # discourage repeatedly targeting where units already are.
         move_exploration = 0.0
@@ -377,27 +397,10 @@ class SC2RewardCalculator(RewardCalculatorBase):
                     if cfg.move_repeat_penalty != 0.0:
                         move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
 
-            if cfg.move_exploration_bonus != 0.0:
-                self_count = float(info.get("screen_self_count", 0.0))
-                if self_count > 0:
-                    screen_size = max(1.0, float(info.get("screen_size", 64)))
-                    cx = float(info.get("screen_self_cx", 0.0))
-                    cy = float(info.get("screen_self_cy", 0.0))
-                    cell_x = min(
-                        self._VISIT_GRID_SIZE - 1,
-                        int(cx / screen_size * self._VISIT_GRID_SIZE),
-                    )
-                    cell_y = min(
-                        self._VISIT_GRID_SIZE - 1,
-                        int(cy / screen_size * self._VISIT_GRID_SIZE),
-                    )
-                    cell = (cell_x, cell_y)
-                    if cell not in self._visited_unit_cells:
-                        self._visited_unit_cells.add(cell)
-                        move_exploration = cfg.move_exploration_bonus * n_ticks
+            if cfg.move_exploration_bonus != 0.0 and newly_visited_unit_cell:
+                move_exploration = cfg.move_exploration_bonus * n_ticks
 
             if cfg.move_self_penalty != 0.0:
-                self_count = float(info.get("screen_self_count", 0.0))
                 if self_count > 0:
                     screen_size = max(1.0, float(info.get("screen_size", 64)))
                     self_x = float(info.get("screen_self_cx", 0.0)) / screen_size

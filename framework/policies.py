@@ -19,7 +19,7 @@ import math
 import os
 import pickle
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
 import yaml
@@ -46,7 +46,7 @@ class BasePolicy(ABC):
 
     POLICY_TYPE: ClassVar[str] = ""           # "" = abstract, not registrable
     LOOP_TYPE: ClassVar[str] = "hill_climbing"  # hill_climbing|q_learning|cmaes|genetic
-    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset()
+    VALID_POLICY_PARAMS: ClassVar[frozenset[str]] = frozenset()
 
     @abstractmethod
     def __call__(self, obs: np.ndarray) -> np.ndarray:
@@ -87,7 +87,7 @@ class BasePolicy(ABC):
         No-op for policies with no persistent trainer state."""
 
     @classmethod
-    def _validate_params(cls, policy_params: dict) -> None:
+    def _validate_params(cls, policy_params: dict[str, Any]) -> None:
         if not cls.VALID_POLICY_PARAMS:
             return
         user_keys = {k for k in policy_params if not k.startswith("_")}
@@ -164,7 +164,7 @@ class WeightedLinearPolicy(BasePolicy):
 
     POLICY_TYPE = "hill_climbing"
     LOOP_TYPE = "hill_climbing"
-    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset()
+    VALID_POLICY_PARAMS: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(
         self,

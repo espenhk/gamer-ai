@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 
+import pytest
 import yaml
 
 from grid_search import (
@@ -17,6 +18,7 @@ from grid_search import (
     _POLICY_PARAM_MAP,
     _load_grid_config,
     _launch_local_workers,
+    _parse_non_negative_int,
     _stop_local_workers,
 )
 
@@ -290,6 +292,52 @@ class TestLocalDistributedWorkers:
             assert "--re-initialize" in cmd
             assert f"local-{i}" in cmd
 
+    def test_launch_local_workers_cleans_up_started_procs_on_launch_error(
+        self, monkeypatch
+    ):
+        started = []
+
+        class _FakeProc:
+            def __init__(self):
+                self.terminated = False
+                self.pid = 999
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        calls = {"n": 0}
+
+        def _fake_popen(cmd):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                p = _FakeProc()
+                started.append(p)
+                return p
+            raise OSError("boom")
+
+        monkeypatch.setattr("grid_search.subprocess.Popen", _fake_popen)
+
+        with pytest.raises(OSError):
+            _launch_local_workers(
+                coordinator_port=5555,
+                token="tok",
+                game_name="sc2",
+                local_workers=2,
+                no_interrupt=False,
+                re_initialize=False,
+            )
+        assert len(started) == 1
+        assert started[0].terminated is True
+
     def test_stop_local_workers_terminates_and_kills_on_timeout(self):
         class _Proc:
             def __init__(self, already_done=False, timeout=False):
@@ -325,3 +373,17 @@ class TestLocalDistributedWorkers:
         assert graceful.killed is False
         assert needs_kill.terminated is True
         assert needs_kill.killed is True
+
+
+class TestLocalWorkerParsing:
+    def test_parse_non_negative_int_accepts_numeric_values(self):
+        assert _parse_non_negative_int(0, "x") == 0
+        assert _parse_non_negative_int("3", "x") == 3
+
+    def test_parse_non_negative_int_rejects_negative(self):
+        with pytest.raises(ValueError, match="must be >= 0"):
+            _parse_non_negative_int(-1, "x")
+
+    def test_parse_non_negative_int_rejects_non_integer(self):
+        with pytest.raises(ValueError, match="must be an integer >= 0"):
+            _parse_non_negative_int("abc", "x")

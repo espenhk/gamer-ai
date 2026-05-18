@@ -465,27 +465,27 @@ def _run_distributed(
     coord = Coordinator(
         combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout
     )
-    coord.start()
-    worker_procs = _launch_local_workers(
-        coordinator_port=coord.port,
-        token=token,
-        game_name=game_name,
-        local_workers=local_workers,
-        no_interrupt=no_interrupt,
-        re_initialize=re_initialize,
-    )
-    logger.info(
-        "Coordinator ready on port %d — start workers with:\n"
-        "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
-        coord.port,
-        coord.port,
-    )
-
+    worker_procs: list[subprocess.Popen] = []
     try:
+        coord.start()
+        worker_procs = _launch_local_workers(
+            coordinator_port=coord.port,
+            token=token,
+            game_name=game_name,
+            local_workers=local_workers,
+            no_interrupt=no_interrupt,
+            re_initialize=re_initialize,
+        )
+        logger.info(
+            "Coordinator ready on port %d — start workers with:\n"
+            "  python -m distributed.worker --coordinator http://<this-host>:%d --token <token>",
+            coord.port,
+            coord.port,
+        )
         raw_runs = coord.wait_for_all()
     finally:
-        coord.stop()
         _stop_local_workers(worker_procs)
+        coord.stop()
 
     # Override reward_config_file to the local path written above, then save results.
     all_runs = []
@@ -533,26 +533,41 @@ def _launch_local_workers(
         game_name,
         coordinator_url,
     )
-    for i in range(local_workers):
-        cmd = [
-            sys.executable,
-            "-m",
-            "distributed.worker",
-            "--coordinator",
-            coordinator_url,
-            "--token",
-            token,
-            "--game",
-            game_name,
-            "--worker-id",
-            f"local-{i + 1}",
-        ]
-        if no_interrupt:
-            cmd.append("--no-interrupt")
-        if re_initialize:
-            cmd.append("--re-initialize")
-        procs.append(subprocess.Popen(cmd))
+    try:
+        for i in range(local_workers):
+            cmd = [
+                sys.executable,
+                "-m",
+                "distributed.worker",
+                "--coordinator",
+                coordinator_url,
+                "--token",
+                token,
+                "--game",
+                game_name,
+                "--worker-id",
+                f"local-{i + 1}",
+            ]
+            if no_interrupt:
+                cmd.append("--no-interrupt")
+            if re_initialize:
+                cmd.append("--re-initialize")
+            procs.append(subprocess.Popen(cmd))
+    except Exception:
+        _stop_local_workers(procs)
+        raise
     return procs
+
+
+def _parse_non_negative_int(value: Any, source_name: str) -> int:
+    """Parse *value* as an int >= 0, raising ValueError with source context."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source_name} must be an integer >= 0") from exc
+    if parsed < 0:
+        raise ValueError(f"{source_name} must be >= 0")
+    return parsed
 
 
 def _stop_local_workers(worker_procs: list[subprocess.Popen]) -> None:
@@ -722,8 +737,13 @@ def main() -> None:
     if args.config is None:
         parser.error("config is required when not using --consolidate")
 
-    if args.local_workers is not None and args.local_workers < 0:
-        parser.error("--local-workers must be >= 0")
+    if args.local_workers is not None:
+        try:
+            args.local_workers = _parse_non_negative_int(
+                args.local_workers, "--local-workers"
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     if args.local_workers not in (None, 0) and not args.distribute:
         parser.error("--local-workers requires --distribute")
 
@@ -764,11 +784,16 @@ def main() -> None:
         logger.info("  %s", name)
 
     if args.distribute:
-        local_workers = (
-            args.local_workers
-            if args.local_workers is not None
-            else int(distribute_cfg.get("local_workers", 0))
-        )
+        if args.local_workers is not None:
+            local_workers = args.local_workers
+        else:
+            try:
+                local_workers = _parse_non_negative_int(
+                    distribute_cfg.get("local_workers", 0),
+                    "distribute.local_workers",
+                )
+            except ValueError as exc:
+                parser.error(str(exc))
         port = args.port or distribute_cfg.get("port", 5555)
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
             "heartbeat_timeout", 60.0

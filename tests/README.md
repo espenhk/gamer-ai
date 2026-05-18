@@ -195,7 +195,7 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
 - flat dict: contains varied / no-flat-key when not varied
 - naming: no varied / single varied / negative-float `n` prefix / multiple varied / unknown key passthrough
-- local distributed helpers: launching expected `distributed.worker` subprocess commands / best-effort worker shutdown (graceful terminate + timeout kill)
+- local distributed helpers: launching expected `distributed.worker` subprocess commands / launch-failure cleanup for already-started workers / best-effort worker shutdown (graceful terminate + timeout kill) / non-negative integer parsing used for `--local-workers` and `distribute.local_workers`
 - abbreviation coverage: every default game `training_params.yaml` + `reward_config.yaml` key has a short folder-name abbreviation; all promoted top-level policy params do too
 - nested policy_params: passthrough / top-level promoted / top-level overrides nested / all keys mapped / correct names
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names

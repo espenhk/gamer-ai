@@ -576,6 +576,37 @@ def _cold_start_search(
 
 
 # ---------------------------------------------------------------------------
+# Replay saving (SC2 only — no-op for all other games)
+# ---------------------------------------------------------------------------
+
+def _try_save_replay(env, weights_file: str) -> None:
+    """If the env exposes save_replay (SC2), save the current episode.
+
+    Derives replay_dir from the experiment directory (alongside weights_file)
+    and assigns sequential names: experiment-name_best-01.SC2Replay, etc.
+    Silently skips for non-SC2 envs and swallows save failures so that a
+    replay error never aborts training.
+    """
+    if not hasattr(env, "save_replay"):
+        return
+    experiment_dir = os.path.dirname(os.path.abspath(weights_file))
+    experiment_name = os.path.basename(experiment_dir)
+    replay_dir = os.path.join(experiment_dir, "replays")
+    n = 0
+    if os.path.isdir(replay_dir):
+        n = sum(1 for f in os.listdir(replay_dir) if f.endswith(".SC2Replay"))
+    prefix = f"{experiment_name}_best-{n + 1:02d}"
+    try:
+        saved = env.save_replay(replay_dir, prefix=prefix)
+        if saved:
+            logger.info("  [replay] saved → %s", saved)
+        else:
+            logger.info("  [replay] save_replay returned None (skipped).")
+    except Exception as exc:
+        logger.warning("  [replay] save failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Greedy loops
 # ---------------------------------------------------------------------------
 
@@ -633,6 +664,7 @@ def _greedy_loop(
                     best_policy = candidate
                     best_policy.save(weights_file)
                     best_policy.save_trainer_state(_trainer_state_path(weights_file))
+                    _try_save_replay(env, weights_file)
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                     logger.info("  >> %s", verdict)
                     _log_new_best_details(info, best_info)
@@ -736,6 +768,7 @@ def _greedy_loop(
                 best_policy = best_cand
                 best_policy.save(weights_file)
                 best_policy.save_trainer_state(_trainer_state_path(weights_file))
+                _try_save_replay(env, weights_file)
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
@@ -870,6 +903,7 @@ def _greedy_loop_cmaes(
             if improved:
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _try_save_replay(env, weights_file)
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
                 logger.info("  >> %s", verdict)
@@ -954,6 +988,7 @@ def _greedy_loop_q_learning(
                 best_reward = reward
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _try_save_replay(env, weights_file)
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
                 verdict = f"no improvement  r={reward:+.1f}  best={best_reward:+.1f}"
@@ -1074,6 +1109,7 @@ def _greedy_loop_genetic(
             if improved:
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _try_save_replay(env, weights_file)
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                 logger.info("  >> %s", verdict)
                 _log_new_best_details(info, best_info_logged)

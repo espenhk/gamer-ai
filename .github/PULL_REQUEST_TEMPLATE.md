@@ -77,6 +77,19 @@ python main.py smoke_test --game car_racing --no-interrupt
 - [ ] Happy for an AI code review (e.g. `/ultrareview` or an automated reviewer) to run on this PR
 - [ ] Marked the PR as draft if it isn't ready for human review yet
 
+### AI usage
+
+- [ ] No AI was used to write this code
+- [ ] AI was used to write/generate some or all of this code
+
+**If AI was used:** Please describe which AI tool(s) and model(s) were used (e.g., Claude Opus, ChatGPT, etc.):
+
+<!-- e.g. "Claude Sonnet 4.6 for initial skeleton + types" -->
+
+**Human involvement:**
+
+<!-- Describe what human review/changes happened: validation of AI output, manual edits, testing, etc. -->
+
 ## Screenshots / plots (optional)
 
 <!-- For training-loop, reward, or analytics changes: drop in the

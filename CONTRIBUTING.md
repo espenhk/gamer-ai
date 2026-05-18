@@ -298,9 +298,9 @@ PR review *will* push back if any of these are out of date.
    ```
    If you're on a fully-provisioned Windows dev box with `tminterface`
    installed, drop the `--ignore` flags to run the full suite.
-4. **Open the PR against `main`**. The
-   [PR template](.github/PULL_REQUEST_TEMPLATE.md) has a checklist —
-   tick what applies, leave the rest unticked.
+4. **Open the PR against `main`**. Use the
+   [PR template](.github/PULL_REQUEST_TEMPLATE.md), keep the section(s)
+   that apply to your change, and delete the rest.
 5. **CI gates**:
    - `Tests / test` (the unit-test workflow) runs on every PR.
    - `Integration Tests / car-racing` / `sc2` run after an approving

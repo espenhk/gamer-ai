@@ -2,6 +2,8 @@
 
 - [Coverage at a glance](#coverage-at-a-glance)
 - [Framework / shared](#framework--shared)
+  - [test\_cmaes\_distribution.py — `CMAESDistribution` pure-math unit tests](#test_cmaes_distributionpy--cmaesdistribution-pure-math-unit-tests)
+  - [test\_framework\_algorithm\_equivalence.py — framework ↔ TMNF byte-identical verification](#test_framework_algorithm_equivalencepy--framework--tmnf-byte-identical-verification)
   - [test\_analytics\_no\_matplotlib.py — analytics importable when matplotlib missing](#test_analytics_no_matplotlibpy--analytics-importable-when-matplotlib-missing)
   - [test\_analytics\_task\_metrics.py — `TaskMetrics` dataclass + summary table formatting](#test_analytics_task_metricspy--taskmetrics-dataclass--summary-table-formatting)
   - [test\_belief.py — fog-of-war belief encoder](#test_beliefpy--fog-of-war-belief-encoder)
@@ -26,12 +28,12 @@
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
   - [test\_genetic\_policy.py — population evolutionary loop](#test_genetic_policypy--population-evolutionary-loop)
-  - [test\_cmaes\_policy.py — CMA-ES on linear weights](#test_cmaes_policypy--cma-es-on-linear-weights)
+  - [test\_cmaes\_policy.py — `CMAESPolicy` (framework) via TMNF factory](#test_cmaes_policypy--cmaespolicy-framework-via-tmnf-factory)
   - [test\_epsilon\_greedy\_policy.py — tabular Q-learning](#test_epsilon_greedy_policypy--tabular-q-learning)
   - [test\_mcts\_policy.py — UCT-style online Q](#test_mcts_policypy--uct-style-online-q)
-  - [test\_neural\_dqn\_policy.py — DQN (replay + target net)](#test_neural_dqn_policypy--dqn-replay--target-net)
-  - [test\_reinforce\_policy.py — Monte-Carlo policy gradient](#test_reinforce_policypy--monte-carlo-policy-gradient)
-  - [test\_lstm\_policy.py — LSTM evolution policy](#test_lstm_policypy--lstm-evolution-policy)
+  - [test\_neural\_dqn\_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`](#test_neural_dqn_policypy--dqnpolicy-framework--replaybuffer)
+  - [test\_reinforce\_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG](#test_reinforce_policypy--reinforcepolicy-framework-monte-carlo-pg)
+  - [test\_lstm\_policy.py — `LSTMCore` + `LSTMEvolutionPolicy` (framework)](#test_lstm_policypy--lstmcore--lstmevolutionpolicy-framework)
 - [TMNF I/O](#tmnf-io)
   - [test\_rl\_client.py — `RLClient` (game-thread bridge, action windowing)](#test_rl_clientpy--rlclient-game-thread-bridge-action-windowing)
 - [TORCS](#torcs)
@@ -95,7 +97,12 @@ Game-agnostic plumbing under `framework/`, `distributed/`, `config/`,
 `analytics.py`, `grid_search.py`, the train_rl entry point, and shared utility
 modules.
 
-**Tested.** Reward calculator math (linear components, n_ticks scaling,
+**Tested.** `CMAESDistribution` pure-math (initialisation invariants,
+sample/update mechanics, convergence on a quadratic, save/load .npz
+round-trips, dimension mismatch guard); framework ↔ TMNF byte-identical
+forward-pass verification for `DQNPolicy`, `REINFORCEPolicy`, and `LSTMCore`
+(Q-values, softmax logits, hidden-state trajectory, seed-matched initial
+weights). Reward calculator math (linear components, n_ticks scaling,
 finish-bonus / progress invariants, curiosity glue); curiosity modules (ICM
 and RND, factory dispatch); fog-of-war belief encoder; staleness-based
 info-gain; `TaskMetrics` aggregation and summary-table formatting;
@@ -120,6 +127,19 @@ diff'ing (analytics tests assert files appear, not their contents); the Azure
 Terraform stack under `infrastructure/`; the Windows bootstrap script
 `setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI); long convergence
 behaviour of the actual `train_rl()` loop end-to-end on a real env.
+
+### test_cmaes_distribution.py — `CMAESDistribution` pure-math unit tests
+- Init: n / λ / μ=λ/2 / recombination weights sum=1 and decreasing / σ stored / C=I / ps+pc=0 / gen=0 / μ_eff > 1
+- initialize_random: mean set to zero
+- sample: returns λ vectors of shape (n,) / distinct / fills pop_xs/pop_ys / reproducible with same seed
+- update: returns (best_r, best_idx) tuple / correct best values / gen increments / mean shifts / σ positive / C symmetric / C positive-definite / multiple generations move mean / wrong reward count raises / no-sample raises
+- Convergence: mean converges toward quadratic minimum after 30 generations
+- Save/load: preserves mean / σ / covariance / generation / dim mismatch raises / evolution continues correctly from loaded state
+
+### test_framework_algorithm_equivalence.py — framework ↔ TMNF byte-identical verification
+- DQNPolicy: Q-values identical on zero/random obs when weights shared / action shape / greedy action matches / same seed → same initial weights
+- REINFORCEPolicy: softmax probs identical on zero/random obs when weights shared / probs sum to 1 / same seed → same initial weights
+- LSTMCore: hidden state identical after one step / action identical after one step / hidden state identical after 10-step sequence / episode reset in sync / flat roundtrip preserves output to float32 precision / same seed → same initial weights
 
 ### test_analytics_no_matplotlib.py — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -257,6 +277,14 @@ tick-window state machine, decision_idx clamping, and the finish/respawn /
 hard-crash forced-commit paths — is fully covered against a `MagicMock`
 TMInterface.
 
+Note: `test_cmaes_policy.py`, `test_neural_dqn_policy.py`,
+`test_reinforce_policy.py`, and `test_lstm_policy.py` now import from
+`framework.cmaes`, `framework.dqn` / `framework.replay`, `framework.reinforce`,
+and `framework.lstm` respectively (Phase A extraction).  They exercise the
+framework classes through TMNF-flavoured instantiation
+(`obs_spec=TMNF_OBS_SPEC`, TMNF action decoder / `DISCRETE_ACTIONS`), so all
+TMNF-specific behaviour is still covered.
+
 **Not tested.** The actual TMInterface bind to a running Trackmania process;
 the `mss` window-grab + OpenCV LIDAR pipeline (only the *configuration* of
 LIDAR is reached via reward-config tests, the raycast loop is not unit
@@ -278,7 +306,7 @@ real driving on the `a03_centerline` track.
 - eval_episodes: default=1 / stored / in to_cfg / cfg roundtrip / cfg default / single reward / 3-episode average / reset count
 - adaptive mutation: mutation_scale logged in GreedySimResult / scale decreases on zero-improvement run / disabled leaves scale unchanged
 
-### test_cmaes_policy.py — CMA-ES on linear weights
+### test_cmaes_policy.py — `CMAESPolicy` (framework) via TMNF factory
 - defaults: pop size / μ=λ/2 / weights sum=1 / C=I at init
 - init: random zero mean / from champion seeds mean / sets champion
 - sample: returns count / WeightedLinearPolicy instances / fills pop_xs/ys
@@ -294,27 +322,27 @@ real driving on the `a03_centerline` track.
 ### test_mcts_policy.py — UCT-style online Q
 - action in range; unseen state random; visit count increments; Q changes; exploitation prefers high Q; visits accumulate
 
-### test_neural_dqn_policy.py — DQN (replay + target net)
-- ReplayBuffer: push+len / circular eviction / sample shapes / w/o replacement / with replacement when small
-- Policy: action shape+range / greedy discrete / random when ε=1 / buffer fills on update / ε decays / floored / target sync / weight shapes
-- Cfg: roundtrip / policy_type key / on_episode_end no-op / missing keys raise / shape mismatch raises
+### test_neural_dqn_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`
+- ReplayBuffer (`framework.replay`): push+len / circular eviction / sample shapes / w/o replacement / with replacement when small
+- DQNPolicy (`framework.dqn`): action shape+range / greedy discrete / random when ε=1 / buffer fills on update / ε decays / floored / target sync / weight shapes
+- Cfg: roundtrip (`policy_type="dqn"`) / on_episode_end no-op / missing keys raise / shape mismatch raises (via `TMNF_OBS_SPEC.with_lidar`)
 - Bandit convergence; save/load replay buffer + Adam moments; wrong obs_dim raises
 
-### test_reinforce_policy.py — Monte-Carlo policy gradient
-- action shape; steer range; accel/brake binary; discrete
+### test_reinforce_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG
+- action shape; steer range; accel/brake discrete; action from DISCRETE_ACTIONS
 - buffers: fill / clear on episode end / empty on_episode_end no-op
 - weights match hidden_sizes; buffer lengths match; weights change after update; gradient direction
-- entropy_coeff = 0 vs nonzero; cfg required keys / policy_type / restore weights+hyperparams; save+reload; lidar; baseline roundtrip; wrong obs dim raises
+- entropy_coeff = 0 vs nonzero; cfg required keys (`output_dim` not `n_lidar_rays`) / policy_type / restore weights+hyperparams; save+reload; lidar via `obs_spec.with_lidar(4)`; baseline roundtrip; wrong obs dim raises
 
-### test_lstm_policy.py — LSTM evolution policy
-- Forward: action shape / steer range / accel+brake binary / hidden updates / episode reset zeros / update no-op / different history → different action
-- Flat encoding: dim correct / to_flat shape / roundtrip / zeros hidden / preserves weights / wrong size raises / mutated differs / same hidden_size / lidar roundtrip
-- Cfg: required keys / policy_type / from_cfg roundtrip / save+reload
-- Trainer: pop size / σ property / champion = -inf / flat dim matches template / μ=λ/2 / recomb sum=1
-- Sample: count / LSTM type / fills buffer / distinct individuals
+### test_lstm_policy.py — `LSTMCore` + `LSTMEvolutionPolicy` (framework)
+- LSTMCore (`framework.lstm`): action shape / steer range / accel+brake binary / hidden updates / episode reset zeros / update no-op / different history → different action
+- Flat encoding: dim correct / to_flat shape / roundtrip / zeros hidden / preserves weights / wrong size raises / mutated differs / same hidden_size / lidar roundtrip via `obs_spec.with_lidar(3)`
+- Cfg: required keys (`obs_dim` not `n_lidar_rays`) / policy_type / from_cfg roundtrip / save+reload
+- LSTMEvolutionPolicy: pop size / σ property / champion = -inf / flat dim matches template / μ=λ/2 / recomb sum=1
+- Sample: count / LSTMCore type / fills buffer / distinct individuals
 - Update: true first time / sets champion / tracks best / false on no improve / mean shifts / wrong count raises / no sample raises / σ adapts
 - Call: raises before update / valid after; on_episode_end resets champion hidden state
-- to_cfg keys / policy_type / save yaml / init from champion / mean→target / save+load roundtrip / wrong flat dim raises
+- to_cfg keys (`sigma` + `champion_reward`; no `n_lidar_rays`) / policy_type / save yaml / init from champion / mean→target / save+load roundtrip / wrong flat dim raises
 
 ## TMNF I/O
 

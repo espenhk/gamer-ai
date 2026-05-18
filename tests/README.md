@@ -25,6 +25,7 @@
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
+  - [test\_policy\_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery](#test_policy_registrypy--policy_registry--basepolicy-registry-machinery)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
@@ -267,6 +268,17 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - when run inside a git repo: matches `<version>+g<sha7>[.dirty]` shape
 - `code_version()` is cached (identical return on repeated calls)
 - when `git` is unavailable: `git_revision()` returns `(None, False)` and `code_version()` falls back to bare `PACKAGE_VERSION`
+
+### test_policy_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery
+- `register_policy` raises on duplicate `POLICY_TYPE`
+- `register_policy` raises when `POLICY_TYPE == ""`
+- All five built-ins (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are registered after importing `framework.policies`
+- Each registered class maps to the correct concrete class
+- Each registered class has `LOOP_TYPE` in `{"hill_climbing", "q_learning", "cmaes", "genetic"}`
+- `_validate_params` raises on unknown keys when `VALID_POLICY_PARAMS` is non-empty
+- `_validate_params` is a no-op when `VALID_POLICY_PARAMS` is empty
+- `_validate_params` accepts all valid keys without raising
+- `_make_policy("hill_climbing", ...)` returns a `WeightedLinearPolicy` via the registry path
 
 ## TMNF policies
 

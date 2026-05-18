@@ -19,6 +19,7 @@ import math
 import os
 import pickle
 from abc import ABC, abstractmethod
+from typing import Any, ClassVar
 
 import numpy as np
 import yaml
@@ -42,6 +43,10 @@ def _qtable_pkl_path(yaml_path: str) -> str:
 
 class BasePolicy(ABC):
     """Abstract base class for all driving policies."""
+
+    POLICY_TYPE: ClassVar[str] = ""           # "" = abstract, not registrable
+    LOOP_TYPE: ClassVar[str] = "hill_climbing"  # hill_climbing|q_learning|cmaes|genetic
+    VALID_POLICY_PARAMS: ClassVar[frozenset[str]] = frozenset()
 
     @abstractmethod
     def __call__(self, obs: np.ndarray) -> np.ndarray:
@@ -81,11 +86,66 @@ class BasePolicy(ABC):
         """Restore trainer-internal state from *path*.
         No-op for policies with no persistent trainer state."""
 
+    @classmethod
+    def _validate_params(cls, policy_params: dict[str, Any]) -> None:
+        if not cls.VALID_POLICY_PARAMS:
+            return
+        user_keys = {k for k in policy_params if not k.startswith("_")}
+        unknown = sorted(user_keys - cls.VALID_POLICY_PARAMS)
+        if unknown:
+            raise ValueError(
+                f"policy_params contains keys that have no effect for "
+                f"policy_type={cls.POLICY_TYPE!r}: {unknown}. "
+                f"Valid keys: {sorted(cls.VALID_POLICY_PARAMS)}."
+            )
+
+    @classmethod
+    def make(cls, *, obs_spec, head_names, discrete_actions,
+             weights_file, policy_params, re_initialize) -> "BasePolicy":
+        cls._validate_params(policy_params)
+        return cls._construct_or_resume(
+            obs_spec=obs_spec, head_names=head_names,
+            discrete_actions=discrete_actions, weights_file=weights_file,
+            policy_params=policy_params, re_initialize=re_initialize,
+        )
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "BasePolicy":
+        raise NotImplementedError("Subclass must override _construct_or_resume or make")
+
+
+# ---------------------------------------------------------------------------
+# Policy registry
+# ---------------------------------------------------------------------------
+
+POLICY_REGISTRY: dict[str, type[BasePolicy]] = {}
+
+
+def register_policy(cls: type[BasePolicy]) -> type[BasePolicy]:
+    if not cls.POLICY_TYPE:
+        raise ValueError(f"{cls.__name__} must set POLICY_TYPE before @register_policy")
+    if cls.POLICY_TYPE in POLICY_REGISTRY:
+        existing = POLICY_REGISTRY[cls.POLICY_TYPE]
+        raise ValueError(
+            f"Duplicate policy_type {cls.POLICY_TYPE!r}: "
+            f"{existing.__name__} vs {cls.__name__}"
+        )
+    POLICY_REGISTRY[cls.POLICY_TYPE] = cls
+    return cls
+
+
+def trainer_state_path(weights_file: str) -> str:
+    """Canonical path for a policy's trainer-state .npz file."""
+    return os.path.join(os.path.dirname(os.path.abspath(weights_file)),
+                        "trainer_state.npz")
+
 
 # ---------------------------------------------------------------------------
 # WeightedLinearPolicy
 # ---------------------------------------------------------------------------
 
+@register_policy
 class WeightedLinearPolicy(BasePolicy):
     """
     Linear policy with one output head per entry in head_names.
@@ -101,6 +161,10 @@ class WeightedLinearPolicy(BasePolicy):
         WeightedLinearPolicy(obs_spec, head_names, weights_file)
         WeightedLinearPolicy.from_cfg(cfg, obs_spec, head_names)
     """
+
+    POLICY_TYPE = "hill_climbing"
+    LOOP_TYPE = "hill_climbing"
+    VALID_POLICY_PARAMS: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(
         self,
@@ -257,11 +321,21 @@ class WeightedLinearPolicy(BasePolicy):
             logger.info("[WeightedLinearPolicy] initialised random weights → %s", self._weights_file)
         return cfg
 
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "WeightedLinearPolicy":
+        if re_initialize and os.path.exists(weights_file):
+            os.remove(weights_file)
+            logger.info("[WeightedLinearPolicy] removed existing weights file for re-initialization: %s",
+                        weights_file)
+        return cls(obs_spec, head_names, weights_file)
+
 
 # ---------------------------------------------------------------------------
 # NeuralNetPolicy
 # ---------------------------------------------------------------------------
 
+@register_policy
 class NeuralNetPolicy(BasePolicy):
     """
     Small MLP policy trained via hill-climbing (same loop as WeightedLinearPolicy).
@@ -271,6 +345,10 @@ class NeuralNetPolicy(BasePolicy):
     Pure numpy, no external ML framework required.
     Weights serialized to YAML as nested lists.
     """
+
+    POLICY_TYPE = "neural_net"
+    LOOP_TYPE = "hill_climbing"
+    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"hidden_sizes"})
 
     def __init__(
         self,
@@ -336,6 +414,20 @@ class NeuralNetPolicy(BasePolicy):
             "weights":      [w.tolist() for w in self._weights],
             "biases":       [b.tolist() for b in self._biases],
         }
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "NeuralNetPolicy":
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as f:
+                loaded_cfg = yaml.safe_load(f)
+            cfg = loaded_cfg if isinstance(loaded_cfg, dict) else {}
+            if cfg.get("policy_type") == "neural_net":
+                logger.info("[NeuralNetPolicy] loaded from %s", weights_file)
+                return cls.from_cfg(cfg, obs_spec)
+        hidden = policy_params.get("hidden_sizes", [16, 16])
+        logger.info("[NeuralNetPolicy] initialised random weights (hidden=%s)", hidden)
+        return cls(obs_spec, action_dim=len(head_names), hidden_sizes=hidden)
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +552,7 @@ class QTablePolicy(BasePolicy):
 # EpsilonGreedyPolicy
 # ---------------------------------------------------------------------------
 
+@register_policy
 class EpsilonGreedyPolicy(QTablePolicy):
     """
     Tabular Q-learning with epsilon-greedy exploration.
@@ -468,6 +561,10 @@ class EpsilonGreedyPolicy(QTablePolicy):
     Q-values are updated online via the Bellman equation after every env step.
     Epsilon decays each episode.
     """
+
+    POLICY_TYPE = "epsilon_greedy"
+    LOOP_TYPE = "q_learning"
+    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"epsilon", "n_bins", "epsilon_decay", "epsilon_min", "alpha", "gamma"})
 
     def __init__(
         self,
@@ -507,11 +604,35 @@ class EpsilonGreedyPolicy(QTablePolicy):
             "n_states_visited": self.n_states_visited,
         }
 
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "EpsilonGreedyPolicy":
+        epsilon = policy_params.get("epsilon", 1.0)
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as f:
+                _raw = yaml.safe_load(f)
+            saved_cfg = _raw if isinstance(_raw, dict) else {}
+            epsilon = float(saved_cfg.get("epsilon", epsilon))
+        policy = cls(
+            obs_spec=obs_spec,
+            discrete_actions=discrete_actions,
+            n_bins=policy_params.get("n_bins", 3),
+            epsilon=epsilon,
+            epsilon_decay=policy_params.get("epsilon_decay", 0.995),
+            epsilon_min=policy_params.get("epsilon_min", 0.05),
+            alpha=policy_params.get("alpha", 0.1),
+            gamma=policy_params.get("gamma", 0.99),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            policy._load_table(weights_file)
+        return policy
+
 
 # ---------------------------------------------------------------------------
 # MCTSPolicy  (UCT-style online learner)
 # ---------------------------------------------------------------------------
 
+@register_policy
 class MCTSPolicy(QTablePolicy):
     """
     UCT-inspired online Q-learner.
@@ -522,6 +643,10 @@ class MCTSPolicy(QTablePolicy):
     NOTE: True MCTS requires env cloning.  This is a UCT-style approximation
     that builds value/count tables incrementally over real episodes.
     """
+
+    POLICY_TYPE = "mcts"
+    LOOP_TYPE = "q_learning"
+    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"c", "alpha", "gamma", "n_bins"})
 
     def __init__(
         self,
@@ -557,11 +682,27 @@ class MCTSPolicy(QTablePolicy):
             "n_states_visited": self.n_states_visited,
         }
 
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "MCTSPolicy":
+        policy = cls(
+            obs_spec=obs_spec,
+            discrete_actions=discrete_actions,
+            c=policy_params.get("c", 1.41),
+            alpha=policy_params.get("alpha", 0.1),
+            gamma=policy_params.get("gamma", 0.99),
+            n_bins=policy_params.get("n_bins", 3),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            policy._load_table(weights_file)
+        return policy
+
 
 # ---------------------------------------------------------------------------
 # GeneticPolicy
 # ---------------------------------------------------------------------------
 
+@register_policy
 class GeneticPolicy(BasePolicy):
     """
     Evolutionary policy: a population of WeightedLinearPolicy instances.
@@ -575,6 +716,10 @@ class GeneticPolicy(BasePolicy):
     Inference always uses the champion (best individual seen so far).
     `save()` writes the champion in WeightedLinearPolicy YAML format.
     """
+
+    POLICY_TYPE = "genetic"
+    LOOP_TYPE = "genetic"
+    VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"population_size", "elite_k", "mutation_scale", "mutation_share", "eval_episodes"})
 
     def __init__(
         self,
@@ -709,3 +854,29 @@ class GeneticPolicy(BasePolicy):
         """Save champion in WeightedLinearPolicy YAML format for analytics compatibility."""
         if self._champion is not None:
             self._champion.save(path)
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize) -> "GeneticPolicy":
+        pop_size = policy_params.get("population_size", 10)
+        elite_k  = policy_params.get("elite_k", 3)
+        policy   = cls(
+            obs_spec        = obs_spec,
+            head_names      = head_names,
+            population_size = pop_size,
+            elite_k         = elite_k,
+            mutation_scale  = policy_params.get("mutation_scale",
+                              policy_params.get("_mutation_scale_fallback", 0.1)),
+            mutation_share  = policy_params.get("mutation_share",
+                              policy_params.get("_mutation_share_fallback", 1.0)),
+            eval_episodes   = policy_params.get("eval_episodes", 1),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            champion = WeightedLinearPolicy(obs_spec, head_names, weights_file)
+            policy.initialize_from_champion(champion)
+            logger.info("[GeneticPolicy] seeded population from champion at %s",
+                        weights_file)
+        else:
+            policy.initialize_random()
+            logger.info("[GeneticPolicy] random population of %d", pop_size)
+        return policy

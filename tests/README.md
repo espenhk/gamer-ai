@@ -101,7 +101,8 @@ and RND, factory dispatch); fog-of-war belief encoder; staleness-based
 info-gain; `TaskMetrics` aggregation and summary-table formatting;
 discretisation, frame-stacking and obs-memory wrappers; centreline geometry
 and the `tracks/registry.json` builder; grid-search Cartesian expansion +
-naming + nested `policy_params` promotion; the early-stop streak logic in
+naming + nested `policy_params` promotion + local-worker process orchestration;
+the early-stop streak logic in
 both greedy and Q loops; the distributed coordinator/worker JSON protocol and
 the in-process HTTP server (work queue, heartbeat re-queue, auth);
 `train_rl()`'s public signature; the new-best log helpers
@@ -194,6 +195,7 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
 - flat dict: contains varied / no-flat-key when not varied
 - naming: no varied / single varied / negative-float `n` prefix / multiple varied / unknown key passthrough
+- local distributed helpers: launching expected `distributed.worker` subprocess commands / best-effort worker shutdown (graceful terminate + timeout kill)
 - abbreviation coverage: every default game `training_params.yaml` + `reward_config.yaml` key has a short folder-name abbreviation; all promoted top-level policy params do too
 - nested policy_params: passthrough / top-level promoted / top-level overrides nested / all keys mapped / correct names
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names

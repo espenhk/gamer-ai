@@ -397,6 +397,17 @@ Create a YAML file modelled on `games/torcs/config/grid_search_template.yaml` wi
 python grid_search.py my_sc2_grid.yaml --game sc2
 ```
 
+To fan out a grid search across multiple SC2 instances on the same machine,
+use distributed mode plus local worker auto-spawn:
+
+```bash
+python grid_search.py my_sc2_grid.yaml --game sc2 --distribute --local-workers 4
+```
+
+This starts one coordinator and four local `distributed.worker` subprocesses.
+Each worker runs one experiment at a time, so up to four combinations run in
+parallel (CPU/RAM permitting).
+
 ---
 
 ## Supported policies

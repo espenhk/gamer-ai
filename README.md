@@ -284,6 +284,7 @@ Useful flags:
 | `--no-interrupt` | off | Skip all "Press Enter" prompts |
 | `--re-initialize` | off | Ignore existing weights files |
 | `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
+| `--local-workers N` *(coordinator flag)* | `0` | Auto-launch `N` local worker subprocesses in distributed mode |
 
 The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
 
@@ -318,6 +319,24 @@ python -m distributed.worker --coordinator http://localhost:5555 --token hunter2
 ```
 
 When the worker finishes every combo, both processes exit on their own.
+
+### SC2: local multi-instance grid search
+
+For SC2 specifically, you can run distributed mode on one machine and let the
+coordinator auto-start multiple local workers:
+
+```bash
+python grid_search.py games/sc2/config/gs_sc2_cnn_template.yaml \
+  --game sc2 \
+  --distribute \
+  --local-workers 3 \
+  --token hunter2
+```
+
+This launches three `distributed.worker` subprocesses (`local-1..N`) against
+`http://127.0.0.1:<port>`. Each worker runs one experiment at a time and PySC2
+spawns a separate SC2 process per worker, so combinations are processed in
+parallel on the same host.
 
 ---
 

@@ -3,11 +3,22 @@ from __future__ import annotations
 
 import glob
 import os
+import subprocess
 import tempfile
 
 import yaml
 
-from grid_search import _ABBREV, _expand_grid, _make_experiment_name, _fmt_value, _build_policy_params, _POLICY_PARAM_MAP, _load_grid_config
+from grid_search import (
+    _ABBREV,
+    _expand_grid,
+    _make_experiment_name,
+    _fmt_value,
+    _build_policy_params,
+    _POLICY_PARAM_MAP,
+    _load_grid_config,
+    _launch_local_workers,
+    _stop_local_workers,
+)
 
 
 class TestExpandGrid:
@@ -243,3 +254,74 @@ class TestAbbreviationCoverage:
     def test_all_promoted_policy_params_have_abbreviations(self):
         missing = sorted(k for k in _POLICY_PARAM_MAP if k not in _ABBREV)
         assert missing == []
+
+
+class TestLocalDistributedWorkers:
+    def test_launch_local_workers_spawns_expected_commands(self, monkeypatch):
+        calls = []
+
+        class _DummyProc:
+            def __init__(self, cmd):
+                self.cmd = cmd
+
+        def _fake_popen(cmd):
+            calls.append(cmd)
+            return _DummyProc(cmd)
+
+        monkeypatch.setattr("grid_search.subprocess.Popen", _fake_popen)
+
+        procs = _launch_local_workers(
+            coordinator_port=5555,
+            token="tok",
+            game_name="sc2",
+            local_workers=2,
+            no_interrupt=True,
+            re_initialize=True,
+        )
+
+        assert len(procs) == 2
+        assert len(calls) == 2
+        for i, cmd in enumerate(calls, 1):
+            assert cmd[1:4] == ["-m", "distributed.worker", "--coordinator"]
+            assert "http://127.0.0.1:5555" in cmd
+            assert "--token" in cmd
+            assert "--game" in cmd
+            assert "--no-interrupt" in cmd
+            assert "--re-initialize" in cmd
+            assert f"local-{i}" in cmd
+
+    def test_stop_local_workers_terminates_and_kills_on_timeout(self):
+        class _Proc:
+            def __init__(self, already_done=False, timeout=False):
+                self._already_done = already_done
+                self._timeout = timeout
+                self.terminated = False
+                self.killed = False
+                self.wait_calls = 0
+                self.pid = 123
+
+            def poll(self):
+                return 0 if self._already_done else None
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout=None):
+                self.wait_calls += 1
+                if self._timeout and self.wait_calls == 1:
+                    raise subprocess.TimeoutExpired(cmd="x", timeout=timeout)
+                return 0
+
+            def kill(self):
+                self.killed = True
+
+        done = _Proc(already_done=True)
+        graceful = _Proc()
+        needs_kill = _Proc(timeout=True)
+        _stop_local_workers([done, graceful, needs_kill])
+
+        assert done.terminated is False
+        assert graceful.terminated is True
+        assert graceful.killed is False
+        assert needs_kill.terminated is True
+        assert needs_kill.killed is True

@@ -577,6 +577,95 @@ def _cold_start_search(
 
 
 # ---------------------------------------------------------------------------
+# Replay saving (SC2 only — no-op for all other games)
+# ---------------------------------------------------------------------------
+
+def _replay_dir(weights_file: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "replays")
+
+
+def _next_best_prefix(weights_file: str, replay_dir: str) -> str:
+    """Return the next sequential experiment_best-N prefix."""
+    experiment_name = os.path.basename(os.path.dirname(os.path.abspath(weights_file)))
+    n = 0
+    if os.path.isdir(replay_dir):
+        n = sum(
+            1 for f in os.listdir(replay_dir)
+            if f.endswith(".SC2Replay") and not f.startswith("_")
+        )
+    return f"{experiment_name}_best-{n + 1:02d}"
+
+
+def _try_save_replay(env, weights_file: str) -> None:
+    """Save the current episode's replay for single-episode-per-sim loops.
+
+    Used by NeuralNetPolicy and Q-learning loops where exactly one episode
+    runs per sim, so the episode that triggered the new-best is still current
+    at the point of the call.  Multi-episode loops (ES, genetic, CMA-ES) use
+    _save_candidate_replay / _finalize_candidate_replay instead.
+    """
+    if not hasattr(env, "save_replay"):
+        return
+    rdir = _replay_dir(weights_file)
+    prefix = _next_best_prefix(weights_file, rdir)
+    try:
+        saved = env.save_replay(rdir, prefix=prefix)
+        if saved:
+            logger.info("  [replay] saved → %s", saved)
+        else:
+            logger.info("  [replay] save_replay returned None (skipped).")
+    except Exception as exc:
+        logger.warning("  [replay] save failed: %s", exc)
+
+
+def _save_candidate_replay(env, weights_file: str) -> str | None:
+    """Speculatively save the current episode to a temp candidate file.
+
+    Called in multi-episode loops immediately after a potentially-best episode
+    and before the next env.reset() overwrites the SC2 replay.  Returns the
+    candidate path (``<replay_dir>/_candidate.SC2Replay``) or None when the
+    env does not support replay saving or the save fails.
+    """
+    if not hasattr(env, "save_replay"):
+        return None
+    rdir = _replay_dir(weights_file)
+    try:
+        return env.save_replay(rdir, prefix="_candidate")
+    except Exception as exc:
+        logger.warning("  [replay] candidate save failed: %s", exc)
+        return None
+
+
+def _finalize_candidate_replay(candidate_path: str | None, weights_file: str) -> None:
+    """Rename a candidate replay to the next sequential best-N name.
+
+    Called after the winner of a multi-episode sim/generation is confirmed.
+    No-op when candidate_path is None or the file no longer exists.
+    """
+    if not candidate_path:
+        return
+    if not os.path.exists(candidate_path):
+        logger.debug("  [replay] candidate file missing — skipping finalize.")
+        return
+    rdir = os.path.dirname(candidate_path)
+    dest = os.path.join(rdir, _next_best_prefix(weights_file, rdir) + ".SC2Replay")
+    try:
+        os.rename(candidate_path, dest)
+        logger.info("  [replay] saved → %s", dest)
+    except Exception as exc:
+        logger.warning("  [replay] finalize failed: %s", exc)
+
+
+def _discard_candidate_replay(candidate_path: str | None) -> None:
+    """Delete a temporary candidate replay file. No-op if None or missing."""
+    if candidate_path and os.path.exists(candidate_path):
+        try:
+            os.remove(candidate_path)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Greedy loops
 # ---------------------------------------------------------------------------
 
@@ -634,6 +723,7 @@ def _greedy_loop(
                     best_policy = candidate
                     best_policy.save(weights_file)
                     best_policy.save_trainer_state(_trainer_state_path(weights_file))
+                    _try_save_replay(env, weights_file)
                     verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
                     logger.info("  >> %s", verdict)
                     _log_new_best_details(info, best_info)
@@ -714,6 +804,12 @@ def _greedy_loop(
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
             )
+            # Capture the plus replay before env.reset() starts the minus episode
+            # and overwrites it in the SC2 process.
+            _plus_candidate = (
+                _save_candidate_replay(env, weights_file)
+                if r_plus > best_reward else None
+            )
             obs, reset_info = env.reset()
             r_minus, info_minus, tc_minus, steps_minus, trace_minus = _run_episode(
                 env, policy_minus, obs,
@@ -726,9 +822,18 @@ def _greedy_loop(
             if r_plus >= r_minus:
                 best_r, best_info, best_tc, best_steps, best_trace, best_cand = (
                     r_plus, info_plus, tc_plus, steps_plus, trace_plus, policy_plus)
+                # Minus episode is now current in SC2 but plus won — use the
+                # pre-saved plus candidate; minus replay is not needed.
+                _winner_candidate = _plus_candidate
             else:
                 best_r, best_info, best_tc, best_steps, best_trace, best_cand = (
                     r_minus, info_minus, tc_minus, steps_minus, trace_minus, policy_minus)
+                # Minus won and its replay is still current — save it now.
+                _discard_candidate_replay(_plus_candidate)
+                _winner_candidate = (
+                    _save_candidate_replay(env, weights_file)
+                    if r_minus > best_reward else None
+                )
 
             improved = False
             if best_r > best_reward:
@@ -737,6 +842,7 @@ def _greedy_loop(
                 best_policy = best_cand
                 best_policy.save(weights_file)
                 best_policy.save_trainer_state(_trainer_state_path(weights_file))
+                _finalize_candidate_replay(_winner_candidate, weights_file)
                 improved    = True
                 verdict = (f"NEW BEST  {best_r:+.1f}  (was {prev_best:+.1f})"
                            f"  gradient={r_plus - r_minus:+.1f}")
@@ -744,6 +850,7 @@ def _greedy_loop(
                 _log_new_best_details(best_info, best_info_logged)
                 best_info_logged = best_info
             else:
+                _discard_candidate_replay(_winner_candidate)
                 verdict = (f"no improvement  +ε={r_plus:+.1f}  −ε={r_minus:+.1f}"
                            f"  best={best_reward:+.1f}")
                 logger.info("  >> %s", verdict)
@@ -899,6 +1006,11 @@ def _greedy_loop_cmaes(
             offspring    = policy.sample_population()
             info: dict   = {}
             trace        = None
+            # Track the replay for the best individual seen this generation.
+            # Each candidate save overwrites _candidate.SC2Replay; we save
+            # before the next env.reset() discards the current episode's replay.
+            _gen_candidate: str | None = None
+            _gen_candidate_reward: float = policy.champion_reward
 
             if evaluator is not None:
                 rewards, total_steps, info, trace = _evaluate_with_evaluator(
@@ -920,7 +1032,14 @@ def _greedy_loop_cmaes(
                         )
                         ep_rewards.append(reward)
                         total_steps += steps
-                    rewards.append(sum(ep_rewards) / len(ep_rewards))
+                    ind_avg = sum(ep_rewards) / len(ep_rewards)
+                    rewards.append(ind_avg)
+                    # Save replay for this individual if it beats the current best
+                    # candidate.  Must happen before the next env.reset().
+                    if ind_avg > _gen_candidate_reward:
+                        _discard_candidate_replay(_gen_candidate)
+                        _gen_candidate = _save_candidate_replay(env, weights_file)
+                        _gen_candidate_reward = ind_avg
 
             improved = policy.update_distribution(rewards)
             gen_best = max(rewards)
@@ -929,12 +1048,15 @@ def _greedy_loop_cmaes(
             if improved:
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _finalize_candidate_replay(_gen_candidate, weights_file)
+                _gen_candidate = None
                 verdict = (f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
                 logger.info("  >> %s", verdict)
                 _log_new_best_details(info, best_info_logged)
                 best_info_logged = info
             else:
+                _discard_candidate_replay(_gen_candidate)
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
@@ -1013,6 +1135,7 @@ def _greedy_loop_q_learning(
                 best_reward = reward
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _try_save_replay(env, weights_file)
                 verdict = f"NEW BEST  {reward:+.1f}  (was {prev_best:+.1f})"
             else:
                 verdict = f"no improvement  r={reward:+.1f}  best={best_reward:+.1f}"
@@ -1118,6 +1241,9 @@ def _greedy_loop_genetic(
                 env.set_episode_time_limit(scaled_t)
             trace        = None
             info: dict   = {}
+            # Track the replay for the best individual seen this generation.
+            _gen_candidate: str | None = None
+            _gen_candidate_reward: float = policy.champion_reward
 
             if evaluator is not None:
                 rewards, total_steps, info, trace = _evaluate_with_evaluator(
@@ -1139,7 +1265,14 @@ def _greedy_loop_genetic(
                         )
                         ep_rewards.append(reward)
                         total_steps += steps
-                    rewards.append(sum(ep_rewards) / len(ep_rewards))
+                    ind_avg = sum(ep_rewards) / len(ep_rewards)
+                    rewards.append(ind_avg)
+                    # Save replay for this individual if it beats the current best
+                    # candidate.  Must happen before the next env.reset().
+                    if ind_avg > _gen_candidate_reward:
+                        _discard_candidate_replay(_gen_candidate)
+                        _gen_candidate = _save_candidate_replay(env, weights_file)
+                        _gen_candidate_reward = ind_avg
 
             improved = policy.evaluate_and_evolve(rewards)
             gen_best = max(rewards)
@@ -1148,11 +1281,14 @@ def _greedy_loop_genetic(
             if improved:
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
+                _finalize_candidate_replay(_gen_candidate, weights_file)
+                _gen_candidate = None
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                 logger.info("  >> %s", verdict)
                 _log_new_best_details(info, best_info_logged)
                 best_info_logged = info
             else:
+                _discard_candidate_replay(_gen_candidate)
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}")
                 logger.info("  >> %s", verdict)

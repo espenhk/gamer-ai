@@ -49,7 +49,6 @@ PYTHONPATH=. poetry run python -m pytest tests/ \
 - [ ] AI was used to write/generate some or all of this code
 
 **If AI was used:** Please describe which AI tool(s) and model(s) were used (e.g., Claude Opus, ChatGPT, etc.):
-
 <!-- e.g. "Claude Sonnet 4.6 for initial skeleton + types" -->
 
 **Human involvement:**
@@ -63,6 +62,12 @@ PYTHONPATH=. poetry run python -m pytest tests/ \
 
 ## Notes for the reviewer
 
+- [ ] Updated `README.md` if user-visible behaviour, install steps, or CLI flags changed
+- [ ] Updated `CLAUDE.md` if architecture, config knobs, or training-loop semantics changed
+- [ ] Updated the relevant `games/<name>/README.md` for per-game changes
+- [ ] Updated `tests/README.md` if tests were added, removed, or substantially changed (required by the repo's test-suite contract)
+- [ ] Added an entry under `## [Unreleased]` in `CHANGELOG.md` for any user- or developer-visible change (new feature, new config key, breaking change, bug fix, dependency change). Trivial commits — experiment dumps, formatting, no-op refactors — can be skipped.
+- [ ] New config keys appear in the relevant `config/*.yaml` master file with a sensible default
 - [ ] Scope is limited to this issue/PR
 - [ ] Tests updated where needed
 - [ ] Docs updated where needed

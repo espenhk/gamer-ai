@@ -167,6 +167,7 @@ class ExperimentData:
     track: str = ""
     early_stopped: bool = False          # True if patience-based early stopping fired
     early_stop_sim: int | None = None    # sim index where early stopping fired
+    code_version: str = ""               # framework.version.code_version() at run time
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +558,8 @@ def _timings_md(data: ExperimentData) -> str:
 def _summary_md(data: ExperimentData) -> str:
     lines = ["## Run Parameters\n\n", "### Training\n\n",
              "| Parameter | Value |\n", "|-----------|-------|\n"]
+    if data.code_version:
+        lines.append(f"| code_version | `{data.code_version}` |\n")
     if data.track:
         lines.append(f"| track | {data.track} |\n")
     for k, v in data.training_params.items():

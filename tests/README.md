@@ -22,6 +22,7 @@
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
+  - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
@@ -240,6 +241,13 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 ### test_track.py — centreline geometry helpers
 - start / end / midpoint progress; nonzero lateral; on-centreline zero lateral; forward unit vector
 - lookahead: returns two floats / straight-track zero heading change / finite lateral / clamps at end / opposite sign across centreline
+
+### test_version.py — `code_version()` + git revision reporting
+- `PACKAGE_VERSION` is SemVer-shaped
+- `code_version()` starts with `PACKAGE_VERSION`
+- when run inside a git repo: matches `<version>+g<sha7>[.dirty]` shape
+- `code_version()` is cached (identical return on repeated calls)
+- when `git` is unavailable: `git_revision()` returns `(None, False)` and `code_version()` falls back to bare `PACKAGE_VERSION`
 
 ## TMNF policies
 

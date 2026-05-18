@@ -41,6 +41,7 @@ from framework.policies import (
 )
 from framework.obs_spec import ObsSpec
 from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
+from framework.version import code_version
 
 logger = logging.getLogger(__name__)
 
@@ -1407,6 +1408,7 @@ def train_rl(
         track              = track,
         early_stopped      = early_stopped,
         early_stop_sim     = early_stop_sim,
+        code_version       = code_version(),
     )
 
     if save_results_fn is not None:

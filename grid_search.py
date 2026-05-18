@@ -42,6 +42,7 @@ from distributed.coordinator import Coordinator
 from framework.game_adapter import GAME_ADAPTERS
 from framework.run_config import RunConfig
 from framework.training import train_rl
+from framework.version import code_version
 
 logger = logging.getLogger(__name__)
 
@@ -730,6 +731,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    logger.info("gamer-ai code version: %s", code_version())
 
     if args.consolidate:
         _consolidate(args.consolidate, args.summary_name, args.summary_dir)

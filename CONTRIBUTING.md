@@ -272,6 +272,7 @@ When you change code, ask which of these need to follow:
 
 | Change | Update |
 |---|---|
+| Any user- or developer-visible change (new feature, new config key, breaking change, bug fix, dependency change) | `CHANGELOG.md` — add a bullet under `## [Unreleased]` |
 | New / changed CLI flag, config key, or install step | `README.md` + relevant `games/<name>/README.md` |
 | New training-loop semantics, observation features, or policy | `CLAUDE.md` |
 | New / removed / substantially-changed tests | `tests/README.md` |
@@ -311,6 +312,28 @@ PR review *will* push back if any of these are out of date.
 7. **Address review comments** in new commits (don't force-push over an
    in-progress review unless asked — it makes re-review harder).
 8. **Squash on merge** — keep `main` linear.
+
+### Cutting a release
+
+`gamer-ai` carries a `pyproject.toml` / `framework/version.py` version
+number so every run can be traced back to a known code state via the
+`code_version` field recorded in `experiment_data.json`. Cut a release
+when a logical chunk of work lands and you want a quotable tag to refer
+to it from issues, plots, or experiment notes.
+
+From a clean `main`:
+
+```bash
+python scripts/release.py 0.2.0
+git push origin main --tags
+```
+
+The script bumps both version locations, promotes `## [Unreleased]` in
+`CHANGELOG.md` to `## [0.2.0] - YYYY-MM-DD`, commits as `Release v0.2.0`,
+and creates an annotated `v0.2.0` tag. Follow
+[SemVer](https://semver.org/): patch for bug fixes, minor for
+backward-compatible features, major for breaking changes to configs,
+weight-file format, or experiment data on disk.
 
 ### What the reviewer is looking for
 

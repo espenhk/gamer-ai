@@ -151,6 +151,7 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
         track=d.get("track", ""),
         early_stopped=d.get("early_stopped", False),
         early_stop_sim=d.get("early_stop_sim"),
+        code_version=d.get("code_version", ""),
     )
 
 

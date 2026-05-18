@@ -22,12 +22,14 @@ import argparse
 import logging
 import os
 import shutil
+import sys
 
 import yaml
 
 from framework.game_adapter import GAME_ADAPTERS
 from framework.run_config import RunConfig
 from framework.training import train_rl
+from framework.version import code_version
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Handle --version before argparse so it doesn't trip over the
+    # otherwise-required `experiment` positional.
+    if "--version" in sys.argv[1:]:
+        print(code_version())
+        return
+
     parser = _build_arg_parser()
     args = parser.parse_args()
 
@@ -142,6 +150,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    logger.info("gamer-ai code version: %s", code_version())
 
     if args.play and args.game != "sc2":
         raise SystemExit("--play is only supported with --game sc2")

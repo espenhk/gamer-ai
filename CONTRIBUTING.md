@@ -40,8 +40,7 @@ You don't have to write code to help:
   rough edges, and share your training plots.
 - **Improve documentation** — every `README.md` (root + `games/<name>/`)
   is fair game, and "this section confused me" is a real bug.
-- **Propose a new game** via the
-  [New game integration](.github/ISSUE_TEMPLATE/game_support.yml) issue
+- **Propose a new game** in a GitHub issue using the shared issue
   template. Even if you can't implement it, a well-scoped proposal is
   often the hardest part.
 - **Pick up a "good first issue"** — these are tagged in the
@@ -184,9 +183,10 @@ add `<name>` to the `--game` choices in `main.py`.
 
 ### Step-by-step
 
-1. **Open a [new-game-integration issue](.github/ISSUE_TEMPLATE/game_support.yml)
-   first** so we can agree on scope before code lands. The template asks
-   the questions we need: licensing, platform, obs/action sketch, reward.
+1. **Open a new-game issue first** using the shared
+   [issue template](.github/ISSUE_TEMPLATE/issue_template.md), so we can agree on scope
+   before code lands. Keep the "New game proposal details" section and
+   remove the rest.
 2. **Copy `games/car_racing/` to `games/<name>/`** and rename the
    `CarRacingAdapter` class. Strip out anything that doesn't apply.
 3. **Stand up `env.py`** so `env.reset()` / `env.step(action)` work
@@ -298,16 +298,16 @@ PR review *will* push back if any of these are out of date.
    ```
    If you're on a fully-provisioned Windows dev box with `tminterface`
    installed, drop the `--ignore` flags to run the full suite.
-4. **Open the PR against `main`**. The
-   [PR template](.github/PULL_REQUEST_TEMPLATE.md) has a checklist —
-   tick what applies, leave the rest unticked.
+4. **Open the PR against `main`**. Use the
+   [PR template](.github/PULL_REQUEST_TEMPLATE.md), keep the section(s)
+   that apply to your change, and delete the rest.
 5. **CI gates**:
    - `Tests / test` (the unit-test workflow) runs on every PR.
    - `Integration Tests / car-racing` / `sc2` run after an approving
      review, and only if files in their watched paths changed.
-6. **Welcome AI review**. The PR template includes a checkbox asking
-   if you're happy for an automated reviewer (e.g. `/ultrareview`) to
-   run on the PR. This is opt-in.
+6. **AI review is optional**. If you want an automated reviewer
+   (e.g. `/ultrareview`) to run on your PR, request it in the PR
+   conversation.
 7. **Address review comments** in new commits (don't force-push over an
    in-progress review unless asked — it makes re-review harder).
 8. **Squash on merge** — keep `main` linear.
@@ -325,14 +325,8 @@ PR review *will* push back if any of these are out of date.
 
 ## Reporting bugs and proposing features
 
-Use the issue templates — they ask for the information we actually need:
-
-- [Bug report](.github/ISSUE_TEMPLATE/bug_report.yml) — for crashes,
-  regressions, wrong outputs.
-- [Feature request](.github/ISSUE_TEMPLATE/feature_request.yml) — for
-  framework / policy / analytics / DX improvements.
-- [New game integration](.github/ISSUE_TEMPLATE/game_support.yml) — for
-  proposing a new entry under `games/<name>/`.
+Use the issue template. It has separate bug / feature / new-game
+sections — keep what applies and delete the rest.
 
 For open-ended "should we do X?" threads, prefer
 [GitHub Discussions](https://github.com/espenhk/gamer-ai/discussions)

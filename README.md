@@ -2,7 +2,7 @@
 
 A reinforcement-learning agent that drives Trackmania Nations Forever autonomously. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES — all trained live against TMInterface against the reference track A03. See [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
 
-> **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the [New game integration issue template](.github/ISSUE_TEMPLATE/game_support.yml).
+> **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the shared [issue template](.github/ISSUE_TEMPLATE/issue_template.md).
 
 --- [TMNF — Trackmania Nations Forever RL](#tmnf--trackmania-nations-forever-rl)
 - [Prerequisites](#prerequisites)

@@ -185,7 +185,8 @@ class TestSC2IdleBonus(unittest.TestCase):
     def _make_calc(self, **kwargs) -> SC2RewardCalculator:
         cfg_kwargs = {"score_weight": 0.0, "step_penalty": 0.0,
                       "win_bonus": 0.0, "loss_penalty": 0.0,
-                      "economy_weight": 0.0}
+                      "economy_weight": 0.0,
+                      "move_exploration_bonus": 0.0, "move_repeat_penalty": 0.0}
         cfg_kwargs.update(kwargs)
         return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
 
@@ -345,14 +346,73 @@ class TestSC2MoveShaping(unittest.TestCase):
             "screen_self_cy": self_cy,
         }
 
-    def test_move_exploration_bonus_increases_for_new_target(self):
+    def test_move_exploration_bonus_first_visit(self):
+        """First Move_screen with visible units awards the bonus (new cell)."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        # centroid at (40, 40) → cell (5, 5) in an 8×8 64-px grid; never seen before
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0,
+            info=self._move_info(x=0.9, y=0.1, self_cx=40.0, self_cy=40.0),
+        )
+        self.assertAlmostEqual(r, 1.0)
+
+    def test_move_exploration_bonus_second_visit_same_cell(self):
+        """Issuing a second Move_screen while units remain in the same cell yields no bonus."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        info = self._move_info(x=0.9, y=0.1, self_cx=40.0, self_cy=40.0)
+        calc.compute(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        r = calc.compute(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_move_exploration_bonus_new_cell_after_first(self):
+        """Moving the unit centroid to a different cell earns a second bonus."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        # first visit — cell (5, 5)
+        calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._move_info(x=0.5, y=0.5, self_cx=40.0, self_cy=40.0),
+        )
+        # second visit — centroid moved to cell (0, 0)
+        r = calc.compute(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._move_info(x=0.5, y=0.5, self_cx=4.0, self_cy=4.0),
+        )
+        self.assertAlmostEqual(r, 1.0)
+
+    def test_exploit_fixed_spam_commands_no_unit_movement(self):
+        """Spamming move commands to far-apart targets earns at most one bonus when units don't move."""
+        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
+        # Units stay at centroid (32, 32) — cell (4, 4).
+        # Commands alternate to opposite corners of the screen.
+        targets = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.0, 0.0)]
+        rewards = []
+        prev_x, prev_y = None, None
+        for tx, ty in targets:
+            rewards.append(
+                calc.compute(
+                    prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+                    info=self._move_info(
+                        x=tx, y=ty, prev_x=prev_x, prev_y=prev_y,
+                        self_cx=32.0, self_cy=32.0,
+                    ),
+                )
+            )
+            prev_x, prev_y = tx, ty
+        # First command visits the cell and earns the bonus; all subsequent ones earn nothing.
+        self.assertAlmostEqual(rewards[0], 1.0)
+        for r in rewards[1:]:
+            self.assertAlmostEqual(r, 0.0)
+
+    def test_move_exploration_bonus_no_units_no_bonus(self):
+        """No bonus when no friendly units are visible (screen_self_count == 0)."""
         calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
         r = calc.compute(
             prev_state=None, curr_state=None, finished=False,
             elapsed_s=1.0,
-            info=self._move_info(x=0.9, y=0.1, prev_x=0.1, prev_y=0.1),
+            info=self._move_info(x=0.5, y=0.5, self_cx=40.0, self_cy=40.0, self_count=0.0),
         )
-        self.assertGreater(r, 0.0)
+        self.assertAlmostEqual(r, 0.0)
 
     def test_move_repeat_penalty_for_same_target(self):
         calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
@@ -362,17 +422,6 @@ class TestSC2MoveShaping(unittest.TestCase):
             info=self._move_info(x=0.5, y=0.5, prev_x=0.5, prev_y=0.5),
         )
         self.assertAlmostEqual(r, -2.0)
-
-    def test_stutter_step_below_threshold_gets_no_exploration_bonus(self):
-        """A tiny move (well below _MOVE_MIN_MEANINGFUL_FRAC) earns no bonus."""
-        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
-        # dist = 2/64 ≈ 0.03125 — well below the 6/64 meaningful threshold
-        r = calc.compute(
-            prev_state=None, curr_state=None, finished=False,
-            elapsed_s=1.0,
-            info=self._move_info(x=0.5 + 2.0 / 64.0, y=0.5, prev_x=0.5, prev_y=0.5),
-        )
-        self.assertAlmostEqual(r, 0.0)
 
     def test_stutter_step_below_threshold_gets_repeat_penalty(self):
         """A tiny non-zero move (below threshold) triggers the repeat penalty."""
@@ -385,20 +434,8 @@ class TestSC2MoveShaping(unittest.TestCase):
         )
         self.assertAlmostEqual(r, -2.0)
 
-    def test_meaningful_move_at_threshold_gets_exploration_bonus(self):
-        """A move exactly at the meaningful threshold earns the exploration bonus."""
-        calc = self._make_calc(move_repeat_penalty=0.0, move_self_penalty=0.0)
-        # dist = 6/64 = _MOVE_MIN_MEANINGFUL_FRAC (exactly on the boundary)
-        threshold = 6.0 / 64.0
-        r = calc.compute(
-            prev_state=None, curr_state=None, finished=False,
-            elapsed_s=1.0,
-            info=self._move_info(x=0.5 + threshold, y=0.5, prev_x=0.5, prev_y=0.5),
-        )
-        self.assertGreater(r, 0.0)
-
     def test_meaningful_move_at_threshold_no_repeat_penalty(self):
-        """A move at or above the threshold must NOT trigger the repeat penalty."""
+        """A command move at or above the threshold must NOT trigger the repeat penalty."""
         calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
         threshold = 6.0 / 64.0
         r = calc.compute(

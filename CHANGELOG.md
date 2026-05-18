@@ -17,6 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
+  positions on an 8×8 screen grid rather than move command targets, so
+  spamming `Move_screen` to many locations without moving units yields no
+  repeated reward. The bonus fires at most once per grid cell per episode.
+
 ### Added
 - Versioning + release system. `framework/version.py` resolves a
   runtime `code_version` string of the form

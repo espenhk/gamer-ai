@@ -71,12 +71,13 @@ class SC2RewardConfig:
         Coefficient on (minerals + vespene) delta.  Useful for economy
         minigames.  Set to 0 for pure-combat minigames.
     move_exploration_bonus :
-        Per-step bonus for issuing ``Move_screen`` commands whose target is at
-        least ``SC2RewardCalculator._MOVE_MIN_MEANINGFUL_FRAC`` of the screen
-        away from the previous move target.  Bonus scales linearly with
-        distance up to ``_MOVE_EXPLORATION_NORM``.  Sub-threshold moves receive
-        no bonus — this prevents stutter-stepping (tiny back-and-forth moves)
-        from farming exploration rewards.
+        Per-step bonus awarded when a ``Move_screen`` command is issued and
+        the current friendly-unit centroid is in a **new** grid cell of the
+        8×8 screen grid that has not been visited during this episode.  Fires
+        at most once per cell per episode; units must be visible
+        (``screen_self_count > 0``).  This prevents the command-spam exploit:
+        issuing many move commands to different screen regions earns no bonus
+        unless units physically reach those regions.
     move_repeat_penalty :
         Per-step penalty when a ``Move_screen`` command targets a point that is
         less than ``_MOVE_MIN_MEANINGFUL_FRAC`` of the screen away from the
@@ -174,7 +175,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
             target coordinates of the action (used by ``attack_move_bonus``
             and ``click_attack_bonus`` to classify the attack type)
         ``prev_move_target_x`` / ``prev_move_target_y`` — previous move target
-            in [0, 1], or None if no previous move target is known
+            in [0, 1], or None if no previous move target is known (used by
+            ``move_repeat_penalty`` only)
         ``screen_self_count`` / ``screen_enemy_count`` — friendly / enemy
             pixel counts on screen
         ``screen_self_cx`` / ``screen_self_cy`` / ``screen_enemy_cx`` /
@@ -205,8 +207,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
     _MOVE_MIN_MEANINGFUL_FRAC: float = 6.0 / 64.0
     # Radius (as a screen fraction) considered "targeting where my units are".
     _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
-    # Distance normaliser for movement exploration bonus.
-    _MOVE_EXPLORATION_NORM: float = 0.5
+    # Grid resolution for unit-visit tracking used by move_exploration_bonus.
+    _VISIT_GRID_SIZE: int = 8
 
     # Radius (as screen fraction) within which a click target must fall to be
     # classified as "on an enemy unit" rather than "attack-move to ground".
@@ -230,6 +232,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_non_noop_target_x: float = 0.5
         self._last_non_noop_target_y: float = 0.5
         self._step_count: int = 0
+        self._visited_unit_cells: set[tuple[int, int]] = set()
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -240,6 +243,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_non_noop_target_x = 0.5
         self._last_non_noop_target_y = 0.5
         self._step_count = 0
+        self._visited_unit_cells = set()
 
     def compute(
         self,
@@ -369,15 +373,28 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 dx_prev = x - float(prev_x)
                 dy_prev = y - float(prev_y)
                 dist_prev = (dx_prev * dx_prev + dy_prev * dy_prev) ** 0.5
-                if dist_prev >= self._MOVE_MIN_MEANINGFUL_FRAC:
-                    if cfg.move_exploration_bonus != 0.0:
-                        novelty = min(1.0, dist_prev / self._MOVE_EXPLORATION_NORM)
-                        move_exploration = (
-                            cfg.move_exploration_bonus * novelty * n_ticks
-                        )
-                else:
+                if dist_prev < self._MOVE_MIN_MEANINGFUL_FRAC:
                     if cfg.move_repeat_penalty != 0.0:
                         move_repeat_penalty = cfg.move_repeat_penalty * n_ticks
+
+            if cfg.move_exploration_bonus != 0.0:
+                self_count = float(info.get("screen_self_count", 0.0))
+                if self_count > 0:
+                    screen_size = max(1.0, float(info.get("screen_size", 64)))
+                    cx = float(info.get("screen_self_cx", 0.0))
+                    cy = float(info.get("screen_self_cy", 0.0))
+                    cell_x = min(
+                        self._VISIT_GRID_SIZE - 1,
+                        int(cx / screen_size * self._VISIT_GRID_SIZE),
+                    )
+                    cell_y = min(
+                        self._VISIT_GRID_SIZE - 1,
+                        int(cy / screen_size * self._VISIT_GRID_SIZE),
+                    )
+                    cell = (cell_x, cell_y)
+                    if cell not in self._visited_unit_cells:
+                        self._visited_unit_cells.add(cell)
+                        move_exploration = cfg.move_exploration_bonus * n_ticks
 
             if cfg.move_self_penalty != 0.0:
                 self_count = float(info.get("screen_self_count", 0.0))

@@ -70,6 +70,74 @@ unit-tested logic and mocked integration shifts.
 
 ---
 
+## Changelog
+
+`CHANGELOG.md` is the project's running log of user- and
+developer-visible changes (new features, new config keys, breaking
+changes, bug fixes, dependency changes, doc-only changes to public
+files). **Every PR that introduces such a change must add an entry
+under `## [Unreleased]`.** Trivial commits — experiment dumps,
+formatting, internal refactors with no behaviour change — can be
+skipped. The PR template's Documentation checklist enforces this.
+
+---
+
+## Versioning & releases
+
+`gamer-ai` does not (yet) ship to PyPI, but it has a version number so
+runs can be traced back to a known code state.
+
+**Source of truth.** The current version lives in two places that
+`scripts/release.py` keeps in lockstep:
+
+- `pyproject.toml` — `[tool.poetry] version`.
+- `framework/version.py` — `PACKAGE_VERSION`.
+
+**Runtime resolution.** `framework.version.code_version()` returns:
+
+```
+<PACKAGE_VERSION>+g<sha7>            # clean working tree
+<PACKAGE_VERSION>+g<sha7>.dirty      # uncommitted changes
+<PACKAGE_VERSION>                    # not in a git repo
+```
+
+`main.py` and `grid_search.py` log this at startup, and the value is
+persisted in every run's `experiment_data.json` (`code_version` field)
+and surfaced in the analytics summary table. Print the current value
+without running anything via:
+
+```bash
+python main.py --version
+```
+
+Use the recorded `code_version` to check out the exact code that
+produced a given run:
+
+```bash
+git checkout <sha7>
+```
+
+**Cutting a release.** From a clean working tree on `main`:
+
+```bash
+python scripts/release.py 0.2.0
+git push origin main --tags
+```
+
+The script bumps `pyproject.toml` + `framework/version.py`, promotes
+`## [Unreleased]` in `CHANGELOG.md` to `## [0.2.0] - YYYY-MM-DD`, commits
+as `Release v0.2.0`, and creates an annotated `v0.2.0` tag. Until a
+tag is pushed, all runs report a development version
+(`0.2.0+g<sha>...`) — that's intentional: the SHA already pins the
+state, the tag just makes it human-quotable.
+
+Version numbers follow [SemVer](https://semver.org/): bump **patch**
+for bug fixes, **minor** for backward-compatible features, **major**
+for breaking changes to configs, weight-file format, or experiment
+data on disk.
+
+---
+
 ## Policies
 
 All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`.

@@ -22,6 +22,7 @@
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
+  - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
@@ -46,6 +47,7 @@
   - [test\_sc2\_reward.py — SC2 reward calc](#test_sc2_rewardpy--sc2-reward-calc)
   - [test\_sc2\_client.py — PySC2 client wrapper](#test_sc2_clientpy--pysc2-client-wrapper)
   - [test\_sc2\_env.py — SC2 env wrapper](#test_sc2_envpy--sc2-env-wrapper)
+  - [test\_sc2\_replay.py — SC2 replay saving on new-best events (issue #210)](#test_sc2_replaypy--sc2-replay-saving-on-new-best-events-issue-210)
   - [test\_sc2\_apm\_limiter.py — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
@@ -240,6 +242,13 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - start / end / midpoint progress; nonzero lateral; on-centreline zero lateral; forward unit vector
 - lookahead: returns two floats / straight-track zero heading change / finite lateral / clamps at end / opposite sign across centreline
 
+### test_version.py — `code_version()` + git revision reporting
+- `PACKAGE_VERSION` is SemVer-shaped
+- `code_version()` starts with `PACKAGE_VERSION`
+- when run inside a git repo: matches `<version>+g<sha7>[.dirty]` shape
+- `code_version()` is cached (identical return on repeated calls)
+- when `git` is unavailable: `git_revision()` returns `(None, False)` and `code_version()` falls back to bare `PACKAGE_VERSION`
+
 ## TMNF policies
 
 Trackmania-Nations-Forever-specific code under `games/tmnf/`. Policies live
@@ -396,10 +405,16 @@ consecutive blocked steps); the 9-cell discrete action grid
 (score delta, win bonus, loss penalty, economy weight, idle penalty, step
 penalty); the SC2 client wrapper (flat-obs construction, score-delta
 threading, player_relative centroid, terminal-outcome handling, ladder
-visibility tracking with fog distinction, and the rich-preset extractors added
+visibility tracking with fog distinction, the rich-preset extractors added
 in issue #135: enemy unit-type counts, shield/energy screen summaries, creep
-coverage fraction, and economy-pipeline features); the SC2 env wrapper (reset /
-step / done / info / custom reward config); the APM limiter (`ApmLimiter`
+coverage fraction, and economy-pipeline features, and `save_replay` delegation
+to PySC2 including None-guard, makedirs-inside-try, and exception safety); the
+SC2 env wrapper (reset / step / done / info / custom reward config /
+`save_replay` passthrough); replay saving on new-best events (`_try_save_replay`
+for single-episode loops, candidate-pattern helpers `_save_candidate_replay` /
+`_finalize_candidate_replay` / `_discard_candidate_replay` for multi-episode
+loops: sequential naming, candidate-file exclusion from counts, exception
+safety throughout); the APM limiter (`ApmLimiter`
 token-bucket: construction, no-op exemption, burst cap, rolling refill,
 env integration including throttled action substitution and per-episode
 counters); the full lifecycle of
@@ -439,7 +454,7 @@ handful of iterations only).
 - attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
 - click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
 - cooldown: default=8; same target always fires; rapid switch withheld; fires again after cooldown elapsed; reset() clears state; both bonuses mutually exclusive
-- movement shaping: exploration bonus for varied `Move_screen` targets above the minimum-distance threshold; stutter-step below threshold earns no bonus and triggers the repeat penalty instead; move exactly at threshold gets bonus but not penalty; repeat-target penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible
+- movement shaping: exploration bonus fires on first `Move_screen` command when the unit centroid is in a new 8×8 grid cell (actual-visit tracking); visited cells are updated on any step with visible friendlies (not only `Move_screen`), so later move commands do not re-earn bonus for already-occupied cells; bonus does not fire a second time when centroid stays in the same cell; bonus fires again when centroid moves to a new cell; exploit regression — spamming move commands to far targets while units stay put yields at most one bonus; no bonus when no friendly units are visible; repeat penalty still fires for tiny command moves below the distance threshold; command move at threshold does not trigger the repeat penalty; penalty for moving to friendly centroid; self-penalty skipped when no friendly units are visible; `TestSC2IdleBonus._make_calc` disables move-shaping terms so idle-bonus isolation tests are not affected
 - attack_friendly_penalty: fires when Attack_screen targets near friendly centroid; skipped for target far from friendly / no friendly on screen / Move_screen; disabled when zero; n_ticks scaling; appears in components dict; default is strongly negative
 - unit_loss_penalty: fires per unit lost (army_count drop); zero when no loss / army grows; disabled by default; appears in components dict
 - damage_taken_penalty: fires per HP+shield point lost across visible friendlies; zero when unchanged / healing; safe default when info keys absent; disabled by default; appears in components dict
@@ -470,6 +485,14 @@ handful of iterations only).
 - reset returns obs+info; step 5-tuple; score-delta reward; done terminates; loss outcome
 - close calls client.close; info keys; prev_score threaded; prev_army_count + prev_total_self_hp seeded from reset and updated each step; executed `last_fn_idx` (not merely requested fn_idx) drives reward-shaping metadata; skipped-frame counters (default 0, per-step accumulation from game_loop deltas); custom reward config
 - end-screen analytics: series absent on mid-episode step; present on terminal step; supply_capped_fraction correct; army series value; resource series sums minerals+vespene; starting units excluded from build order; new units produce events; empty build order when no unit_counts
+
+### test_sc2_replay.py — SC2 replay saving on new-best events (issue #210)
+- `SC2Client.save_replay`: returns None when SC2 env not running; delegates to pysc2 save_replay with correct dir and prefix keyword; `os.makedirs` inside try block so directory creation failures are swallowed; swallows SC2 exceptions and returns None
+- `SC2Env.save_replay`: thin delegation to client
+- `_try_save_replay` (single-episode loops): no-op for envs without save_replay (non-SC2 games); first new-best → `_best-01` prefix; second new-best → `_best-02` when one confirmed .SC2Replay exists; candidate (`_`-prefixed) files excluded from sequential count; replay_dir always `<experiment_dir>/replays/`; only `.SC2Replay` files counted; exception swallowed
+- `_save_candidate_replay`: no-op for non-SC2; calls save_replay with `_candidate` prefix; exception swallowed, returns None
+- `_finalize_candidate_replay`: no-op when path is None or file missing; renames to next sequential `_best-N.SC2Replay`; candidate files excluded from confirmed-best count; two confirmed → `_best-02`
+- `_discard_candidate_replay`: no-op on None or missing path; deletes existing file
 
 ### test_sc2_apm_limiter.py — token-bucket APM limiter + SC2Env integration
 - Construction: valid / zero/negative max_apm raises / zero/negative burst_s raises / max_tokens formula / starts full

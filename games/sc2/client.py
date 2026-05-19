@@ -11,6 +11,7 @@ unit tests can mock the client without installing the SC2 binary.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -325,6 +326,21 @@ class SC2Client:
         if self._sc2_env is not None:
             self._sc2_env.close()
             self._sc2_env = None
+
+    def save_replay(self, replay_dir: str, prefix: str) -> str | None:
+        """Save the most recently played episode as an SC2 replay file.
+
+        Returns the path to the saved file, or None when the SC2 process is
+        not running or the save fails.
+        """
+        if self._sc2_env is None:
+            return None
+        try:
+            os.makedirs(replay_dir, exist_ok=True)
+            return self._sc2_env.save_replay(replay_dir, prefix=prefix)
+        except Exception as exc:
+            logger.warning("SC2Client.save_replay failed: %s", exc)
+            return None
 
     @property
     def last_fn_idx(self) -> int:

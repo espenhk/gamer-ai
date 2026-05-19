@@ -28,13 +28,15 @@ SC2GeneticPolicy
 from __future__ import annotations
 
 import logging
+import os
 from typing import NamedTuple
 
 import numpy as np
 import yaml
 
+from framework.cmaes import CMAESPolicy as _FrameworkCMAES
 from framework.obs_spec import ObsSpec
-from framework.policies import BasePolicy, GeneticPolicy
+from framework.policies import BasePolicy, GeneticPolicy, register_policy, trainer_state_path
 from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
@@ -311,6 +313,7 @@ class SC2MultiHeadLinearPolicy:
 # SC2GeneticPolicy
 # ---------------------------------------------------------------------------
 
+@register_policy
 class SC2GeneticPolicy(GeneticPolicy):
     """SC2 variant of :class:`framework.policies.GeneticPolicy`.
 
@@ -337,6 +340,12 @@ class SC2GeneticPolicy(GeneticPolicy):
     eval_episodes :
         Episodes per individual per generation; fitness is the average reward.
     """
+
+    POLICY_TYPE = "sc2_genetic"
+    LOOP_TYPE   = "genetic"
+    VALID_POLICY_PARAMS = frozenset({
+        "population_size", "elite_k", "mutation_scale", "mutation_share", "eval_episodes",
+    })
 
     def __init__(
         self,
@@ -421,6 +430,25 @@ class SC2GeneticPolicy(GeneticPolicy):
                 champion_cfg, obs_spec
             )
             policy._champion_reward = float(cfg.get("champion_reward", float("-inf")))
+        return policy
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        policy = cls(
+            obs_spec        = obs_spec,
+            population_size = pp.get("population_size", 30),
+            elite_k         = pp.get("elite_k",         5),
+            mutation_scale  = float(pp.get("mutation_scale", 0.1)),
+            mutation_share  = float(pp.get("mutation_share", 0.3)),
+            eval_episodes   = int(pp.get("eval_episodes",    2)),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            policy.initialize_from_file(weights_file)
+        else:
+            policy.initialize_random()
+            logger.info("[SC2GeneticPolicy] random population of %d", policy._lam)
         return policy
 
 
@@ -564,6 +592,7 @@ class _GradEntry(NamedTuple):
     fn_mask:            np.ndarray # bool mask: True = available fn (N_FUNCTION_IDS,)
 
 
+@register_policy
 class SC2REINFORCEPolicy(BasePolicy):
     """REINFORCE (Monte Carlo Policy Gradient) with a two-head MLP for SC2.
 
@@ -602,6 +631,12 @@ class SC2REINFORCEPolicy(BasePolicy):
     seed :
         Optional RNG seed for reproducibility.
     """
+
+    POLICY_TYPE = "sc2_reinforce"
+    LOOP_TYPE   = "q_learning"
+    VALID_POLICY_PARAMS = frozenset({
+        "hidden_sizes", "learning_rate", "gamma", "entropy_coeff", "baseline",
+    })
 
     def __init__(
         self,
@@ -995,6 +1030,32 @@ class SC2REINFORCEPolicy(BasePolicy):
             self._baseline_val = float(data["baseline_val"])
         logger.info("[SC2REINFORCEPolicy] trainer state loaded from %s", path)
 
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict) and cfg.get("policy_type") == "sc2_reinforce":
+                policy = cls.from_cfg(cfg, obs_spec)
+                ts = trainer_state_path(weights_file)
+                if os.path.exists(ts):
+                    try:
+                        policy.load_trainer_state(ts)
+                        logger.info("[SC2REINFORCEPolicy] loaded trainer state from %s", ts)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning("[SC2REINFORCEPolicy] could not load trainer state — %s", exc)
+                return policy
+        return cls(
+            obs_spec      = obs_spec,
+            hidden_sizes  = pp.get("hidden_sizes",  [128, 64]),
+            learning_rate = pp.get("learning_rate", 0.0003),
+            gamma         = pp.get("gamma",         0.995),
+            entropy_coeff = pp.get("entropy_coeff", 0.05),
+            baseline      = pp.get("baseline",      "running_mean"),
+        )
+
 
 # ---------------------------------------------------------------------------
 # SC2CMAESPolicy — CMA-ES over SC2MultiHeadLinearPolicy weight vectors
@@ -1010,217 +1071,40 @@ _SPATIAL_GRID: np.ndarray = np.array(
 )  # shape (9, 2)
 
 
-class SC2CMAESPolicy:
-    """(μ/μ_w, λ)-CMA-ES over :class:`SC2MultiHeadLinearPolicy` weight vectors.
+@register_policy
+class SC2CMAESPolicy(_FrameworkCMAES):
+    """(μ/μ_w, λ)-CMA-ES over SC2MultiHeadLinearPolicy — thin framework subclass.
 
-    The parameter vector θ = [W_fn.flat | W_sp.flat] has dimension
-    ``(N_FUNCTION_IDS + N_SPATIAL_ROWS) × obs_dim``.
-
-    Available-actions masking is applied during inference via a cached set of
-    available function IDs (populated by :meth:`on_episode_start` /
-    :meth:`update`).
-
-    Parameters
-    ----------
-    obs_spec :
-        Observation spec for the target environment.
-    population_size :
-        λ — offspring sampled per generation (default 30).
-    initial_sigma :
-        Starting step size (default 0.5).
-    eval_episodes :
-        Episodes per individual per generation (default 2).
-    seed :
-        Optional RNG seed.
+    Delegates all CMA-ES mechanics to :class:`framework.cmaes.CMAESPolicy`.
+    Adds available-actions masking during inference.
     """
+
+    POLICY_TYPE = "sc2_cmaes"
+    LOOP_TYPE   = "cmaes"
+    VALID_POLICY_PARAMS = frozenset({"population_size", "initial_sigma", "eval_episodes"})
 
     def __init__(
         self,
-        obs_spec: ObsSpec,
+        obs_spec: ObsSpec = SC2_MINIGAME_OBS_SPEC,
         population_size: int = 30,
         initial_sigma: float = 0.5,
         eval_episodes: int = 2,
         seed: int | None = None,
     ) -> None:
-        self._obs_spec       = obs_spec
-        self._lam            = int(population_size)
-        self._eval_episodes  = max(1, int(eval_episodes))
-        n                    = (N_FUNCTION_IDS + N_SPATIAL_ROWS) * obs_spec.dim
-        self._n              = n
+        _tpl = SC2MultiHeadLinearPolicy(obs_spec)
+        n_params = len(_tpl.to_flat())
 
-        mu            = self._lam // 2
-        self._mu      = mu
-        raw_w         = np.array(
-            [np.log(mu + 0.5) - np.log(i + 1) for i in range(mu)], dtype=np.float64
+        def _factory(flat: np.ndarray, spec: ObsSpec) -> SC2MultiHeadLinearPolicy:
+            return SC2MultiHeadLinearPolicy(spec).with_flat(flat.astype(np.float32))
+
+        super().__init__(
+            obs_spec, _factory, n_params,
+            population_size=population_size,
+            initial_sigma=initial_sigma,
+            eval_episodes=eval_episodes,
+            seed=seed,
         )
-        self._weights = raw_w / raw_w.sum()
-        self._mu_eff  = 1.0 / float(np.sum(self._weights ** 2))
-
-        self._cs   = (self._mu_eff + 2) / (n + self._mu_eff + 5)
-        self._ds   = (
-            1
-            + 2 * max(0.0, float(np.sqrt((self._mu_eff - 1) / (n + 1))) - 1)
-            + self._cs
-        )
-        self._chin = float(
-            np.sqrt(n) * (1 - 1.0 / (4 * n) + 1.0 / (21 * n ** 2))
-        )
-        self._cc  = (4 + self._mu_eff / n) / (n + 4 + 2 * self._mu_eff / n)
-        self._c1  = 2.0 / ((n + 1.3) ** 2 + self._mu_eff)
-        self._cmu = min(
-            1.0 - self._c1,
-            2.0
-            * (self._mu_eff - 2 + 1.0 / self._mu_eff)
-            / ((n + 2) ** 2 + self._mu_eff),
-        )
-
-        self._rng       = np.random.default_rng(seed)
-        self._mean      = self._rng.standard_normal(n).astype(np.float64)
-        self._sigma     = float(initial_sigma)
-        self._ps        = np.zeros(n, dtype=np.float64)
-        self._pc        = np.zeros(n, dtype=np.float64)
-        self._C         = np.eye(n, dtype=np.float64)
-        self._B         = np.eye(n, dtype=np.float64)
-        self._D         = np.ones(n, dtype=np.float64)
-        self._invsqrtC  = np.eye(n, dtype=np.float64)
-        self._eigengen  = 0
-        self._gen       = 0
-
-        self._pop_xs: list[np.ndarray] = []
-        self._pop_ys: list[np.ndarray] = []
-
-        self._champion: SC2MultiHeadLinearPolicy | None = None
-        self._champion_reward: float = float("-inf")
-
-        # Available-actions mask cache (populated from episode info).
         self._available_fn_ids: set[int] | None = None
-
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
-
-    @property
-    def population_size(self) -> int:
-        return self._lam
-
-    @property
-    def champion_reward(self) -> float:
-        return self._champion_reward
-
-    @property
-    def sigma(self) -> float:
-        return self._sigma
-
-    # ------------------------------------------------------------------
-    # Initialisation
-    # ------------------------------------------------------------------
-
-    def initialize_random(self) -> None:
-        self._mean = np.zeros(self._n, dtype=np.float64)
-        logger.info(
-            "[SC2CMAESPolicy] initialised with zero mean, sigma=%.3f", self._sigma
-        )
-
-    def initialize_from_champion(self, champion: SC2MultiHeadLinearPolicy) -> None:
-        self._champion        = champion
-        self._champion_reward = float("-inf")
-        self._mean            = champion.to_flat().astype(np.float64)
-        logger.info("[SC2CMAESPolicy] seeded mean from champion")
-
-    # ------------------------------------------------------------------
-    # Individual factory
-    # ------------------------------------------------------------------
-
-    def _flat_to_policy(self, flat: np.ndarray) -> SC2MultiHeadLinearPolicy:
-        template = SC2MultiHeadLinearPolicy(self._obs_spec)
-        return template.with_flat(flat.astype(np.float32))
-
-    # ------------------------------------------------------------------
-    # CMA-ES mechanics
-    # ------------------------------------------------------------------
-
-    def _update_eigen(self) -> None:
-        self._C = np.triu(self._C) + np.triu(self._C, 1).T
-        eigvals, self._B = np.linalg.eigh(self._C)
-        eigvals          = np.maximum(eigvals, 1e-20)
-        self._D          = np.sqrt(eigvals)
-        self._invsqrtC   = self._B @ np.diag(1.0 / self._D) @ self._B.T
-        self._eigengen   = self._gen
-
-    def sample_population(self) -> list[SC2MultiHeadLinearPolicy]:
-        n = self._n
-        if self._gen - self._eigengen >= max(1, int(self._lam / (10 * n))):
-            self._update_eigen()
-
-        self._pop_xs = []
-        self._pop_ys = []
-        for _ in range(self._lam):
-            z = self._rng.standard_normal(n)
-            y = self._B @ (self._D * z)
-            x = self._mean + self._sigma * y
-            self._pop_xs.append(x)
-            self._pop_ys.append(y)
-
-        return [self._flat_to_policy(x) for x in self._pop_xs]
-
-    def update_distribution(self, rewards: list[float]) -> bool:
-        if len(rewards) != self._lam:
-            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
-        if len(self._pop_xs) != self._lam:
-            raise RuntimeError(
-                "update_distribution() called before a matching sample_population()."
-            )
-        n     = self._n
-        order = np.argsort(rewards)[::-1]
-
-        improved = False
-        best_r   = rewards[order[0]]
-        if best_r > self._champion_reward:
-            self._champion_reward = best_r
-            self._champion        = self._flat_to_policy(self._pop_xs[order[0]])
-            improved              = True
-
-        elite_ys = np.stack([self._pop_ys[order[i]] for i in range(self._mu)])
-        step     = np.einsum("i,ij->j", self._weights, elite_ys)
-
-        self._mean = self._mean + self._sigma * step
-
-        ps_scale  = float(np.sqrt(self._cs * (2 - self._cs) * self._mu_eff))
-        self._ps  = (1 - self._cs) * self._ps + ps_scale * (self._invsqrtC @ step)
-
-        ps_norm     = float(np.linalg.norm(self._ps))
-        self._sigma = float(np.clip(
-            self._sigma * np.exp((self._cs / self._ds) * (ps_norm / self._chin - 1)),
-            1e-10, 1e6,
-        ))
-
-        ps_norm_normed = ps_norm / float(
-            np.sqrt(1 - (1 - self._cs) ** (2 * (self._gen + 1)))
-        )
-        h_sigma = (
-            1.0
-            if ps_norm_normed < (1.4 + 2.0 / (n + 1)) * self._chin
-            else 0.0
-        )
-
-        pc_scale  = float(np.sqrt(self._cc * (2 - self._cc) * self._mu_eff))
-        self._pc  = (1 - self._cc) * self._pc + h_sigma * pc_scale * step
-
-        delta_h = (1 - h_sigma) * self._cc * (2 - self._cc)
-        rank1   = np.outer(self._pc, self._pc)
-        rank_mu = np.einsum("i,ij,ik->jk", self._weights, elite_ys, elite_ys)
-        self._C = (
-            (1 - self._c1 - self._cmu) * self._C
-            + self._c1 * (rank1 + delta_h * self._C)
-            + self._cmu * rank_mu
-        )
-
-        self._gen += 1
-        return improved
-
-    # ------------------------------------------------------------------
-    # Policy interface
-    # ------------------------------------------------------------------
 
     def _build_fn_mask(self, available_fn_ids: set[int] | None) -> np.ndarray:
         mask = np.ones(N_FUNCTION_IDS, dtype=bool)
@@ -1236,7 +1120,6 @@ class SC2CMAESPolicy:
             raise RuntimeError(
                 "SC2CMAESPolicy: no champion yet — run at least one generation first."
             )
-        # Use the underlying champion but apply available-actions masking.
         norm_obs  = obs / self._obs_spec.scales
         fn_scores = self._champion._fn_weights @ norm_obs
         fn_mask   = self._build_fn_mask(self._available_fn_ids)
@@ -1270,61 +1153,45 @@ class SC2CMAESPolicy:
     def on_episode_end(self) -> None:
         pass
 
-    # ------------------------------------------------------------------
-    # Serialisation
-    # ------------------------------------------------------------------
-
     def to_cfg(self) -> dict:
         return {
             "policy_type":     "sc2_cmaes",
             "population_size": self._lam,
-            "sigma":           self._sigma,
+            "sigma":           float(self.sigma),
             "obs_dim":         self._obs_spec.dim,
             "eval_episodes":   self._eval_episodes,
             "champion_reward": float(self._champion_reward),
         }
 
-    def save(self, path: str) -> None:
-        if self._champion is not None:
-            self._champion.save(path)
-
-    def save_trainer_state(self, path: str) -> None:
-        np.savez(
-            path,
-            mean     = self._mean,
-            sigma    = np.float64(self._sigma),
-            C        = self._C,
-            B        = self._B,
-            D        = self._D,
-            invsqrtC = self._invsqrtC,
-            ps       = self._ps,
-            pc       = self._pc,
-            gen      = np.int64(self._gen),
-            n        = np.int64(self._n),
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        policy = cls(
+            obs_spec        = obs_spec,
+            population_size = pp.get("population_size", 30),
+            initial_sigma   = pp.get("initial_sigma",   0.5),
+            eval_episodes   = pp.get("eval_episodes",   2),
         )
-
-    def load_trainer_state(self, path: str) -> None:
-        with np.load(path) as data:
-            n_saved = int(data["n"])
-            if n_saved != self._n:
-                raise ValueError(
-                    f"SC2CMAESPolicy: trainer state dimension mismatch — "
-                    f"saved n={n_saved}, current n={self._n}. "
-                    f"Use --re-initialize to restart from scratch."
-                )
-            self._mean     = data["mean"].astype(np.float64)
-            self._sigma    = float(data["sigma"])
-            self._C        = data["C"].astype(np.float64)
-            self._B        = data["B"].astype(np.float64)
-            self._D        = data["D"].astype(np.float64)
-            self._invsqrtC = data["invsqrtC"].astype(np.float64)
-            self._ps       = data["ps"].astype(np.float64)
-            self._pc       = data["pc"].astype(np.float64)
-            self._gen      = int(data["gen"])
-        logger.info(
-            "[SC2CMAESPolicy] trainer state loaded from %s (gen=%d, sigma=%.4f)",
-            path, self._gen, self._sigma,
-        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict):
+                champion = SC2MultiHeadLinearPolicy.from_cfg(cfg, obs_spec)
+                policy.initialize_from_champion(champion)
+            ts = trainer_state_path(weights_file)
+            if os.path.exists(ts):
+                try:
+                    policy.load_trainer_state(ts)
+                    logger.info("[SC2CMAESPolicy] loaded trainer state from %s", ts)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[SC2CMAESPolicy] could not load trainer state — %s; continuing.",
+                        exc,
+                    )
+        else:
+            policy.initialize_random()
+        return policy
 
 
 # ---------------------------------------------------------------------------
@@ -1584,7 +1451,8 @@ class SC2LSTMPolicy:
 # SC2LSTMEvolutionPolicy — CMA-ES outer loop over SC2LSTMPolicy weights
 # ---------------------------------------------------------------------------
 
-class SC2LSTMEvolutionPolicy:
+@register_policy
+class SC2LSTMEvolutionPolicy(BasePolicy):
     """(μ/μ_w, λ)-isotropic ES wrapping :class:`SC2LSTMPolicy`.
 
     Uses the ``_greedy_loop_cmaes`` interface: :meth:`sample_population` /
@@ -1605,6 +1473,12 @@ class SC2LSTMEvolutionPolicy:
     seed :
         Optional RNG seed.
     """
+
+    POLICY_TYPE = "sc2_lstm"
+    LOOP_TYPE   = "cmaes"
+    VALID_POLICY_PARAMS = frozenset({
+        "hidden_size", "population_size", "initial_sigma", "reset_on_episode",
+    })
 
     def __init__(
         self,
@@ -1781,3 +1655,32 @@ class SC2LSTMEvolutionPolicy:
             self._mean  = data["mean"].astype(np.float64)
             self._sigma = float(data["sigma"])
         logger.info("[SC2LSTMEvolutionPolicy] trainer state loaded from %s", path)
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        policy = cls(
+            obs_spec         = obs_spec,
+            hidden_size      = pp.get("hidden_size",      64),
+            population_size  = pp.get("population_size",  20),
+            initial_sigma    = pp.get("initial_sigma",    0.03),
+            reset_on_episode = pp.get("reset_on_episode", True),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict) and cfg.get("policy_type") == "sc2_lstm":
+                champion = SC2LSTMPolicy.from_cfg(cfg, obs_spec)
+                policy.initialize_from_champion(champion)
+            ts = trainer_state_path(weights_file)
+            if os.path.exists(ts):
+                try:
+                    policy.load_trainer_state(ts)
+                    logger.info("[SC2LSTMEvolutionPolicy] loaded trainer state from %s", ts)
+                except (ValueError, KeyError) as exc:
+                    logger.warning(
+                        "[SC2LSTMEvolutionPolicy] could not load trainer state — %s; continuing.",
+                        exc,
+                    )
+        return policy

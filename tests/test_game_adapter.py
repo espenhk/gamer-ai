@@ -63,7 +63,9 @@ class TestTMNFAdapter:
         assert warmup is not None
         assert warmup.steps == 5
 
-    def test_build_extras_returns_policy_extras(self):
+    def test_build_extras_returns_none(self):
+        # After Phase C, all TMNF policies are registered via POLICY_REGISTRY;
+        # build_extras triggers the side-effect import and returns None.
         import os
         import tempfile
 
@@ -71,13 +73,7 @@ class TestTMNFAdapter:
         with tempfile.TemporaryDirectory() as tmpdir:
             wf = os.path.join(tmpdir, "policy_weights.yaml")
             extras = a.build_extras(wf, {"n_lidar_rays": 0}, False)
-            assert extras is not None
-            assert "neural_dqn" in extras.factories
-            assert "cmaes" in extras.factories
-            assert "reinforce" in extras.factories
-            assert "lstm" in extras.factories
-            assert extras.loop_dispatch["neural_dqn"] == "q_learning"
-            assert extras.loop_dispatch["cmaes"] == "cmaes"
+            assert extras is None
 
     def test_decorate_reward_cfg_adds_track_keys(self):
         a = self._adapter()
@@ -224,7 +220,7 @@ class TestSC2Adapter:
                 "policy_params": {"population_size": 10, "elite_k": 3},
             }, False)
             assert extras is not None
-            assert "sc2_genetic" in extras.factories
+            # sc2_genetic is now resolved via POLICY_REGISTRY, not extras.factories
 
     def test_build_extras_accepts_empty_policy_params(self):
         """Empty policy_params must not raise for any valid SC2 policy type."""

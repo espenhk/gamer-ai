@@ -19,6 +19,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Added
 - `POLICY_REGISTRY` and `register_policy` decorator in `framework/policies.py`; the five built-in policies (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are now self-describing with `POLICY_TYPE`, `LOOP_TYPE`, `VALID_POLICY_PARAMS`, and `_construct_or_resume`. `framework/training.py:_make_policy` consults the registry first and falls back to `extra_policy_types` for game-registered policies (Phase B of #224).
+- Phase C of #224: all game-specific policies migrated to thin registered subclasses. `games/tmnf/policies.py` now registers `neural_dqn`, `cmaes`, `reinforce`, and `lstm` as `@register_policy` subclasses of the framework algorithm classes; `games/sc2/sc2_policies.py` registers `sc2_genetic`, `sc2_reinforce`, `sc2_cmaes`, and `sc2_lstm`. Factory closures and loop-dispatch entries in both adapters removed for the migrated types; `build_extras` in TMNF adapter now returns `None`. Net: ~2 500 lines of duplicated algorithm code deleted.
 - Versioning + release system. `framework/version.py` resolves a
   runtime `code_version` string of the form
   `<PACKAGE_VERSION>+g<sha7>[.dirty]`; the value is persisted in every

@@ -77,6 +77,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "unit_loss": "unit_loss_penalty",
     "damage_taken": "damage_taken_penalty",
     "passive_under_fire": "passive_under_fire_penalty",
+    "small_selection": "small_selection_bonus",
     "step_penalty": "step_penalty",
 }
 _DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())

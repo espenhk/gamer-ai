@@ -17,6 +17,18 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **Analytics (issue #252)**: `plot_reward_components` is now a stacked
+  push/pull bar chart — positive contributions stack above the zero line,
+  negative contributions below, with a net-reward dot per sim.  A new
+  cross-experiment chart `comparison_reward_components.png` is generated in
+  every grid-search summary, showing mean per-component breakdowns side-by-side
+  across all experiments.  Both framework and SC2 grid-search summaries include
+  this chart.
+- **SC2 analytics (issue #251)**: `small_selection` reward component is now
+  mapped in the SC2 normalisation table so per-experiment comparisons correctly
+  account for the `small_selection_bonus` weight when normalising rewards.
+
 ### Fixed
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so

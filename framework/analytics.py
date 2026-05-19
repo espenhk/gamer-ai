@@ -386,21 +386,21 @@ def plot_task_metrics(data: ExperimentData, results_dir: str) -> None:
 
 
 def plot_reward_components(data: ExperimentData, results_dir: str) -> None:
-    """Plot per-component reward totals across greedy-phase simulations.
+    """Stacked push/pull bar chart of per-component reward totals per sim.
 
-    Each component (progress, centerline, speed, …) is drawn as a separate
-    line.  Components whose total is zero in every sim are omitted.
+    Positive components are stacked above the zero line; negative components
+    below.  A dot marks the net episode reward.  Components that are zero in
+    every sim are omitted.
     """
     if not _HAS_MPL:
         return
     sims = data.greedy_sims
     if not sims:
         return
-    # Only plot if at least one sim has component data.
     if not any(s.reward_components for s in sims):
         return
 
-    # Collect all component names present in any sim.
+    # Collect component names in stable order.
     all_keys: list[str] = []
     seen: set[str] = set()
     for s in sims:
@@ -410,29 +410,60 @@ def plot_reward_components(data: ExperimentData, results_dir: str) -> None:
                     all_keys.append(k)
                     seen.add(k)
 
-    xs = [s.sim for s in sims]
-    series: dict[str, list[float]] = {k: [] for k in all_keys}
-    for s in sims:
-        comps = s.reward_components or {}
-        for k in all_keys:
-            series[k].append(comps.get(k, 0.0))
+    xs = np.array([s.sim for s in sims])
+    series: dict[str, np.ndarray] = {}
+    for k in all_keys:
+        series[k] = np.array([
+            float((s.reward_components or {}).get(k, 0.0)) for s in sims
+        ])
 
     # Drop components that are zero everywhere.
-    active_keys = [k for k in all_keys if any(v != 0.0 for v in series[k])]
+    active_keys = [k for k in all_keys if np.any(series[k] != 0.0)]
     if not active_keys:
         return
 
-    cmap = cm.tab10(np.linspace(0, 1, min(len(active_keys), 10)))
-    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.15), 5))
-    for i, k in enumerate(active_keys):
-        color = cmap[i % len(cmap)]
-        ax.plot(xs, series[k], color=color, linewidth=1.2, alpha=0.85, label=k)
+    # Sort: positively-contributing keys first, then negative ones.
+    mean_vals = {k: float(np.mean(series[k])) for k in active_keys}
+    pos_keys = [k for k in active_keys if mean_vals[k] >= 0]
+    neg_keys = [k for k in active_keys if mean_vals[k] < 0]
+    ordered_keys = pos_keys + neg_keys
 
-    ax.axhline(0, color="black", linewidth=0.6, linestyle="--")
-    ax.set_title(f"{data.experiment_name} — Reward Components per Sim")
+    n_keys = len(ordered_keys)
+    cmap_colors = cm.tab20(np.linspace(0, 1, min(n_keys, 20)))
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.18), 5))
+
+    pos_bottom = np.zeros(len(xs))
+    neg_bottom = np.zeros(len(xs))
+    for i, k in enumerate(ordered_keys):
+        vals = series[k]
+        color = cmap_colors[i % len(cmap_colors)]
+        pos_part = np.clip(vals, 0.0, None)
+        neg_part = np.clip(vals, None, 0.0)
+        if np.any(pos_part != 0.0):
+            ax.bar(xs, pos_part, bottom=pos_bottom, color=color,
+                   width=0.8, edgecolor="none", label=k if np.any(neg_part == 0.0) else None)
+            pos_bottom += pos_part
+        if np.any(neg_part != 0.0):
+            ax.bar(xs, neg_part, bottom=neg_bottom, color=color,
+                   width=0.8, edgecolor="none", label=k if np.any(pos_part != 0.0) else k)
+            neg_bottom += neg_part
+
+    # Net reward as dots.
+    net = np.array([s.reward for s in sims])
+    ax.scatter(xs, net, color="black", s=12, zorder=5, label="net reward")
+
+    ax.axhline(0, color="black", linewidth=0.7, linestyle="--")
+    ax.set_title(f"{data.experiment_name} — Reward Components per Sim (push/pull)")
     ax.set_xlabel("Simulation")
-    ax.set_ylabel("Component total (episode sum)")
-    ax.legend(fontsize=8, loc="best", ncol=max(1, len(active_keys) // 5))
+    ax.set_ylabel("Component contribution (episode sum)")
+    # Deduplicate legend labels.
+    handles, labels = ax.get_legend_handles_labels()
+    seen_labels: set[str] = set()
+    deduped = [(h, l) for h, l in zip(handles, labels) if l not in seen_labels and not seen_labels.add(l)]  # type: ignore[func-returns-value]
+    if deduped:
+        hs, ls = zip(*deduped)
+        ax.legend(hs, ls, fontsize=7, loc="best", ncol=max(1, n_keys // 6))
     fig.tight_layout()
     _save(fig, os.path.join(results_dir, "reward_components.png"))
 
@@ -676,6 +707,100 @@ def plot_gs_reward_trajectories(
     _save(fig, os.path.join(summary_dir, "comparison_reward_trajectories.png"))
 
 
+def plot_gs_reward_components(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-experiment stacked push/pull bar chart of mean reward components.
+
+    Each experiment is one bar.  Positive components stack above the zero line,
+    negative components below.  A dot marks the mean net reward per experiment.
+    Experiments with no component data are skipped.
+    """
+    if not _HAS_MPL:
+        return
+
+    # Collect mean per-component totals across greedy sims for each experiment.
+    rows: list[tuple[str, dict[str, float], float]] = []
+    all_keys_ordered: list[str] = []
+    seen_keys: set[str] = set()
+    for name, data in runs:
+        sims = [s for s in data.greedy_sims if s.reward_components]
+        if not sims:
+            continue
+        agg: dict[str, float] = {}
+        for s in sims:
+            for k, v in (s.reward_components or {}).items():
+                agg[k] = agg.get(k, 0.0) + float(v)
+                if k not in seen_keys:
+                    all_keys_ordered.append(k)
+                    seen_keys.add(k)
+        n = len(sims)
+        mean_comps = {k: v / n for k, v in agg.items()}
+        mean_net = float(np.mean([s.reward for s in data.greedy_sims])) if data.greedy_sims else 0.0
+        rows.append((name, mean_comps, mean_net))
+
+    if not rows or not all_keys_ordered:
+        return
+
+    # Drop components that are zero in every experiment.
+    active_keys = [
+        k for k in all_keys_ordered
+        if any(abs(r[1].get(k, 0.0)) > 1e-9 for r in rows)
+    ]
+    if not active_keys:
+        return
+
+    mean_across = {k: np.mean([r[1].get(k, 0.0) for r in rows]) for k in active_keys}
+    pos_keys = [k for k in active_keys if mean_across[k] >= 0]
+    neg_keys = [k for k in active_keys if mean_across[k] < 0]
+    ordered_keys = pos_keys + neg_keys
+
+    n_keys = len(ordered_keys)
+    cmap_colors = cm.tab20(np.linspace(0, 1, min(n_keys, 20)))
+    exp_names = [r[0] for r in rows]
+    n_exps = len(rows)
+    y = np.arange(n_exps)
+
+    fig, ax = plt.subplots(figsize=(10, max(4, n_exps * 0.5)))
+
+    pos_left = np.zeros(n_exps)
+    neg_left = np.zeros(n_exps)
+    for i, k in enumerate(ordered_keys):
+        vals = np.array([r[1].get(k, 0.0) for r in rows])
+        color = cmap_colors[i % len(cmap_colors)]
+        pos_part = np.clip(vals, 0.0, None)
+        neg_part = np.clip(vals, None, 0.0)
+        if np.any(pos_part != 0.0):
+            ax.barh(y, pos_part, left=pos_left, color=color,
+                    height=0.7, edgecolor="none",
+                    label=k if np.all(neg_part == 0.0) else None)
+            pos_left = pos_left + pos_part
+        if np.any(neg_part != 0.0):
+            ax.barh(y, neg_part, left=neg_left, color=color,
+                    height=0.7, edgecolor="none",
+                    label=k if np.any(pos_part != 0.0) else k)
+            neg_left = neg_left + neg_part
+
+    net_vals = np.array([r[2] for r in rows])
+    ax.scatter(net_vals, y, color="black", s=30, zorder=5, label="mean net reward")
+
+    ax.axvline(0, color="black", linewidth=0.7, linestyle="--")
+    ax.set_yticks(y)
+    ax.set_yticklabels(exp_names, fontsize=7)
+    ax.set_xlabel("Mean component contribution per episode")
+    ax.set_title("Grid Search — Reward Component Breakdown per Experiment")
+
+    handles, labels = ax.get_legend_handles_labels()
+    seen_labels: set[str] = set()
+    deduped = [(h, l) for h, l in zip(handles, labels) if l not in seen_labels and not seen_labels.add(l)]  # type: ignore[func-returns-value]
+    if deduped:
+        hs, ls = zip(*deduped)
+        ax.legend(hs, ls, fontsize=7, loc="lower right", ncol=max(1, n_keys // 6))
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_reward_components.png"))
+
+
 def plot_gs_comparison_task_metrics(
     runs: list[tuple[str, dict]],
     summary_dir: str,
@@ -786,6 +911,7 @@ def save_grid_summary(
         metric_label=task_metric_label,
     )
     plot_gs_reward_trajectories(runs, summary_dir)
+    plot_gs_reward_components(runs, summary_dir)
     if extra_plots_fn is not None:
         extra_plots_fn(runs, summary_dir)
 
@@ -813,6 +939,7 @@ def save_grid_summary(
         "## Rankings by Reward\n\n",
         "![Reward comparison](comparison_rewards.png)\n\n",
         "![Reward trajectories](comparison_reward_trajectories.png)\n\n",
+        "![Reward component breakdown](comparison_reward_components.png)\n\n",
         "| Rank | Experiment | Best Reward | Improvements | First Improv. Sim | Accel % | Greedy Time |\n",
         "|------|-----------|-------------|--------------|-------------------|---------|-------------|\n",
     ]
@@ -869,6 +996,7 @@ def save_grid_summary(
             f"![Best run path + throttle]({results_rel}/greedy_best_run.png)\n\n",
             f"![Weight evolution]({results_rel}/greedy_weight_evolution.png)\n\n",
             f"![Reward trajectory]({results_rel}/reward_trajectory.png)\n\n",
+            f"![Reward components]({results_rel}/reward_components.png)\n\n",
             f"![Task metrics]({results_rel}/task_metrics.png)\n\n",
         ]
 

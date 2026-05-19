@@ -128,6 +128,17 @@ def acquire_map_access_slot(
                 last = 0.0
 
             now = _now()
+            # Clamp against backwards wall-clock jumps (NTP correction,
+            # manual `date` adjustment): if the stored timestamp is in
+            # the future, treat it as "now" so we never sleep longer
+            # than `resolved_gap`.
+            if last > now:
+                logger.warning(
+                    "SC2 map-access gate: stored timestamp %.3f is in the "
+                    "future (now=%.3f); clamping to now to recover from clock skew",
+                    last, now,
+                )
+                last = now
             wait = (last + resolved_gap) - now
             if wait > 0:
                 logger.info(

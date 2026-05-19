@@ -830,9 +830,14 @@ def main() -> None:
         if args.local_worker_stagger is not None:
             local_worker_stagger = args.local_worker_stagger
         else:
-            local_worker_stagger = float(
-                distribute_cfg.get("local_worker_stagger", 5.0)
-            )
+            raw_stagger = distribute_cfg.get("local_worker_stagger", 5.0)
+            try:
+                local_worker_stagger = float(raw_stagger)
+            except (TypeError, ValueError):
+                parser.error(
+                    f"distribute.local_worker_stagger must be a non-negative "
+                    f"number, got {raw_stagger!r}"
+                )
         if local_worker_stagger < 0:
             parser.error("--local-worker-stagger must be >= 0")
         token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())

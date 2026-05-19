@@ -119,6 +119,25 @@ class TestSingleProcess:
         assert wait == 0.0
         assert sleeps == []
 
+    def test_clock_skew_future_timestamp_clamped_to_now(self, lock_path, caplog):
+        """If the stored timestamp is ahead of the current clock (e.g. NTP
+        rewinds the wall clock), the gate must clamp `last` to `now`
+        rather than sleep for the entire skew + gap_s."""
+        # Store a timestamp far in the future (simulating clock rewind).
+        with open(lock_path, "w") as f:
+            f.write("9999999999.0\n")
+
+        sleeps: list[float] = []
+        wait = acquire_map_access_slot(
+            gap_s=5.0,
+            lock_path=lock_path,
+            _sleep=sleeps.append,
+            _now=lambda: 1000.0,
+        )
+        # After clamping last → now, wait = (now + gap) - now = gap.
+        assert wait == pytest.approx(5.0)
+        assert sleeps == [pytest.approx(5.0)]
+
 
 class TestEnvVarConfiguration:
     def test_lock_path_env_var(self, tmp_path, monkeypatch):
@@ -223,9 +242,23 @@ class TestMultiProcess:
         ]
         for p in procs:
             p.start()
-        for p in procs:
-            p.join(timeout=15)
-            assert p.exitcode == 0
+        try:
+            for p in procs:
+                p.join(timeout=15)
+                if p.is_alive():
+                    p.terminate()
+                    p.join(timeout=2)
+                    if p.is_alive():
+                        p.kill()
+                        p.join(timeout=2)
+                    pytest.fail(f"gate worker pid={p.pid} did not finish within 15s")
+                assert p.exitcode == 0
+        finally:
+            # Defensive: ensure no stragglers leak into the rest of the test session.
+            for p in procs:
+                if p.is_alive():
+                    p.kill()
+                    p.join(timeout=2)
 
         grants = sorted(q.get_nowait() for _ in range(3))
         # Each consecutive grant must be ≥ gap apart (allow small slack

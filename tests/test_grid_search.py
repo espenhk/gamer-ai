@@ -299,7 +299,7 @@ class TestLocalDistributedWorkers:
         """Issue #254: each worker after the first waits ``start_stagger_s``
         seconds before launching, so SC2 binaries don't race on the same
         ``.SC2Map`` file at boot."""
-        spawn_order: list[str] = []
+        spawn_order: list[tuple[str, object]] = []
 
         class _DummyProc:
             def __init__(self, cmd):

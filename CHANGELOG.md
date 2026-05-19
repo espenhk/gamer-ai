@@ -37,6 +37,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
   visible, and the bonus fires at most once per grid cell per episode.
 
 ### Added
+- `POLICY_REGISTRY` and `register_policy` decorator in `framework/policies.py`; the five built-in policies (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are now self-describing with `POLICY_TYPE`, `LOOP_TYPE`, `VALID_POLICY_PARAMS`, and `_construct_or_resume`. `framework/training.py:_make_policy` consults the registry first and falls back to `extra_policy_types` for game-registered policies (Phase B of #224).
 - Versioning + release system. `framework/version.py` resolves a
   runtime `code_version` string of the form
   `<PACKAGE_VERSION>+g<sha7>[.dirty]`; the value is persisted in every

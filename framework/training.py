@@ -38,6 +38,8 @@ from framework.policies import (
     EpsilonGreedyPolicy,
     MCTSPolicy,
     GeneticPolicy,
+    POLICY_REGISTRY,
+    trainer_state_path as _trainer_state_path_canonical,
 )
 from framework.obs_spec import ObsSpec
 from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
@@ -49,12 +51,7 @@ _TRACE_SAMPLE_EVERY = 2   # record position every N steps
 
 
 def _trainer_state_path(weights_file: str) -> str:
-    """Return the trainer-state checkpoint path alongside the weights file.
-
-    e.g. experiments/a03/my_run/policy_weights.yaml
-         → experiments/a03/my_run/trainer_state.npz
-    """
-    return os.path.join(os.path.dirname(os.path.abspath(weights_file)), "trainer_state.npz")
+    return _trainer_state_path_canonical(weights_file)
 
 
 # ---------------------------------------------------------------------------
@@ -89,96 +86,23 @@ def _make_policy(
 ) -> BasePolicy:
     """Construct the appropriate policy given type, obs_spec, and hyperparams.
 
-    extra_policy_types maps policy_type names to zero-arg factory callables.
-    This lets game-specific policy types (e.g. 'neural_dqn', 'cmaes') be
-    injected without the framework importing from games/.
+    Consults POLICY_REGISTRY first; falls back to extra_policy_types for
+    game-registered policies not yet migrated to the registry.
     """
-
-    if policy_type == "hill_climbing":
-        if re_initialize and os.path.exists(weights_file):
-            os.remove(weights_file)
-            logger.info("[WeightedLinearPolicy] removed existing weights file for re-initialization: %s",
-                        weights_file)
-        return WeightedLinearPolicy(obs_spec, head_names, weights_file)
-
-    elif policy_type == "neural_net":
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as f:
-                loaded_cfg = yaml.safe_load(f)
-            cfg = loaded_cfg if isinstance(loaded_cfg, dict) else {}
-            if cfg.get("policy_type") == "neural_net":
-                logger.info("[NeuralNetPolicy] loaded from %s", weights_file)
-                return NeuralNetPolicy.from_cfg(cfg, obs_spec)
-        hidden = policy_params.get("hidden_sizes", [16, 16])
-        logger.info("[NeuralNetPolicy] initialised random weights (hidden=%s)", hidden)
-        return NeuralNetPolicy(obs_spec, action_dim=len(head_names),
-                               hidden_sizes=hidden)
-
-    elif policy_type == "epsilon_greedy":
-        epsilon = policy_params.get("epsilon", 1.0)
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as f:
-                saved_cfg = yaml.safe_load(f) or {}
-            epsilon = float(saved_cfg.get("epsilon", epsilon))
-        policy = EpsilonGreedyPolicy(
-            obs_spec=obs_spec,
-            discrete_actions=discrete_actions,
-            n_bins=policy_params.get("n_bins", 3),
-            epsilon=epsilon,
-            epsilon_decay=policy_params.get("epsilon_decay", 0.995),
-            epsilon_min=policy_params.get("epsilon_min", 0.05),
-            alpha=policy_params.get("alpha", 0.1),
-            gamma=policy_params.get("gamma", 0.99),
+    cls = POLICY_REGISTRY.get(policy_type)
+    if cls is not None:
+        return cls.make(
+            obs_spec=obs_spec, head_names=head_names,
+            discrete_actions=discrete_actions, weights_file=weights_file,
+            policy_params=policy_params, re_initialize=re_initialize,
         )
-        if os.path.exists(weights_file) and not re_initialize:
-            policy._load_table(weights_file)
-        return policy
-
-    elif policy_type == "mcts":
-        policy = MCTSPolicy(
-            obs_spec=obs_spec,
-            discrete_actions=discrete_actions,
-            c=policy_params.get("c", 1.41),
-            alpha=policy_params.get("alpha", 0.1),
-            gamma=policy_params.get("gamma", 0.99),
-            n_bins=policy_params.get("n_bins", 3),
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            policy._load_table(weights_file)
-        return policy
-
-    elif policy_type == "genetic":
-        pop_size = policy_params.get("population_size", 10)
-        elite_k  = policy_params.get("elite_k", 3)
-        policy   = GeneticPolicy(
-            obs_spec       = obs_spec,
-            head_names     = head_names,
-            population_size = pop_size,
-            elite_k        = elite_k,
-            mutation_scale = policy_params.get("mutation_scale",
-                             policy_params.get("_mutation_scale_fallback", 0.1)),
-            mutation_share = policy_params.get("mutation_share",
-                             policy_params.get("_mutation_share_fallback", 1.0)),
-            eval_episodes  = policy_params.get("eval_episodes", 1),
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            champion = WeightedLinearPolicy(obs_spec, head_names, weights_file)
-            policy.initialize_from_champion(champion)
-            logger.info("[GeneticPolicy] seeded population from champion at %s",
-                        weights_file)
-        else:
-            policy.initialize_random()
-            logger.info("[GeneticPolicy] random population of %d", pop_size)
-        return policy
-
-    elif extra_policy_types and policy_type in extra_policy_types:
+    if extra_policy_types and policy_type in extra_policy_types:
         return extra_policy_types[policy_type]()
-
-    else:
-        raise ValueError(
-            f"Unknown policy_type: {policy_type!r}. "
-            "Choose from: hill_climbing, neural_net, epsilon_greedy, mcts, genetic"
-        )
+    raise ValueError(
+        f"Unknown policy_type: {policy_type!r}. "
+        f"Registered: {sorted(POLICY_REGISTRY)}; "
+        f"extras: {sorted(extra_policy_types or [])}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1438,35 +1362,27 @@ def train_rl(
 
     _extra_dispatch = extra_loop_dispatch or {}
 
-    if policy_type in ("hill_climbing", "neural_net"):
+    loop_type = (best_policy.LOOP_TYPE if best_policy.POLICY_TYPE
+                 else _extra_dispatch.get(policy_type))
+
+    if loop_type == "hill_climbing" or loop_type is None:
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
             env=env, policy=best_policy, n_sims=n_sims,
             mutation_scale=mutation_scale, mutation_share=mutation_share,
             best_reward=best_reward, weights_file=weights_file,
             adaptive_mutation=adaptive_mutation, patience=patience, **kw,
         )
-    elif policy_type in ("epsilon_greedy", "mcts"):
+    elif loop_type == "q_learning":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
             env=env, policy=best_policy, n_episodes=n_sims,
             weights_file=weights_file, patience=patience, **kw,
         )
-    elif policy_type == "genetic":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
-            env=env, policy=best_policy,  # type: ignore[arg-type]
-            n_generations=n_sims, weights_file=weights_file,
-            patience=patience, adaptive_mutation=adaptive_mutation, **kw,
-        )
-    elif _extra_dispatch.get(policy_type) == "q_learning":
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
-            env=env, policy=best_policy, n_episodes=n_sims,
-            weights_file=weights_file, patience=patience, **kw,
-        )
-    elif _extra_dispatch.get(policy_type) == "cmaes":
+    elif loop_type == "cmaes":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_cmaes(
             env=env, policy=best_policy,
             n_generations=n_sims, weights_file=weights_file, patience=patience, **kw,
         )
-    elif _extra_dispatch.get(policy_type) == "genetic":
+    elif loop_type == "genetic":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
             env=env, policy=best_policy,  # type: ignore[arg-type]
             n_generations=n_sims, weights_file=weights_file,

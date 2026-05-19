@@ -132,6 +132,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity (default: INFO)",
     )
+    parser.add_argument(
+        "--workers", type=_positive_int("--workers"), default=None, metavar="N",
+        help=(
+            "Override training_params n_workers — number of local SC2 binaries "
+            "used to evaluate population members in parallel (issue #229).  "
+            "1 = serial.  Only meaningful for population-based SC2 policies "
+            "(sc2_genetic, sc2_cmaes, sc2_lstm, sc2_cnn)."
+        ),
+    )
     return parser
 
 
@@ -200,6 +209,11 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
 
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
+
+    # CLI override for intra-run parallel evaluation (issue #229).
+    if getattr(args, "workers", None) is not None:
+        p["n_workers"] = int(args.workers)
+        logger.info("Overriding training_params n_workers = %d from --workers", p["n_workers"])
 
     # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
     with open(reward_cfg_file) as f:

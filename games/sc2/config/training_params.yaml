@@ -72,6 +72,15 @@ enable_belief: false   # set true to activate fog-of-war belief obs + scouting r
 # max_apm: 300        # e.g. 300 APM ≈ human intermediate level
 # apm_burst_s: 2.0    # max burst window in seconds (default 2.0)
 
+# Intra-run parallel evaluation (issue #229) — only applies to
+# population-based policies (sc2_genetic, sc2_cmaes, sc2_lstm, sc2_cnn).
+# Each worker holds one persistent SC2 binary; total binaries = n_workers
+# plus one for the main process.  Default 1 = current serial behaviour.
+# n_workers: 1
+# worker_start_stagger_s: 5.0    # delay between worker spawns to avoid port races
+# worker_warmup_timeout_s: 90.0  # per-worker SC2 binary startup budget
+# worker_base_seed: 0            # worker i is seeded with base_seed + i
+
 policy_params:
   population_size: 30      # larger search space needs bigger population
   elite_k: 5

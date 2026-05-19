@@ -1131,9 +1131,19 @@ class SC2CMAESPolicy:
     # Individual factory
     # ------------------------------------------------------------------
 
+    @property
+    def _template(self) -> SC2MultiHeadLinearPolicy:
+        # Cached template policy — used both by _flat_to_policy and by
+        # framework.parallel_eval.ParallelEvaluator (issue #229).  Built
+        # lazily so __init__ stays free of the policy construction cost.
+        cached = self.__dict__.get("_template_cache")
+        if cached is None:
+            cached = SC2MultiHeadLinearPolicy(self._obs_spec)
+            self.__dict__["_template_cache"] = cached
+        return cached
+
     def _flat_to_policy(self, flat: np.ndarray) -> SC2MultiHeadLinearPolicy:
-        template = SC2MultiHeadLinearPolicy(self._obs_spec)
-        return template.with_flat(flat.astype(np.float32))
+        return self._template.with_flat(flat.astype(np.float32))
 
     # ------------------------------------------------------------------
     # CMA-ES mechanics

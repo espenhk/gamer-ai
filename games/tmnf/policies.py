@@ -360,41 +360,58 @@ class NeuralDQNPolicy(_FrameworkDQN):
 # ---------------------------------------------------------------------------
 
 @register_policy
-class CMAESPolicy(BasePolicy):
-    """Registers 'cmaes' policy_type for TMNF; _construct_or_resume returns
-    a framework.CMAESPolicy wrapping a WeightedLinearPolicy factory."""
+class CMAESPolicy(_FrameworkCMAES):
+    """TMNF CMA-ES: thin _FrameworkCMAES subclass wrapping WeightedLinearPolicy.
+
+    Inheriting from _FrameworkCMAES ensures the constructed instance carries
+    LOOP_TYPE='cmaes' so train_rl dispatches to _greedy_loop_cmaes correctly.
+    """
 
     POLICY_TYPE = "cmaes"
     LOOP_TYPE   = "cmaes"
     VALID_POLICY_PARAMS = frozenset({"population_size", "initial_sigma", "eval_episodes"})
 
-    def __call__(self, obs: np.ndarray) -> np.ndarray:  # pragma: no cover
-        raise NotImplementedError
-
-    def to_cfg(self) -> dict:  # pragma: no cover
-        raise NotImplementedError
-
-    @classmethod
-    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
-                             weights_file, policy_params, re_initialize):
-        pp      = policy_params
-        _heads  = list(head_names)
+    def __init__(
+        self,
+        obs_spec,
+        head_names: list,
+        population_size: int = 20,
+        initial_sigma: float = 0.3,
+        eval_episodes: int = 1,
+        seed=None,
+    ) -> None:
+        _heads = list(head_names)
 
         def _factory(flat: np.ndarray, spec) -> _FrameworkWLP:
             return _FrameworkWLP.from_cfg({}, spec, _heads).with_flat(flat)
 
         template = _FrameworkWLP.from_cfg({}, obs_spec, _heads)
         n_params = len(template.to_flat())
+        super().__init__(
+            obs_spec, _factory, n_params,
+            population_size = population_size,
+            initial_sigma   = initial_sigma,
+            eval_episodes   = eval_episodes,
+            seed            = seed,
+        )
 
-        policy = _FrameworkCMAES(
-            obs_spec,
-            _factory,
-            n_params,
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "cmaes"
+        return cfg
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp     = policy_params
+        _heads = list(head_names)
+        policy = cls(
+            obs_spec        = obs_spec,
+            head_names      = _heads,
             population_size = pp.get("population_size", 20),
             initial_sigma   = pp.get("initial_sigma",   0.3),
             eval_episodes   = pp.get("eval_episodes",   1),
         )
-
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:
                 cfg = yaml.safe_load(_f) or {}
@@ -406,11 +423,11 @@ class CMAESPolicy(BasePolicy):
                     policy.load_trainer_state(ts)
                     logger.info("[CMAESPolicy] loaded trainer state from %s", ts)
                 except (ValueError, KeyError) as exc:
-                    logger.warning("[CMAESPolicy] could not load trainer state from %s — %s; "                                   "continuing with champion weights and default distribution.",
+                    logger.warning("[CMAESPolicy] could not load trainer state from %s — %s; "
+                                   "continuing with champion weights and default distribution.",
                                    ts, exc)
         else:
             policy.initialize_random()
-
         return policy
 
 

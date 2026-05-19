@@ -511,13 +511,17 @@ def _replay_dir(weights_file: str) -> str:
 def _next_best_prefix(weights_file: str, replay_dir: str) -> str:
     """Return the next sequential experiment_best-N prefix."""
     experiment_name = os.path.basename(os.path.dirname(os.path.abspath(weights_file)))
-    n = 0
+    max_n = 0
     if os.path.isdir(replay_dir):
-        n = sum(
-            1 for f in os.listdir(replay_dir)
-            if f.endswith(".SC2Replay") and not f.startswith("_")
-        )
-    return f"{experiment_name}_best-{n + 1:02d}"
+        for f in os.listdir(replay_dir):
+            if f.endswith(".SC2Replay") and not f.startswith("_"):
+                parts = f.rsplit("_best-", 1)
+                if len(parts) == 2:
+                    try:
+                        max_n = max(max_n, int(parts[1].removesuffix(".SC2Replay")))
+                    except ValueError:
+                        pass
+    return f"{experiment_name}_best-{max_n + 1:02d}"
 
 
 def _try_save_replay(env, weights_file: str) -> None:

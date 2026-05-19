@@ -141,6 +141,14 @@ class SC2RewardConfig:
     damage_taken_penalty: float = 0.0
     passive_under_fire_penalty: float = 0.0
     small_selection_bonus: float = 0.0
+    attack_bonus: float = 0.0
+    """Per-step bonus awarded whenever the agent issues ``Attack_screen``
+    (fn_idx 3), regardless of whether the target is on an enemy unit
+    (click-to-attack) or on open ground (A-move).  This is a simpler
+    alternative to enabling both ``attack_move_bonus`` and
+    ``click_attack_bonus`` separately; all three can be active at once.
+    Default ``0.0`` — opt-in.
+    """
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -279,10 +287,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_friendly_penalty``, ``unit_loss``, ``damage_taken``,
-        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
-        ``terminal``
-        separately.
+        ``attack_bonus``, ``attack_friendly_penalty``, ``unit_loss``,
+        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
+        ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -514,6 +521,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         components["attack_move_bonus"] = float(attack_move_bonus)
         components["click_attack_bonus"] = float(click_attack_bonus)
+
+        # General attack bonus: fires on any Attack_screen regardless of target.
+        attack_bonus = 0.0
+        if cfg.attack_bonus != 0.0 and combat_fn_idx == 3:
+            attack_bonus = cfg.attack_bonus * n_ticks
+        components["attack_bonus"] = float(attack_bonus)
 
         # Friendly-fire penalty: Attack_screen aimed at own units.
         attack_friendly_penalty = 0.0

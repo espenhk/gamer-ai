@@ -508,6 +508,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `attack_move_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` (fn_idx 3) with the target on empty ground while enemies are visible (A-move). Opt-in. |
 | `click_attack_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` with the target directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
 | `click_attack_cooldown_steps` | `8` | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
+| `attack_bonus` | `0.0` | Per-step bonus whenever the agent issues `Attack_screen` (fn_idx 3), regardless of target type (A-move or click-to-attack). Simpler alternative to enabling both `attack_move_bonus` and `click_attack_bonus`. Opt-in. |
 | `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
 | `unit_loss_penalty` | `0.0` | Penalty per army unit lost this step (army_count drop). Opt-in. |
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |

@@ -437,6 +437,81 @@ def plot_reward_components(data: ExperimentData, results_dir: str) -> None:
     _save(fig, os.path.join(results_dir, "reward_components.png"))
 
 
+def plot_reward_component_breakdown(data: ExperimentData, results_dir: str) -> None:
+    """Diverging stacked bar chart of reward components per greedy sim.
+
+    Each sim gets one vertical bar stack: positive components rise above zero
+    (green-family colours), negative components descend below zero (red-family
+    colours).  Components whose total is zero in every sim are omitted.
+
+    Written to ``reward_component_breakdown.png``.  Complements the line chart
+    in ``reward_components.png`` by showing how the *mix* of contributions
+    changes across sims (push-pull view).
+    """
+    if not _HAS_MPL:
+        return
+    sims = data.greedy_sims
+    if not sims:
+        return
+    if not any(s.reward_components for s in sims):
+        return
+
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for s in sims:
+        if s.reward_components:
+            for k in s.reward_components:
+                if k not in seen:
+                    all_keys.append(k)
+                    seen.add(k)
+
+    xs = [s.sim for s in sims]
+    series: dict[str, list[float]] = {k: [] for k in all_keys}
+    for s in sims:
+        comps = s.reward_components or {}
+        for k in all_keys:
+            series[k].append(comps.get(k, 0.0))
+
+    active_keys = [k for k in all_keys if any(v != 0.0 for v in series[k])]
+    if not active_keys:
+        return
+
+    n_keys = len(active_keys)
+    cmap = cm.tab10(np.linspace(0, 1, min(n_keys, 10)))
+    colors = {k: cmap[i % len(cmap)] for i, k in enumerate(active_keys)}
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.2), 5))
+    pos_bottoms = np.zeros(len(sims))
+    neg_bottoms = np.zeros(len(sims))
+    labeled: set[str] = set()
+
+    for k in active_keys:
+        vals = np.array(series[k])
+        pos_vals = np.where(vals > 0, vals, 0.0)
+        neg_vals = np.where(vals < 0, vals, 0.0)
+        color = colors[k]
+        label = k if k not in labeled else None
+        if pos_vals.any():
+            ax.bar(xs, pos_vals, bottom=pos_bottoms, color=color,
+                   label=label, width=0.8, edgecolor="none", alpha=0.85)
+            labeled.add(k)
+            label = None
+            pos_bottoms = pos_bottoms + pos_vals
+        if neg_vals.any():
+            ax.bar(xs, neg_vals, bottom=neg_bottoms, color=color,
+                   label=label, width=0.8, edgecolor="none", alpha=0.85)
+            labeled.add(k)
+            neg_bottoms = neg_bottoms + neg_vals
+
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_title(f"{data.experiment_name} — Reward Component Breakdown per Sim")
+    ax.set_xlabel("Simulation")
+    ax.set_ylabel("Reward contribution (episode sum)")
+    ax.legend(fontsize=8, loc="best", ncol=max(1, n_keys // 5))
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "reward_component_breakdown.png"))
+
+
 # ---------------------------------------------------------------------------
 # Markdown tables
 # ---------------------------------------------------------------------------

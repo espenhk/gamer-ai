@@ -44,6 +44,7 @@ from framework.analytics import (
     plot_cold_start_rewards,
     plot_greedy_rewards,
     plot_reward_components,
+    plot_reward_component_breakdown,
     plot_reward_trajectory,
     _probe_table_md,
     _cold_start_table_md,
@@ -73,6 +74,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "move_self_penalty": "move_self_penalty",
     "attack_move_bonus": "attack_move_bonus",
     "click_attack_bonus": "click_attack_bonus",
+    "attack_bonus": "attack_bonus",
     "attack_friendly_penalty": "attack_friendly_penalty",
     "unit_loss": "unit_loss_penalty",
     "damage_taken": "damage_taken_penalty",
@@ -782,6 +784,93 @@ def plot_gs_spatial_heatmap(
     _save(fig, os.path.join(summary_dir, "comparison_spatial_heatmap.png"))
 
 
+def plot_gs_reward_component_breakdown(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-experiment diverging horizontal bar chart of mean reward components.
+
+    One row per experiment: positive components extend right of zero, negative
+    components extend left.  Contributions are the mean per-sim value for each
+    component across all greedy sims in that experiment.  Written to
+    ``comparison_reward_breakdown.png``.
+    """
+    if not _HAS_MPL:
+        return
+
+    # Collect mean component contributions per run.
+    rows: list[tuple[str, dict[str, float]]] = []
+    all_keys: list[str] = []
+    seen_keys: set[str] = set()
+
+    for name, data in runs:
+        sims = [s for s in data.greedy_sims if s.reward_components]
+        if not sims:
+            continue
+        means: dict[str, float] = {}
+        for s in sims:
+            for k, v in s.reward_components.items():
+                means[k] = means.get(k, 0.0) + float(v)
+                if k not in seen_keys:
+                    all_keys.append(k)
+                    seen_keys.add(k)
+        n = len(sims)
+        rows.append((name, {k: v / n for k, v in means.items()}))
+
+    if not rows or not all_keys:
+        return
+
+    # Drop components that are zero in every experiment.
+    active_keys = [
+        k for k in all_keys
+        if any(r[1].get(k, 0.0) != 0.0 for r in rows)
+    ]
+    if not active_keys:
+        return
+
+    n_keys = len(active_keys)
+    n_runs = len(rows)
+    cmap = cm.tab10(np.linspace(0, 1, min(n_keys, 10)))
+    colors = {k: cmap[i % len(cmap)] for i, k in enumerate(active_keys)}
+
+    # Sort experiments by total mean reward (descending).
+    rows.sort(key=lambda r: -sum(r[1].values()))
+    names = [r[0] for r in rows]
+    y = np.arange(n_runs)
+
+    fig, ax = plt.subplots(figsize=(12, max(4, n_runs * 0.5)))
+    pos_lefts = np.zeros(n_runs)
+    neg_lefts = np.zeros(n_runs)
+    labeled: set[str] = set()
+
+    for k in active_keys:
+        vals = np.array([r[1].get(k, 0.0) for r in rows])
+        pos_vals = np.where(vals > 0, vals, 0.0)
+        neg_vals = np.where(vals < 0, vals, 0.0)
+        color = colors[k]
+        label = k if k not in labeled else None
+        if pos_vals.any():
+            ax.barh(y, pos_vals, left=pos_lefts, color=color,
+                    label=label, height=0.7, edgecolor="none", alpha=0.85)
+            labeled.add(k)
+            label = None
+            pos_lefts = pos_lefts + pos_vals
+        if neg_vals.any():
+            ax.barh(y, neg_vals, left=neg_lefts, color=color,
+                    label=label, height=0.7, edgecolor="none", alpha=0.85)
+            labeled.add(k)
+            neg_lefts = neg_lefts + neg_vals
+
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=7)
+    ax.set_xlabel("Mean reward contribution per sim")
+    ax.set_title("SC2 Grid Search — Reward Component Breakdown per Experiment")
+    ax.legend(fontsize=8, loc="lower right", ncol=max(1, n_keys // 5))
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_reward_breakdown.png"))
+
+
 def _append_sc2_grid_summary_section(summary_dir: str) -> None:
     """Append SC2-specific chart links to framework-generated summary.md."""
     summary_path = os.path.join(summary_dir, "summary.md")
@@ -793,6 +882,7 @@ def _append_sc2_grid_summary_section(summary_dir: str) -> None:
         ("comparison_skipped_frames.png", "Skipped-frames comparison"),
         ("comparison_supply_capped.png", "Supply-capped comparison"),
         ("comparison_spatial_heatmap.png", "Aggregate spatial heatmap"),
+        ("comparison_reward_breakdown.png", "Reward component breakdown"),
     ]
     present = [(f, alt) for f, alt in items if os.path.exists(os.path.join(summary_dir, f))]
     if not present:
@@ -969,11 +1059,11 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         sections.append(_greedy_table_md(data))
         sections.append(_img("greedy_rewards.png", "Greedy rewards"))
 
-        # 2b — Reward-component breakdown.  Only adds a section if the env
-        # populated info["episode_reward_components"] AND at least one
-        # component is non-zero.
+        # 2b — Reward-component breakdown (line chart + diverging bar chart).
         plot_reward_components(data, results_dir)
         sections.append(_img("reward_components.png", "Reward components"))
+        plot_reward_component_breakdown(data, results_dir)
+        sections.append(_img("reward_component_breakdown.png", "Reward component breakdown"))
 
         # 2a — Action-frequency breakdown.
         plot_action_frequency(data, results_dir)
@@ -1040,6 +1130,7 @@ def save_grid_summary(
         plot_gs_skipped_frames(r, d)
         plot_gs_supply_capped(r, d)
         plot_gs_spatial_heatmap(r, d)
+        plot_gs_reward_component_breakdown(r, d)
 
     _framework_save_grid_summary(
         normalised_runs, varied_keys, summary_dir, base_name,

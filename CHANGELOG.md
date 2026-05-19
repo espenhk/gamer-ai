@@ -17,6 +17,26 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward
+  config key `attack_bonus` (default `0.0`) awards a flat bonus whenever the
+  agent issues `Attack_screen` (fn_idx 3), regardless of whether the target
+  is a visible enemy unit (click-to-attack) or open ground (A-move).  Acts as
+  a simpler alternative to enabling both `attack_move_bonus` and
+  `click_attack_bonus` separately; all three can be active simultaneously.
+  The contribution is tracked as a separate `"attack_bonus"` entry in
+  `reward_components` and is normalised in cross-experiment grid-search
+  summaries alongside the existing attack bonus components.
+- **Analytics: reward component breakdown charts** (issue #252).
+  - `framework.analytics.plot_reward_component_breakdown` — diverging stacked
+    bar chart (one bar per greedy sim, positive components above zero, negative
+    below) written to `reward_component_breakdown.png` alongside the existing
+    per-component line chart.
+  - `games.sc2.analytics.plot_gs_reward_component_breakdown` — cross-experiment
+    diverging horizontal bar chart (one row per experiment, showing mean per-sim
+    component contributions) written to `comparison_reward_breakdown.png` in the
+    grid-search summary directory and linked from `summary.md`.
+
 ### Fixed
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so

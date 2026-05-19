@@ -18,13 +18,28 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Fixed
-- `grid_search.py --distribute --local-workers N` no longer races on the
-  SC2 `.SC2Map` files when several workers boot simultaneously (issue
-  #254). Consecutive local workers are now launched with a cascading
-  delay: the first starts immediately, the second waits 5 s, the third
-  waits another 5 s, and so on. Tunable via the new
-  `--local-worker-stagger` CLI flag or `distribute.local_worker_stagger`
-  config key (default `5.0`; set to `0` to disable).
+- SC2 `.SC2Map` file race when multiple PySC2 binaries boot on the same
+  host (issue #254). `games.sc2.client.SC2Client._make_sc2_env` now
+  routes every `SC2Env` construction through a cross-process
+  *map-access gate* (`games.sc2.map_access_gate.acquire_map_access_slot`)
+  that enforces a minimum 5 s gap between consecutive grants. This
+  covers not only the initial worker launches but every subsequent
+  SC2 reboot — distributed local workers picking up successive
+  experiments, intra-run parallel-eval workers (`n_workers > 1`), and
+  any future SC2 multi-instance scenarios. The gate uses an
+  `fcntl.flock`-serialised timestamp file under the system temp dir
+  and is tunable via two env vars:
+  - `GAMER_AI_SC2_MAP_GAP_S` — gap in seconds (default `5.0`; set to
+    `0` to disable, e.g. for single-process runs).
+  - `GAMER_AI_SC2_MAP_LOCK_PATH` — custom timestamp-file path (mainly
+    useful for tests).
+
+  As a complementary defence-in-depth, `grid_search.py --distribute
+  --local-workers N` also launches the local worker subprocesses with a
+  cascading 5 s delay (first immediate, second waits 5 s, third waits
+  another 5 s, …). Tunable via the new `--local-worker-stagger` CLI
+  flag or `distribute.local_worker_stagger` config key (default `5.0`;
+  set to `0` to disable).
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so
   spamming `Move_screen` to many locations without moving units yields no

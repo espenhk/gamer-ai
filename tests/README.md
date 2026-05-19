@@ -204,6 +204,12 @@ worker mechanics are unit-tested with a dummy env.
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
 
+### test_sc2_map_access_gate.py — Cross-process SC2 map-access serialiser (issue #254)
+- single-process: first call returns 0 wait / second call within gap waits remainder / second call after gap waits 0 / `gap_s=0` short-circuits with no I/O / negative `gap_s` treated as disabled / corrupt or empty timestamp file treated as "no prior access"
+- env-var configuration: `GAMER_AI_SC2_MAP_LOCK_PATH` overrides lock path / `GAMER_AI_SC2_MAP_GAP_S` overrides gap / invalid value falls back to default with warning / negative value falls back to default / `0` disables the gate
+- multi-process: three concurrent fork()-spawned workers are serialised so each consecutive grant is ≥ `gap_s` apart (POSIX-only)
+- real-clock integration: a single end-to-end call against the real `time.sleep` / `time.time` confirms the test-seam wiring matches actual behaviour
+
 ### test_grid_search.py — Cartesian-product expansion + naming
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
 - flat dict: contains varied / no-flat-key when not varied

@@ -346,6 +346,20 @@ attempting to read the same `.SC2Map` file simultaneously, which can fail
 with a "map not found" error. Tune via `--local-worker-stagger S` or
 `distribute.local_worker_stagger` (set to `0` to disable).
 
+In addition, every SC2 binary boot — across all workers, parallel-eval
+processes, and successive experiments within a worker — is gated by
+`games.sc2.map_access_gate.acquire_map_access_slot`, which holds an
+`fcntl.flock` on a shared timestamp file under the system temp dir and
+ensures a minimum 5 s gap between consecutive map reads. The launch
+stagger covers the *initial* burst; the gate covers every reboot
+thereafter for the lifetime of the grid-search run. Tune the gate via
+two env vars:
+
+- `GAMER_AI_SC2_MAP_GAP_S` — minimum seconds between SC2 map reads
+  (default `5.0`; set to `0` to disable, e.g. for single-process runs).
+- `GAMER_AI_SC2_MAP_LOCK_PATH` — custom timestamp-file path (mainly
+  for tests).
+
 ---
 
 ## Azure worker VMs

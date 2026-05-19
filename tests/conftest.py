@@ -14,3 +14,9 @@ _tests_dir = os.path.dirname(__file__)
 for _p in (_tmnf_dir, _tests_dir):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+# Disable the SC2 map-access gate by default in tests so unit tests that
+# touch SC2Client._make_sc2_env don't sleep 5s of real wall-clock time
+# (issue #254). Tests that exercise the gate itself override this via
+# monkeypatch or pass gap_s explicitly.
+os.environ.setdefault("GAMER_AI_SC2_MAP_GAP_S", "0")

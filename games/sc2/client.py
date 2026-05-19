@@ -377,6 +377,12 @@ class SC2Client:
         if not _absl_flags.FLAGS.is_parsed():
             _absl_flags.FLAGS([''])
 
+        # Issue #254: serialise map-file reads across all SC2 binaries
+        # running on this host (distributed local workers, parallel-eval
+        # workers, etc.) so they don't race on the same .SC2Map file.
+        from games.sc2.map_access_gate import acquire_map_access_slot
+        acquire_map_access_slot()
+
         if self._play_mode:
             # Human (via SC2 UI) vs AI agent.  PySC2 only takes step actions
             # for Agent slots; Human actions come from the game client directly.

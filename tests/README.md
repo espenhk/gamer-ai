@@ -3,7 +3,6 @@
 - [Coverage at a glance](#coverage-at-a-glance)
 - [Framework / shared](#framework--shared)
   - [test\_cmaes\_distribution.py — `CMAESDistribution` pure-math unit tests](#test_cmaes_distributionpy--cmaesdistribution-pure-math-unit-tests)
-  - [test\_framework\_algorithm\_equivalence.py — framework ↔ TMNF byte-identical verification](#test_framework_algorithm_equivalencepy--framework--tmnf-byte-identical-verification)
   - [test\_analytics\_no\_matplotlib.py — analytics importable when matplotlib missing](#test_analytics_no_matplotlibpy--analytics-importable-when-matplotlib-missing)
   - [test\_analytics\_task\_metrics.py — `TaskMetrics` dataclass + summary table formatting](#test_analytics_task_metricspy--taskmetrics-dataclass--summary-table-formatting)
   - [test\_belief.py — fog-of-war belief encoder](#test_beliefpy--fog-of-war-belief-encoder)
@@ -140,11 +139,6 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - Convergence: mean converges toward quadratic minimum after 30 generations
 - Save/load: preserves mean / σ / covariance / generation / dim mismatch raises / evolution continues correctly from loaded state
 
-### test_framework_algorithm_equivalence.py — framework ↔ TMNF byte-identical verification
-- DQNPolicy: Q-values identical on zero/random obs when weights shared / action shape / greedy action matches / same seed → same initial weights
-- REINFORCEPolicy: softmax probs identical on zero/random obs when weights shared / probs sum to 1 / same seed → same initial weights
-- LSTMCore: hidden state identical after one step / action identical after one step / hidden state identical after 10-step sequence / episode reset in sync / flat roundtrip preserves output to float32 precision / same seed → same initial weights
-
 ### test_analytics_no_matplotlib.py — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
 - TMNF analytics import works without matplotlib
@@ -207,7 +201,7 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 
 ### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG adapter abstractions
 - registry: all games registered; adapter instantiable
-- TMNF: experiment_dir includes track / track override / track_label default+override / build_probe / build_warmup / build_extras / decorate_reward_cfg
+- TMNF: experiment_dir includes track / track override / track_label default+override / build_probe / build_warmup / build_extras returns None (all TMNF policies now in POLICY_REGISTRY) / decorate_reward_cfg
 - TORCS: experiment_dir root / dir / track_label default+override / build_probe/warmup/extras = None
 - SC2: experiment_dir includes map_name / track override / track_label / build_probe/warmup = None
 - SC2 policy validation: hill_climbing/genetic/neural_net rejected with ValueError; error contains migration hint (sc2_genetic); unknown policy_params keys rejected per type (sc2_genetic, cmaes, sc2_cmaes, sc2_lstm, sc2_reinforce); valid params accepted without error; empty policy_params never raises

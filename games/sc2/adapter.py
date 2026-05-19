@@ -222,7 +222,7 @@ class SC2Adapter:
         policy_params = training_params.get("policy_params") or {}
         _validate_sc2_policy_config(policy_type, policy_params)
 
-        from games.sc2.sc2_policies import SC2GeneticPolicy
+        import games.sc2.sc2_policies  # noqa: F401 — registers sc2_genetic, sc2_reinforce, sc2_cmaes, sc2_lstm
 
         map_name = training_params.get("map_name", "MoveToBeacon")
         obs_spec_preset = training_params.get("obs_spec_preset")
@@ -231,24 +231,6 @@ class SC2Adapter:
         trainer_state_file = os.path.join(
             os.path.dirname(weights_file), "trainer_state.npz",
         )
-
-        def _make_sc2_genetic() -> SC2GeneticPolicy:
-            pop_size = policy_params.get("population_size", 30)
-            elite_k = policy_params.get("elite_k", 5)
-            policy = SC2GeneticPolicy(
-                obs_spec=obs_spec,
-                population_size=pop_size,
-                elite_k=elite_k,
-                mutation_scale=policy_params.get("mutation_scale", 0.1),
-                mutation_share=policy_params.get("mutation_share", 0.3),
-                eval_episodes=policy_params.get("eval_episodes", 2),
-            )
-            if os.path.exists(weights_file) and not re_initialize:
-                policy.initialize_from_file(weights_file)
-            else:
-                policy.initialize_random()
-                logger.info("[SC2GeneticPolicy] random population of %d", pop_size)
-            return policy
 
         def _make_neural_dqn():
             from games.sc2.policies import NeuralDQNPolicy as SC2NeuralDQNPolicy
@@ -385,33 +367,6 @@ class SC2Adapter:
                 baseline=policy_params.get("baseline", "running_mean"),
             )
 
-        def _make_sc2_reinforce():
-            from games.sc2.sc2_policies import SC2REINFORCEPolicy
-            if os.path.exists(weights_file) and not re_initialize:
-                with open(weights_file) as _f:
-                    _cfg = yaml.safe_load(_f) or {}
-                if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_reinforce":
-                    policy = SC2REINFORCEPolicy.from_cfg(_cfg, obs_spec)
-                    if os.path.exists(trainer_state_file):
-                        try:
-                            policy.load_trainer_state(trainer_state_file)
-                            logger.info("[SC2REINFORCEPolicy] loaded trainer state from %s",
-                                        trainer_state_file)
-                        except (ValueError, KeyError) as exc:
-                            logger.warning(
-                                "[SC2REINFORCEPolicy] could not load trainer state — %s; "
-                                "continuing with default state.", exc,
-                            )
-                    return policy
-            return SC2REINFORCEPolicy(
-                obs_spec=obs_spec,
-                hidden_sizes=policy_params.get("hidden_sizes", [128, 64]),
-                learning_rate=policy_params.get("learning_rate", 0.0003),
-                gamma=policy_params.get("gamma", 0.995),
-                entropy_coeff=policy_params.get("entropy_coeff", 0.05),
-                baseline=policy_params.get("baseline", "running_mean"),
-            )
-
         def _make_lstm():
             from games.sc2.policies import (
                 LSTMPolicy as SC2LSTMPolicy,
@@ -485,104 +440,23 @@ class SC2Adapter:
                     )
             return policy
 
-        def _make_sc2_cmaes():
-            from games.sc2.sc2_policies import (
-                SC2CMAESPolicy,
-                SC2MultiHeadLinearPolicy,
-            )
-            pop_size = policy_params.get("population_size", 30)
-            sigma    = policy_params.get("initial_sigma", 0.5)
-            policy   = SC2CMAESPolicy(
-                obs_spec        = obs_spec,
-                population_size = pop_size,
-                initial_sigma   = sigma,
-                eval_episodes   = policy_params.get("eval_episodes", 2),
-            )
-            if os.path.exists(weights_file) and not re_initialize:
-                with open(weights_file) as _f:
-                    _cfg = yaml.safe_load(_f) or {}
-                if isinstance(_cfg, dict):
-                    champion = SC2MultiHeadLinearPolicy.from_cfg(_cfg, obs_spec)
-                    policy.initialize_from_champion(champion)
-                    if os.path.exists(trainer_state_file):
-                        try:
-                            policy.load_trainer_state(trainer_state_file)
-                            logger.info("[SC2CMAESPolicy] loaded trainer state from %s",
-                                        trainer_state_file)
-                        except (ValueError, KeyError) as exc:
-                            logger.warning(
-                                "[SC2CMAESPolicy] could not load trainer state — %s; "
-                                "continuing with champion weights.", exc,
-                            )
-            else:
-                policy.initialize_random()
-            return policy
-
-        def _make_sc2_lstm():
-            from games.sc2.sc2_policies import (
-                SC2LSTMPolicy,
-                SC2LSTMEvolutionPolicy,
-            )
-            hidden_size      = policy_params.get("hidden_size", 64)
-            pop_size         = policy_params.get("population_size", 20)
-            sigma            = policy_params.get("initial_sigma", 0.03)
-            reset_on_episode = bool(policy_params.get("reset_on_episode", True))
-            policy           = SC2LSTMEvolutionPolicy(
-                obs_spec         = obs_spec,
-                hidden_size      = hidden_size,
-                population_size  = pop_size,
-                initial_sigma    = sigma,
-                reset_on_episode = reset_on_episode,
-            )
-            if os.path.exists(weights_file) and not re_initialize:
-                with open(weights_file) as _f:
-                    _cfg = yaml.safe_load(_f) or {}
-                if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_lstm":
-                    try:
-                        champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec)
-                        policy.initialize_from_champion(champion)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[SC2LSTMEvolutionPolicy] incompatible saved champion — %s; "
-                            "starting from random.", exc,
-                        )
-                if os.path.exists(trainer_state_file):
-                    try:
-                        policy.load_trainer_state(trainer_state_file)
-                        logger.info("[SC2LSTMEvolutionPolicy] loaded trainer state from %s",
-                                    trainer_state_file)
-                    except (ValueError, KeyError) as exc:
-                        logger.warning(
-                            "[SC2LSTMEvolutionPolicy] could not load trainer state — %s; "
-                            "continuing.", exc,
-                        )
-            return policy
-
         return PolicyExtras(
             factories={
-                "sc2_genetic":   _make_sc2_genetic,
-                "neural_dqn":    _make_neural_dqn,
+                "neural_dqn":     _make_neural_dqn,
                 "sc2_neural_dqn": _make_sc2_neural_dqn,
                 "sc2_neural_net": _make_sc2_neural_net,
-                "cmaes":         _make_cmaes,
-                "reinforce":     _make_reinforce,
-                "sc2_reinforce": _make_sc2_reinforce,
-                "lstm":          _make_lstm,
-                "sc2_cnn":       _make_sc2_cnn,
-                "sc2_cmaes":     _make_sc2_cmaes,
-                "sc2_lstm":      _make_sc2_lstm,
+                "cmaes":          _make_cmaes,
+                "reinforce":      _make_reinforce,
+                "lstm":           _make_lstm,
+                "sc2_cnn":        _make_sc2_cnn,
             },
             loop_dispatch={
-                "sc2_genetic":   "genetic",
-                "neural_dqn":    "q_learning",
+                "neural_dqn":     "q_learning",
                 "sc2_neural_dqn": "q_learning",
-                "cmaes":         "cmaes",
-                "reinforce":     "q_learning",
-                "sc2_reinforce": "q_learning",
-                "lstm":          "cmaes",
-                "sc2_cnn":       "cmaes",
-                "sc2_cmaes":     "cmaes",
-                "sc2_lstm":      "cmaes",
+                "cmaes":          "cmaes",
+                "reinforce":      "q_learning",
+                "lstm":           "cmaes",
+                "sc2_cnn":        "cmaes",
             },
         )
 

@@ -279,6 +279,7 @@ class TestLocalDistributedWorkers:
             local_workers=2,
             no_interrupt=True,
             re_initialize=True,
+            start_stagger_s=0,
         )
 
         assert len(procs) == 2
@@ -291,6 +292,71 @@ class TestLocalDistributedWorkers:
             assert "--no-interrupt" in cmd
             assert "--re-initialize" in cmd
             assert f"local-{i}" in cmd
+
+    def test_launch_local_workers_cascading_stagger_between_spawns(
+        self, monkeypatch
+    ):
+        """Issue #254: each worker after the first waits ``start_stagger_s``
+        seconds before launching, so SC2 binaries don't race on the same
+        ``.SC2Map`` file at boot."""
+        spawn_order: list[str] = []
+
+        class _DummyProc:
+            def __init__(self, cmd):
+                self.cmd = cmd
+
+        def _fake_popen(cmd):
+            spawn_order.append(("popen", cmd[cmd.index("--worker-id") + 1]))
+            return _DummyProc(cmd)
+
+        sleep_calls: list[float] = []
+
+        def _fake_sleep(s):
+            spawn_order.append(("sleep", s))
+            sleep_calls.append(s)
+
+        monkeypatch.setattr("grid_search.subprocess.Popen", _fake_popen)
+        monkeypatch.setattr("grid_search.sleep", _fake_sleep)
+
+        procs = _launch_local_workers(
+            coordinator_port=5555,
+            token="tok",
+            game_name="sc2",
+            local_workers=3,
+            no_interrupt=False,
+            re_initialize=False,
+            start_stagger_s=5.0,
+        )
+
+        assert len(procs) == 3
+        # 3 spawns + 2 sleeps (no sleep after the last spawn)
+        assert sleep_calls == [5.0, 5.0]
+        assert spawn_order == [
+            ("popen", "local-1"),
+            ("sleep", 5.0),
+            ("popen", "local-2"),
+            ("sleep", 5.0),
+            ("popen", "local-3"),
+        ]
+
+    def test_launch_local_workers_no_sleep_when_stagger_zero(self, monkeypatch):
+        monkeypatch.setattr(
+            "grid_search.subprocess.Popen", lambda cmd: type("P", (), {"cmd": cmd})()
+        )
+
+        sleep_calls: list[float] = []
+        monkeypatch.setattr("grid_search.sleep", lambda s: sleep_calls.append(s))
+
+        _launch_local_workers(
+            coordinator_port=5555,
+            token="tok",
+            game_name="sc2",
+            local_workers=3,
+            no_interrupt=False,
+            re_initialize=False,
+            start_stagger_s=0.0,
+        )
+        assert sleep_calls == []
 
     def test_launch_local_workers_cleans_up_started_procs_on_launch_error(
         self, monkeypatch
@@ -334,6 +400,7 @@ class TestLocalDistributedWorkers:
                 local_workers=2,
                 no_interrupt=False,
                 re_initialize=False,
+                start_stagger_s=0,
             )
         assert len(started) == 1
         assert started[0].terminated is True

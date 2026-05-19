@@ -208,7 +208,7 @@ worker mechanics are unit-tested with a dummy env.
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
 - flat dict: contains varied / no-flat-key when not varied
 - naming: no varied / single varied / negative-float `n` prefix / multiple varied / unknown key passthrough
-- local distributed helpers: launching expected `distributed.worker` subprocess commands / launch-failure cleanup for already-started workers / best-effort worker shutdown (graceful terminate + timeout kill) / non-negative integer parsing used for `--local-workers` and `distribute.local_workers`
+- local distributed helpers: launching expected `distributed.worker` subprocess commands / cascading start-stagger between consecutive worker spawns (issue #254; first immediate, subsequent wait `start_stagger_s` each) / no stagger sleep when `start_stagger_s=0` / launch-failure cleanup for already-started workers / best-effort worker shutdown (graceful terminate + timeout kill) / non-negative integer parsing used for `--local-workers` and `distribute.local_workers`
 - abbreviation coverage: every default game `training_params.yaml` + `reward_config.yaml` key has a short folder-name abbreviation; all promoted top-level policy params do too
 - nested policy_params: passthrough / top-level promoted / top-level overrides nested / all keys mapped / correct names
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names

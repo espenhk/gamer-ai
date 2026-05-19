@@ -18,6 +18,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Fixed
+- `grid_search.py --distribute --local-workers N` no longer races on the
+  SC2 `.SC2Map` files when several workers boot simultaneously (issue
+  #254). Consecutive local workers are now launched with a cascading
+  delay: the first starts immediately, the second waits 5 s, the third
+  waits another 5 s, and so on. Tunable via the new
+  `--local-worker-stagger` CLI flag or `distribute.local_worker_stagger`
+  config key (default `5.0`; set to `0` to disable).
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so
   spamming `Move_screen` to many locations without moving units yields no

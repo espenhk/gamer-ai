@@ -285,6 +285,7 @@ Useful flags:
 | `--re-initialize` | off | Ignore existing weights files |
 | `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
 | `--local-workers N` *(coordinator flag)* | `0` | Auto-launch `N` local worker subprocesses in distributed mode |
+| `--local-worker-stagger S` *(coordinator flag)* | `5.0` | Seconds between consecutive local-worker launches (cascading delay); also `distribute.local_worker_stagger` in the config. Set to `0` to disable. Prevents PySC2 binaries from racing on the same `.SC2Map` file (issue #254). |
 
 The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
 
@@ -337,6 +338,13 @@ This launches three `distributed.worker` subprocesses (`local-1..N`) against
 `http://127.0.0.1:<port>`. Each worker runs one experiment at a time and PySC2
 spawns a separate SC2 process per worker, so combinations are processed in
 parallel on the same host.
+
+Workers are launched with a 5-second cascading stagger by default (issue
+#254): the first starts immediately, the second waits 5 s, the third waits
+another 5 s, and so on. This prevents the PySC2 binaries from all
+attempting to read the same `.SC2Map` file simultaneously, which can fail
+with a "map not found" error. Tune via `--local-worker-stagger S` or
+`distribute.local_worker_stagger` (set to `0` to disable).
 
 ---
 

@@ -442,6 +442,7 @@ def _run_distributed(
     heartbeat_timeout: float,
     game_name: str,
     local_workers: int = 0,
+    local_worker_start_stagger_s: float = 5.0,
     no_interrupt: bool = False,
     re_initialize: bool = False,
 ) -> list[tuple[str, Any]]:
@@ -478,6 +479,7 @@ def _run_distributed(
             local_workers=local_workers,
             no_interrupt=no_interrupt,
             re_initialize=re_initialize,
+            start_stagger_s=local_worker_start_stagger_s,
         )
         logger.info(
             "Coordinator ready on port %d — start workers with:\n"
@@ -523,18 +525,30 @@ def _launch_local_workers(
     local_workers: int,
     no_interrupt: bool,
     re_initialize: bool,
+    start_stagger_s: float = 5.0,
 ) -> list[subprocess.Popen]:
-    """Start local worker subprocesses for distributed mode."""
+    """Start local worker subprocesses for distributed mode.
+
+    ``start_stagger_s`` introduces a cascading delay between consecutive
+    worker launches (issue #254): the first worker starts immediately,
+    the second waits ``start_stagger_s`` seconds, the third waits another
+    ``start_stagger_s`` seconds, and so on.  This prevents the SC2 binaries
+    spawned by each worker from racing to read the same ``.SC2Map`` file
+    on disk at the same instant, which can fail with a "map not found"
+    error when several PySC2 instances boot simultaneously.  Set to ``0``
+    to disable.
+    """
     if local_workers <= 0:
         return []
 
     coordinator_url = f"http://127.0.0.1:{coordinator_port}"
     procs: list[subprocess.Popen] = []
     logger.info(
-        "Launching %d local worker process(es) for game=%s at %s",
+        "Launching %d local worker process(es) for game=%s at %s (stagger=%.1fs)",
         local_workers,
         game_name,
         coordinator_url,
+        start_stagger_s,
     )
     try:
         for i in range(local_workers):
@@ -556,6 +570,8 @@ def _launch_local_workers(
             if re_initialize:
                 cmd.append("--re-initialize")
             procs.append(subprocess.Popen(cmd))
+            if i < local_workers - 1 and start_stagger_s > 0:
+                sleep(start_stagger_s)
     except Exception:
         _stop_local_workers(procs)
         raise
@@ -720,6 +736,16 @@ def main() -> None:
         "Useful for running multiple SC2 instances on one machine.",
     )
     parser.add_argument(
+        "--local-worker-stagger",
+        type=float,
+        default=None,
+        metavar="S",
+        help="Seconds to wait between launching consecutive local workers "
+        "(default: 5.0, or value from config distribute.local_worker_stagger). "
+        "Prevents parallel SC2 binaries from racing on the same .SC2Map file "
+        "(issue #254). Set to 0 to disable.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -802,6 +828,19 @@ def main() -> None:
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
             "heartbeat_timeout", 60.0
         )
+        if args.local_worker_stagger is not None:
+            local_worker_stagger = args.local_worker_stagger
+        else:
+            raw_stagger = distribute_cfg.get("local_worker_stagger", 5.0)
+            try:
+                local_worker_stagger = float(raw_stagger)
+            except (TypeError, ValueError):
+                parser.error(
+                    f"distribute.local_worker_stagger must be a non-negative "
+                    f"number, got {raw_stagger!r}"
+                )
+        if local_worker_stagger < 0:
+            parser.error("--local-worker-stagger must be >= 0")
         token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())
         if not (args.token or os.environ.get("TMNF_GRID_TOKEN")):
             token_preview = f"{token[:8]}..." if len(token) > 8 else "[redacted]"
@@ -819,6 +858,7 @@ def main() -> None:
             heartbeat_timeout=hb_timeout,
             game_name=game_name,
             local_workers=local_workers,
+            local_worker_start_stagger_s=local_worker_stagger,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
         )

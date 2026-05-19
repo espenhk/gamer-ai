@@ -205,11 +205,17 @@ worker mechanics are unit-tested with a dummy env.
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
 
+### test_sc2_map_access_gate.py — Cross-process SC2 map-access serialiser (issue #254)
+- single-process: first call returns 0 wait / second call within gap waits remainder / second call after gap waits 0 / `gap_s=0` short-circuits with no I/O / negative `gap_s` treated as disabled / corrupt or empty timestamp file treated as "no prior access" / future timestamp clamped to now (clock-skew robustness)
+- env-var configuration: `GAMER_AI_SC2_MAP_LOCK_PATH` overrides lock path / `GAMER_AI_SC2_MAP_GAP_S` overrides gap / invalid value falls back to default with warning / negative value falls back to default / `0` disables the gate
+- multi-process: three concurrent fork()-spawned workers are serialised so each consecutive grant is ≥ `gap_s` apart (POSIX-only)
+- real-clock integration: a single end-to-end call against the real `time.sleep` / `time.time` confirms the test-seam wiring matches actual behaviour
+
 ### test_grid_search.py — Cartesian-product expansion + naming
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
 - flat dict: contains varied / no-flat-key when not varied
 - naming: no varied / single varied / negative-float `n` prefix / multiple varied / unknown key passthrough
-- local distributed helpers: launching expected `distributed.worker` subprocess commands / launch-failure cleanup for already-started workers / best-effort worker shutdown (graceful terminate + timeout kill) / non-negative integer parsing used for `--local-workers` and `distribute.local_workers`
+- local distributed helpers: launching expected `distributed.worker` subprocess commands / cascading start-stagger between consecutive worker spawns (issue #254; first immediate, subsequent wait `start_stagger_s` each) / no stagger sleep when `start_stagger_s=0` / launch-failure cleanup for already-started workers / best-effort worker shutdown (graceful terminate + timeout kill) / non-negative integer parsing used for `--local-workers` and `distribute.local_workers`
 - abbreviation coverage: every default game `training_params.yaml` + `reward_config.yaml` key has a short folder-name abbreviation; all promoted top-level policy params do too
 - nested policy_params: passthrough / top-level promoted / top-level overrides nested / all keys mapped / correct names
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names

@@ -18,7 +18,7 @@ Architecture (per the issue spec)::
       (6,)       (9,)
 
 Weights are evolved by the same isotropic ES used by
-:class:`games.sc2.policies.LSTMEvolutionPolicy` (sample_population /
+:class:`games.sc2.sc2_policies.SC2LSTMEvolutionPolicy` (sample_population /
 update_distribution interface, 1/5 success-rule sigma adaptation).
 No backprop — purely evolutionary.
 
@@ -305,7 +305,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
     Uses the ``_greedy_loop_cmaes`` interface:
     ``sample_population()`` / ``update_distribution()``.
     Step size is adapted via the 1/5 success rule (same as
-    :class:`games.sc2.policies.LSTMEvolutionPolicy`).
+    :class:`games.sc2.sc2_policies.SC2LSTMEvolutionPolicy`).
 
     Parameters
     ----------

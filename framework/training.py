@@ -48,6 +48,7 @@ from framework.version import code_version
 logger = logging.getLogger(__name__)
 
 _TRACE_SAMPLE_EVERY = 2   # record position every N steps
+_SC2_REMOVED_BARE_POLICY_TYPES = frozenset({"cmaes", "reinforce", "lstm", "neural_dqn"})
 
 
 def _trainer_state_path(weights_file: str) -> str:
@@ -110,6 +111,11 @@ def _make_policy(
     game_name: str = "",
 ) -> BasePolicy:
     """Construct a policy via POLICY_REGISTRY, after a game-compatibility check."""
+    if game_name == "sc2" and policy_type in _SC2_REMOVED_BARE_POLICY_TYPES:
+        raise ValueError(
+            f"Unknown policy_type: {policy_type!r}. "
+            f"Registered: {sorted(POLICY_REGISTRY)}"
+        )
     cls = _resolve_policy_class(policy_type)
     _assert_policy_compatible(cls, policy_type, game_name)
     return cls.make(

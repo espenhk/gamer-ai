@@ -25,6 +25,7 @@
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
   - [test\_policy\_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery](#test_policy_registrypy--policy_registry--basepolicy-registry-machinery)
+  - [test\_sc2\_legacy\_names\_rejected.py — SC2 bare legacy policy names rejected](#test_sc2_legacy_names_rejectedpy--sc2-bare-legacy-policy-names-rejected)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
@@ -280,6 +281,10 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - SC2-native registry policies (`sc2_genetic`/`sc2_neural_net`/`sc2_neural_dqn`/`sc2_cnn`) require `game_name=="sc2"` and reject non-SC2 game names with an explicit hint
 - every registered policy with a non-empty `VALID_POLICY_PARAMS` rejects a bogus key
 - SC2 policies (after importing every game's policy module): the three Phase-D-migrated types (`sc2_cnn`, `sc2_neural_net`, `sc2_neural_dqn`) are registered with the expected `LOOP_TYPE`; per-type `VALID_POLICY_PARAMS` rejects unknown keys (sc2_genetic/sc2_neural_net/sc2_cmaes/sc2_lstm/sc2_reinforce/sc2_neural_dqn/cmaes) and accepts valid + empty params — replaces the SC2 `build_extras` validation cases removed from test_game_adapter.py
+
+### test_sc2_legacy_names_rejected.py — SC2 bare legacy policy names rejected
+- `_make_policy(..., game_name=\"sc2\")` rejects SC2 bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with the generic unknown-policy error
+- Error message includes registered `sc2_*` alternatives (including each expected replacement)
 
 ## TMNF policies
 
@@ -573,10 +578,9 @@ handful of iterations only).
 
 ### test_sc2_neural_dqn_policy.py — masked DQN for SC2
 - fn_idx_for_cell: centre=select_army / others=move_screen / consistent / int
-- Available mask: None=all true / empty=all false / select_army only / move_screen only / both / dtype bool
-- Masked replay buffer: push+len / default mask all true / 6-tuple sample / mask shape / preserves mask / circular eviction
-- Policy: illegal never picked greedy / picks best / random respects mask / all-masked fallback / mask cached from update info / from None info / on_episode_start resets / buffer is masked / mask stored / all-true when no info / fills on update / gradient step runs / illegal Q not bootstrapped
-- Cfg: policy_type / from_cfg roundtrip / trainer-state roundtrip / masks preserved / backward-compat no masks / shape mismatch raises
+- Available mask: all fn_ids / empty / select_army only / move_screen only / both / dtype bool
+- Policy: illegal never picked greedy / random respects mask / all-true mask allows all fn_idx values / mask cached from update info / missing info resets to all-true / on_episode_start primes from reset info
+- Cfg + trainer state: policy_type / from_cfg roundtrip / trainer-state roundtrip / shape mismatch raises
 - available_fn_ids: None when missing / key always present
 
 ### test_sc2_cnn_policy.py — CNN feature extractor + CMA-ES variant
@@ -600,7 +604,7 @@ handful of iterations only).
 - _run_episode: policy called each step; step count matches env steps; on_episode_start(info=<dict>) — info kwarg present with available_fn_ids; update(prev_obs, action, reward, next_obs, done, info=info) — shapes, available_fn_ids, done=True on last step; outcome from terminal info; substitution counted when executed≠requested; no substitution when match; cumulative reward summed
 
 ### test_sc2_play.py — `play_sc2.py` script
-- Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / neural_dqn / reinforce / lstm; cmaes no policy_type → SC2Linear; unknown → SC2Linear
+- Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / sc2_neural_dqn / sc2_reinforce / sc2_lstm; legacy bare-name reinforce/lstm weight formats fail fast; cmaes no policy_type → SC2Linear; unknown → SC2Linear
 - Outcome handling: win / loss / draw / none
 - Episode loop: calls policy each step / client until done / on_episode_start(info=<dict>)+end / works without lifecycle hooks
 - Play-mode flag: stored / default false; `make_sc2_env` lazy on reset
@@ -611,9 +615,9 @@ handful of iterations only).
 - Outcomes: win+bonus / loss+penalty; economy reward flows through
 - Action: fn_idx valid / xy continuous / queue binary / shape
 - Pop usage: sc2_genetic uses SC2Linear / cmaes offspring use SC2Linear; SC2Linear and sc2_genetic action shape
-- Per-policy on Simple64: epsilon_greedy / mcts / neural_dqn shape+update / cmaes sample+update / reinforce shape+episode / lstm shape / lstm-evolution sample+update
-- Training loops (mocked env): sc2_genetic / cmaes / neural_dqn / reinforce / lstm
-- Trainer state roundtrips: cmaes / neural_dqn
+- Per-policy on Simple64: epsilon_greedy / mcts / sc2_neural_dqn shape+update / sc2_cmaes sample+update / sc2_reinforce shape+episode / sc2_lstm shape / sc2_lstm-evolution sample+update
+- Training loops (mocked env): sc2_genetic / sc2_cmaes / sc2_neural_dqn / sc2_reinforce / sc2_lstm
+- Trainer state roundtrips: sc2_cmaes / sc2_neural_dqn
 
 ### test_sc2_analytics.py — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags

@@ -35,9 +35,10 @@ import numpy as np
 import yaml
 
 from framework.cmaes import CMAESPolicy as _FrameworkCMAES
+from framework.dqn import DQNPolicy as _FrameworkDQN
 from framework.obs_spec import ObsSpec
 from framework.policies import BasePolicy, GeneticPolicy, register_policy, trainer_state_path
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS, build_available_actions_mask
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
 logger = logging.getLogger(__name__)
@@ -607,6 +608,143 @@ class SC2NeuralNetPolicy(BasePolicy):
         return cls(
             obs_spec=obs_spec,
             hidden_sizes=policy_params.get("hidden_sizes", [16, 16]),
+        )
+
+
+# ---------------------------------------------------------------------------
+# SC2NeuralDQNPolicy — masked DQN over SC2 discrete action rows
+# ---------------------------------------------------------------------------
+
+def _sc2_available_actions_mask(info: dict) -> np.ndarray:
+    available = info.get("available_fn_ids")
+    if available is None:
+        return np.ones(len(DISCRETE_ACTIONS), dtype=bool)
+    return build_available_actions_mask(set(available), len(DISCRETE_ACTIONS))
+
+
+def _sc2_available_actions_mask_for_n_actions(n_actions: int):
+    def _mask_fn(info: dict) -> np.ndarray:
+        available = info.get("available_fn_ids")
+        if available is None:
+            return np.ones(n_actions, dtype=bool)
+        return build_available_actions_mask(set(available), n_actions)
+
+    return _mask_fn
+
+
+@register_policy
+class SC2NeuralDQNPolicy(_FrameworkDQN):
+    """SC2 DQN wrapper with available-actions masking and registry metadata."""
+
+    POLICY_TYPE = "sc2_neural_dqn"
+    LOOP_TYPE = "q_learning"
+    VALID_POLICY_PARAMS = frozenset({
+        "hidden_sizes", "replay_buffer_size", "batch_size", "min_replay_size",
+        "target_update_freq", "learning_rate", "epsilon_start", "epsilon_end",
+        "epsilon_decay_steps", "gamma",
+    })
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name != "sc2":
+            return False, "This policy is SC2-specific; use game='sc2'."
+        return True, None
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec,
+        discrete_actions: np.ndarray | None = None,
+        hidden_sizes: list[int] | None = None,
+        replay_buffer_size: int = 50_000,
+        batch_size: int = 64,
+        min_replay_size: int = 2_000,
+        target_update_freq: int = 200,
+        learning_rate: float = 0.001,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.05,
+        epsilon_decay_steps: int = 20_000,
+        gamma: float = 0.995,
+        available_actions_fn=None,
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(
+            obs_spec=obs_spec,
+            discrete_actions=DISCRETE_ACTIONS if discrete_actions is None else discrete_actions,
+            hidden_sizes=hidden_sizes,
+            replay_buffer_size=replay_buffer_size,
+            batch_size=batch_size,
+            min_replay_size=min_replay_size,
+            target_update_freq=target_update_freq,
+            learning_rate=learning_rate,
+            epsilon_start=epsilon_start,
+            epsilon_end=epsilon_end,
+            epsilon_decay_steps=epsilon_decay_steps,
+            gamma=gamma,
+            available_actions_fn=(
+                _sc2_available_actions_mask_for_n_actions(
+                    len(DISCRETE_ACTIONS if discrete_actions is None else discrete_actions)
+                )
+                if available_actions_fn is None
+                else available_actions_fn
+            ),
+            seed=seed,
+        )
+
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "sc2_neural_dqn"
+        return cfg
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, obs_spec: ObsSpec) -> "SC2NeuralDQNPolicy":
+        return super().from_cfg(
+            cfg,
+            obs_spec=obs_spec,
+            discrete_actions=DISCRETE_ACTIONS,
+            available_actions_fn=_sc2_available_actions_mask,
+        )
+
+    def on_episode_start(self, **kwargs) -> None:
+        info = kwargs.get("info") or {}
+        if self._masked:
+            self._cached_mask = np.asarray(
+                self._avail_fn(info),
+                dtype=bool,
+            )
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict) and cfg.get("policy_type") == "sc2_neural_dqn":
+                policy = cls.from_cfg(cfg, obs_spec)
+                ts = trainer_state_path(weights_file)
+                if os.path.exists(ts):
+                    try:
+                        policy.load_trainer_state(ts)
+                        logger.info("[SC2NeuralDQNPolicy] loaded trainer state from %s", ts)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2NeuralDQNPolicy] could not load trainer state — %s; "
+                            "continuing with default state.",
+                            exc,
+                        )
+                return policy
+        return cls(
+            obs_spec=obs_spec,
+            hidden_sizes=pp.get("hidden_sizes", [64, 64]),
+            replay_buffer_size=pp.get("replay_buffer_size", 50_000),
+            batch_size=pp.get("batch_size", 64),
+            min_replay_size=pp.get("min_replay_size", 2_000),
+            target_update_freq=pp.get("target_update_freq", 200),
+            learning_rate=pp.get("learning_rate", 0.001),
+            epsilon_start=pp.get("epsilon_start", 1.0),
+            epsilon_end=pp.get("epsilon_end", 0.05),
+            epsilon_decay_steps=pp.get("epsilon_decay_steps", 20_000),
+            gamma=pp.get("gamma", 0.995),
         )
 
 

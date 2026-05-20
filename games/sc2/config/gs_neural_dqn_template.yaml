@@ -42,7 +42,7 @@ training_params:
   max_apm: 300
   agent_race: random
   n_sims: 200                 # 200 episodes; ~48 000 env steps total
-  policy_type: neural_dqn
+  policy_type: sc2_neural_dqn
   obs_spec_preset: rich
   enable_belief: [false, true]      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: [0.0005, 0.001, 0.003]

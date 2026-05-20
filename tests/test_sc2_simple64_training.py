@@ -17,11 +17,13 @@ from games.sc2.reward import SC2RewardConfig
 from games.sc2.policies import (
     SC2LinearPolicy,
     SC2GeneticPolicy,
-    NeuralDQNPolicy,
-    CMAESPolicy,
-    REINFORCEPolicy,
-    LSTMPolicy,
-    LSTMEvolutionPolicy,
+)
+from games.sc2.sc2_policies import (
+    SC2NeuralDQNPolicy,
+    SC2CMAESPolicy,
+    SC2REINFORCEPolicy,
+    SC2LSTMPolicy,
+    SC2LSTMEvolutionPolicy,
 )
 from framework.policies import (
     EpsilonGreedyPolicy,
@@ -268,13 +270,11 @@ class TestSC2LinearPolicyActionEncoding(unittest.TestCase):
         for member in policy.population:
             self.assertIsInstance(member, SC2LinearPolicy)
 
-    def test_cmaes_offspring_use_sc2_linear(self):
-        """CMAESPolicy offspring must be SC2LinearPolicy instances."""
-        policy = CMAESPolicy(obs_spec=_OBS_SPEC, head_names=_HEAD_NAMES, population_size=4)
+    def test_cmaes_offspring_emit_valid_sc2_actions(self):
+        """SC2CMAESPolicy offspring must emit valid SC2 action vectors."""
+        policy = SC2CMAESPolicy(obs_spec=_OBS_SPEC, population_size=4)
         offspring = policy.sample_population()
         for ind in offspring:
-            self.assertIsInstance(ind, SC2LinearPolicy)
-            # Also verify the fn_idx range is valid
             action = ind(self._obs())
             self.assertGreaterEqual(float(action[0]), 0.0)
             self.assertLessEqual(float(action[0]), 5.0)
@@ -324,12 +324,12 @@ class TestSC2PoliciesOnLadderObs(unittest.TestCase):
         self.assertEqual(action.shape, (4,))
 
     def test_neural_dqn_policy_action_shape(self):
-        policy = NeuralDQNPolicy(obs_spec=_OBS_SPEC, hidden_sizes=[16])
+        policy = SC2NeuralDQNPolicy(obs_spec=_OBS_SPEC, hidden_sizes=[16])
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
 
     def test_neural_dqn_policy_update_does_not_crash(self):
-        policy = NeuralDQNPolicy(
+        policy = SC2NeuralDQNPolicy(
             obs_spec=_OBS_SPEC, hidden_sizes=[16],
             min_replay_size=2, batch_size=2,
         )
@@ -341,9 +341,8 @@ class TestSC2PoliciesOnLadderObs(unittest.TestCase):
         policy.update(obs, action, 1.0, self._obs(), False)
 
     def test_cmaes_policy_sample_shape(self):
-        policy = CMAESPolicy(
+        policy = SC2CMAESPolicy(
             obs_spec=_OBS_SPEC,
-            head_names=_HEAD_NAMES,
             population_size=4,
         )
         offspring = policy.sample_population()
@@ -351,9 +350,8 @@ class TestSC2PoliciesOnLadderObs(unittest.TestCase):
         self.assertEqual(offspring[0](self._obs()).shape, (4,))
 
     def test_cmaes_policy_update_distribution(self):
-        policy = CMAESPolicy(
+        policy = SC2CMAESPolicy(
             obs_spec=_OBS_SPEC,
-            head_names=_HEAD_NAMES,
             population_size=4,
         )
         policy.sample_population()
@@ -362,12 +360,12 @@ class TestSC2PoliciesOnLadderObs(unittest.TestCase):
         self.assertAlmostEqual(policy.champion_reward, 10.0)
 
     def test_reinforce_policy_action_shape(self):
-        policy = REINFORCEPolicy(obs_spec=_OBS_SPEC, hidden_sizes=[16])
+        policy = SC2REINFORCEPolicy(obs_spec=_OBS_SPEC, hidden_sizes=[16])
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
 
     def test_reinforce_policy_episode(self):
-        policy = REINFORCEPolicy(
+        policy = SC2REINFORCEPolicy(
             obs_spec=_OBS_SPEC, hidden_sizes=[8],
             learning_rate=0.01,
         )
@@ -379,13 +377,13 @@ class TestSC2PoliciesOnLadderObs(unittest.TestCase):
         policy.on_episode_end()  # triggers gradient update
 
     def test_lstm_policy_action_shape(self):
-        policy = LSTMPolicy(obs_spec=_OBS_SPEC, hidden_size=8)
+        policy = SC2LSTMPolicy(obs_spec=_OBS_SPEC, hidden_size=8)
         policy.on_episode_start()
         action = policy(self._obs())
         self.assertEqual(action.shape, (4,))
 
     def test_lstm_evolution_policy_sample_and_update(self):
-        policy = LSTMEvolutionPolicy(
+        policy = SC2LSTMEvolutionPolicy(
             obs_spec=_OBS_SPEC,
             hidden_size=8,
             population_size=4,
@@ -442,9 +440,8 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
 
     def test_cmaes_training_loop(self):
         env = self._env()
-        policy = CMAESPolicy(
+        policy = SC2CMAESPolicy(
             obs_spec=_OBS_SPEC,
-            head_names=_HEAD_NAMES,
             population_size=4,
         )
         policy.initialize_random()
@@ -462,7 +459,7 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
 
     def test_neural_dqn_training_loop(self):
         env = self._env()
-        policy = NeuralDQNPolicy(
+        policy = SC2NeuralDQNPolicy(
             obs_spec=_OBS_SPEC,
             hidden_sizes=[16],
             min_replay_size=2,
@@ -483,7 +480,7 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
 
     def test_reinforce_training_loop(self):
         env = self._env()
-        policy = REINFORCEPolicy(
+        policy = SC2REINFORCEPolicy(
             obs_spec=_OBS_SPEC,
             hidden_sizes=[16],
             learning_rate=0.01,
@@ -502,7 +499,7 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
 
     def test_lstm_training_loop(self):
         env = self._env()
-        policy = LSTMEvolutionPolicy(
+        policy = SC2LSTMEvolutionPolicy(
             obs_spec=_OBS_SPEC,
             hidden_size=8,
             population_size=4,
@@ -528,9 +525,8 @@ class TestSC2PolicySaveLoad(unittest.TestCase):
     """Verify that save_trainer_state / load_trainer_state round-trips correctly."""
 
     def test_cmaes_trainer_state_roundtrip(self):
-        policy = CMAESPolicy(
+        policy = SC2CMAESPolicy(
             obs_spec=_OBS_SPEC,
-            head_names=_HEAD_NAMES,
             population_size=4,
         )
         policy.sample_population()
@@ -542,10 +538,9 @@ class TestSC2PolicySaveLoad(unittest.TestCase):
             path = f.name
         try:
             policy.save_trainer_state(path)
-            policy2 = CMAESPolicy(
+            policy2 = SC2CMAESPolicy(
                 obs_spec=_OBS_SPEC,
-                head_names=_HEAD_NAMES,
-                population_size=4,
+                    population_size=4,
             )
             policy2.load_trainer_state(path)
             self.assertAlmostEqual(policy2.sigma, original_sigma, places=6)
@@ -554,7 +549,7 @@ class TestSC2PolicySaveLoad(unittest.TestCase):
             os.unlink(path)
 
     def test_neural_dqn_trainer_state_roundtrip(self):
-        policy = NeuralDQNPolicy(
+        policy = SC2NeuralDQNPolicy(
             obs_spec=_OBS_SPEC,
             hidden_sizes=[16],
             min_replay_size=2,
@@ -569,7 +564,7 @@ class TestSC2PolicySaveLoad(unittest.TestCase):
             path = f.name
         try:
             policy.save_trainer_state(path)
-            policy2 = NeuralDQNPolicy(
+            policy2 = SC2NeuralDQNPolicy(
                 obs_spec=_OBS_SPEC,
                 hidden_sizes=[16],
                 min_replay_size=2,

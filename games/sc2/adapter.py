@@ -68,9 +68,8 @@ class SC2Adapter:
         from games.sc2.analytics import save_experiment_results
         # Side-effect imports register the SC2 policy types in POLICY_REGISTRY
         # so train_rl._make_policy can resolve them.
-        import games.sc2.sc2_policies  # noqa: F401 — sc2_genetic/reinforce/cmaes/lstm/neural_net
+        import games.sc2.sc2_policies  # noqa: F401 — sc2_genetic/reinforce/cmaes/lstm/neural_net/neural_dqn
         import games.sc2.cnn_policy    # noqa: F401 — sc2_cnn
-        import games.sc2.policies      # noqa: F401 — sc2_neural_dqn
 
         map_name = self._map_name(training_params, track_override)
         obs_spec_preset = training_params.get("obs_spec_preset")

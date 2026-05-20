@@ -84,7 +84,7 @@ If you'd rather install the prerequisites yourself:
 
 ```bash
 # Single experiment (default game: TMNF)
-python main.py <experiment_name> [--no-interrupt] [--re-initialize]
+python main.py <experiment_name> [--no-interrupt] [--re-initialize] [--live-gui]
 
 # Select a different simulator with --game
 python main.py my_experiment --game tmnf        # Trackmania Nations Forever (default)
@@ -97,12 +97,14 @@ python main.py my_experiment --game car_racing  # gymnasium CarRacing-v2 (requir
 python main.py --help
 
 # Grid search over multiple param combinations
-python grid_search.py config/my_grid.yaml [--no-interrupt]
+python grid_search.py config/my_grid.yaml [--no-interrupt] [--live-gui]
 ```
 
 Results land in `experiments/<game>/<name>/results/` (TMNF uses `experiments/<track>/<name>/results/`).
 
 `--re-initialize` ignores any existing weights file and reruns probe + cold-start from scratch.
+`--live-gui` opens a live telemetry window that updates every step with reward-component bars
+(rolling average over the last 5 steps) and observation-value visualizations.
 
 ---
 
@@ -265,6 +267,8 @@ python grid_search.py config/my_grid.yaml --distribute
 
 This serves work items over HTTP on port `5555` and blocks until every combination has a result. Override the port with `--port 6000` on the CLI, or set `distribute.port` in the grid config YAML. The coordinator writes each returned run into the local `experiments/<track>/<name>/` tree and runs analytics exactly as a local grid search would.
 
+By default, the coordinator runs in **LAN-only mode**: it accepts worker requests only from loopback/private/link-local IP ranges. Public/non-LAN source IPs are rejected with `403`. This keeps home-network distributed runs from being exposed to open internet clients even if your machine has a routable interface.
+
 ### Worker
 
 On each worker machine (one per TMInterface session), point at the coordinator:
@@ -284,9 +288,14 @@ Useful flags:
 | `--no-interrupt` | off | Skip all "Press Enter" prompts |
 | `--re-initialize` | off | Ignore existing weights files |
 | `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
-| `--local-workers N` *(coordinator flag)* | `0` | Auto-launch `N` local worker subprocesses in distributed mode |
+| `--local-workers N` *(coordinator flag)* | `1` | Auto-launch `N` local worker subprocesses in distributed mode (driver node participates by default) |
+| `--local-worker-stagger S` *(coordinator flag)* | `5.0` | Seconds between consecutive local-worker launches (cascading delay); also `distribute.local_worker_stagger` in the config. Set to `0` to disable. Prevents PySC2 binaries from racing on the same `.SC2Map` file (issue #254). |
+| `--bind-host HOST` *(coordinator flag)* | `0.0.0.0` | Bind coordinator to a specific interface/IP (or `distribute.bind_host`) |
+| `--allow-non-lan` *(coordinator flag)* | off | Disable LAN-only source-IP filtering and allow public/non-LAN worker IPs |
 
 The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
+
+With default settings the coordinator also starts one local worker subprocess (`--local-workers 1`), so the driver machine contributes training while remote LAN workers process additional combinations.
 
 ### Auth model
 
@@ -337,6 +346,27 @@ This launches three `distributed.worker` subprocesses (`local-1..N`) against
 `http://127.0.0.1:<port>`. Each worker runs one experiment at a time and PySC2
 spawns a separate SC2 process per worker, so combinations are processed in
 parallel on the same host.
+
+Workers are launched with a 5-second cascading stagger by default (issue
+#254): the first starts immediately, the second waits 5 s, the third waits
+another 5 s, and so on. This prevents the PySC2 binaries from all
+attempting to read the same `.SC2Map` file simultaneously, which can fail
+with a "map not found" error. Tune via `--local-worker-stagger S` or
+`distribute.local_worker_stagger` (set to `0` to disable).
+
+In addition, every SC2 binary boot — across all workers, parallel-eval
+processes, and successive experiments within a worker — is gated by
+`games.sc2.map_access_gate.acquire_map_access_slot`, which holds an
+`fcntl.flock` on a shared timestamp file under the system temp dir and
+ensures a minimum 5 s gap between consecutive map reads. The launch
+stagger covers the *initial* burst; the gate covers every reboot
+thereafter for the lifetime of the grid-search run. Tune the gate via
+two env vars:
+
+- `GAMER_AI_SC2_MAP_GAP_S` — minimum seconds between SC2 map reads
+  (default `5.0`; set to `0` to disable, e.g. for single-process runs).
+- `GAMER_AI_SC2_MAP_LOCK_PATH` — custom timestamp-file path (mainly
+  for tests).
 
 ---
 

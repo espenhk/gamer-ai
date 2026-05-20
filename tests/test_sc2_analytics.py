@@ -30,6 +30,7 @@ from games.sc2.analytics import (
     plot_action_frequency,
     plot_army_count,
     plot_build_order,
+    plot_gs_reward_component_breakdown,
     plot_obs_averages,
     plot_outcome_breakdown,
     plot_skipped_frames,
@@ -434,6 +435,7 @@ class TestSaveExperimentResults(unittest.TestCase):
             self.assertIn("resource_series.png", files)
             self.assertIn("army_count.png", files)
             self.assertIn("build_order.png", files)
+            self.assertIn("reward_component_breakdown.png", files)
 
     def test_results_md_mentions_game(self):
         data = _make_experiment(self._make_full_sims())
@@ -500,6 +502,10 @@ class TestSaveGridSummary(unittest.TestCase):
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
             # score: 500.0/100.0 = 5.0; step_penalty: -4.0/2.0 = -2.0 → total = 3.0
             self.assertAlmostEqual(forwarded_sim.reward, 3.0, places=6)
+            self.assertEqual(
+                forwarded_sim.reward_components,
+                {"score": 5.0, "step_penalty": -2.0},
+            )
 
     def test_falls_back_to_raw_reward_without_components(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1061,6 +1067,74 @@ class TestSC2TaskMetric(unittest.TestCase):
         self.assertIn("finish", sc2_analytics._GS_SUCCESS_REASONS)
         self.assertNotIn("loss", sc2_analytics._GS_SUCCESS_REASONS)
         self.assertNotIn("timeout", sc2_analytics._GS_SUCCESS_REASONS)
+
+
+# ---------------------------------------------------------------------------
+# plot_gs_reward_component_breakdown (issue #252)
+# ---------------------------------------------------------------------------
+
+class TestPlotGsRewardComponentBreakdown(unittest.TestCase):
+
+    def _runs_with_components(self) -> list:
+        sims_a = [
+            _make_sim(1, reward_components={"score": 5.0, "step_penalty": -0.5}),
+            _make_sim(2, reward_components={"score": 7.0, "step_penalty": -0.8},
+                      improved=True),
+        ]
+        sims_b = [
+            _make_sim(1, reward_components={"score": 2.0, "step_penalty": -0.3}),
+        ]
+        exp_a = _make_experiment(sims_a, name="exp_a")
+        exp_b = _make_experiment(sims_b, name="exp_b")
+        return [("exp_a", exp_a), ("exp_b", exp_b)]
+
+    def test_renders_to_file(self):
+        runs = self._runs_with_components()
+        with tempfile.TemporaryDirectory() as d:
+            plot_gs_reward_component_breakdown(runs, d)
+            self.assertIn("comparison_reward_breakdown.png", os.listdir(d))
+
+    def test_skips_when_no_component_data(self):
+        runs = [
+            ("exp_a", _make_experiment([_make_sim(1)])),
+            ("exp_b", _make_experiment([_make_sim(1)])),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            plot_gs_reward_component_breakdown(runs, d)
+            self.assertNotIn("comparison_reward_breakdown.png", os.listdir(d))
+
+    def test_skips_when_empty_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            plot_gs_reward_component_breakdown([], d)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_skips_when_all_components_zero(self):
+        sims = [_make_sim(1, reward_components={"score": 0.0})]
+        runs = [("exp_a", _make_experiment(sims))]
+        with tempfile.TemporaryDirectory() as d:
+            plot_gs_reward_component_breakdown(runs, d)
+            self.assertNotIn("comparison_reward_breakdown.png", os.listdir(d))
+
+    def test_single_experiment(self):
+        sims = [_make_sim(1, reward_components={"score": 3.0, "step_penalty": -0.2})]
+        runs = [("only_exp", _make_experiment(sims, name="only_exp"))]
+        with tempfile.TemporaryDirectory() as d:
+            plot_gs_reward_component_breakdown(runs, d)
+            self.assertIn("comparison_reward_breakdown.png", os.listdir(d))
+
+    def test_written_by_save_grid_summary(self):
+        runs = self._runs_with_components()
+        with tempfile.TemporaryDirectory() as d:
+            save_grid_summary(runs, [], d, "gs_breakdown")
+            self.assertIn("comparison_reward_breakdown.png", os.listdir(d))
+
+    def test_linked_in_summary_md(self):
+        runs = self._runs_with_components()
+        with tempfile.TemporaryDirectory() as d:
+            save_grid_summary(runs, [], d, "gs_breakdown")
+            with open(os.path.join(d, "summary.md"), encoding="utf-8") as f:
+                md = f.read()
+            self.assertIn("comparison_reward_breakdown.png", md)
 
 
 class TestSaveGridSummaryTaskMetricPassthrough(unittest.TestCase):

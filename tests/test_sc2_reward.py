@@ -430,6 +430,71 @@ class TestSC2MoveShaping(unittest.TestCase):
         )
         self.assertAlmostEqual(r, 0.0)
 
+    def _move_step(self, calc, *, self_cx, self_cy, fn_idx=2):
+        """Run one step at a given centroid; return the move_exploration term."""
+        info = self._move_info(x=0.5, y=0.5, self_cx=self_cx, self_cy=self_cy)
+        info["action_fn_idx"] = fn_idx
+        _, comps = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False,
+            elapsed_s=1.0, info=info,
+        )
+        return comps["move_exploration"]
+
+    def test_move_exploration_decay_rerewards_after_stale(self):
+        """A cell vacated for longer than the decay window is rewarded again on return."""
+        calc = self._make_calc(
+            move_repeat_penalty=0.0, move_self_penalty=0.0,
+            move_exploration_decay_steps=5,
+        )
+        # First visit to cell (0, 0) — bonus.
+        self.assertAlmostEqual(self._move_step(calc, self_cx=4.0, self_cy=4.0), 1.0)
+        # Wander to cell (7, 7) for 6 steps (> decay) so (0, 0) goes stale.
+        for _ in range(6):
+            self._move_step(calc, self_cx=60.0, self_cy=60.0)
+        # Return to (0, 0): it expired, so the bonus fires again.
+        self.assertAlmostEqual(self._move_step(calc, self_cx=4.0, self_cy=4.0), 1.0)
+
+    def test_move_exploration_decay_stationary_never_rerewards(self):
+        """A centroid that never leaves its cell is rewarded once, even past the decay window."""
+        calc = self._make_calc(
+            move_repeat_penalty=0.0, move_self_penalty=0.0,
+            move_exploration_decay_steps=5,
+        )
+        rewards = [self._move_step(calc, self_cx=32.0, self_cy=32.0) for _ in range(20)]
+        self.assertAlmostEqual(rewards[0], 1.0)
+        for r in rewards[1:]:
+            self.assertAlmostEqual(r, 0.0)
+
+    def test_move_exploration_decay_zero_is_permanent(self):
+        """decay_steps == 0 keeps the once-per-episode behaviour (no re-reward)."""
+        calc = self._make_calc(
+            move_repeat_penalty=0.0, move_self_penalty=0.0,
+            move_exploration_decay_steps=0,
+        )
+        self.assertAlmostEqual(self._move_step(calc, self_cx=4.0, self_cy=4.0), 1.0)
+        for _ in range(50):
+            self._move_step(calc, self_cx=60.0, self_cy=60.0)
+        # (0, 0) was visited and never expires → no second bonus.
+        self.assertAlmostEqual(self._move_step(calc, self_cx=4.0, self_cy=4.0), 0.0)
+
+    def test_move_exploration_grid_size_controls_cell_granularity(self):
+        """A coarser grid merges centroids that an 8×8 grid would separate."""
+        # On a 2×2 grid (32-px cells) the centroids (4, 4) and (20, 20) share
+        # cell (0, 0), so the second move earns no bonus.
+        calc = self._make_calc(
+            move_repeat_penalty=0.0, move_self_penalty=0.0,
+            move_exploration_grid_size=2, move_exploration_decay_steps=0,
+        )
+        self.assertAlmostEqual(self._move_step(calc, self_cx=4.0, self_cy=4.0), 1.0)
+        self.assertAlmostEqual(self._move_step(calc, self_cx=20.0, self_cy=20.0), 0.0)
+        # On the default 8×8 grid those same points are cells (0, 0) and (2, 2).
+        calc8 = self._make_calc(
+            move_repeat_penalty=0.0, move_self_penalty=0.0,
+            move_exploration_grid_size=8, move_exploration_decay_steps=0,
+        )
+        self.assertAlmostEqual(self._move_step(calc8, self_cx=4.0, self_cy=4.0), 1.0)
+        self.assertAlmostEqual(self._move_step(calc8, self_cx=20.0, self_cy=20.0), 1.0)
+
     def test_move_repeat_penalty_for_same_target(self):
         calc = self._make_calc(move_exploration_bonus=0.0, move_self_penalty=0.0)
         r = calc.compute(

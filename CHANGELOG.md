@@ -17,7 +17,122 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Documentation
+- PR template (`.github/PULL_REQUEST_TEMPLATE.md`) now carries a
+  `Closes #<issue>` line near the top so PRs auto-close their issue on
+  merge.  `CLAUDE.md` gains a **Pull requests** section requiring every
+  PR description to be filled in from the template with that
+  `Closes #<issue>` link.
+- `CLAUDE.md` brought back in sync with the codebase:
+  - Documents all six supported games (adds CarRacing, BeamNG, Assetto
+    Corsa alongside TMNF / TORCS / SC2) in the intro, repository-structure
+    tree, and run examples.
+  - Corrects the master-config location — configs are per-game under
+    `games/<game>/config/`, not a top-level `config/` directory.
+  - Refreshes the **Dependencies** section for the current Poetry group
+    layout (core vs `tmnf` / `tmnf-test` / `torcs` / optional `sc2` /
+    `assetto_corsa`, plus CarRacing/BeamNG out-of-group deps).
+  - Adds the `sc2_neural_net` policy, the `log_stats_every_n_sims`
+    training param, the SC2 `--eval` mode, the `attack_friendly_penalty`
+    and `small_selection_bonus` SC2 reward keys, the
+    `grid_search --local-workers` / `--local-worker-stagger` flags, the
+    SC2 map-access-gate env vars, and the `main.py` `--track` / `--workers`
+    / `--log-level` override flags.
+  - Updates the `move_exploration_bonus` / `move_repeat_penalty`
+    descriptions to match the issue #253 unit-position tracking fix.
+
+### Added
+- Optional live training GUI (`--live-gui`) for both `main.py` and
+  `grid_search.py`. The window updates during training (not post-run only):
+  - reward-component bar chart per step with a 5-step rolling average, plus
+    total step reward;
+  - live observation visualizations using feature-aware layouts (scalar bars,
+    x/y pair vectors, indexed strips, and quadrant grids when detected).
+- **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward
+  config key `attack_bonus` (default `0.0`) awards a flat bonus whenever the
+  agent issues `Attack_screen` (fn_idx 3), regardless of whether the target
+  is a visible enemy unit (click-to-attack) or open ground (A-move).  Acts as
+  a simpler alternative to enabling both `attack_move_bonus` and
+  `click_attack_bonus` separately; all three can be active simultaneously.
+  The contribution is tracked as a separate `"attack_bonus"` entry in
+  `reward_components` and is normalised in cross-experiment grid-search
+  summaries alongside the existing attack bonus components.
+- **Analytics: reward component breakdown charts** (issue #252).
+  - `framework.analytics.plot_reward_component_breakdown` — diverging stacked
+    bar chart (one bar per greedy sim, positive components above zero, negative
+    below) written to `reward_component_breakdown.png` alongside the existing
+    per-component line chart.
+  - `games.sc2.analytics.plot_gs_reward_component_breakdown` — cross-experiment
+    diverging horizontal bar chart (one row per experiment, showing mean per-sim
+    component contributions) written to `comparison_reward_breakdown.png` in the
+    grid-search summary directory and linked from `summary.md`.
+- **SC2 periodic stats logging** (issue #240).  Training now logs reward
+  component totals and action-frequency ratios every `log_stats_every_n_sims`
+  sims (default `10`, set to `0` to disable).  Covers all four SC2 greedy
+  loops (`_greedy_loop`, `_greedy_loop_cmaes`, `_greedy_loop_genetic`,
+  `_greedy_loop_q_learning`).  New training param: `log_stats_every_n_sims`
+  (integer, default `10`, stored in `training_params.yaml`).
+
+### Changed
+- Distributed grid-search coordinator now supports LAN-focused multi-machine
+  home setups out of the box:
+  - New `--bind-host` / `distribute.bind_host` to select the interface/IP the
+    coordinator listens on.
+  - New LAN-only default request filter (loopback/private/link-local source
+    IPs only); override with `--allow-non-lan` /
+    `distribute.allow_non_lan` when explicitly required.
+  - Distributed runs now default to `local_workers=1`, so the driver/coordinator
+    machine contributes one local worker by default while remote workers can
+    join over the LAN.
+- **SC2 `move_exploration_bonus` now decays explored cells** (issue #262).
+  The grid-cell visit tracking added in #253 marked a cell explored *once per
+  episode*, which (a) paid the agent to blanket-roam the whole screen to
+  collect every per-cell bonus and (b) went permanently silent once the screen
+  was covered, making *freezing in place* optimal — observed in training as
+  units spamming moves everywhere and then hyperfixating in a small area. A
+  cell now **expires** `move_exploration_decay_steps` env steps after the
+  friendly-unit centroid last left it, so returning to a stale area is
+  rewarded again and the bonus never goes silent. A stationary centroid keeps
+  refreshing its own cell every step, so the anti-command-spam guarantee from
+  #253 is preserved. Two new reward-config keys (both with sensible defaults,
+  so existing configs keep working):
+  - `move_exploration_grid_size` (int, default `8`) — cells per axis of the
+    screen grid, replacing the previously hard-coded 8×8.
+  - `move_exploration_decay_steps` (int, default `50`) — env steps before an
+    explored cell may be rewarded again; `0` restores the previous permanent
+    once-per-episode behaviour. Because the default is non-zero, the bonus can
+    now pay more than `grid_size²` times per episode, increasing its effective
+    magnitude versus pre-#262 runs — retune `move_exploration_bonus` if needed.
+
+  The bundled `games/sc2/config/reward_config.yaml` is retuned to match: the
+  `move_exploration_bonus` is lowered (`1.0` → `0.15`) and
+  `move_exploration_decay_steps` raised (`50` → `120`) so the term re-rewards
+  only genuine relocation and stays a minority contributor, and `score_weight`
+  is raised (`10.0` → `100.0`) so task score dominates the shaping terms.
+
 ### Fixed
+- SC2 `.SC2Map` file race when multiple PySC2 binaries boot on the same
+  host (issue #254). `games.sc2.client.SC2Client._make_sc2_env` now
+  routes every `SC2Env` construction through a cross-process
+  *map-access gate* (`games.sc2.map_access_gate.acquire_map_access_slot`)
+  that enforces a minimum 5 s gap between consecutive grants. This
+  covers not only the initial worker launches but every subsequent
+  SC2 reboot — distributed local workers picking up successive
+  experiments, intra-run parallel-eval workers (`n_workers > 1`), and
+  any future SC2 multi-instance scenarios. The gate uses an
+  `fcntl.flock`-serialised timestamp file under the system temp dir
+  and is tunable via two env vars:
+  - `GAMER_AI_SC2_MAP_GAP_S` — gap in seconds (default `5.0`; set to
+    `0` to disable, e.g. for single-process runs).
+  - `GAMER_AI_SC2_MAP_LOCK_PATH` — custom timestamp-file path (mainly
+    useful for tests).
+
+  As a complementary defence-in-depth, `grid_search.py --distribute
+  --local-workers N` also launches the local worker subprocesses with a
+  cascading 5 s delay (first immediate, second waits 5 s, third waits
+  another 5 s, …). Tunable via the new `--local-worker-stagger` CLI
+  flag or `distribute.local_worker_stagger` config key (default `5.0`;
+  set to `0` to disable).
 - `move_exploration_bonus` exploit: bonus now tracks actual unit centroid
   positions on an 8×8 screen grid rather than move command targets, so
   spamming `Move_screen` to many locations without moving units yields no

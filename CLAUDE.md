@@ -1,40 +1,66 @@
 # CLAUDE.md
 
-Trackmania Nations Forever RL agent. Drives autonomously via hill-climbing / evolutionary / CMA-ES / Q-learning trained against live TMInterface session.
+Multi-game RL agent framework. A game-agnostic training loop and policy
+set (`framework/`) drive per-game integrations (`games/<game>/`) through a
+common adapter interface (`framework/game_adapter.py`), training autonomous
+agents via hill-climbing / evolutionary / CMA-ES / Q-learning /
+policy-gradient methods. The project began as a Trackmania Nations Forever
+(TMNF) agent and now spans six games.
 
-**Runtime per game**:
+**Runtime per game** (select with `--game`; default `tmnf`):
 - TMNF: Windows-only (`pywin32`, `mss` window grab, `tminterface` bind to live game process).
 - TORCS: Linux/Windows via `gym_torcs`.
 - SC2: Linux/Windows/Mac via PySC2; runs headless on Linux against the Blizzard SC2 binary.
+- CarRacing: cross-platform; Gymnasium `CarRacing-v2`, pure-Python (needs `gymnasium[box2d]`, no separate game binary).
+- BeamNG: BeamNG.drive (commercial) via the `beamng_gym` TCP API.
+- Assetto Corsa: Assetto Corsa (commercial) via the `assetto-corsa-rl` shared-memory wrapper; launched through its own entry point (`--game assetto`).
+
+Each game ships a `games/<game>/README.md` documenting its install,
+config, observation/action space, reward, and supported policies. This file
+is the architecture overview — defer to those per-game READMEs for
+game-specific specifics.
 
 ---
 
 ## Repository Structure
 
 ```
-tmnf-ai/
-├── main.py                 # Entry point — python main.py <experiment_name>
-├── grid_search.py          # Grid search over param combinations (supports --distribute)
-├── analytics.py            # Experiment result plots and summary tables
+gamer-ai/
+├── main.py                 # Entry point — python main.py <experiment_name> [--game <game>]
+├── grid_search.py          # Grid search over param combos (supports --distribute / --local-workers)
+├── analytics.py            # Backward-compat shim → framework.analytics
+├── cross_grid_report.py    # Recursive cross-grid-search comparison report
+├── redo_analytics.py       # Regenerate analytics from saved experiment data (no re-training)
 ├── param_explorer.py       # Interactive weight/param exploration tool
 ├── policies.py             # Backward-compat shim → framework + games/tmnf policies
+├── batch_run.sh            # Run multiple experiments back-to-back
 ├── setup_and_run.ps1       # Windows bootstrap script
+├── scripts/                # Dev scripts (e.g. release.py)
+├── CHANGELOG.md            # Running log of user/developer-visible changes
+├── CONTRIBUTING.md         # Contribution guide
 ├── pyproject.toml
-├── framework/              # Game-agnostic training loop, obs spec, analytics, base policies
-├── games/
+├── framework/              # Game-agnostic training loop, obs spec, analytics, base policies,
+│                           #   game_adapter registry, parallel_eval, version
+├── games/                  # Per-game integrations; each holds its own config/ master files
 │   ├── tmnf/               # TMNF-specific env, reward, lidar, steering, policies, clients, tools
 │   ├── torcs/              # TORCS racing simulator integration
-│   └── sc2/                # StarCraft 2 integration via PySC2 (Linux-friendly, headless)
+│   ├── sc2/                # StarCraft 2 integration via PySC2 (Linux-friendly, headless)
+│   ├── car_racing/         # Gymnasium CarRacing-v2 (pure-Python, no game binary)
+│   ├── beamng/             # BeamNG.drive via beamng_gym TCP API
+│   └── assetto_corsa/      # Assetto Corsa via assetto-corsa-rl shared memory
 ├── clients/                # Backward-compat shim → games/tmnf/clients
 ├── rl/                     # Backward-compat shim + PPO/pretrain experiments
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
 ├── infrastructure/         # Terraform: auth, remote_state, environment (Azure VMs)
-├── config/                 # Master configs + grid-search templates
 ├── experiments/            # Per-experiment results (git-ignored)
 ├── tests/                  # Unit tests
 ├── tracks/, replays/       # Centerline .npy files and TMNF replay .Gbx files
 └── runs/, plans/           # Saved run metadata and planning notes
 ```
+
+Master configs and grid-search templates live **per game** under
+`games/<game>/config/` (resolved at runtime via the adapter's
+`config_dir`); there is no top-level `config/` directory.
 
 ---
 
@@ -44,18 +70,29 @@ tmnf-ai/
 # Single experiment (TMNF — default)
 python main.py <experiment_name> [--no-interrupt] [--re-initialize]
 
-# Run on a different game
+# Run on a different game (--game: tmnf | torcs | sc2 | car_racing | beamng | assetto)
 python main.py <experiment_name> --game torcs
 python main.py <experiment_name> --game sc2
+python main.py <experiment_name> --game car_racing
 
-# Grid search over param combinations
-python grid_search.py config/my_grid.yaml [--no-interrupt]
+# Grid search over param combinations (config lives under games/<game>/config/)
+python grid_search.py games/sc2/config/grid_search_template.yaml [--no-interrupt]
 
 # Tests
 python -m pytest tests/
 ```
 
-First run with new name: `experiments/<track>/<name>/` created, both master configs copied in. Edit experiment copies to tune without affecting others. `--re-initialize` ignores existing weights file, re-runs probe + cold-start.
+First run with new name: `experiments/<track>/<name>/` created, both
+master configs copied in from `games/<game>/config/`. Edit experiment
+copies to tune without affecting others. `--re-initialize` ignores
+existing weights file, re-runs probe + cold-start.
+
+Other useful flags: `--track <name>` overrides the config's track/map
+(e.g. `aalborg`, `CollectMineralShards`); `--workers N` overrides
+`n_workers` for SC2 intra-run parallel evaluation; `--log-level` sets
+verbosity (`DEBUG` / `INFO` / `WARNING` / `ERROR`, default `INFO`).
+SC2-only modes `--play` and `--eval` are covered in the StarCraft 2
+section.
 
 ---
 
@@ -79,6 +116,25 @@ files). **Every PR that introduces such a change must add an entry
 under `## [Unreleased]`.** Trivial commits — experiment dumps,
 formatting, internal refactors with no behaviour change — can be
 skipped. The PR template's Documentation checklist enforces this.
+
+---
+
+## Pull requests
+
+Every PR description **must** be filled in using the repo's PR template
+(`.github/PULL_REQUEST_TEMPLATE.md`) — keep the section(s) that apply to
+the change and delete the rest.
+
+- **Link the issue at the top.** Put `Closes #<issue>` near the top of
+  the description (above the `## Summary` section) so the PR
+  auto-closes its issue on merge. Use `Refs #<issue>` for related
+  issues the PR should *not* close.
+- Fill in `## Summary` with 1–3 bullets on what changed and why, plus
+  the bug-fix / feature / refactor detail section that matches the
+  change.
+- Record validation commands and complete the template's checklist —
+  including the `CHANGELOG.md`, `README.md`, `CLAUDE.md`, and
+  `tests/README.md` items where they apply.
 
 ---
 
@@ -255,7 +311,13 @@ Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulatio
 
 ## Configuration
 
-### `config/training_params.yaml`
+Each game keeps its own master configs under `games/<game>/config/`. The
+tables below describe the **TMNF** masters
+(`games/tmnf/config/training_params.yaml` and `reward_config.yaml`); other
+games define their own keys — see the per-game `README.md`. The SC2 keys
+are documented in the StarCraft 2 section below.
+
+### `games/tmnf/config/training_params.yaml`
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -272,7 +334,7 @@ Up to `cold_restarts` rounds of random-init hill-climbing, `cold_sims` simulatio
 | `policy_type` | `genetic` | Algorithm (see Policies table above) |
 | `policy_params` | `{}` | Type-specific hyperparams |
 
-### `config/reward_config.yaml`
+### `games/tmnf/config/reward_config.yaml`
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -351,8 +413,13 @@ Requires `mss`, `opencv-python`, `pywin32`.
 ## Grid Search (`grid_search.py`)
 
 ```bash
-python grid_search.py config/my_grid.yaml
+python grid_search.py games/<game>/config/my_grid.yaml
 ```
+
+Ready-made templates ship per game (e.g.
+`games/sc2/config/grid_search_template.yaml`,
+`games/torcs/config/gs_genetic.yaml`). Pick the target game with `--game`
+(choices: `tmnf`, `beamng`, `car_racing`, `torcs`, `sc2`).
 
 Set any param to list to sweep it:
 
@@ -378,6 +445,28 @@ Scale grid search across multiple Windows VMs by splitting combinations over coo
 - `distributed/protocol.py` — `ComboSpec` / `ResultPayload` dataclasses + JSON (de)serialization shared by both sides.
 
 Entry point: `python grid_search.py <config> --distribute` (coordinator mode). Workers launched independently on each VM.
+
+**Local multi-instance.** `python grid_search.py <config> --distribute
+--local-workers N` runs the coordinator and spawns `N` worker
+subprocesses on the same host (one experiment per worker — inter-run
+parallelism, distinct from SC2's intra-run `n_workers`). Worker launches
+are staggered to avoid startup races; tune with `--local-worker-stagger`
+(seconds, default `5.0`; `0` to disable) or the
+`distribute.local_worker_stagger` config key.
+
+**LAN safety / multi-machine home networks.** Distributed mode now defaults to
+LAN-only request filtering: the coordinator accepts only loopback/private/
+link-local source IPs. Configure `--bind-host` (or `distribute.bind_host`) to
+choose the listening interface, and pass `--allow-non-lan` only when you
+explicitly want public/non-LAN clients. The coordinator also defaults to
+`--local-workers 1`, so the driver node contributes one local worker while
+remote workers run on other machines.
+
+**SC2 map-access gate.** When several PySC2 binaries boot on one host,
+`SC2Env` construction is serialised through a cross-process gate enforcing
+a minimum gap between map loads. Tunable via env vars:
+`GAMER_AI_SC2_MAP_GAP_S` (gap seconds, default `5.0`; `0` disables) and
+`GAMER_AI_SC2_MAP_LOCK_PATH` (custom timestamp-file path, mainly for tests).
 
 ---
 
@@ -446,11 +535,17 @@ python main.py myrun --game sc2 --no-interrupt
 
 # Interactive human-vs-AI play (loads champion from a completed experiment):
 python main.py myrun --game sc2 --play
+
+# Evaluation: replay the champion against the bot for N episodes and report
+# aggregate win rate / avg score / avg game length (no weight updates):
+python main.py myrun --game sc2 --eval --num-episodes 10
 ```
 
 The first run creates `experiments/sc2_<map>/<name>/` and copies both master configs in. Edit the experiment-local copies to tune without affecting other runs.
 
 `--play` launches a two-player PySC2 session; you control one side via the SC2 UI while the trained champion policy drives the other. No weight updates occur.
+
+`--eval` (SC2 only) loads the champion and runs it against the AI bot for `--num-episodes` episodes, reporting aggregate statistics. `--bot-difficulty` overrides the opponent difficulty and `--eval-speed` overrides `step_mul` for the eval run.
 
 ### Config knobs
 
@@ -467,6 +562,7 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 | `minimap_layers` | `[]` | Minimap channel names to concatenate with screen channels for `sc2_cnn`. |
 | `adaptive_mutation` | `true` | Apply the 1/5 success rule to adapt `mutation_scale` during the greedy phase. |
 | `patience` | `0` | Stop the greedy loop early if no improvement for this many consecutive sims (0 = run all). |
+| `log_stats_every_n_sims` | `10` | Log reward-component totals and action-frequency ratios every N sims/generations across all SC2 greedy loops (`0` = disable). |
 | `max_apm` | *(null)* | APM cap using a rolling token-bucket limiter measured in **game time** (`game_loop / 22.4`). `max_apm=300` means exactly 300 in-game actions per in-game minute regardless of training speed. Leave unset for no limit. |
 | `apm_burst_s` | `2.0` | Token-bucket burst window in seconds. |
 | `enable_belief` | `false` | Activate the fog-of-war belief + info-gain observation extension (adds ~192 dims for an 8×8 grid). |
@@ -486,6 +582,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `sc2_cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2MultiHeadLinearPolicy` flat weights | `games/sc2/sc2_policies.py` |
 | `sc2_lstm` | LSTM with SC2-native action encoding, trained by isotropic ES | `games/sc2/sc2_policies.py` |
 | `sc2_cnn` | CNN (two conv layers + FC) + isotropic ES; spatial pixel obs | `games/sc2/cnn_policy.py`; requires non-empty `screen_layers` |
+| `sc2_neural_net` | TMNF-style MLP (pure numpy) with SC2-native multi-head action encoding; mutate-and-keep evolutionary search | `games/sc2/sc2_policies.py`; hyperparam `hidden_sizes` |
 | `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
 | `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
 | `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights *(legacy)* | `games/sc2/policies.py`; prefer `sc2_cmaes` |
@@ -502,16 +599,21 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `step_penalty` | `-0.001` | Per-tick time cost. |
 | `idle_penalty` | `0.0` | Per-step penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps). |
 | `idle_bonus` | `0.0` | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen.  Issue #127 — opt-in, default `0.0`.  Useful for combat minigames (DefeatRoaches, DefeatZerglingsAndBanelings) where standing still lets units shoot. |
-| `move_exploration_bonus` | `0.01` | Bonus for `Move_screen` targets that are at least `_MOVE_MIN_MEANINGFUL_FRAC` (6/64 ≈ 9% of screen) away from the previous move target. Sub-threshold moves receive no bonus, preventing stutter-stepping. |
+| `move_exploration_bonus` | `0.01` | Bonus when a `Move_screen` is issued and the friendly-unit centroid is in a currently-unexplored cell of a `move_exploration_grid_size`² screen grid (default 8×8). A cell stays explored while the centroid keeps refreshing it and expires `move_exploration_decay_steps` env steps after the centroid leaves. A stationary centroid never re-triggers (blocks command spam); the decay stops the bonus going permanently silent once the screen is covered (which otherwise makes freezing optimal). |
+| `move_exploration_grid_size` | `8` | Cells per axis of the move-exploration screen grid (higher = finer cells / smaller meaningful relocation). |
+| `move_exploration_decay_steps` | `50` | Env steps before an explored cell may be rewarded again on a return visit. `0` = never expire (once per cell per episode); larger keeps an area "explored" longer. |
 | `move_repeat_penalty` | `-0.02` | Penalty when a `Move_screen` command is less than `_MOVE_MIN_MEANINGFUL_FRAC` from the previous move target (covers both exact repeats and tiny stutter steps). |
 | `move_self_penalty` | `-0.01` | Penalty for issuing `Move_screen` to the centroid of currently-visible friendly units. |
 | `attack_move_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` (fn_idx 3) with the target on empty ground while enemies are visible (A-move). Opt-in. |
 | `click_attack_bonus` | `0.0` | Per-step bonus when the agent issues `Attack_screen` with the target directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
 | `click_attack_cooldown_steps` | `8` | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
+| `attack_bonus` | `0.0` | Per-step bonus whenever the agent issues `Attack_screen` (fn_idx 3), regardless of target type (A-move or click-to-attack). Simpler alternative to enabling both `attack_move_bonus` and `click_attack_bonus`. Opt-in. |
+| `attack_friendly_penalty` | `-10.0` | Per-step penalty when an `Attack_screen` target lands on/near the centroid of visible friendly units (ally fire). Penalised heavily; set `0.0` to disable. |
 | `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
 | `unit_loss_penalty` | `0.0` | Penalty per army unit lost this step (army_count drop). Opt-in. |
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |
 | `passive_under_fire_penalty` | `0.0` | Per-step penalty when enemies are within attack range of friendlies and the agent did not issue `Attack_screen`. Opt-in. |
+| `small_selection_bonus` | `0.0` | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. Opt-in. |
 
 For ladder maps (`Simple64` etc.) the recommended preset is:
 
@@ -589,10 +691,23 @@ keep using `python grid_search.py --local-workers N` (PR #244).
 
 Managed by Poetry. Run `poetry install` from repo root.
 
-`tminterface` and `pygbx` not on PyPI — install from source before `poetry install`.
+Core deps (always installed): `numpy`, `gymnasium`, `pyyaml`, `matplotlib`.
+Game- and tooling-specific deps live in Poetry groups:
 
-Core runtime deps: `numpy`, `scipy`, `gymnasium`, `pyyaml`, `matplotlib`, `opencv-python`, `mss`, `pywin32`, `tminterface`, `pygbx`.
+| Group | Installs | For |
+|---|---|---|
+| `tmnf` | `pandas`, `scipy`, `stable-baselines3`, `tensorboard`, `opencv-python`, `mss`, `pywin32`, `tminterface`, `pygbx` | TMNF (Windows) + LIDAR |
+| `tmnf-test` | `pytest`, `scipy` | Running the unit suite |
+| `torcs` | *(empty group)* | TORCS — `gym_torcs` installed from source (not on PyPI) |
+| `sc2` *(optional)* | `pysc2`, `protobuf` | StarCraft 2 — `poetry install --with sc2` |
+| `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
 
-Optional groups:
-- `--with torcs` — `gym_torcs` for TORCS support.
-- `--with sc2` — `pysc2` for StarCraft 2 support.
+CarRacing needs `gymnasium[box2d]` (install separately, e.g.
+`poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install
+beamng-gym`). Both are pulled in outside the Poetry groups — see the
+respective `games/<game>/README.md`.
+
+`tminterface`, `pygbx`, and `gym_torcs` are not on PyPI — install from
+source before `poetry install`. Optional groups (`sc2`, `assetto_corsa`)
+are skipped by default so a Windows-only TMNF setup doesn't pull in their
+stacks.

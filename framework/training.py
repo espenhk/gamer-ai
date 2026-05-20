@@ -42,6 +42,7 @@ from framework.policies import (
 from framework.obs_spec import ObsSpec
 from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
 from framework.version import code_version
+from framework.live_monitor import make_live_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,7 @@ def _run_episode(
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
     reset_info: dict | None = None,
+    live_monitor: Any = None,
 ) -> tuple[float, dict, list[int], int, RunTrace]:
     """Run one episode from *obs* until terminated/truncated.
 
@@ -228,6 +230,8 @@ def _run_episode(
         next_obs, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
         steps += 1
+        if live_monitor is not None:
+            live_monitor.on_step(next_obs, reward, info)
 
         if not in_warmup:
             policy.update(prev_obs, action, reward, next_obs, terminated or truncated,
@@ -417,6 +421,44 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                 logger.info("    %s=%.1f%s", k, v, cmp_s)
 
 
+def _log_periodic_stats(info: dict, sim: int) -> None:
+    """Log reward component breakdown and action ratios at a periodic sim interval.
+
+    Emitted at INFO level without a prev-comparison (that is reserved for the
+    NEW BEST headline in ``_log_new_best_details``).  Enables tracking of how
+    the agent's behaviour and reward mix evolve mid-run without waiting for an
+    improvement event.
+    """
+    logger.info("  [stats @ sim %d]", sim)
+
+    rc = info.get("episode_reward_components")
+    if rc:
+        terminal = float(rc.get("terminal", 0.0))
+        for k, v in sorted(rc.items()):
+            if k == "terminal":
+                continue
+            if abs(v) > 0.001 or k == "score":
+                logger.info("    %s=%+.1f", k, v)
+        if terminal != 0.0:
+            if terminal > 0:
+                logger.info("    win_bonus=%+.1f", terminal)
+            else:
+                logger.info("    loss_penalty=%+.1f", terminal)
+
+    ac = info.get("episode_action_counts")
+    if ac:
+        total = sum(ac.values())
+        if total > 0:
+            try:
+                from games.sc2.actions import FUNCTION_IDS as _FNIDS  # noqa: PLC0415
+            except ImportError:
+                _FNIDS: dict = {}
+            for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                name = _FNIDS.get(int(fn_idx), f"fn{fn_idx}")
+                pct = 100.0 * count / total
+                logger.info("    %s=%.1f%%", name, pct)
+
+
 def _print_action_stats(throttle_counts: list[int], turning_steps: int,
                          steps: int) -> None:
     if steps == 0:
@@ -453,6 +495,7 @@ def _run_probes(
     speed: float,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
 ) -> tuple[float, list[ProbeResult]]:
     saved_limit = env.get_episode_time_limit()
     env.set_episode_time_limit(probe_in_game_s / speed)
@@ -473,6 +516,7 @@ def _run_probes(
                 env, _ConstantPolicy(action_arr), obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
+                live_monitor=live_monitor,
             )
             results[i] = reward
             probe_results.append(
@@ -509,6 +553,7 @@ def _cold_start_search(
     sims_per_restart: int = 10,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
 ) -> tuple[WeightedLinearPolicy, float, list[ColdStartRestartResult]]:
     overall_best_policy = None
     overall_best_reward = float("-inf")
@@ -539,6 +584,7 @@ def _cold_start_search(
                 env, candidate, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
+                live_monitor=live_monitor,
             )
             sim_results.append(ColdStartSimResult(
                 sim=sim, reward=reward,
@@ -681,7 +727,9 @@ def _greedy_loop(
     adaptive_mutation: bool = True,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
     patience: int = 0,
+    log_stats_every_n_sims: int = 0,
 ) -> tuple[BasePolicy, float, list[GreedySimResult], bool, int | None]:
     """ES gradient-estimation loop for WeightedLinearPolicy / NeuralNetPolicy."""
     ADAPT_WINDOW = 20
@@ -715,6 +763,7 @@ def _greedy_loop(
                     env, candidate, obs,
                     warmup_action=warmup_action, warmup_steps=warmup_steps,
                     reset_info=reset_info,
+                    live_monitor=live_monitor,
                 )
                 improved = reward > best_reward
                 if improved:
@@ -731,6 +780,8 @@ def _greedy_loop(
                 else:
                     verdict = f"no improvement  r={reward:+.1f}  best={best_reward:+.1f}"
                     logger.info("  >> %s", verdict)
+                    if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
+                        _log_periodic_stats(info, sim)
                 improvement_history.append(improved)
                 _maybe_adapt_scale(improvement_history, current_scale, sim,
                                    ADAPT_WINDOW, ADAPT_UP, ADAPT_DOWN,
@@ -803,6 +854,7 @@ def _greedy_loop(
                 env, policy_plus, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
+                live_monitor=live_monitor,
             )
             # Capture the plus replay before env.reset() starts the minus episode
             # and overwrites it in the SC2 process.
@@ -815,6 +867,7 @@ def _greedy_loop(
                 env, policy_minus, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
+                live_monitor=live_monitor,
             )
 
             theta += learning_rate * (r_plus - r_minus) * eps
@@ -854,6 +907,8 @@ def _greedy_loop(
                 verdict = (f"no improvement  +ε={r_plus:+.1f}  −ε={r_minus:+.1f}"
                            f"  best={best_reward:+.1f}")
                 logger.info("  >> %s", verdict)
+                if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(best_info, sim)
 
             improvement_history.append(improved)
             if adaptive_mutation and len(improvement_history) == ADAPT_WINDOW and sim % ADAPT_WINDOW == 0:
@@ -966,8 +1021,10 @@ def _greedy_loop_cmaes(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
     patience: int = 0,
     evaluator: Any = None,
+    log_stats_every_n_sims: int = 0,
 ) -> tuple[Any, float, list[GreedySimResult], bool, int | None]:
     """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution.
 
@@ -1034,6 +1091,7 @@ def _greedy_loop_cmaes(
                             env, individual, obs,
                             warmup_action=warmup_action, warmup_steps=warmup_steps,
                             reset_info=reset_info,
+                            live_monitor=live_monitor,
                         )
                         ep_rewards.append(reward)
                         total_steps += steps
@@ -1066,6 +1124,8 @@ def _greedy_loop_cmaes(
                            f"  champion={policy.champion_reward:+.1f}"
                            f"  sigma={policy.sigma:.4f}")
                 logger.info("  >> %s", verdict)
+                if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(info, gen)
 
             greedy_sims.append(GreedySimResult(
                 sim=gen, reward=gen_best, improved=improved,
@@ -1109,7 +1169,9 @@ def _greedy_loop_q_learning(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
     patience: int = 0,
+    log_stats_every_n_sims: int = 0,
 ) -> tuple[BasePolicy, float, list[GreedySimResult], bool, int | None]:
     """Q-learning greedy loop for epsilon_greedy and mcts policy types."""
     best_reward       = float("-inf")
@@ -1131,6 +1193,7 @@ def _greedy_loop_q_learning(
                 env, policy, obs,
                 warmup_action=warmup_action, warmup_steps=warmup_steps,
                 reset_info=reset_info,
+                live_monitor=live_monitor,
             )
             policy.on_episode_end()
 
@@ -1150,6 +1213,8 @@ def _greedy_loop_q_learning(
             if improved:
                 _log_new_best_details(info, best_info_logged)
                 best_info_logged = info
+            elif log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
+                _log_periodic_stats(info, episode)
 
             greedy_sims.append(GreedySimResult(
                 sim=episode, reward=reward, improved=improved,
@@ -1193,9 +1258,11 @@ def _greedy_loop_genetic(
     weights_file: str,
     warmup_action: np.ndarray | None = None,
     warmup_steps: int = 0,
+    live_monitor: Any = None,
     patience: int = 0,
     adaptive_mutation: bool = True,
     evaluator: Any = None,
+    log_stats_every_n_sims: int = 0,
 ) -> tuple[GeneticPolicy, float, list[GreedySimResult], bool, int | None]:
     """Genetic algorithm loop: N_pop episodes per generation.
 
@@ -1269,6 +1336,7 @@ def _greedy_loop_genetic(
                             env, individual, obs,
                             warmup_action=warmup_action, warmup_steps=warmup_steps,
                             reset_info=reset_info,
+                            live_monitor=live_monitor,
                         )
                         ep_rewards.append(reward)
                         total_steps += steps
@@ -1299,6 +1367,8 @@ def _greedy_loop_genetic(
                 verdict = (f"no improvement  gen_best={gen_best:+.1f}"
                            f"  champion={policy.champion_reward:+.1f}")
                 logger.info("  >> %s", verdict)
+                if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(info, gen)
 
             # --- adaptive mutation (1/5 success rule over recent window) ---
             improvement_history.append(improved)
@@ -1544,6 +1614,7 @@ def train_rl(
 
     logger.info("Connecting to game...")
     env = make_env_fn()
+    live_monitor = make_live_monitor(training_params, obs_spec)
 
     pretrained = False
     if _will_pretrain:
@@ -1560,6 +1631,7 @@ def train_rl(
         probe_best, probe_results = _run_probes(
             env, probe_actions, probe_in_game_s, speed,
             warmup_action=warmup_action, warmup_steps=warmup_steps,
+            live_monitor=live_monitor,
         )
         t_after_probe = datetime.datetime.now()
 
@@ -1571,6 +1643,7 @@ def train_rl(
             mutation_scale, mutation_share=mutation_share,
             n_restarts=cold_start_restarts, sims_per_restart=cold_start_sims,
             warmup_action=warmup_action, warmup_steps=warmup_steps,
+            live_monitor=live_monitor,
         )
         t_after_cold = datetime.datetime.now()
     else:
@@ -1599,7 +1672,12 @@ def train_rl(
     time.sleep(1)
     t_greedy_start = datetime.datetime.now()
 
-    kw = dict(warmup_action=warmup_action, warmup_steps=warmup_steps)
+    kw = dict(
+        warmup_action=warmup_action,
+        warmup_steps=warmup_steps,
+        live_monitor=live_monitor,
+    )
+    log_stats_every_n_sims = int(training_params.get("log_stats_every_n_sims", 10) or 0)
 
     _extra_dispatch = extra_loop_dispatch or {}
     _loop_kind = (
@@ -1624,50 +1702,59 @@ def train_rl(
                 env=env, policy=best_policy, n_sims=n_sims,
                 mutation_scale=mutation_scale, mutation_share=mutation_share,
                 best_reward=best_reward, weights_file=weights_file,
-                adaptive_mutation=adaptive_mutation, patience=patience, **kw,
+                adaptive_mutation=adaptive_mutation, patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
         elif policy_type in ("epsilon_greedy", "mcts"):
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
                 env=env, policy=best_policy, n_episodes=n_sims,
-                weights_file=weights_file, patience=patience, **kw,
+                weights_file=weights_file, patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
         elif policy_type == "genetic":
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
                 env=env, policy=best_policy,  # type: ignore[arg-type]
                 n_generations=n_sims, weights_file=weights_file,
                 patience=patience, adaptive_mutation=adaptive_mutation,
-                evaluator=evaluator, **kw,
+                evaluator=evaluator,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
         elif _extra_dispatch.get(policy_type) == "q_learning":
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_q_learning(
                 env=env, policy=best_policy, n_episodes=n_sims,
-                weights_file=weights_file, patience=patience, **kw,
+                weights_file=weights_file, patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
         elif _extra_dispatch.get(policy_type) == "cmaes":
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_cmaes(
                 env=env, policy=best_policy,
                 n_generations=n_sims, weights_file=weights_file, patience=patience,
-                evaluator=evaluator, **kw,
+                evaluator=evaluator,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
         elif _extra_dispatch.get(policy_type) == "genetic":
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop_genetic(
                 env=env, policy=best_policy,  # type: ignore[arg-type]
                 n_generations=n_sims, weights_file=weights_file,
                 patience=patience, adaptive_mutation=adaptive_mutation,
-                evaluator=evaluator, **kw,  # type: ignore[arg-type]
+                evaluator=evaluator,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,  # type: ignore[arg-type]
             )
         else:
             best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
                 env=env, policy=best_policy, n_sims=n_sims,
                 mutation_scale=mutation_scale, mutation_share=mutation_share,
                 best_reward=best_reward, weights_file=weights_file,
-                adaptive_mutation=adaptive_mutation, patience=patience, **kw,
+                adaptive_mutation=adaptive_mutation, patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
             )
     finally:
         if evaluator is not None:
             evaluator.close()
 
     env.close()
+    if live_monitor is not None:
+        live_monitor.close()
 
     logger.info("=== Training complete — best total reward: %+.1f ===", best_reward)
 

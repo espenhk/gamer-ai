@@ -6,6 +6,10 @@ Hosts an HTTP server that workers poll for work and post results to.
 Authentication: every request must carry  Authorization: Bearer <token>.
 Missing or wrong token → 401 Unauthorized.
 
+Network scope: by default, only LAN/loopback clients are accepted
+(private, link-local, or loopback source IPs). Public/non-LAN clients are
+rejected with 403 unless allow_non_lan=True.
+
 Endpoints:
   GET  /work       → 200 + ComboSpec JSON, or 204 when queue is empty.
                      Workers may send an optional X-Worker-Game header to
@@ -21,7 +25,14 @@ Usage (called automatically by grid_search.py --distribute):
     from distributed.protocol import ComboSpec
 
     combos = [ComboSpec(name=..., track=..., training_params=..., reward_params=...)]
-    coord = Coordinator(combos, token="mysecret", port=5555, heartbeat_timeout=60.0)
+    coord = Coordinator(
+        combos,
+        token="mysecret",
+        port=5555,
+        heartbeat_timeout=60.0,
+        bind_host="0.0.0.0",
+        allow_non_lan=False,
+    )
     coord.start()
     print("Waiting for workers …")
     all_runs = coord.wait_for_all()   # blocks until all results received
@@ -33,6 +44,7 @@ import json
 import logging
 import threading
 import time
+import ipaddress
 from collections import deque
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
@@ -65,6 +77,8 @@ class Coordinator:
         token: str,
         port: int = 5555,
         heartbeat_timeout: float = 60.0,
+        bind_host: str = "0.0.0.0",
+        allow_non_lan: bool = False,
     ) -> None:
         self._token = token
         self._work_queue: deque[ComboSpec] = deque(combos)
@@ -74,6 +88,8 @@ class Coordinator:
         self._total = len(combos)
         self._port = port
         self._heartbeat_timeout = heartbeat_timeout
+        self._bind_host = bind_host
+        self._allow_non_lan = allow_non_lan
 
         self._lock = threading.Lock()
         self._done_event = threading.Event()
@@ -91,6 +107,8 @@ class Coordinator:
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # type: ignore[override]
+                if not coord._check_client_allowed(self):
+                    return
                 if not coord._check_auth(self):
                     return
                 if self.path == "/work":
@@ -101,6 +119,8 @@ class Coordinator:
                     self._send_json(404, {"error": "not found"})
 
             def do_POST(self) -> None:  # type: ignore[override]
+                if not coord._check_client_allowed(self):
+                    return
                 if not coord._check_auth(self):
                     return
                 body = self._read_body()
@@ -130,7 +150,7 @@ class Coordinator:
             def log_message(self, fmt: str, *args: Any) -> None:
                 pass  # suppress default access logging
 
-        self._server = _ThreadingHTTPServer(("", self._port), Handler)
+        self._server = _ThreadingHTTPServer((self._bind_host, self._port), Handler)
         actual_port = self._server.server_address[1]
 
         self._server_thread = threading.Thread(
@@ -143,7 +163,13 @@ class Coordinator:
         )
         self._monitor_thread.start()
 
-        logger.info("Coordinator listening on port %d (%d combo(s) queued)", actual_port, self._total)
+        logger.info(
+            "Coordinator listening on %s:%d (%d combo(s) queued, lan_only=%s)",
+            self._bind_host,
+            actual_port,
+            self._total,
+            not self._allow_non_lan,
+        )
 
     @property
     def port(self) -> int:
@@ -175,6 +201,26 @@ class Coordinator:
     # ------------------------------------------------------------------
     # Auth
     # ------------------------------------------------------------------
+
+    def _check_client_allowed(self, handler: Any) -> bool:
+        if self._allow_non_lan:
+            return True
+        client_ip = handler.client_address[0]
+        try:
+            addr = ipaddress.ip_address(client_ip)
+        except ValueError:
+            logger.warning("Rejected non-IP client address: %r", client_ip)
+            handler.send_response(403)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return False
+        if addr.is_loopback or addr.is_private or addr.is_link_local:
+            return True
+        logger.warning("Rejected non-LAN client %s", client_ip)
+        handler.send_response(403)
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return False
 
     def _check_auth(self, handler: Any) -> bool:
         """Check Bearer token. Sends 401 and returns False if invalid."""

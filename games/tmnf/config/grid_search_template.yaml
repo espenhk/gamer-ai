@@ -51,4 +51,8 @@ reward_params:
 # ---------------------------------------------------------------------------
 # distribute:
 #   port: 5555                # coordinator HTTP port (default: 5555)
+#   bind_host: 0.0.0.0        # interface/IP to bind (default: all interfaces)
 #   heartbeat_timeout: 60.0   # seconds before a silent worker is re-queued (default: 60)
+#   local_workers: 1          # local workers on the driver node (default: 1)
+#   local_worker_stagger: 5.0 # seconds between local worker launches (default: 5.0)
+#   allow_non_lan: false      # true = allow public/non-LAN worker source IPs

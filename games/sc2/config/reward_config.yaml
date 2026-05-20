@@ -19,7 +19,9 @@
 #   maps regardless of score_weight.
 
 # --- Primary signal ---
-score_weight: 10.0
+# Kept large relative to the shaping terms below so task score dominates the
+# reward and movement/attack bonuses only nudge exploration.
+score_weight: 100.0
 
 # --- Terminal outcome (ladder maps) ---
 # These are applied whenever player_outcome != None (terminal ladder step).
@@ -42,17 +44,28 @@ idle_penalty: 0.0
 idle_bonus: 0.5
 
 # --- Move exploration / anti-hyperfixation ---
-# move_exploration_bonus: per-step bonus when a Move_screen command targets a
-#   point at least _MOVE_MIN_MEANINGFUL_FRAC (6/64 ≈ 9% of screen) away from
-#   the previous move target.  Sub-threshold moves earn no bonus — this
-#   prevents stutter-stepping (tiny back-and-forth moves) from farming reward.
+# move_exploration_bonus: per-step bonus when a Move_screen command is issued
+#   and the friendly-unit centroid is in a screen grid cell that is currently
+#   unexplored.  The screen is cut into a move_exploration_grid_size square grid
+#   (default 8×8 → cells ~1/8 of the screen wide); a cell is marked explored
+#   whenever the centroid is in it and expires move_exploration_decay_steps env
+#   steps after the centroid last left it.  A stationary centroid keeps
+#   refreshing its own cell, so spamming moves from one spot earns nothing,
+#   while the decay keeps the bonus alive once the screen is covered so units
+#   don't learn to freeze in place.
+# move_exploration_grid_size: cells per axis for the grid above (higher = finer).
+# move_exploration_decay_steps: env steps before an explored cell may be
+#   rewarded again on a return visit.  0 = never expire (once per cell per
+#   episode); larger keeps an area "explored" longer.
 # move_repeat_penalty: per-step penalty when a Move_screen command targets a
 #   point less than _MOVE_MIN_MEANINGFUL_FRAC from the previous move target
 #   (covers both exact repeats and tiny stutter steps).
 # move_self_penalty: per-step penalty when a Move_screen command targets the
 #   centroid of currently-visible friendly units (discourages "move where we
 #   already are").
-move_exploration_bonus: 0.2
+move_exploration_bonus: 0.15
+move_exploration_grid_size: 8
+move_exploration_decay_steps: 120
 move_repeat_penalty: -0.05
 move_self_penalty: -0.1
 
@@ -69,6 +82,13 @@ attack_move_bonus: 0.5
 #   target must be either the same unit OR the agent must wait
 #   click_attack_cooldown_steps before the bonus fires again.
 click_attack_bonus: 1.0
+
+# attack_bonus: per-step bonus whenever the agent issues Attack_screen
+#   (fn_idx 3), regardless of whether the target is an enemy unit (click-to-
+#   attack) or open ground (A-move).  A simpler alternative to enabling both
+#   attack_move_bonus and click_attack_bonus separately; all three can be
+#   active simultaneously.  Set to 0.0 to disable.
+attack_bonus: 0.5
 
 # Minimum env steps between rewarded target switches for click_attack_bonus.
 # Clicking repeatedly on the same unit passes immediately; changing target

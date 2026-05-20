@@ -84,6 +84,7 @@ _ABBREV = {
     "obs_spec_preset": "osp",
     "enable_belief": "eb",
     "max_apm": "apm",
+    "log_stats_every_n_sims": "lsens",
     # neural_net policy params
     "hidden_sizes": "hs",
     "hidden_size": "hsize",
@@ -126,6 +127,8 @@ _ABBREV = {
     "idle_penalty": "ip",
     "idle_bonus": "ib",
     "move_exploration_bonus": "meb",
+    "move_exploration_grid_size": "megs",
+    "move_exploration_decay_steps": "meds",
     "move_repeat_penalty": "mrp",
     "move_self_penalty": "msp",
     "attack_move_bonus": "amb",
@@ -139,6 +142,7 @@ _ABBREV = {
     "damage_taken_penalty": "dtp",
     "passive_under_fire_penalty": "pufp",
     "small_selection_bonus": "ssb",
+    "attack_bonus": "atb",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "lidar_wall_weight": "lww",
@@ -439,8 +443,11 @@ def _run_distributed(
     token: str,
     port: int,
     heartbeat_timeout: float,
+    bind_host: str,
+    allow_non_lan: bool,
     game_name: str,
-    local_workers: int = 0,
+    local_workers: int = 1,
+    local_worker_start_stagger_s: float = 5.0,
     no_interrupt: bool = False,
     re_initialize: bool = False,
 ) -> list[tuple[str, Any]]:
@@ -465,18 +472,28 @@ def _run_distributed(
         )
 
     coord = Coordinator(
-        combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout
+        combo_specs,
+        token=token,
+        port=port,
+        heartbeat_timeout=heartbeat_timeout,
+        bind_host=bind_host,
+        allow_non_lan=allow_non_lan,
     )
     worker_procs: list[subprocess.Popen] = []
     try:
         coord.start()
+        local_worker_host = bind_host
+        if bind_host in ("", "0.0.0.0", "::"):
+            local_worker_host = "127.0.0.1"
         worker_procs = _launch_local_workers(
+            coordinator_host=local_worker_host,
             coordinator_port=coord.port,
             token=token,
             game_name=game_name,
             local_workers=local_workers,
             no_interrupt=no_interrupt,
             re_initialize=re_initialize,
+            start_stagger_s=local_worker_start_stagger_s,
         )
         logger.info(
             "Coordinator ready on port %d — start workers with:\n"
@@ -516,24 +533,40 @@ def _run_distributed(
 
 
 def _launch_local_workers(
+    coordinator_host: str,
     coordinator_port: int,
     token: str,
     game_name: str,
     local_workers: int,
     no_interrupt: bool,
     re_initialize: bool,
+    start_stagger_s: float = 5.0,
 ) -> list[subprocess.Popen]:
-    """Start local worker subprocesses for distributed mode."""
+    """Start local worker subprocesses for distributed mode.
+
+    ``coordinator_host`` is the host/IP embedded in the worker
+    ``--coordinator`` URL.
+
+    ``start_stagger_s`` introduces a cascading delay between consecutive
+    worker launches (issue #254): the first worker starts immediately,
+    the second waits ``start_stagger_s`` seconds, the third waits another
+    ``start_stagger_s`` seconds, and so on.  This prevents the SC2 binaries
+    spawned by each worker from racing to read the same ``.SC2Map`` file
+    on disk at the same instant, which can fail with a "map not found"
+    error when several PySC2 instances boot simultaneously.  Set to ``0``
+    to disable.
+    """
     if local_workers <= 0:
         return []
 
-    coordinator_url = f"http://127.0.0.1:{coordinator_port}"
+    coordinator_url = f"http://{coordinator_host}:{coordinator_port}"
     procs: list[subprocess.Popen] = []
     logger.info(
-        "Launching %d local worker process(es) for game=%s at %s",
+        "Launching %d local worker process(es) for game=%s at %s (stagger=%.1fs)",
         local_workers,
         game_name,
         coordinator_url,
+        start_stagger_s,
     )
     try:
         for i in range(local_workers):
@@ -555,6 +588,8 @@ def _launch_local_workers(
             if re_initialize:
                 cmd.append("--re-initialize")
             procs.append(subprocess.Popen(cmd))
+            if i < local_workers - 1 and start_stagger_s > 0:
+                sleep(start_stagger_s)
     except Exception:
         _stop_local_workers(procs)
         raise
@@ -663,6 +698,14 @@ def main() -> None:
         "ignoring any existing weights file. Skips probe and cold-start.",
     )
     parser.add_argument(
+        "--live-gui",
+        action="store_true",
+        help=(
+            "Show a live GUI window with per-step reward components (rolling avg "
+            "of 5 steps) and observation values while each run trains."
+        ),
+    )
+    parser.add_argument(
         "--distribute",
         action="store_true",
         help="Act as coordinator: serve work items over HTTP and wait for "
@@ -698,6 +741,12 @@ def main() -> None:
         "or value from config distribute.port)",
     )
     parser.add_argument(
+        "--bind-host",
+        default=None,
+        help="Coordinator bind host/IP when --distribute is set "
+        "(default: 0.0.0.0, or value from config distribute.bind_host).",
+    )
+    parser.add_argument(
         "--token",
         default=None,
         metavar="SECRET",
@@ -716,7 +765,24 @@ def main() -> None:
         type=int,
         default=None,
         help="Spawn N local distributed.worker subprocesses automatically. "
-        "Useful for running multiple SC2 instances on one machine.",
+        "Useful for running multiple SC2 instances on one machine "
+        "(default: 1, or value from config distribute.local_workers).",
+    )
+    parser.add_argument(
+        "--allow-non-lan",
+        action="store_true",
+        help="Allow non-LAN/public worker source IPs. By default the "
+        "coordinator only accepts loopback/private/link-local clients.",
+    )
+    parser.add_argument(
+        "--local-worker-stagger",
+        type=float,
+        default=None,
+        metavar="S",
+        help="Seconds to wait between launching consecutive local workers "
+        "(default: 5.0, or value from config distribute.local_worker_stagger). "
+        "Prevents parallel SC2 binaries from racing on the same .SC2Map file "
+        "(issue #254). Set to 0 to disable.",
     )
     parser.add_argument(
         "--log-level",
@@ -760,6 +826,9 @@ def main() -> None:
 
     adapter = GAME_ADAPTERS[game_name]()
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
+    if args.live_gui:
+        for combo in combos:
+            combo["training_params"]["live_gui"] = True
 
     n = len(combos)
     logger.info("  Grid search:       %d combination(s)", n)
@@ -792,15 +861,31 @@ def main() -> None:
         else:
             try:
                 local_workers = _parse_non_negative_int(
-                    distribute_cfg.get("local_workers", 0),
+                    distribute_cfg.get("local_workers", 1),
                     "distribute.local_workers",
                 )
             except ValueError as exc:
                 parser.error(str(exc))
         port = args.port or distribute_cfg.get("port", 5555)
+        bind_host = args.bind_host or distribute_cfg.get("bind_host", "0.0.0.0")
+        cfg_allow_non_lan = bool(distribute_cfg.get("allow_non_lan", False))
+        allow_non_lan = args.allow_non_lan or cfg_allow_non_lan
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
             "heartbeat_timeout", 60.0
         )
+        if args.local_worker_stagger is not None:
+            local_worker_stagger = args.local_worker_stagger
+        else:
+            raw_stagger = distribute_cfg.get("local_worker_stagger", 5.0)
+            try:
+                local_worker_stagger = float(raw_stagger)
+            except (TypeError, ValueError):
+                parser.error(
+                    f"distribute.local_worker_stagger must be a non-negative "
+                    f"number, got {raw_stagger!r}"
+                )
+        if local_worker_stagger < 0:
+            parser.error("--local-worker-stagger must be >= 0")
         token = args.token or os.environ.get("TMNF_GRID_TOKEN") or str(_uuid.uuid4())
         if not (args.token or os.environ.get("TMNF_GRID_TOKEN")):
             token_preview = f"{token[:8]}..." if len(token) > 8 else "[redacted]"
@@ -816,8 +901,11 @@ def main() -> None:
             token=token,
             port=port,
             heartbeat_timeout=hb_timeout,
+            bind_host=bind_host,
+            allow_non_lan=allow_non_lan,
             game_name=game_name,
             local_workers=local_workers,
+            local_worker_start_stagger_s=local_worker_stagger,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
         )

@@ -1,7 +1,10 @@
 <!--
 One template for all PRs.
 Keep only the section(s) that apply to this PR and delete the rest.
+Replace <issue> in the "Closes" line below with the issue number this PR resolves.
 -->
+
+Closes #<issue>
 
 ## Summary
 
@@ -12,7 +15,8 @@ Keep only the section(s) that apply to this PR and delete the rest.
 
 ## Related issues
 
-<!-- Add links like: "Closes #123" / "Refs #456" -->
+<!-- The issue this PR closes goes in the "Closes #<issue>" line at the top.
+     Add any *additional* related issues here, e.g. "Refs #456". -->
 
 ## Validation
 

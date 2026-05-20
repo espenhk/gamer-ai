@@ -459,6 +459,66 @@ class TestCoordinator:
 
         coord.stop()
 
+    def test_lan_only_allows_private_and_loopback_client_ips(self):
+        coord = Coordinator([], token=_TEST_TOKEN, allow_non_lan=False)
+
+        class _H:
+            def __init__(self, ip):
+                self.client_address = (ip, 12345)
+                self.status = None
+
+            def send_response(self, code):
+                self.status = code
+
+            def send_header(self, _k, _v):
+                pass
+
+            def end_headers(self):
+                pass
+
+        for ip in ("127.0.0.1", "192.168.1.25", "10.0.0.8", "169.254.1.2"):
+            h = _H(ip)
+            assert coord._check_client_allowed(h)
+            assert h.status is None
+
+    def test_lan_only_rejects_public_client_ips(self):
+        coord = Coordinator([], token=_TEST_TOKEN, allow_non_lan=False)
+
+        class _H:
+            def __init__(self):
+                self.client_address = ("8.8.8.8", 12345)
+                self.status = None
+
+            def send_response(self, code):
+                self.status = code
+
+            def send_header(self, _k, _v):
+                pass
+
+            def end_headers(self):
+                pass
+
+        h = _H()
+        assert not coord._check_client_allowed(h)
+        assert h.status == 403
+
+    def test_allow_non_lan_flag_accepts_public_client_ips(self):
+        coord = Coordinator([], token=_TEST_TOKEN, allow_non_lan=True)
+
+        class _H:
+            client_address = ("8.8.8.8", 12345)
+
+            def send_response(self, _code):
+                assert False, "should not reject"
+
+            def send_header(self, _k, _v):
+                assert False, "should not reject"
+
+            def end_headers(self):
+                assert False, "should not reject"
+
+        assert coord._check_client_allowed(_H())
+
     def _get_with_game(self, coord, game: str):
         """GET /work with an X-Worker-Game filter header."""
         import urllib.request
@@ -611,4 +671,3 @@ class TestWorkerGameFilter:
             spec = ComboSpec(name="n", track="t", training_params={}, reward_params={}, game=game)
             recovered = combo_from_dict(combo_to_dict(spec))
             assert recovered.game == game
-

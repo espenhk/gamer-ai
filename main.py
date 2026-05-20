@@ -69,6 +69,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Ignore any existing weights file and restart from scratch, "
              "including probe and cold-start phases.",
     )
+    parser.add_argument(
+        "--live-gui",
+        action="store_true",
+        help=(
+            "Show a live GUI window with per-step reward components (rolling avg "
+            "of 5 steps) and observation values during training."
+        ),
+    )
 
     sc2_mode = parser.add_mutually_exclusive_group()
     sc2_mode.add_argument(
@@ -214,6 +222,9 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
     if getattr(args, "workers", None) is not None:
         p["n_workers"] = int(args.workers)
         logger.info("Overriding training_params n_workers = %d from --workers", p["n_workers"])
+    if getattr(args, "live_gui", False):
+        p["live_gui"] = True
+        logger.info("Live GUI telemetry enabled via --live-gui")
 
     # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
     with open(reward_cfg_file) as f:

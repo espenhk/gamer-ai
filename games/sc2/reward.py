@@ -72,13 +72,32 @@ class SC2RewardConfig:
         minigames.  Set to 0 for pure-combat minigames.
     move_exploration_bonus :
         Per-step bonus awarded when a ``Move_screen`` command is issued and
-        the current friendly-unit centroid is in a **new** grid cell of the
-        8×8 screen grid that has not been visited during this episode. Cells
-        are marked visited whenever friendlies are visible, regardless of
-        action type. Fires at most once per cell per episode; units must be
-        visible (``screen_self_count > 0``). This prevents the command-spam exploit:
-        issuing many move commands to different screen regions earns no bonus
-        unless units physically reach those regions.
+        the current friendly-unit centroid is in a grid cell that is
+        currently **unexplored**.  The screen is cut into a
+        ``move_exploration_grid_size`` × ``move_exploration_grid_size`` grid
+        (default 8×8 → cells ~1/8 of the screen wide).  A cell becomes
+        explored as soon as the centroid enters it (regardless of action
+        type) and stays explored while the centroid keeps refreshing it; it
+        **expires** ``move_exploration_decay_steps`` env steps after the
+        centroid last left it, becoming eligible to be rewarded again on a
+        later return.  Units must be visible (``screen_self_count > 0``).
+        This blocks the command-spam exploit — a stationary centroid keeps
+        refreshing its own cell so spamming moves from one spot earns nothing
+        — while the decay prevents the bonus from going permanently silent
+        once the whole screen has been covered (which otherwise makes
+        freezing in place optimal).
+    move_exploration_grid_size :
+        Side length of the square screen grid used by
+        ``move_exploration_bonus`` (number of cells per axis).  Default ``8``
+        (cells ~1/8 of the screen).  Higher = finer cells / smaller meaningful
+        relocation; lower = coarser.
+    move_exploration_decay_steps :
+        Number of env steps after which an explored cell expires and may be
+        rewarded again on a return visit (measured in env steps, like
+        ``click_attack_cooldown_steps``).  ``0`` disables decay, restoring the
+        permanent "once per cell per episode" behaviour.  Larger values keep
+        an area "explored" for longer, reducing how often re-visits are
+        rewarded.
     move_repeat_penalty :
         Per-step penalty when a ``Move_screen`` command targets a point that is
         less than ``_MOVE_MIN_MEANINGFUL_FRAC`` of the screen away from the
@@ -121,6 +140,13 @@ class SC2RewardConfig:
         of ``visible_self_unit_count``).  Encourages micro-style control of one
         or a few units rather than always commanding the full visible army.
         Default ``0.0`` — opt-in.
+    attack_bonus :
+        Per-step bonus awarded whenever the agent issues ``Attack_screen``
+        (fn_idx 3), regardless of whether the target is on an enemy unit
+        (click-to-attack) or on open ground (A-move).  A simpler alternative
+        to enabling both ``attack_move_bonus`` and ``click_attack_bonus``
+        separately; all three can be active at once.
+        Default ``0.0`` — opt-in.
     """
 
     score_weight: float = 1.0
@@ -134,6 +160,8 @@ class SC2RewardConfig:
     click_attack_cooldown_steps: int = 8
     economy_weight: float = 0.0
     move_exploration_bonus: float = 0.01
+    move_exploration_grid_size: int = 8
+    move_exploration_decay_steps: int = 50
     move_repeat_penalty: float = -0.02
     move_self_penalty: float = -0.01
     attack_friendly_penalty: float = -5.0
@@ -141,6 +169,7 @@ class SC2RewardConfig:
     damage_taken_penalty: float = 0.0
     passive_under_fire_penalty: float = 0.0
     small_selection_bonus: float = 0.0
+    attack_bonus: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -208,8 +237,6 @@ class SC2RewardCalculator(RewardCalculatorBase):
     _MOVE_MIN_MEANINGFUL_FRAC: float = 6.0 / 64.0
     # Radius (as a screen fraction) considered "targeting where my units are".
     _MOVE_SELF_RADIUS_FRAC: float = 6.0 / 64.0
-    # Grid resolution for unit-visit tracking used by move_exploration_bonus.
-    _VISIT_GRID_SIZE: int = 8
 
     # Radius (as screen fraction) within which a click target must fall to be
     # classified as "on an enemy unit" rather than "attack-move to ground".
@@ -233,7 +260,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_non_noop_target_x: float = 0.5
         self._last_non_noop_target_y: float = 0.5
         self._step_count: int = 0
-        self._visited_unit_cells: set[tuple[int, int]] = set()
+        # cell -> env step on which the centroid was last seen in that cell.
+        self._visited_unit_cells: dict[tuple[int, int], int] = {}
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -244,7 +272,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_non_noop_target_x = 0.5
         self._last_non_noop_target_y = 0.5
         self._step_count = 0
-        self._visited_unit_cells = set()
+        self._visited_unit_cells = {}
 
     def compute(
         self,
@@ -279,10 +307,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_friendly_penalty``, ``unit_loss``, ``damage_taken``,
-        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
-        ``terminal``
-        separately.
+        ``attack_bonus``, ``attack_friendly_penalty``, ``unit_loss``,
+        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
+        ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -362,21 +389,27 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False
         if self_count > 0:
+            grid_size = max(1, int(cfg.move_exploration_grid_size))
+            decay_steps = int(cfg.move_exploration_decay_steps)
             screen_size = max(1.0, float(info.get("screen_size", 64)))
             cx = float(info.get("screen_self_cx", 0.0))
             cy = float(info.get("screen_self_cy", 0.0))
-            cell_x = min(
-                self._VISIT_GRID_SIZE - 1,
-                int(cx / screen_size * self._VISIT_GRID_SIZE),
-            )
-            cell_y = min(
-                self._VISIT_GRID_SIZE - 1,
-                int(cy / screen_size * self._VISIT_GRID_SIZE),
-            )
+            cell_x = min(grid_size - 1, int(cx / screen_size * grid_size))
+            cell_y = min(grid_size - 1, int(cy / screen_size * grid_size))
             cell = (cell_x, cell_y)
-            if cell not in self._visited_unit_cells:
-                self._visited_unit_cells.add(cell)
+            last_visit = self._visited_unit_cells.get(cell)
+            # A cell counts as "newly explored" when the centroid has never
+            # been in it, or when it was last seen there more than
+            # decay_steps env steps ago (the area went stale and the units
+            # have now returned).  A stationary centroid refreshes last_visit
+            # every step, so it never re-triggers — preserving the
+            # anti-stationary-spam guarantee.  decay_steps <= 0 disables
+            # expiry entirely (permanent once-per-episode behaviour).
+            if last_visit is None:
                 newly_visited_unit_cell = True
+            elif decay_steps > 0 and (self._step_count - last_visit) > decay_steps:
+                newly_visited_unit_cell = True
+            self._visited_unit_cells[cell] = self._step_count
 
         # Move shaping: encourage varied move targets and
         # discourage repeatedly targeting where units already are.
@@ -514,6 +547,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         components["attack_move_bonus"] = float(attack_move_bonus)
         components["click_attack_bonus"] = float(click_attack_bonus)
+
+        # General attack bonus: fires on any Attack_screen regardless of target.
+        attack_bonus = 0.0
+        if cfg.attack_bonus != 0.0 and combat_fn_idx == 3:
+            attack_bonus = cfg.attack_bonus * n_ticks
+        components["attack_bonus"] = float(attack_bonus)
 
         # Friendly-fire penalty: Attack_screen aimed at own units.
         attack_friendly_penalty = 0.0

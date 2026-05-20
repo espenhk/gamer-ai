@@ -32,6 +32,7 @@ class TestGameFlagChoices(unittest.TestCase):
         parser.add_argument("--track", default=None)
         parser.add_argument("--no-interrupt", action="store_true")
         parser.add_argument("--re-initialize", action="store_true")
+        parser.add_argument("--live-gui", action="store_true")
         parser.add_argument("--log-level", default="INFO",
                             choices=["DEBUG", "INFO", "WARNING", "ERROR"])
         return parser
@@ -71,6 +72,11 @@ class TestGameFlagChoices(unittest.TestCase):
         args = parser.parse_args(["my_exp", "--game", "torcs", "--track", "aalborg"])
         self.assertEqual(args.track, "aalborg")
 
+    def test_live_gui_flag_accepted(self):
+        parser = self._build_parser()
+        args = parser.parse_args(["my_exp", "--live-gui"])
+        self.assertTrue(args.live_gui)
+
 
 class TestMainGameFlagChoices(unittest.TestCase):
     """Verify that main.py's actual parser has all expected choices."""
@@ -89,6 +95,17 @@ class TestMainGameFlagChoices(unittest.TestCase):
                             main.main()
                         except (SystemExit, Exception):
                             pass
+        finally:
+            sys.argv = original_argv
+
+    def test_main_parser_accepts_live_gui_flag(self):
+        import main  # noqa: PLC0415
+        original_argv = sys.argv[:]
+        try:
+            sys.argv = ["main.py", "test_exp", "--live-gui"]
+            with patch.object(main, "_run_one", MagicMock()):
+                with patch.object(main, "_run_assetto", MagicMock()):
+                    main.main()
         finally:
             sys.argv = original_argv
 

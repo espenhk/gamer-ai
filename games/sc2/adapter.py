@@ -253,6 +253,8 @@ class SC2Adapter:
             os.path.dirname(weights_file), "trainer_state.npz",
         )
 
+        agent_race = training_params.get("agent_race", "random")
+
         def _make_sc2_genetic() -> SC2GeneticPolicy:
             pop_size = policy_params.get("population_size", 30)
             elite_k = policy_params.get("elite_k", 5)
@@ -263,6 +265,7 @@ class SC2Adapter:
                 mutation_scale=policy_params.get("mutation_scale", 0.1),
                 mutation_share=policy_params.get("mutation_share", 0.3),
                 eval_episodes=policy_params.get("eval_episodes", 2),
+                race=agent_race,
             )
             if os.path.exists(weights_file) and not re_initialize:
                 policy.initialize_from_file(weights_file)
@@ -518,12 +521,13 @@ class SC2Adapter:
                 population_size = pop_size,
                 initial_sigma   = sigma,
                 eval_episodes   = policy_params.get("eval_episodes", 2),
+                race            = agent_race,
             )
             if os.path.exists(weights_file) and not re_initialize:
                 with open(weights_file) as _f:
                     _cfg = yaml.safe_load(_f) or {}
                 if isinstance(_cfg, dict):
-                    champion = SC2MultiHeadLinearPolicy.from_cfg(_cfg, obs_spec)
+                    champion = SC2MultiHeadLinearPolicy.from_cfg(_cfg, obs_spec, race=agent_race)
                     policy.initialize_from_champion(champion)
                     if os.path.exists(trainer_state_file):
                         try:
@@ -554,13 +558,14 @@ class SC2Adapter:
                 population_size  = pop_size,
                 initial_sigma    = sigma,
                 reset_on_episode = reset_on_episode,
+                race             = agent_race,
             )
             if os.path.exists(weights_file) and not re_initialize:
                 with open(weights_file) as _f:
                     _cfg = yaml.safe_load(_f) or {}
                 if isinstance(_cfg, dict) and _cfg.get("policy_type") == "sc2_lstm":
                     try:
-                        champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec)
+                        champion = SC2LSTMPolicy.from_cfg(_cfg, obs_spec, race=agent_race)
                         policy.initialize_from_champion(champion)
                     except (ValueError, KeyError) as exc:
                         logger.warning(

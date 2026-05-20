@@ -12,10 +12,10 @@ game: sc2
 training_params:
   map_name: Simple64
   in_game_episode_s: 120.0
-  step_mul: 1
+  step_mul: 4
   obs_spec_preset: rich
   policy_type: sc2_neural_net
-  n_sims: 800                # many generations for high-dimensional search
+  n_sims: 2000                # many generations for high-dimensional search
   hidden_sizes:
     - [1024, 2048, 2048, 1024]
     - [2048, 4096, 4096, 2048]

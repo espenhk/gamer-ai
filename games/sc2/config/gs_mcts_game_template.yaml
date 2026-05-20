@@ -44,14 +44,16 @@ training_params:
   enable_belief: true              # tabular state-space explosion; see comment above
   step_mul: 1
   in_game_episode_s: 600.0
-  screen_size: [64, 128, 256]
-  minimap_size: [64, 128, 256]
+  screen_size: 64
+  minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 1000
+  n_sims: 2000
   policy_type: mcts
   mcts_c: 2.0
   alpha: 0.05
+  move_exploration_bonus: [0.005]
+  damage_taken_penalty: [-0.1, -0.2]   # ablation for damage_taken_penalty
   policy_params:
-    n_bins: [3, 4, 5]
+    n_bins: 3
     gamma: 0.99

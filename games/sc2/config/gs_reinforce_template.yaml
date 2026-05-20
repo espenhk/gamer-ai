@@ -34,22 +34,22 @@ base_name: "gs_sc2_reinforce_v1"
 game: sc2
 
 training_params:
-  map_name: DefeatZerglingsAndBanelings
+  map_name: DefeatRoaches
   in_game_episode_s: 120.0
-  step_mul: 1
+  step_mul: 8
   screen_size: 64
   minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 1000                 # 1000 episodes; REINFORCE needs more episodes than evolutionary methods
+  n_sims: 500                 # 1000 episodes; REINFORCE needs more episodes than evolutionary methods
   policy_type: reinforce
   obs_spec_preset: rich
   enable_belief: true
-  learning_rate: [0.01, 0.02, 0.05]
-  entropy_coeff: [0.01, 0.05]
-  move_exploration_bonus: [0.01, 0.05, 0.1]
-  hidden_sizes: [[64, 64], [16, 256, 256, 256, 16]]
-  damage_taken_penalty: [-0.05, -0.1, -0.2]   # ablation for damage_taken_penalty
+  learning_rate: [0.1]
+  entropy_coeff: [0.05]
+  move_exploration_bonus: [0.005]
+  hidden_sizes: [[16, 256, 256, 256, 16]]
+  damage_taken_penalty: [-0.1, -0.2]   # ablation for damage_taken_penalty
   policy_params:
     gamma: 0.99
     baseline: running_mean    # "none" disables baseline; rarely better for minigames

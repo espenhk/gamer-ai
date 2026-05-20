@@ -661,10 +661,10 @@ def _timings_md(data: ExperimentData) -> str:
 
 
 def _summary_md(data: ExperimentData) -> str:
-    lines = ["## Run Parameters\n\n", "### Training\n\n",
-             "| Parameter | Value |\n", "|-----------|-------|\n"]
+    lines = ["## Run Parameters\n\n"]
     if data.code_version:
-        lines.append(f"| code_version | `{data.code_version}` |\n")
+        lines += ["### Code Version\n\n", f"`{data.code_version}`\n\n"]
+    lines += ["### Training\n\n", "| Parameter | Value |\n", "|-----------|-------|\n"]
     if data.track:
         lines.append(f"| track | {data.track} |\n")
     for k, v in data.training_params.items():
@@ -899,6 +899,18 @@ def save_grid_summary(
     lines = [
         f"# Grid Search Summary: {base_name}\n\n",
         f"{len(runs)} experiments.\n\n",
+    ]
+    versions_to_runs: dict[str, list[str]] = {}
+    for name, data in runs:
+        version = data.code_version or "unknown"
+        versions_to_runs.setdefault(version, []).append(name)
+    lines += [
+        "## Code Versions\n\n",
+    ]
+    for version in sorted(versions_to_runs):
+        names = ", ".join(sorted(versions_to_runs[version]))
+        lines.append(f"- `{version}` ({len(versions_to_runs[version])}): {names}\n")
+    lines += ["\n",
         "## Rankings by Task Metrics (config-independent)\n\n",
         f"Ranked by {task_metric_label}, then by best reward.\n\n",
         "![Task metrics comparison](comparison_task_metrics.png)\n\n",
@@ -960,6 +972,7 @@ def save_grid_summary(
         bft = f"{s['best_finish_time_s']:.1f}s" if s["best_finish_time_s"] is not None else "—"
         lines += [
             "| Stat | Value |\n|---|---|\n",
+            f"| Code version | `{data.code_version or 'unknown'}` |\n",
             f"| {task_metric_label} | {_fmt_task(s['task_metric'])} |\n",
             f"| Finish rate | {s['finish_rate']:.1%} |\n",
             f"| Best finish time | {bft} |\n",

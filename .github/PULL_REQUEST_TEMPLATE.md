@@ -47,6 +47,12 @@ PYTHONPATH=. poetry run python -m pytest tests/ \
 - Why this is safe:
 
 ## Checklist
+### Release bump type
+
+- [x] Patch (default)
+- [ ] Minor
+- [ ] Major
+
 ### AI usage
 
 - [ ] No AI was used to write this code

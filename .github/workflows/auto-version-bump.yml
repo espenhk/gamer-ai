@@ -1,0 +1,83 @@
+name: Auto Version Bump
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: auto-version-bump-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Select bump type and next version
+        id: bump
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import tomllib
+
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          body = (event.get("pull_request", {}) or {}).get("body") or ""
+
+          def checked(label: str) -> bool:
+              pattern = rf"- \[(x|X)\]\s+{re.escape(label)}\b"
+              return re.search(pattern, body, flags=re.IGNORECASE) is not None
+
+          bump = "patch"
+          if checked("Major"):
+              bump = "major"
+          elif checked("Minor"):
+              bump = "minor"
+
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          current = pyproject["tool"]["poetry"]["version"]
+          match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", current)
+          if match is None:
+              raise SystemExit(f"Unexpected version in pyproject.toml: {current!r}")
+          major, minor, patch = map(int, match.groups())
+
+          if bump == "major":
+              next_version = f"{major + 1}.0.0"
+          elif bump == "minor":
+              next_version = f"{major}.{minor + 1}.0"
+          else:
+              next_version = f"{major}.{minor}.{patch + 1}"
+
+          out = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with out.open("a") as fh:
+              fh.write(f"bump={bump}\n")
+              fh.write(f"current={current}\n")
+              fh.write(f"next={next_version}\n")
+          PY
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create release commit
+        run: |
+          python scripts/release.py "${{ steps.bump.outputs.next }}" --no-tag
+
+      - name: Push release commit
+        run: |
+          git push origin HEAD:main

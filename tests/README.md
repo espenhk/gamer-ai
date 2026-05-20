@@ -148,6 +148,7 @@ worker mechanics are unit-tested with a dummy env.
 - summary table: progress / finish-time / dash-on-no-finish / lateral-offset columns
 - `plot_gs_reward_trajectories`: chart written by `save_grid_summary` / referenced in summary.md / no crash with empty sims
 - `save_grid_summary` task-metric plugin: default uses track progress with `.4f` format; custom fn replaces label+value; custom fn drives ranking; explicit `task_metric_fmt` overrides format independently of fn
+- version visibility: `_summary_md` writes a dedicated `Code Version` block for single-run reports; `save_grid_summary` writes a `Code Versions` section and per-experiment `Code version` stat row
 - `plot_reward_component_breakdown`: renders to file / skips when no component data / skips when no sims / skips when all-zero / positive-only / negative-only / partial-None sims use zero for missing keys
 
 ### test_belief.py — fog-of-war belief encoder

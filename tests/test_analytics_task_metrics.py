@@ -22,6 +22,7 @@ from framework.analytics import (
     ExperimentData,
     _task_metrics_table_md,
     _greedy_table_md,
+    _summary_md,
     _gs_stats,
     plot_reward_component_breakdown,
 )
@@ -341,6 +342,32 @@ class TestSaveGridSummaryTaskMetric(unittest.TestCase):
                               task_metric_fmt="{:.1%}".format)
             md = open(os.path.join(d, "summary.md"), encoding="utf-8").read()
         self.assertIn("50.0%", md)
+
+    def test_summary_includes_code_versions_section_and_per_run_version(self):
+        import tempfile, os
+        from framework.analytics import save_grid_summary
+
+        runs = self._make_runs({"exp_a": [0.5], "exp_b": [0.4]})
+        runs[0][1].code_version = "0.1.2+gabc1234"
+        runs[1][1].code_version = "0.1.3+gdef5678"
+
+        with tempfile.TemporaryDirectory() as d:
+            save_grid_summary(runs, [], d, "gs")
+            md = open(os.path.join(d, "summary.md"), encoding="utf-8").read()
+
+        self.assertIn("## Code Versions", md)
+        self.assertIn("`0.1.2+gabc1234`", md)
+        self.assertIn("`0.1.3+gdef5678`", md)
+        self.assertIn("| Code version | `0.1.2+gabc1234` |", md)
+
+
+class TestRunSummaryCodeVersion(unittest.TestCase):
+    def test_summary_md_has_dedicated_code_version_section(self):
+        exp = _make_experiment([_make_sim(1)])
+        exp.code_version = "0.1.2+gabc1234"
+        md = _summary_md(exp)
+        self.assertIn("### Code Version", md)
+        self.assertIn("`0.1.2+gabc1234`", md)
 
 
 # ---------------------------------------------------------------------------

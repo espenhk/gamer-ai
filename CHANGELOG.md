@@ -23,9 +23,23 @@ formatting, internal refactors with no behaviour change — can be skipped.
   merge.  `CLAUDE.md` gains a **Pull requests** section requiring every
   PR description to be filled in from the template with that
   `Closes #<issue>` link.
-- `CLAUDE.md` now documents the `sc2_neural_net` policy, the
-  `log_stats_every_n_sims` SC2 training param, and the SC2 `--eval`
-  evaluation mode.
+- `CLAUDE.md` brought back in sync with the codebase:
+  - Documents all six supported games (adds CarRacing, BeamNG, Assetto
+    Corsa alongside TMNF / TORCS / SC2) in the intro, repository-structure
+    tree, and run examples.
+  - Corrects the master-config location — configs are per-game under
+    `games/<game>/config/`, not a top-level `config/` directory.
+  - Refreshes the **Dependencies** section for the current Poetry group
+    layout (core vs `tmnf` / `tmnf-test` / `torcs` / optional `sc2` /
+    `assetto_corsa`, plus CarRacing/BeamNG out-of-group deps).
+  - Adds the `sc2_neural_net` policy, the `log_stats_every_n_sims`
+    training param, the SC2 `--eval` mode, the `attack_friendly_penalty`
+    and `small_selection_bonus` SC2 reward keys, the
+    `grid_search --local-workers` / `--local-worker-stagger` flags, the
+    SC2 map-access-gate env vars, and the `main.py` `--track` / `--workers`
+    / `--log-level` override flags.
+  - Updates the `move_exploration_bonus` / `move_repeat_penalty`
+    descriptions to match the issue #253 unit-position tracking fix.
 
 ### Added
 - **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward

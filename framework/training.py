@@ -18,7 +18,7 @@ import logging
 import os
 import time
 from collections import deque
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import yaml
@@ -42,7 +42,7 @@ from framework.policies import (
     trainer_state_path as _trainer_state_path_canonical,
 )
 from framework.obs_spec import ObsSpec
-from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras
+from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec
 from framework.version import code_version
 
 logger = logging.getLogger(__name__)
@@ -74,34 +74,48 @@ class _ConstantPolicy:
 # Policy factory
 # ---------------------------------------------------------------------------
 
+def _resolve_policy_class(policy_type: str) -> type[BasePolicy]:
+    """Look up *policy_type* in POLICY_REGISTRY, raising if unknown."""
+    cls = POLICY_REGISTRY.get(policy_type)
+    if cls is None:
+        raise ValueError(
+            f"Unknown policy_type: {policy_type!r}. "
+            f"Registered: {sorted(POLICY_REGISTRY)}"
+        )
+    return cls
+
+
+def _assert_policy_compatible(
+    cls: type[BasePolicy], policy_type: str, game_name: str,
+) -> None:
+    """Raise ValueError if *cls* declares itself incompatible with *game_name*."""
+    ok, hint = cls.compatible_with(game_name)
+    if not ok:
+        msg = (f"policy_type={policy_type!r} is not compatible with "
+               f"game={game_name!r}.")
+        if hint:
+            msg += f" {hint}"
+        raise ValueError(msg)
+
+
 def _make_policy(
     policy_type: str,
+    *,
     obs_spec: ObsSpec,
     head_names: list[str],
     discrete_actions: np.ndarray,
     weights_file: str,
     policy_params: dict,
     re_initialize: bool,
-    extra_policy_types: dict[str, Callable[[], BasePolicy]] | None = None,
+    game_name: str = "",
 ) -> BasePolicy:
-    """Construct the appropriate policy given type, obs_spec, and hyperparams.
-
-    Consults POLICY_REGISTRY first; falls back to extra_policy_types for
-    game-registered policies not yet migrated to the registry.
-    """
-    cls = POLICY_REGISTRY.get(policy_type)
-    if cls is not None:
-        return cls.make(
-            obs_spec=obs_spec, head_names=head_names,
-            discrete_actions=discrete_actions, weights_file=weights_file,
-            policy_params=policy_params, re_initialize=re_initialize,
-        )
-    if extra_policy_types and policy_type in extra_policy_types:
-        return extra_policy_types[policy_type]()
-    raise ValueError(
-        f"Unknown policy_type: {policy_type!r}. "
-        f"Registered: {sorted(POLICY_REGISTRY)}; "
-        f"extras: {sorted(extra_policy_types or [])}"
+    """Construct a policy via POLICY_REGISTRY, after a game-compatibility check."""
+    cls = _resolve_policy_class(policy_type)
+    _assert_policy_compatible(cls, policy_type, game_name)
+    return cls.make(
+        obs_spec=obs_spec, head_names=head_names,
+        discrete_actions=discrete_actions, weights_file=weights_file,
+        policy_params=policy_params, re_initialize=re_initialize,
     )
 
 
@@ -1074,7 +1088,6 @@ def train_rl(
     *,
     probe: ProbeSpec | None = None,
     warmup: WarmupSpec | None = None,
-    extras: PolicyExtras | None = None,
     no_interrupt: bool = False,
     re_initialize: bool = False,
 ) -> ExperimentData:
@@ -1091,8 +1104,6 @@ def train_rl(
         Probe + cold-start config.  None skips both phases.
     warmup : WarmupSpec | None
         Forced-action warmup at episode start.  None skips warmup.
-    extras : PolicyExtras | None
-        Game-specific extra policy types and loop dispatch.
     """
 
     # ── unpack bundles into local scalars for internal helpers ────────
@@ -1105,6 +1116,7 @@ def train_rl(
     reward_config_file = game.reward_config_file
     save_results_fn  = game.save_results_fn
     track            = game.track
+    game_name        = game.game_name
 
     speed             = config.speed
     n_sims            = config.n_sims
@@ -1136,13 +1148,6 @@ def train_rl(
         warmup_action = None
         warmup_steps  = 0
 
-    if extras is not None:
-        extra_policy_types  = extras.factories
-        extra_loop_dispatch = extras.loop_dispatch
-    else:
-        extra_policy_types  = None
-        extra_loop_dispatch = None
-
     policy_params = policy_params or {}
     probe_actions = probe_actions or []
     t_start       = datetime.datetime.now()
@@ -1152,6 +1157,16 @@ def train_rl(
         and policy_type == "hill_climbing"
         and len(probe_actions) > 0
     )
+
+    # Fail fast on an unknown / game-incompatible policy_type or a mistyped
+    # policy_params key *before* connecting to the game (which can be slow,
+    # e.g. launching an SC2 binary).  The cold-start path always builds a
+    # hill_climbing WeightedLinearPolicy (TMNF-only, always compatible), so it
+    # needs no pre-flight check.
+    if not cold_start:
+        _preflight_cls = _resolve_policy_class(policy_type)
+        _assert_policy_compatible(_preflight_cls, policy_type, game_name)
+        _preflight_cls._validate_params(policy_params)
 
     _will_pretrain = (
         do_pretrain
@@ -1206,7 +1221,7 @@ def train_rl(
             policy_params  = {**policy_params,
                               "_mutation_scale_fallback": mutation_scale},
             re_initialize  = re_initialize,
-            extra_policy_types = extra_policy_types,
+            game_name      = game_name,
         )
         best_reward = float("-inf")
 
@@ -1224,12 +1239,9 @@ def train_rl(
 
     kw = dict(warmup_action=warmup_action, warmup_steps=warmup_steps)
 
-    _extra_dispatch = extra_loop_dispatch or {}
+    loop_type = best_policy.LOOP_TYPE
 
-    loop_type = (best_policy.LOOP_TYPE if best_policy.POLICY_TYPE
-                 else _extra_dispatch.get(policy_type))
-
-    if loop_type == "hill_climbing" or loop_type is None:
+    if loop_type == "hill_climbing":
         best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
             env=env, policy=best_policy, n_sims=n_sims,
             mutation_scale=mutation_scale, mutation_share=mutation_share,
@@ -1253,11 +1265,8 @@ def train_rl(
             patience=patience, adaptive_mutation=adaptive_mutation, **kw,  # type: ignore[arg-type]
         )
     else:
-        best_policy, best_reward, greedy_sims, early_stopped, early_stop_sim = _greedy_loop(
-            env=env, policy=best_policy, n_sims=n_sims,
-            mutation_scale=mutation_scale, mutation_share=mutation_share,
-            best_reward=best_reward, weights_file=weights_file,
-            adaptive_mutation=adaptive_mutation, patience=patience, **kw,
+        raise ValueError(
+            f"Unknown LOOP_TYPE on {type(best_policy).__name__}: {loop_type!r}"
         )
 
     env.close()

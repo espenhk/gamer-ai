@@ -200,12 +200,14 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 
 ### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG adapter abstractions
 - registry: all games registered; adapter instantiable
-- TMNF: experiment_dir includes track / track override / track_label default+override / build_probe / build_warmup / build_extras returns None (all TMNF policies now in POLICY_REGISTRY) / decorate_reward_cfg
-- TORCS: experiment_dir root / dir / track_label default+override / build_probe/warmup/extras = None
+- TMNF: experiment_dir includes track / track override / track_label default+override / build_probe / build_warmup / decorate_reward_cfg
+- TORCS: experiment_dir root / dir / track_label default+override / build_probe/warmup = None
 - SC2: experiment_dir includes map_name / track override / track_label / build_probe/warmup = None
-- SC2 policy validation: hill_climbing/genetic/neural_net rejected with ValueError; error contains migration hint (sc2_genetic); unknown policy_params keys rejected per type (sc2_genetic, cmaes, sc2_cmaes, sc2_lstm, sc2_reinforce); valid params accepted without error; empty policy_params never raises
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
+
+(SC2 policy/param validation moved to test_policy_registry.py with the
+`compatible_with` hook in Phase D — `build_extras` was deleted.)
 
 ### test_grid_search.py — Cartesian-product expansion + naming
 - expansion: no variation / single training axis / single reward axis / cartesian product / fixed params preserved
@@ -234,7 +236,7 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - `compute_with_components`: scalar matches / sum=total / keys present / progress / centerline / finish-bonus / finish-time over-par / no-finish / step-penalty / accel-bonus / curiosity zero w/o module
 
 ### test_train_rl_signature.py — public `train_rl()` API
-- accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params
+- accepts game+config params; accepts optional specs (probe/warmup); `extras` param removed (Phase D); accepts control flags; no legacy flat params; `GameSpec` requires explicit `game_name` (no empty-default bypass)
 
 ### test_new_best_logging.py — `_log_new_best_details` + `_print_episode_summary`
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
@@ -273,6 +275,11 @@ behaviour of the actual `train_rl()` loop end-to-end on a real env.
 - `_validate_params` is a no-op when `VALID_POLICY_PARAMS` is empty
 - `_validate_params` accepts all valid keys without raising
 - `_make_policy("hill_climbing", ...)` returns a `WeightedLinearPolicy` via the registry path
+- `_make_policy` raises on an unknown `policy_type`
+- compatibility hook (Phase D): `hill_climbing`/`genetic`/`neural_net` rejected on the `sc2` game via `_make_policy(game_name="sc2")` with a ValueError naming the bad type, the `sc2_`-prefixed migration hint, and CLAUDE.md; the same policies are accepted on non-SC2 games; `BasePolicy.compatible_with` defaults to allow-all
+- SC2-native registry policies (`sc2_genetic`/`sc2_neural_net`/`sc2_neural_dqn`/`sc2_cnn`) require `game_name=="sc2"` and reject non-SC2 game names with an explicit hint
+- every registered policy with a non-empty `VALID_POLICY_PARAMS` rejects a bogus key
+- SC2 policies (after importing every game's policy module): the three Phase-D-migrated types (`sc2_cnn`, `sc2_neural_net`, `sc2_neural_dqn`) are registered with the expected `LOOP_TYPE`; per-type `VALID_POLICY_PARAMS` rejects unknown keys (sc2_genetic/sc2_neural_net/sc2_cmaes/sc2_lstm/sc2_reinforce/sc2_neural_dqn/cmaes) and accepts valid + empty params — replaces the SC2 `build_extras` validation cases removed from test_game_adapter.py
 
 ## TMNF policies
 

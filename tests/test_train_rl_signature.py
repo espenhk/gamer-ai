@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import inspect
 
+import pytest
+
+from framework.run_config import GameSpec
 from framework.training import train_rl
 
 
@@ -24,7 +27,11 @@ class TestTrainRLSignature:
         param_names = list(sig.parameters.keys())
         assert "probe" in param_names
         assert "warmup" in param_names
-        assert "extras" in param_names
+
+    def test_extras_param_removed(self):
+        """The policy-extras plumbing was removed in Phase D (#231)."""
+        sig = inspect.signature(train_rl)
+        assert "extras" not in sig.parameters
 
     def test_accepts_control_flags(self):
         sig = inspect.signature(train_rl)
@@ -36,6 +43,19 @@ class TestTrainRLSignature:
         """Legacy flat parameter list has been removed."""
         sig = inspect.signature(train_rl)
         param_names = set(sig.parameters.keys())
-        expected = {"game", "config", "probe", "warmup", "extras",
+        expected = {"game", "config", "probe", "warmup",
                     "no_interrupt", "re_initialize"}
         assert param_names == expected
+
+    def test_gamespec_requires_game_name(self):
+        with pytest.raises(TypeError, match="game_name"):
+            GameSpec(
+                experiment_name="e",
+                track="t",
+                make_env_fn=lambda: None,
+                obs_spec=None,
+                head_names=["a"],
+                discrete_actions=[],
+                weights_file="w.yaml",
+                reward_config_file="r.yaml",
+            )

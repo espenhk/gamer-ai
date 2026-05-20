@@ -63,18 +63,6 @@ class TestTMNFAdapter:
         assert warmup is not None
         assert warmup.steps == 5
 
-    def test_build_extras_returns_none(self):
-        # After Phase C, all TMNF policies are registered via POLICY_REGISTRY;
-        # build_extras triggers the side-effect import and returns None.
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            extras = a.build_extras(wf, {"n_lidar_rays": 0}, False)
-            assert extras is None
-
     def test_decorate_reward_cfg_adds_track_keys(self):
         a = self._adapter()
         cfg = {}
@@ -114,10 +102,6 @@ class TestTorcsAdapter:
         a = self._adapter()
         assert a.build_warmup({}) is None
 
-    def test_build_extras_returns_none(self):
-        a = self._adapter()
-        assert a.build_extras("/fake/weights.yaml", {}, False) is None
-
 
 class TestSC2Adapter:
     def _adapter(self):
@@ -146,110 +130,6 @@ class TestSC2Adapter:
     def test_build_warmup_returns_none(self):
         a = self._adapter()
         assert a.build_warmup({}) is None
-
-    # ------------------------------------------------------------------
-    # Fail-fast policy type validation
-    # ------------------------------------------------------------------
-
-    @pytest.mark.parametrize("bad_type,expected_hint", [
-        ("hill_climbing", "sc2_genetic"),
-        ("genetic",       "sc2_genetic"),
-        ("neural_net",    "sc2_neural_net"),
-    ])
-    def test_build_extras_rejects_incompatible_policy_type(self, bad_type, expected_hint):
-        """Incompatible policy types must raise ValueError naming the bad type and migration hint."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            with pytest.raises(ValueError) as exc_info:
-                a.build_extras(wf, {"policy_type": bad_type}, False)
-            msg = str(exc_info.value)
-            assert bad_type in msg
-            assert expected_hint in msg
-
-    def test_build_extras_incompatible_type_error_contains_docs_reference(self):
-        """ValueError for incompatible type includes a reference to the docs."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            with pytest.raises(ValueError, match="CLAUDE.md"):
-                a.build_extras(wf, {"policy_type": "hill_climbing"}, False)
-
-    # ------------------------------------------------------------------
-    # Fail-fast policy_params validation
-    # ------------------------------------------------------------------
-
-    @pytest.mark.parametrize("policy_type,bad_param", [
-        ("sc2_genetic",  "hidden_sizes"),
-        ("sc2_neural_net", "population_size"),
-        ("cmaes",        "mutation_scale"),
-        ("sc2_cmaes",    "learning_rate"),
-        ("sc2_lstm",     "mutation_scale"),
-        ("sc2_reinforce", "population_size"),
-    ])
-    def test_build_extras_rejects_invalid_policy_params(self, policy_type, bad_param):
-        """Unknown policy_params key must raise ValueError naming the bad key."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            with pytest.raises(ValueError, match=bad_param):
-                a.build_extras(wf, {
-                    "policy_type": policy_type,
-                    "policy_params": {bad_param: 0.1},
-                }, False)
-
-    def test_build_extras_accepts_valid_params_for_sc2_genetic(self):
-        """Valid policy_params for sc2_genetic must not raise."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            extras = a.build_extras(wf, {
-                "policy_type": "sc2_genetic",
-                "policy_params": {"population_size": 10, "elite_k": 3},
-            }, False)
-            assert extras is not None
-            # sc2_genetic is now resolved via POLICY_REGISTRY, not extras.factories
-
-    def test_build_extras_accepts_empty_policy_params(self):
-        """Empty policy_params must not raise for any valid SC2 policy type."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            extras = a.build_extras(wf, {
-                "policy_type": "sc2_genetic",
-                "policy_params": {},
-            }, False)
-            assert extras is not None
-
-    def test_build_extras_accepts_valid_params_for_sc2_neural_net(self):
-        """Valid policy_params for sc2_neural_net must not raise."""
-        import os
-        import tempfile
-
-        a = self._adapter()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            wf = os.path.join(tmpdir, "policy_weights.yaml")
-            extras = a.build_extras(wf, {
-                "policy_type": "sc2_neural_net",
-                "policy_params": {"hidden_sizes": [16, 64, 64, 16]},
-            }, False)
-            assert extras is not None
-            assert "sc2_neural_net" in extras.factories
 
 
 class TestBeamNGAdapter:

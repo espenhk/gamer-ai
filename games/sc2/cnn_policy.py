@@ -29,11 +29,12 @@ Usage with ``policy_type: sc2_cnn`` in training_params.yaml.  Requires
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from framework.policies import BasePolicy
+from framework.policies import BasePolicy, register_policy, trainer_state_path
 from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,7 @@ class SC2CNNModel:
 # SC2CNNEvolutionPolicy — isotropic ES outer optimiser wrapping SC2CNNModel
 # ---------------------------------------------------------------------------
 
+@register_policy
 class SC2CNNEvolutionPolicy(BasePolicy):
     """Isotropic-ES outer optimiser for :class:`SC2CNNModel`.
 
@@ -321,6 +323,16 @@ class SC2CNNEvolutionPolicy(BasePolicy):
     seed :
         RNG seed.
     """
+
+    POLICY_TYPE = "sc2_cnn"
+    LOOP_TYPE   = "cmaes"
+    VALID_POLICY_PARAMS = frozenset({"population_size", "initial_sigma", "eval_episodes"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name != "sc2":
+            return False, "This policy is SC2-specific; use game='sc2'."
+        return True, None
 
     def __init__(
         self,
@@ -514,3 +526,36 @@ class SC2CNNEvolutionPolicy(BasePolicy):
             )
             self._mean = data["flat"].astype(np.float64)
         logger.info("[SC2CNNEvolutionPolicy] champion loaded from %s", path)
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        # n_channels (number of spatial layers) is injected by the SC2 adapter
+        # via the private ``_n_channels`` policy_param — see games/sc2/adapter.py.
+        n_channels = int(policy_params.get("_n_channels", 0))
+        if n_channels == 0:
+            raise ValueError(
+                "sc2_cnn requires at least one spatial layer.  "
+                "Set screen_layers in training_params.yaml."
+            )
+        policy = cls(
+            n_channels      = n_channels,
+            obs_spec        = obs_spec,
+            population_size = policy_params.get("population_size", 20),
+            initial_sigma   = policy_params.get("initial_sigma", 0.01),
+            eval_episodes   = policy_params.get("eval_episodes", 1),
+        )
+        champion_path = weights_file.replace(".yaml", ".npz")
+        if os.path.exists(champion_path) and not re_initialize:
+            try:
+                policy.load_champion(champion_path)
+                ts = trainer_state_path(weights_file)
+                if os.path.exists(ts):
+                    policy.load_trainer_state(ts)
+                    logger.info("[SC2CNNEvolutionPolicy] loaded trainer state from %s", ts)
+            except (ValueError, KeyError) as exc:
+                logger.warning(
+                    "[SC2CNNEvolutionPolicy] could not load saved state — %s; "
+                    "starting from random.", exc,
+                )
+        return policy

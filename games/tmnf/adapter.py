@@ -1,16 +1,10 @@
-"""TMNF game adapter — builds config bundles for train_rl.
-
-Owns the probe, warmup, and policy-extras wiring previously duplicated
-in main.py::_run_tmnf and grid_search.py::_build_tmnf_extras.
-"""
+"""TMNF game adapter — builds config bundles for train_rl."""
 
 from __future__ import annotations
 
 import logging
 
-import yaml
-
-from framework.run_config import GameSpec, ProbeSpec, WarmupSpec, PolicyExtras
+from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +59,7 @@ class TMNFAdapter:
         from games.tmnf.obs_spec import TMNF_OBS_SPEC
         from games.tmnf.actions import DISCRETE_ACTIONS
         from games.tmnf.analytics import save_experiment_results
+        import games.tmnf.policies  # noqa: F401 — side-effect: registers TMNF policy types
 
         n_lidar_rays = training_params.get("n_lidar_rays", 0)
         obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
@@ -91,10 +86,11 @@ class TMNFAdapter:
             weights_file=weights_file,
             reward_config_file=reward_cfg_file,
             save_results_fn=save_experiment_results,
+            game_name=self.name,
         )
 
     # ------------------------------------------------------------------
-    # Probe / warmup / extras
+    # Probe / warmup
     # ------------------------------------------------------------------
 
     def build_probe(self, training_params: dict) -> ProbeSpec | None:
@@ -109,12 +105,6 @@ class TMNFAdapter:
     def build_warmup(self, training_params: dict) -> WarmupSpec | None:
         from games.tmnf.actions import WARMUP_ACTION
         return WarmupSpec(action=WARMUP_ACTION, steps=5)
-
-    def build_extras(
-        self, weights_file: str, training_params: dict, re_initialize: bool,
-    ) -> PolicyExtras | None:
-        import games.tmnf.policies  # noqa: F401 — side-effect: registers TMNF policies
-        return None
 
 
 def make_adapter() -> TMNFAdapter:

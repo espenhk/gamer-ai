@@ -347,6 +347,15 @@ class SC2GeneticPolicy(GeneticPolicy):
         "population_size", "elite_k", "mutation_scale", "mutation_share", "eval_episodes",
     })
 
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        # Cancel the parent GeneticPolicy's blanket SC2 rejection while still
+        # rejecting non-SC2 games: this SC2-native variant emits the SC2
+        # [fn_idx, x, y, queue] action encoding.
+        if game_name != "sc2":
+            return False, "This policy is SC2-specific; use game='sc2'."
+        return True, None
+
     def __init__(
         self,
         obs_spec: ObsSpec = SC2_MINIGAME_OBS_SPEC,
@@ -456,6 +465,7 @@ class SC2GeneticPolicy(GeneticPolicy):
 # SC2NeuralNetPolicy — TMNF-style MLP with SC2 action encoding
 # ---------------------------------------------------------------------------
 
+@register_policy
 class SC2NeuralNetPolicy(BasePolicy):
     """Small MLP policy trained via hill-climbing (same loop as TMNF neural_net).
 
@@ -467,6 +477,16 @@ class SC2NeuralNetPolicy(BasePolicy):
         x, y  : sigmoid(out[1]), sigmoid(out[2]) ∈ [0, 1]
         queue : step(out[3]) ∈ {0, 1}
     """
+
+    POLICY_TYPE = "sc2_neural_net"
+    LOOP_TYPE   = "hill_climbing"
+    VALID_POLICY_PARAMS = frozenset({"hidden_sizes"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name != "sc2":
+            return False, "This policy is SC2-specific; use game='sc2'."
+        return True, None
 
     def __init__(
         self,
@@ -575,6 +595,19 @@ class SC2NeuralNetPolicy(BasePolicy):
         available = info.get("available_fn_ids")
         if available is not None:
             self._available_fn_ids = set(available)
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict) and cfg.get("policy_type") == "sc2_neural_net":
+                return cls.from_cfg(cfg, obs_spec)
+        return cls(
+            obs_spec=obs_spec,
+            hidden_sizes=policy_params.get("hidden_sizes", [16, 16]),
+        )
 
 
 # ---------------------------------------------------------------------------

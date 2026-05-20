@@ -87,6 +87,18 @@ class BasePolicy(ABC):
         No-op for policies with no persistent trainer state."""
 
     @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        """Return ``(True, None)`` if this policy works with the named game,
+        or ``(False, migration_hint)`` otherwise.
+
+        Default: compatible with every game.  Override on policies whose
+        action encoding is structurally wrong for a given game (e.g. the
+        continuous steer/accel/brake framework policies vs SC2's multi-head
+        ``[fn_idx, x, y, queue]`` encoding).
+        """
+        return True, None
+
+    @classmethod
     def _validate_params(cls, policy_params: dict[str, Any]) -> None:
         if not cls.VALID_POLICY_PARAMS:
             return
@@ -142,6 +154,27 @@ def trainer_state_path(weights_file: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Game/policy compatibility
+# ---------------------------------------------------------------------------
+
+#: Game name used by the SC2 adapter (framework keeps the literal so the
+#: continuous-action policies below can declare themselves incompatible
+#: without importing from games/).
+SC2_GAME_NAME = "sc2"
+
+
+def _sc2_incompatible(alternative: str) -> tuple[bool, str]:
+    """Build the ``(False, hint)`` result for a continuous-action policy on SC2."""
+    return False, (
+        f"This framework policy uses the continuous steer/accel/brake action "
+        f"encoding (first head clipped to [-1, 1], the rest thresholded to "
+        f"binary), which is wrong for SC2 (fn_idx ∈ [0, 5], x/y ∈ [0, 1] "
+        f"continuous).  Use {alternative!r} instead — see CLAUDE.md "
+        f"'Supported policies' under 'StarCraft 2'."
+    )
+
+
+# ---------------------------------------------------------------------------
 # WeightedLinearPolicy
 # ---------------------------------------------------------------------------
 
@@ -165,6 +198,12 @@ class WeightedLinearPolicy(BasePolicy):
     POLICY_TYPE = "hill_climbing"
     LOOP_TYPE = "hill_climbing"
     VALID_POLICY_PARAMS: ClassVar[frozenset[str]] = frozenset()
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name == SC2_GAME_NAME:
+            return _sc2_incompatible("sc2_genetic")
+        return True, None
 
     def __init__(
         self,
@@ -349,6 +388,12 @@ class NeuralNetPolicy(BasePolicy):
     POLICY_TYPE = "neural_net"
     LOOP_TYPE = "hill_climbing"
     VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"hidden_sizes"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name == SC2_GAME_NAME:
+            return _sc2_incompatible("sc2_neural_net")
+        return True, None
 
     def __init__(
         self,
@@ -720,6 +765,12 @@ class GeneticPolicy(BasePolicy):
     POLICY_TYPE = "genetic"
     LOOP_TYPE = "genetic"
     VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"population_size", "elite_k", "mutation_scale", "mutation_share", "eval_episodes"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name == SC2_GAME_NAME:
+            return _sc2_incompatible("sc2_genetic")
+        return True, None
 
     def __init__(
         self,

@@ -1,0 +1,17 @@
+score_weight: 100.0
+win_bonus: 1000.0
+loss_penalty: -100.0
+step_penalty: -0.001
+idle_penalty: 0.0
+idle_bonus: 0.5
+move_exploration_bonus: 0.2
+move_repeat_penalty: -0.05
+move_self_penalty: -0.1
+attack_move_bonus: 0.5
+click_attack_bonus: 1.0
+click_attack_cooldown_steps: 8
+attack_friendly_penalty: -10.0
+unit_loss_penalty: -3.0
+damage_taken_penalty: -0.05
+small_selection_bonus: 0.0
+economy_weight: 0.001

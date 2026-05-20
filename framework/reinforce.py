@@ -435,7 +435,7 @@ class TwoHeadREINFORCEPolicy(BasePolicy):
             self._sp_b,
         ) = self._build_net(seed)
 
-        self._ep_grads: list[tuple]   = []
+        self._ep_grads: list[_GradEntry] = []
         self._ep_rewards: list[float] = []
 
         self._baseline_val   = 0.0

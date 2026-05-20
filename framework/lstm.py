@@ -15,7 +15,7 @@ LSTMEvolutionPolicy — (μ/μ_w, λ)-ES outer optimiser wrapping LSTMCore as th
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -23,6 +23,25 @@ from framework.obs_spec import ObsSpec
 from framework.policies import BasePolicy
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _LSTMIndividual(Protocol):
+    """Structural interface required by :class:`LSTMEvolutionPolicy` for its inner individuals.
+
+    Any class that implements ``flat_dim``, ``to_flat``, ``with_flat``, ``save``,
+    ``__call__``, ``on_episode_start``, and ``on_episode_end`` satisfies this
+    Protocol — including both :class:`LSTMCore` and ``SC2LSTMPolicy``.
+    """
+
+    @property
+    def flat_dim(self) -> int: ...
+    def to_flat(self) -> np.ndarray: ...
+    def with_flat(self, flat: np.ndarray) -> _LSTMIndividual: ...
+    def save(self, path: str) -> None: ...
+    def __call__(self, obs: np.ndarray) -> np.ndarray: ...
+    def on_episode_start(self, **kwargs: Any) -> None: ...
+    def on_episode_end(self) -> None: ...
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -276,14 +295,14 @@ class LSTMEvolutionPolicy(BasePolicy):
         initial_sigma: float = 0.05,
         seed: int | None = None,
         *,
-        _template: "LSTMCore | None" = None,
+        _template: "_LSTMIndividual | None" = None,
     ) -> None:
         self._obs_spec = obs_spec
         self._lam      = int(population_size)
         self._sigma    = float(initial_sigma)
         self._rng      = np.random.default_rng(seed)
 
-        self._template = _template if _template is not None else LSTMCore(obs_spec=obs_spec, hidden_size=hidden_size)
+        self._template: _LSTMIndividual = _template if _template is not None else LSTMCore(obs_spec=obs_spec, hidden_size=hidden_size)
         self._flat_dim = self._template.flat_dim
         self._mean     = self._template.to_flat().astype(np.float64)
 
@@ -295,9 +314,9 @@ class LSTMEvolutionPolicy(BasePolicy):
         )
         self._recomb_w = raw_w / raw_w.sum()
 
-        self._pop: list[np.ndarray]         = []
-        self._champion: LSTMCore | None     = None
-        self._champion_reward: float        = float("-inf")
+        self._pop: list[np.ndarray]              = []
+        self._champion: _LSTMIndividual | None   = None
+        self._champion_reward: float             = float("-inf")
 
     # ------------------------------------------------------------------
     # _greedy_loop_cmaes interface
@@ -315,7 +334,7 @@ class LSTMEvolutionPolicy(BasePolicy):
     def sigma(self) -> float:
         return self._sigma
 
-    def initialize_from_champion(self, champion: LSTMCore) -> None:
+    def initialize_from_champion(self, champion: _LSTMIndividual) -> None:
         champion_flat_dim    = champion.flat_dim
         expected_hidden_size = getattr(self._template, "_hidden_size", None)
         champion_hidden_size = getattr(champion,       "_hidden_size", None)
@@ -353,7 +372,7 @@ class LSTMEvolutionPolicy(BasePolicy):
         self._mean     = champion.to_flat().astype(np.float64)
         logger.info("[LSTMEvolutionPolicy] seeded mean from champion")
 
-    def sample_population(self) -> list[LSTMCore]:
+    def sample_population(self) -> list[_LSTMIndividual]:
         self._pop = []
         for _ in range(self._lam):
             z = self._rng.standard_normal(self._flat_dim)

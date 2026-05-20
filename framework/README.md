@@ -13,8 +13,8 @@ without duplicating algorithmic code.
 - [Algorithm modules](#algorithm-modules)
   - [replay.py — ReplayBuffer](#replaypy--replaybuffer)
   - [dqn.py — DQNPolicy](#dqnpy--dqnpolicy)
-  - [reinforce.py — REINFORCEPolicy / TwoHeadREINFORCEPolicy](#reinforcepy--reinforcepolicy--twoheadreinforce)
-  - [cmaes.py — CMAESPolicy](#cmaes-py--cmaespolicy)
+  - [reinforce.py — REINFORCEPolicy / TwoHeadREINFORCEPolicy](#reinforcepy--reinforcepolicy--twoheadreinforcepolicy)
+  - [cmaes.py — CMAESPolicy](#cmaespy--cmaespolicy)
   - [lstm.py — LSTMCore / LSTMEvolutionPolicy](#lstmpy--lstmcore--lstmevolutionpolicy)
 - [Simple policies in policies.py](#simple-policies-in-policiespy)
 - [Creating a new game's policies](#creating-a-new-games-policies)
@@ -120,7 +120,7 @@ available-actions mask (all actions always legal).
 
 ---
 
-### `reinforce.py` — REINFORCEPolicy / TwoHeadREINFORCE
+### `reinforce.py` — REINFORCEPolicy / TwoHeadREINFORCEPolicy
 
 Two classes:
 

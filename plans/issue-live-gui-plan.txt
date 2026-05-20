@@ -1,0 +1,112 @@
+Issue: GUI window: show reward components and observation values live
+
+Goal
+- Add an optional generalized live GUI client that can run during `main.py` and `grid_search.py` runs.
+- Show per-step reward components as bars (plus total reward), using a rolling average of the most recent 5 steps.
+- Show live observation values with sensible visual recommendations based on feature type.
+- Keep changes minimal, game-agnostic, and non-breaking when GUI is disabled.
+
+Scope and constraints
+- Default behavior remains unchanged (GUI off unless explicitly enabled).
+- The GUI must not require simulator-specific imports in framework code.
+- Works with any game integration that provides `ObsSpec` names/scales and optionally `episode_reward_components` in step info.
+- For games that do not provide per-component reward decomposition, still show `total_reward` and any available scalar diagnostics.
+
+Implementation plan
+
+1) Add an optional framework live monitor module (new file)
+- Create `framework/live_monitor.py` with:
+  - A small data model for step telemetry (`step_idx`, `reward`, `reward_components`, `obs`, `obs_names`, `obs_scales`).
+  - A no-op-safe monitor API with methods:
+    - `start()`
+    - `on_step(obs, reward, info)`
+    - `close()`
+  - A Matplotlib-based implementation that:
+    - Opens one window with two panes:
+      - Reward pane: bar chart of rolling-mean(5) reward components + rolling-mean(5) total.
+      - Observation pane: grouped visualizations by detected feature type.
+    - Falls back to text-free/blank-safe behavior if matplotlib unavailable (logs warning, disables itself).
+
+2) Keep it generalized with lightweight feature-type heuristics
+- Use `ObsSpec` metadata (`name`, `scale`) and naming patterns to choose render style:
+  - Scalar/default features: horizontal bars (value normalized by scale, clipped to [-1, 1] for readability).
+  - Pair features (`*_x` with `*_y`, `*_cx` with `*_cy`, etc.): 2D point/arrow mini-plot (recommended for directional/spatial values).
+  - Indexed families (`name_0`, `name_1`, ...): compact strip/heat-row (recommended for vectors like masks or ray-like data).
+  - Recognizable grid-quadrant keys (`*_NE`, `*_NW`, `*_SE`, `*_SW`): 2x2 heatmap.
+- Keep heuristics deterministic and conservative; unknown features stay in scalar bars.
+
+3) Integrate monitor into training loop with minimal surgical touchpoints
+- In `framework/training.py`:
+  - In `train_rl()`, read optional config key from `training_params`, e.g. `live_gui` (bool).
+  - Instantiate monitor once after env creation when enabled.
+  - Ensure monitor is closed in `finally` style regardless of training outcome.
+  - Thread the monitor into `_run_episode(...)` via optional parameter `live_monitor=None`.
+  - In `_run_episode`, call `live_monitor.on_step(next_obs, reward, info)` once per step, after env.step returns.
+- Keep all existing return values and behavior unchanged.
+
+4) CLI wiring for both entry points
+- `main.py`:
+  - Add `--live-gui` flag (`store_true`).
+  - When set, inject `p["live_gui"] = True` before calling `train_rl`.
+- `grid_search.py`:
+  - Add `--live-gui` flag.
+  - For local runs (`_run_local`), set `t_with_pp["live_gui"] = True` when flag is passed.
+  - For distributed mode, do not force GUI on remote workers by default; apply only where local training loop executes.
+  - Keep defaults unchanged.
+
+5) Reward-component handling details
+- Prefer `info.get("step_reward_components")` if present in future envs.
+- Otherwise derive step components from `info.get("episode_reward_components")` by differencing consecutive cumulative totals (per key) inside monitor state.
+- Always include a synthetic `total_reward` component from raw step reward.
+- Apply rolling mean window size 5 to displayed values.
+
+6) Observation handling details
+- Use obs vector directly (`next_obs`) and `game.obs_spec` names/scales passed at monitor construction.
+- Normalize display values by scales for bar/heat readability; also allow viewing raw values in axis labels/title summary.
+- Limit redraw frequency to reduce overhead (e.g., every N steps with N small, such as 1 or 2, configurable internal constant).
+
+7) Tests (focused and minimal)
+- Add new tests (likely in `tests/test_live_monitor.py` and/or extend existing training tests):
+  - Feature-type classifier heuristics:
+    - scalar fallback
+    - x/y pair detection
+    - indexed vector detection
+    - NE/NW/SE/SW grid detection
+  - Reward rolling average logic with window=5.
+  - Cumulative-to-step component differencing behavior.
+  - Training integration smoke test using a fake monitor object:
+    - `_run_episode` calls monitor on each step.
+    - `train_rl` instantiates/uses monitor only when `live_gui` enabled.
+- Parser tests:
+  - Extend `tests/cli/test_game_flag.py` for `main.py --live-gui` acceptance.
+  - Extend `tests/test_grid_search.py` to verify parser accepts `--live-gui` and local run wiring sets training param.
+- Update `tests/README.md` for any new/changed tests.
+
+8) Documentation/changelog updates
+- Add `CHANGELOG.md` entry under `## [Unreleased]` (new optional live GUI feature).
+- Add concise usage notes in README or relevant run section:
+  - `python main.py <name> --live-gui`
+  - `python grid_search.py <config> --live-gui`
+
+9) Validation plan after implementation
+- Run targeted tests first (new/affected files).
+- Run existing related tests:
+  - `tests/cli/test_game_flag.py`
+  - `tests/test_grid_search.py` (or relevant subset if heavy)
+  - training loop unit tests impacted by signature change.
+- Manual verification:
+  - Launch a short local run with `--live-gui` (using mocked or lightweight env path where feasible).
+  - Confirm reward bars and observation pane update live.
+  - Capture a screenshot of the GUI window as evidence.
+
+10) Safety and compatibility checks
+- GUI path is optional and must not affect non-GUI training semantics.
+- Avoid blocking main training loop when GUI cannot open (graceful disable).
+- Ensure no additional required dependencies beyond already-present matplotlib.
+
+Deliverable sequence after approval
+1. Implement monitor module + training hook.
+2. Wire CLI flags in `main.py` + `grid_search.py`.
+3. Add/adjust tests + tests README + changelog.
+4. Run targeted validation + manual screenshot.
+5. Run CodeQL check and address findings.

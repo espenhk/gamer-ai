@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.1.1] - 2026-05-20
+
 ### Documentation
 - `README.md` now links directly to the
   `good first issue` filter, `CONTRIBUTING.md` documents the canonical
@@ -369,3 +374,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Fixed
 - Test dependency wiring and a batch of failing tests (#100).
+
+---
+

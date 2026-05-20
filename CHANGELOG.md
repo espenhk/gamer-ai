@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.1.3] - 2026-05-20
+
 ### Fixed
 - SC2: agents on BuildMarines, Simple64, and every other non-movement map were
   unable to train units, construct buildings, or issue any race-specific command
@@ -36,7 +41,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   `SC2MultiHeadLinearPolicy` base) accept and propagate a `race` parameter.
   `N_FUNCTION_IDS` grows from 6 to 118 automatically; existing weight files
   migrate cleanly via the zero-default path.  (Closes #276)
-
 
 ---
 

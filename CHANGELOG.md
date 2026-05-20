@@ -18,6 +18,10 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Documentation
+- `README.md` now links directly to the
+  `good first issue` filter, `CONTRIBUTING.md` documents the canonical
+  issue-label taxonomy, and the shared issue template now applies the
+  default `triage` label on newly opened issues.
 - PR template (`.github/PULL_REQUEST_TEMPLATE.md`) now carries a
   `Closes #<issue>` line near the top so PRs auto-close their issue on
   merge.  `CLAUDE.md` gains a **Pull requests** section requiring every

@@ -19,6 +19,7 @@ This document covers:
 - [Documentation conventions](#documentation-conventions)
 - [Submitting a pull request](#submitting-a-pull-request)
 - [Reporting bugs and proposing features](#reporting-bugs-and-proposing-features)
+- [Issue labels](#issue-labels)
 - [License](#license)
 
 ---
@@ -354,6 +355,22 @@ sections — keep what applies and delete the rest.
 For open-ended "should we do X?" threads, prefer
 [GitHub Discussions](https://github.com/espenhk/gamer-ai/discussions)
 over an issue.
+
+---
+
+## Issue labels
+
+Issues are triaged with a small canonical label set:
+
+| Label | Meaning |
+|---|---|
+| `bug` / `enhancement` / `documentation` | Issue type |
+| `good first issue` / `help wanted` | Contribution-friendly backlog items |
+| `game-support` | New `games/<name>/` proposals and game-integration requests |
+| `framework` / `analytics` / `infrastructure` / `tooling` | Area ownership |
+| `triage` | Default label for newly opened issues; remove once assessed |
+
+If you're new here, start with issues labeled `good first issue`.
 
 ---
 

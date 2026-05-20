@@ -1,3 +1,12 @@
+---
+name: Issue report / proposal
+about: Use this template for bug reports, feature requests, and new-game proposals.
+title: ""
+labels:
+  - triage
+assignees: ""
+---
+
 <!--
 One template for all issues.
 Keep only the section(s) that apply and delete the rest.
@@ -38,4 +47,3 @@ Keep only the section(s) that apply and delete the rest.
 ## Validation / extra info (optional)
 
 <!-- Config snippets, screenshots, links, related issues -->
-

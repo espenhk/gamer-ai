@@ -502,6 +502,10 @@ class TestSaveGridSummary(unittest.TestCase):
             forwarded_sim = forwarded_runs[0][1].greedy_sims[0]
             # score: 500.0/100.0 = 5.0; step_penalty: -4.0/2.0 = -2.0 → total = 3.0
             self.assertAlmostEqual(forwarded_sim.reward, 3.0, places=6)
+            self.assertEqual(
+                forwarded_sim.reward_components,
+                {"score": 5.0, "step_penalty": -2.0},
+            )
 
     def test_falls_back_to_raw_reward_without_components(self):
         with tempfile.TemporaryDirectory() as d:

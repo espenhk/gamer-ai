@@ -2,9 +2,8 @@
 
 Each dataclass groups related settings so the training loop signature stays
 small.  Game adapters build a GameSpec once per experiment; RunConfig carries
-algorithm-level knobs that apply to every game.  The optional ProbeSpec,
-WarmupSpec, and PolicyExtras handle TMNF-specific phases and custom policy
-wiring.
+algorithm-level knobs that apply to every game.  The optional ProbeSpec and
+WarmupSpec handle TMNF-specific probe/cold-start and warmup phases.
 """
 
 from __future__ import annotations
@@ -30,6 +29,7 @@ class GameSpec:
     weights_file: str
     reward_config_file: str
     save_results_fn: Callable | None = None     # optional callable(data, results_dir)
+    game_name: str = ""                          # adapter.name; used for policy/game compatibility checks
 
 
 # ---------------------------------------------------------------------------
@@ -90,11 +90,3 @@ class WarmupSpec:
 
     action: Any             # np.ndarray
     steps: int
-
-
-@dataclass(frozen=True)
-class PolicyExtras:
-    """Game-specific extra policy types."""
-
-    factories: dict         # maps policy_type name -> zero-arg callable
-    loop_dispatch: dict     # maps policy_type name -> loop type string

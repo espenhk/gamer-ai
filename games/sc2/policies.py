@@ -32,12 +32,20 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import deque
 
 import numpy as np
+import yaml
 
 from framework.obs_spec import ObsSpec
-from framework.policies import BasePolicy, WeightedLinearPolicy, GeneticPolicy
+from framework.policies import (
+    BasePolicy,
+    GeneticPolicy,
+    WeightedLinearPolicy,
+    register_policy,
+    trainer_state_path,
+)
 from games.sc2.actions import (
     DISCRETE_ACTIONS,
     FUNCTION_IDS,
@@ -113,8 +121,8 @@ class SC2GeneticPolicy(GeneticPolicy):
     ``_make_member`` so offspring use the sigmoid-based SC2 action encoding
     instead of the incompatible clip/binary encoding of the base class.
 
-    Registered in ``_run_sc2`` as policy_type ``sc2_genetic`` and dispatched to
-    ``_greedy_loop_genetic`` via ``extra_loop_dispatch``.
+    Legacy class kept for backward compatibility; the registered ``sc2_genetic``
+    policy_type is :class:`games.sc2.sc2_policies.SC2GeneticPolicy`.
     """
 
     def _make_member(self, cfg: dict) -> SC2LinearPolicy:
@@ -565,6 +573,7 @@ class _MaskedReplayBuffer(_ReplayBuffer):
 # SC2NeuralDQNPolicy — NeuralDQNPolicy with available-actions masking
 # ---------------------------------------------------------------------------
 
+@register_policy
 class SC2NeuralDQNPolicy(NeuralDQNPolicy):
     """Deep Q-network for SC2 with available-actions masking.
 
@@ -599,6 +608,14 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
           epsilon_decay_steps: 20000
           gamma: 0.995
     """
+
+    POLICY_TYPE = "sc2_neural_dqn"
+    LOOP_TYPE   = "q_learning"
+    VALID_POLICY_PARAMS = frozenset({
+        "hidden_sizes", "replay_buffer_size", "batch_size", "min_replay_size",
+        "target_update_freq", "learning_rate", "epsilon_start", "epsilon_end",
+        "epsilon_decay_steps", "gamma",
+    })
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -900,6 +917,41 @@ class SC2NeuralDQNPolicy(NeuralDQNPolicy):
             "(buf=%d, steps=%d, eps=%.4f)",
             path, len(self._replay), self._total_steps, self._eps,
         )
+
+    @classmethod
+    def _construct_or_resume(cls, *, obs_spec, head_names, discrete_actions,
+                             weights_file, policy_params, re_initialize):
+        pp = policy_params
+        if os.path.exists(weights_file) and not re_initialize:
+            with open(weights_file) as _f:
+                cfg = yaml.safe_load(_f) or {}
+            if isinstance(cfg, dict) and cfg.get("policy_type") == "sc2_neural_dqn":
+                policy = cls.from_cfg(cfg, obs_spec)
+                ts = trainer_state_path(weights_file)
+                if os.path.exists(ts):
+                    try:
+                        policy.load_trainer_state(ts)
+                        logger.info("[SC2NeuralDQNPolicy] loaded trainer state from %s", ts)
+                    except (ValueError, KeyError) as exc:
+                        logger.warning(
+                            "[SC2NeuralDQNPolicy] could not load trainer state — %s; "
+                            "continuing with default state.", exc,
+                        )
+                return policy
+        return cls(
+            obs_spec=obs_spec,
+            hidden_sizes=pp.get("hidden_sizes", [64, 64]),
+            replay_buffer_size=pp.get("replay_buffer_size", 50000),
+            batch_size=pp.get("batch_size", 64),
+            min_replay_size=pp.get("min_replay_size", 2000),
+            target_update_freq=pp.get("target_update_freq", 200),
+            learning_rate=pp.get("learning_rate", 0.001),
+            epsilon_start=pp.get("epsilon_start", 1.0),
+            epsilon_end=pp.get("epsilon_end", 0.05),
+            epsilon_decay_steps=pp.get("epsilon_decay_steps", 20000),
+            gamma=pp.get("gamma", 0.995),
+        )
+
 
 class CMAESPolicy(BasePolicy):
     """(μ/μ_w, λ)-CMA-ES over the flat weight vector of a WeightedLinearPolicy.

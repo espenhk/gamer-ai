@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from framework.run_config import GameSpec, ProbeSpec, WarmupSpec, PolicyExtras
+from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
 
 
 class TorcsAdapter:
@@ -57,17 +57,13 @@ class TorcsAdapter:
             weights_file=weights_file,
             reward_config_file=reward_cfg_file,
             save_results_fn=save_experiment_results,
+            game_name=self.name,
         )
 
     def build_probe(self, training_params: dict) -> ProbeSpec | None:
         return None
 
     def build_warmup(self, training_params: dict) -> WarmupSpec | None:
-        return None
-
-    def build_extras(
-        self, weights_file: str, training_params: dict, re_initialize: bool,
-    ) -> PolicyExtras | None:
         return None
 
 

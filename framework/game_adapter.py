@@ -1,10 +1,10 @@
 """Game adapter protocol and registry.
 
 Each game implements a concrete adapter that knows how to build the config
-bundles (GameSpec, RunConfig, ProbeSpec, WarmupSpec, PolicyExtras) from a
-training-params dict.  The GAME_ADAPTERS registry maps game names to lazy
-factories so loading one adapter never pulls in another game's heavy
-dependencies (e.g. tminterface, pysc2).
+bundles (GameSpec, RunConfig, ProbeSpec, WarmupSpec) from a training-params
+dict.  The GAME_ADAPTERS registry maps game names to lazy factories so loading
+one adapter never pulls in another game's heavy dependencies (e.g. tminterface,
+pysc2).
 """
 
 from __future__ import annotations
@@ -62,12 +62,6 @@ class GameAdapter(Protocol):
 
     def build_warmup(self, training_params: dict) -> Any | None:
         """Build a WarmupSpec, or None to skip warmup."""
-        ...
-
-    def build_extras(
-        self, weights_file: str, training_params: dict, re_initialize: bool,
-    ) -> Any | None:
-        """Build PolicyExtras, or None if no game-specific policy types."""
         ...
 
 

@@ -259,6 +259,31 @@ class TestAbbreviationCoverage:
 
 
 class TestLocalDistributedWorkers:
+    def test_launch_local_workers_uses_configured_coordinator_host(self, monkeypatch):
+        calls = []
+
+        class _DummyProc:
+            def __init__(self, cmd):
+                self.cmd = cmd
+
+        def _fake_popen(cmd):
+            calls.append(cmd)
+            return _DummyProc(cmd)
+
+        monkeypatch.setattr("grid_search.subprocess.Popen", _fake_popen)
+        _launch_local_workers(
+            coordinator_host="192.168.1.50",
+            coordinator_port=6000,
+            token="tok",
+            game_name="tmnf",
+            local_workers=1,
+            no_interrupt=False,
+            re_initialize=False,
+            start_stagger_s=0,
+        )
+        assert len(calls) == 1
+        assert "http://192.168.1.50:6000" in calls[0]
+
     def test_launch_local_workers_spawns_expected_commands(self, monkeypatch):
         calls = []
 
@@ -273,6 +298,7 @@ class TestLocalDistributedWorkers:
         monkeypatch.setattr("grid_search.subprocess.Popen", _fake_popen)
 
         procs = _launch_local_workers(
+            coordinator_host="127.0.0.1",
             coordinator_port=5555,
             token="tok",
             game_name="sc2",
@@ -319,6 +345,7 @@ class TestLocalDistributedWorkers:
         monkeypatch.setattr("grid_search.sleep", _fake_sleep)
 
         procs = _launch_local_workers(
+            coordinator_host="127.0.0.1",
             coordinator_port=5555,
             token="tok",
             game_name="sc2",
@@ -348,6 +375,7 @@ class TestLocalDistributedWorkers:
         monkeypatch.setattr("grid_search.sleep", lambda s: sleep_calls.append(s))
 
         _launch_local_workers(
+            coordinator_host="127.0.0.1",
             coordinator_port=5555,
             token="tok",
             game_name="sc2",
@@ -394,6 +422,7 @@ class TestLocalDistributedWorkers:
 
         with pytest.raises(OSError):
             _launch_local_workers(
+                coordinator_host="127.0.0.1",
                 coordinator_port=5555,
                 token="tok",
                 game_name="sc2",

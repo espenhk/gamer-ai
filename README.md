@@ -265,6 +265,8 @@ python grid_search.py config/my_grid.yaml --distribute
 
 This serves work items over HTTP on port `5555` and blocks until every combination has a result. Override the port with `--port 6000` on the CLI, or set `distribute.port` in the grid config YAML. The coordinator writes each returned run into the local `experiments/<track>/<name>/` tree and runs analytics exactly as a local grid search would.
 
+By default, the coordinator runs in **LAN-only mode**: it accepts worker requests only from loopback/private/link-local IP ranges. Public/non-LAN source IPs are rejected with `403`. This keeps home-network distributed runs from being exposed to open internet clients even if your machine has a routable interface.
+
 ### Worker
 
 On each worker machine (one per TMInterface session), point at the coordinator:
@@ -284,10 +286,14 @@ Useful flags:
 | `--no-interrupt` | off | Skip all "Press Enter" prompts |
 | `--re-initialize` | off | Ignore existing weights files |
 | `--log-level LEVEL` | `INFO` | `DEBUG`/`INFO`/`WARNING`/`ERROR` |
-| `--local-workers N` *(coordinator flag)* | `0` | Auto-launch `N` local worker subprocesses in distributed mode |
+| `--local-workers N` *(coordinator flag)* | `1` | Auto-launch `N` local worker subprocesses in distributed mode (driver node participates by default) |
 | `--local-worker-stagger S` *(coordinator flag)* | `5.0` | Seconds between consecutive local-worker launches (cascading delay); also `distribute.local_worker_stagger` in the config. Set to `0` to disable. Prevents PySC2 binaries from racing on the same `.SC2Map` file (issue #254). |
+| `--bind-host HOST` *(coordinator flag)* | `0.0.0.0` | Bind coordinator to a specific interface/IP (or `distribute.bind_host`) |
+| `--allow-non-lan` *(coordinator flag)* | off | Disable LAN-only source-IP filtering and allow public/non-LAN worker IPs |
 
 The worker polls `GET /work`, runs the returned combo locally, then posts the resulting `ExperimentData` to `POST /result`. It exits once the coordinator reports every item complete.
+
+With default settings the coordinator also starts one local worker subprocess (`--local-workers 1`), so the driver machine contributes training while remote LAN workers process additional combinations.
 
 ### Auth model
 

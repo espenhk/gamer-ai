@@ -443,8 +443,10 @@ def _run_distributed(
     token: str,
     port: int,
     heartbeat_timeout: float,
+    bind_host: str,
+    allow_non_lan: bool,
     game_name: str,
-    local_workers: int = 0,
+    local_workers: int = 1,
     local_worker_start_stagger_s: float = 5.0,
     no_interrupt: bool = False,
     re_initialize: bool = False,
@@ -470,12 +472,21 @@ def _run_distributed(
         )
 
     coord = Coordinator(
-        combo_specs, token=token, port=port, heartbeat_timeout=heartbeat_timeout
+        combo_specs,
+        token=token,
+        port=port,
+        heartbeat_timeout=heartbeat_timeout,
+        bind_host=bind_host,
+        allow_non_lan=allow_non_lan,
     )
     worker_procs: list[subprocess.Popen] = []
     try:
         coord.start()
+        local_worker_host = bind_host
+        if bind_host in ("", "0.0.0.0", "::"):
+            local_worker_host = "127.0.0.1"
         worker_procs = _launch_local_workers(
+            coordinator_host=local_worker_host,
             coordinator_port=coord.port,
             token=token,
             game_name=game_name,
@@ -522,6 +533,7 @@ def _run_distributed(
 
 
 def _launch_local_workers(
+    coordinator_host: str,
     coordinator_port: int,
     token: str,
     game_name: str,
@@ -531,6 +543,9 @@ def _launch_local_workers(
     start_stagger_s: float = 5.0,
 ) -> list[subprocess.Popen]:
     """Start local worker subprocesses for distributed mode.
+
+    ``coordinator_host`` is the host/IP embedded in the worker
+    ``--coordinator`` URL.
 
     ``start_stagger_s`` introduces a cascading delay between consecutive
     worker launches (issue #254): the first worker starts immediately,
@@ -544,7 +559,7 @@ def _launch_local_workers(
     if local_workers <= 0:
         return []
 
-    coordinator_url = f"http://127.0.0.1:{coordinator_port}"
+    coordinator_url = f"http://{coordinator_host}:{coordinator_port}"
     procs: list[subprocess.Popen] = []
     logger.info(
         "Launching %d local worker process(es) for game=%s at %s (stagger=%.1fs)",
@@ -718,6 +733,12 @@ def main() -> None:
         "or value from config distribute.port)",
     )
     parser.add_argument(
+        "--bind-host",
+        default=None,
+        help="Coordinator bind host/IP when --distribute is set "
+        "(default: 0.0.0.0, or value from config distribute.bind_host).",
+    )
+    parser.add_argument(
         "--token",
         default=None,
         metavar="SECRET",
@@ -736,7 +757,14 @@ def main() -> None:
         type=int,
         default=None,
         help="Spawn N local distributed.worker subprocesses automatically. "
-        "Useful for running multiple SC2 instances on one machine.",
+        "Useful for running multiple SC2 instances on one machine "
+        "(default: 1, or value from config distribute.local_workers).",
+    )
+    parser.add_argument(
+        "--allow-non-lan",
+        action="store_true",
+        help="Allow non-LAN/public worker source IPs. By default the "
+        "coordinator only accepts loopback/private/link-local clients.",
     )
     parser.add_argument(
         "--local-worker-stagger",
@@ -822,12 +850,15 @@ def main() -> None:
         else:
             try:
                 local_workers = _parse_non_negative_int(
-                    distribute_cfg.get("local_workers", 0),
+                    distribute_cfg.get("local_workers", 1),
                     "distribute.local_workers",
                 )
             except ValueError as exc:
                 parser.error(str(exc))
         port = args.port or distribute_cfg.get("port", 5555)
+        bind_host = args.bind_host or distribute_cfg.get("bind_host", "0.0.0.0")
+        cfg_allow_non_lan = bool(distribute_cfg.get("allow_non_lan", False))
+        allow_non_lan = args.allow_non_lan or cfg_allow_non_lan
         hb_timeout = args.heartbeat_timeout or distribute_cfg.get(
             "heartbeat_timeout", 60.0
         )
@@ -859,6 +890,8 @@ def main() -> None:
             token=token,
             port=port,
             heartbeat_timeout=hb_timeout,
+            bind_host=bind_host,
+            allow_non_lan=allow_non_lan,
             game_name=game_name,
             local_workers=local_workers,
             local_worker_start_stagger_s=local_worker_stagger,

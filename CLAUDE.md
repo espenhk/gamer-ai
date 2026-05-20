@@ -454,6 +454,14 @@ are staggered to avoid startup races; tune with `--local-worker-stagger`
 (seconds, default `5.0`; `0` to disable) or the
 `distribute.local_worker_stagger` config key.
 
+**LAN safety / multi-machine home networks.** Distributed mode now defaults to
+LAN-only request filtering: the coordinator accepts only loopback/private/
+link-local source IPs. Configure `--bind-host` (or `distribute.bind_host`) to
+choose the listening interface, and pass `--allow-non-lan` only when you
+explicitly want public/non-LAN clients. The coordinator also defaults to
+`--local-workers 1`, so the driver node contributes one local worker while
+remote workers run on other machines.
+
 **SC2 map-access gate.** When several PySC2 binaries boot on one host,
 `SC2Env` construction is serialised through a cross-process gate enforcing
 a minimum gap between map loads. Tunable via env vars:

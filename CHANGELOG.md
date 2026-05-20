@@ -68,6 +68,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
   (integer, default `10`, stored in `training_params.yaml`).
 
 ### Changed
+- Distributed grid-search coordinator now supports LAN-focused multi-machine
+  home setups out of the box:
+  - New `--bind-host` / `distribute.bind_host` to select the interface/IP the
+    coordinator listens on.
+  - New LAN-only default request filter (loopback/private/link-local source
+    IPs only); override with `--allow-non-lan` /
+    `distribute.allow_non_lan` when explicitly required.
+  - Distributed runs now default to `local_workers=1`, so the driver/coordinator
+    machine contributes one local worker by default while remote workers can
+    join over the LAN.
 - **SC2 `move_exploration_bonus` now decays explored cells** (issue #262).
   The grid-cell visit tracking added in #253 marked a cell explored *once per
   episode*, which (a) paid the agent to blanket-roam the whole screen to

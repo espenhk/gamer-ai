@@ -137,10 +137,9 @@ scales.
 
 ## Multi-agent / self-play
 
-This integration remains **single controlled agent**, but now runs with
-`team_size=3` and exposes teammate/opponent slots in the observation
-(2 friendlies + 3 opponents). Teammate and opponent behaviour is provided by
-the simulator, not separate learned policies in this module.
+This integration runs with `team_size=3` and controls all three friendly cars.
+The same policy is shared across the team (one forward pass per car, using that
+car's own observation), while opponents remain simulator-controlled.
 
 ---
 

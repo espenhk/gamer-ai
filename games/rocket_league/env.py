@@ -79,6 +79,7 @@ class RocketLeagueEnv(BaseGameEnv):
     """
 
     metadata = {"render_modes": []}
+    _TEAM_AGENT_COUNT = 3
 
     def __init__(
         self,
@@ -108,7 +109,7 @@ class RocketLeagueEnv(BaseGameEnv):
         # Build RLGym environment.
         self._env = rlgym.make(
             tick_skip=tick_skip,
-            team_size=3,
+            team_size=self._TEAM_AGENT_COUNT,
             self_play=False,
         )
 
@@ -142,6 +143,8 @@ class RocketLeagueEnv(BaseGameEnv):
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
         action = np.asarray(action, dtype=np.float32)
+        if action.ndim == 1 and self._prev_obs.ndim == 2:
+            action = np.repeat(action[np.newaxis, :], self._prev_obs.shape[0], axis=0)
 
         raw_obs, _rlgym_reward, done, info_raw = self._env.step(action)
         obs = self._parse_obs(raw_obs)
@@ -150,14 +153,32 @@ class RocketLeagueEnv(BaseGameEnv):
         self._elapsed_s = time.monotonic() - self._episode_start_s
 
         # Extract game events from RLGym info.
-        goal_scored = bool(info_raw.get("TimeoutException", False) is False
-                           and info_raw.get("goal_scored", False))
-        goal_conceded = bool(info_raw.get("goal_conceded", False))
-        ball_touched = bool(info_raw.get("ball_touched", False))
-        boosting = bool(float(action[6]) > 0.5)
+        info_rows: list[dict] = (
+            [row for row in info_raw if isinstance(row, dict)]
+            if isinstance(info_raw, (list, tuple))
+            else [info_raw] if isinstance(info_raw, dict)
+            else []
+        )
+        primary_info = info_rows[0] if info_rows else {}
+
+        goal_scored = any(
+            bool(row.get("TimeoutException", False) is False and row.get("goal_scored", False))
+            for row in info_rows
+        ) if info_rows else bool(
+            primary_info.get("TimeoutException", False) is False
+            and primary_info.get("goal_scored", False)
+        )
+        goal_conceded = any(bool(row.get("goal_conceded", False)) for row in info_rows)
+        ball_touched = any(bool(row.get("ball_touched", False)) for row in info_rows)
+
+        action_rows = action if action.ndim == 2 else action[np.newaxis, :]
+        boosting_agents = [bool(float(a[6]) > 0.5) for a in action_rows]
+        boosting = bool(any(boosting_agents))
 
         # Velocity towards ball (derived from obs).
-        vel_towards_ball = self._compute_vel_towards_ball(obs)
+        obs_rows = obs if obs.ndim == 2 else obs[np.newaxis, :]
+        vel_towards_ball_agents = [self._compute_vel_towards_ball(o) for o in obs_rows]
+        vel_towards_ball = float(np.mean(vel_towards_ball_agents))
 
         time_over = self._elapsed_s >= self._max_episode_time_s
         terminated = bool(done and not time_over)
@@ -181,6 +202,9 @@ class RocketLeagueEnv(BaseGameEnv):
             "goal_conceded": goal_conceded,
             "elapsed_s": self._elapsed_s,
             "termination_reason": termination_reason,
+            "vel_towards_ball_agents": vel_towards_ball_agents,
+            "boosting_agents": boosting_agents,
+            "team_agent_count": int(obs_rows.shape[0]),
         }
 
         reward = self._reward_calc.compute(
@@ -219,7 +243,21 @@ class RocketLeagueEnv(BaseGameEnv):
     # ------------------------------------------------------------------
 
     def _parse_obs(self, raw_obs: Any) -> np.ndarray:
-        """Convert raw RLGym observation to our fixed-size vector."""
+        """Convert raw RLGym observation to our fixed-size vector(s)."""
+        if isinstance(raw_obs, (list, tuple)):
+            if len(raw_obs) == 0:
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32)
+            rows = [self._parse_obs_row(row) for row in raw_obs]
+            return np.stack(rows, axis=0) if len(rows) > 1 else rows[0]
+
+        arr = np.asarray(raw_obs, dtype=np.float32)
+        if arr.ndim == 2:
+            rows = [self._parse_obs_row(row) for row in arr]
+            return np.stack(rows, axis=0) if len(rows) > 1 else rows[0]
+        return self._parse_obs_row(raw_obs)
+
+    def _parse_obs_row(self, raw_obs: Any) -> np.ndarray:
+        """Convert one agent's raw observation to our fixed-size vector."""
         arr = np.zeros(BASE_OBS_DIM, dtype=np.float32)
         if raw_obs is not None:
             raw = np.asarray(raw_obs, dtype=np.float32).ravel()

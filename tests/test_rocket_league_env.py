@@ -204,6 +204,41 @@ class TestRocketLeagueEnvStepLogic(unittest.TestCase):
         make_env(experiment_dir=".", tick_skip=10)
         _mock_rlgym.make.assert_called_with(tick_skip=10, team_size=3, self_play=False)
 
+    def test_reset_returns_multi_agent_obs_when_rlgym_returns_team_obs(self):
+        per_agent_obs = [
+            np.full(self._dim, 1.0, dtype=np.float32),
+            np.full(self._dim, 2.0, dtype=np.float32),
+            np.full(self._dim, 3.0, dtype=np.float32),
+        ]
+        _mock_rlgym_env.reset.return_value = per_agent_obs
+        env = _make_env()
+        obs, _ = env.reset()
+        self.assertEqual(obs.shape, (3, self._dim))
+        self.assertEqual(float(obs[0, 0]), 1.0)
+        self.assertEqual(float(obs[1, 0]), 2.0)
+        self.assertEqual(float(obs[2, 0]), 3.0)
+
+    def test_step_broadcasts_single_action_to_team_obs(self):
+        per_agent_obs = [self._raw_obs.copy(), self._raw_obs.copy(), self._raw_obs.copy()]
+        _mock_rlgym_env.reset.return_value = per_agent_obs
+        _mock_rlgym_env.step.return_value = (per_agent_obs, 0.0, False, [{}, {}, {}])
+        env = _make_env()
+        env.reset()
+        env.step(np.zeros(8, dtype=np.float32))
+        sent_action = _mock_rlgym_env.step.call_args[0][0]
+        self.assertEqual(sent_action.shape, (3, 8))
+
+    def test_step_info_contains_per_agent_metrics(self):
+        per_agent_obs = [self._raw_obs.copy(), self._raw_obs.copy(), self._raw_obs.copy()]
+        _mock_rlgym_env.reset.return_value = per_agent_obs
+        _mock_rlgym_env.step.return_value = (per_agent_obs, 0.0, False, [{}, {}, {}])
+        env = _make_env()
+        env.reset()
+        _, _, _, _, info = env.step(np.zeros((3, 8), dtype=np.float32))
+        self.assertEqual(len(info["vel_towards_ball_agents"]), 3)
+        self.assertEqual(len(info["boosting_agents"]), 3)
+        self.assertEqual(info["team_agent_count"], 3)
+
 
 class TestRocketLeagueActions(unittest.TestCase):
     """Test Rocket League action definitions."""

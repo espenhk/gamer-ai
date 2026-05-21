@@ -174,9 +174,24 @@ def _run_episode(
 
     policy.on_episode_start(info=reset_info or {})
 
+    def _batch_obs(obs_arr: np.ndarray) -> bool:
+        return isinstance(obs_arr, np.ndarray) and obs_arr.ndim == 2
+
     while True:
         in_warmup = (warmup_action is not None) and (steps < warmup_steps)
-        action    = warmup_action if in_warmup else policy(obs)
+        if in_warmup:
+            action = warmup_action
+            if action is not None and _batch_obs(obs):
+                action = np.repeat(
+                    np.asarray(action, dtype=np.float32)[np.newaxis, :],
+                    obs.shape[0],
+                    axis=0,
+                )
+        else:
+            if _batch_obs(obs):
+                action = np.stack([np.asarray(policy(agent_obs), dtype=np.float32) for agent_obs in obs], axis=0)
+            else:
+                action = policy(obs)
         next_obs, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
         steps += 1
@@ -184,16 +199,29 @@ def _run_episode(
             live_monitor.on_step(next_obs, reward, info, action=action)
 
         if not in_warmup:
-            policy.update(prev_obs, action, reward, next_obs, terminated or truncated,
-                          info=info)
+            if _batch_obs(prev_obs) and _batch_obs(next_obs):
+                n_agents = min(prev_obs.shape[0], next_obs.shape[0], len(action))
+                for i in range(n_agents):
+                    policy.update(
+                        prev_obs[i],
+                        action[i],
+                        reward,
+                        next_obs[i],
+                        terminated or truncated,
+                        info=info,
+                    )
+            else:
+                policy.update(prev_obs, action, reward, next_obs, terminated or truncated,
+                              info=info)
 
         prev_obs = next_obs
         obs      = next_obs
 
         # Throttle classification (works for any action with accel@[1], brake@[2])
-        if len(action) >= 3:
-            accel_on = float(action[1]) >= 0.5
-            brake_on = float(action[2]) >= 0.5
+        action_stats = action[0] if isinstance(action, np.ndarray) and action.ndim == 2 else action
+        if len(action_stats) >= 3:
+            accel_on = float(action_stats[1]) >= 0.5
+            brake_on = float(action_stats[2]) >= 0.5
             if brake_on and not accel_on:
                 t = 0
             elif accel_on:
@@ -201,8 +229,8 @@ def _run_episode(
             else:
                 t = 1
             throttle_counts[t] += 1
-            throttle_state.append((float(action[1]), float(action[2])))
-            if abs(float(action[0])) > 0.05:
+            throttle_state.append((float(action_stats[1]), float(action_stats[2])))
+            if abs(float(action_stats[0])) > 0.05:
                 turning_steps += 1
 
         if steps % _TRACE_SAMPLE_EVERY == 0:
@@ -211,7 +239,7 @@ def _run_episode(
 
         if terminated or truncated:
             _print_episode_summary(info, steps, total_reward, truncated)
-            if len(action) >= 3:
+            if len(action_stats) >= 3:
                 _print_action_stats(throttle_counts, turning_steps, steps)
             break
 

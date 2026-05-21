@@ -6,6 +6,7 @@ Optional Tkinter window that updates at every env.step() call.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _IDX_RE = re.compile(r"^(?P<base>.+)_(?P<idx>\d+)$")
+_MID_IDX_RE = re.compile(r"^(?P<prefix>.+)_(?P<idx>\d+)_(?P<suffix>.+)$")
 
 # Logical display order for well-known reward-component keys. Keys not in this
 # list are appended alphabetically after those that are.
@@ -52,6 +54,20 @@ _REWARD_ORDER_INDEX = {name: idx for idx, name in enumerate(_REWARD_ORDER)}
 
 def _reward_sort_key(name: str) -> tuple[int, str]:
     return (_REWARD_ORDER_INDEX.get(name, len(_REWARD_ORDER)), name)
+
+
+def _split_into_columns_preserving_order(items: list[Any], n_cols: int) -> list[list[Any]]:
+    n_cols = max(1, int(n_cols))
+    if not items:
+        return [[]]
+    if n_cols == 1:
+        return [list(items)]
+    rows = int(math.ceil(len(items) / n_cols))
+    return [list(items[i: i + rows]) for i in range(0, len(items), rows)]
+
+
+def _observation_column_count(canvas_width: int) -> int:
+    return 4 if int(canvas_width) >= 1200 else 3
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -130,9 +146,13 @@ def _classify_observation_features(obs_names: list[str]) -> ObservationGroups:
         if i in used:
             continue
         m = _IDX_RE.match(name)
-        if not m:
+        if m:
+            indexed_map[m.group("base")].append((int(m.group("idx")), i))
             continue
-        indexed_map[m.group("base")].append((int(m.group("idx")), i))
+        m_mid = _MID_IDX_RE.match(name)
+        if m_mid:
+            base = f"{m_mid.group('prefix')}_{m_mid.group('suffix')}"
+            indexed_map[base].append((int(m_mid.group("idx")), i))
 
     indexed: list[tuple[str, list[int]]] = []
     for base, pairs in indexed_map.items():
@@ -370,29 +390,41 @@ class LiveTelemetryMonitor:
             return
 
         items = sorted(avg_components.items(), key=lambda kv: _reward_sort_key(kv[0]))
+        item_cols = _split_into_columns_preserving_order(items, n_cols=2)
         max_abs = max(1.0, max(abs(v) for _, v in items))
-        left = 200
-        right = max(left + 100, int(c.winfo_width()) - 60)
-        y = 24
+        canvas_w = max(420, int(c.winfo_width()) or 420)
+        col_gap = 20
+        n_cols = max(1, len(item_cols))
+        total_inner = canvas_w - 16 - col_gap * (n_cols - 1)
+        col_w = max(180, total_inner // n_cols)
+        y_top = 24
         bar_h = 16
         gap = 6
-        zero_x = left + (right - left) // 2
+        max_rows = max((len(col_items) for col_items in item_cols), default=0)
+        total_height = y_top + max_rows * (bar_h + gap) + 10
+        for col_i, col_items in enumerate(item_cols):
+            col_left = 8 + col_i * (col_w + col_gap)
+            label_x = col_left
+            left = col_left + 110
+            right = col_left + col_w - 48
+            if right <= left + 20:
+                right = left + 20
+            zero_x = left + (right - left) // 2
+            self._draw_grid_lines(c, left, right, y_top - 4, total_height, n_lines=4)
+            c.create_line(zero_x, y_top - 4, zero_x, total_height, fill="#999", width=1)
 
-        total_height = y + len(items) * (bar_h + gap) + 10
-        self._draw_grid_lines(c, left, right, y - 4, total_height, n_lines=4)
-        c.create_line(zero_x, y - 4, zero_x, total_height, fill="#999", width=1)
+            y = y_top
+            for name, value in col_items:
+                frac = value / max_abs
+                px = int((right - left) * min(1.0, abs(frac)) / 2)
+                x0, x1 = (zero_x, zero_x + px) if frac >= 0 else (zero_x - px, zero_x)
+                color = "#2e8b57" if value >= 0 else "#d9534f"
+                c.create_rectangle(x0, y, x1, y + bar_h, fill=color, outline=color)
+                c.create_text(label_x, y + 2, anchor="nw", text=f"{name}", font=("TkDefaultFont", 8))
+                c.create_text(right + 4, y + 2, anchor="nw", text=f"{value:+.3f}", font=("TkFixedFont", 8))
+                y += bar_h + gap
 
-        for name, value in items:
-            frac = value / max_abs
-            px = int((right - left) * min(1.0, abs(frac)) / 2)
-            x0, x1 = (zero_x, zero_x + px) if frac >= 0 else (zero_x - px, zero_x)
-            color = "#2e8b57" if value >= 0 else "#d9534f"
-            c.create_rectangle(x0, y, x1, y + bar_h, fill=color, outline=color)
-            c.create_text(8, y + 2, anchor="nw", text=f"{name}", font=("TkDefaultFont", 8))
-            c.create_text(right + 4, y + 2, anchor="nw", text=f"{value:+.3f}", font=("TkFixedFont", 8))
-            y += bar_h + gap
-
-        c.configure(scrollregion=(0, 0, right + 70, y + 4))
+        c.configure(scrollregion=(0, 0, canvas_w, total_height + 4))
 
     def _draw_action_panel(self) -> None:
         if self._action_canvas is None:
@@ -419,92 +451,125 @@ class LiveTelemetryMonitor:
             return
         c = self._obs_canvas
         c.delete("all")
-        y = 8
-
         norm = np.divide(
             obs,
             np.where(np.abs(self._obs_scales) < 1e-9, 1.0, self._obs_scales),
             out=np.zeros_like(obs, dtype=np.float32),
         )
 
-        left = 190
-        right = max(left + 100, int(c.winfo_width()) - 60)
-        zero_x = left + (right - left) // 2
+        canvas_w = max(680, int(c.winfo_width()) or 680)
+        n_cols = _observation_column_count(canvas_w)
+        col_gap = 16
+        total_inner = canvas_w - 16 - col_gap * (n_cols - 1)
+        col_w = max(150, total_inner // n_cols)
+        col_lefts = [8 + i * (col_w + col_gap) for i in range(n_cols)]
+        col_ys = [8 for _ in range(n_cols)]
 
-        # Scalars — fixed order (by index in obs_spec, not by magnitude)
-        scalar_idxs = sorted(self._groups.scalar_idxs)
-        if scalar_idxs:
-            c.create_text(8, y, anchor="nw", text="Scalars", fill="#333", font=("TkDefaultFont", 8, "bold"))
+        def _next_col() -> int:
+            return min(range(n_cols), key=lambda i: col_ys[i])
+
+        def _draw_scalar_section(col_i: int, idxs: list[int]) -> None:
+            if not idxs:
+                return
+            x0 = col_lefts[col_i]
+            y = col_ys[col_i]
+            c.create_text(x0, y, anchor="nw", text="Scalars", fill="#333", font=("TkDefaultFont", 8, "bold"))
             y += 18
+            left = x0 + 85
+            right = x0 + col_w - 35
+            if right <= left + 20:
+                right = left + 20
+            zero_x = left + (right - left) // 2
             bar_h = 14
             gap = 4
-            section_bot = y + len(scalar_idxs) * (bar_h + gap) + 4
+            section_bot = y + len(idxs) * (bar_h + gap) + 4
             self._draw_grid_lines(c, left, right, y - 2, section_bot, n_lines=4)
             c.create_line(zero_x, y - 2, zero_x, section_bot, fill="#bbb", width=1)
-            for idx in scalar_idxs:
+            for idx in idxs:
                 val = float(obs[idx])
                 nval = max(-1.0, min(1.0, float(norm[idx])))
                 px = int((right - left) * abs(nval) / 2)
-                x0, x1 = (zero_x, zero_x + px) if nval >= 0 else (zero_x - px, zero_x)
+                x1, x2 = (zero_x, zero_x + px) if nval >= 0 else (zero_x - px, zero_x)
                 color = "#4c78a8" if nval >= 0 else "#f58518"
-                c.create_rectangle(x0, y, x1, y + bar_h, fill=color, outline=color)
-                c.create_text(8, y, anchor="nw", text=self._obs_names[idx], font=("TkDefaultFont", 8))
-                c.create_text(right + 4, y, anchor="nw", text=f"{val:+.3f}", font=("TkFixedFont", 8))
+                c.create_rectangle(x1, y, x2, y + bar_h, fill=color, outline=color)
+                c.create_text(x0, y, anchor="nw", text=self._obs_names[idx], font=("TkDefaultFont", 8))
+                c.create_text(right + 3, y, anchor="nw", text=f"{val:+.1f}", font=("TkFixedFont", 8))
                 y += bar_h + gap
-            y += 6
+            col_ys[col_i] = y + 6
 
-        # XY pairs
-        if self._groups.xy_pairs:
-            c.create_text(8, y, anchor="nw", text="XY pairs", fill="#333", font=("TkDefaultFont", 8, "bold"))
+        def _draw_xy_section(col_i: int, pairs: list[tuple[str, str, str]]) -> None:
+            if not pairs:
+                return
+            x0 = col_lefts[col_i]
+            y = col_ys[col_i]
+            c.create_text(x0, y, anchor="nw", text="XY pairs", fill="#333", font=("TkDefaultFont", 8, "bold"))
             y += 18
-            for base, xn, yn in self._groups.xy_pairs[:6]:
+            for base, xn, yn in pairs[:6]:
                 xi = self._obs_names.index(xn)
                 yi = self._obs_names.index(yn)
                 xv = float(norm[xi])
                 yv = float(norm[yi])
-                c.create_text(8, y, anchor="nw", text=f"{base}: ({obs[xi]:+.2f}, {obs[yi]:+.2f})", font=("TkDefaultFont", 8))
-                box_l, box_t = 240, y
-                box_s = 40
+                c.create_text(x0, y, anchor="nw", text=f"{base}: ({obs[xi]:+.1f}, {obs[yi]:+.1f})", font=("TkDefaultFont", 8))
+                box_s = 36
+                box_l = x0 + col_w - box_s - 4
+                box_t = y
                 c.create_rectangle(box_l, box_t, box_l + box_s, box_t + box_s, outline="#888")
                 cx, cy = box_l + box_s / 2, box_t + box_s / 2
-                c.create_line(cx, cy, cx + 14 * xv, cy - 14 * yv, fill="#2e8b57", width=2)
-                y += 48
+                c.create_line(cx, cy, cx + 12 * xv, cy - 12 * yv, fill="#2e8b57", width=2)
+                y += 44
+            col_ys[col_i] = y + 6
 
-        # Indexed vectors
-        if self._groups.indexed:
-            c.create_text(8, y, anchor="nw", text="Indexed vectors", fill="#333", font=("TkDefaultFont", 8, "bold"))
+        def _draw_indexed_section(col_i: int, indexed: list[tuple[str, list[int]]]) -> None:
+            if not indexed:
+                return
+            x0 = col_lefts[col_i]
+            y = col_ys[col_i]
+            c.create_text(x0, y, anchor="nw", text="Indexed vectors", fill="#333", font=("TkDefaultFont", 8, "bold"))
             y += 18
-            for base, idxs in self._groups.indexed[:4]:
-                c.create_text(8, y + 2, anchor="nw", text=base, font=("TkDefaultFont", 8))
-                x = 240
-                for idx in idxs[:24]:
+            for base, idxs in indexed[:5]:
+                c.create_text(x0, y + 2, anchor="nw", text=base, font=("TkDefaultFont", 8))
+                x = x0 + 95
+                for idx in idxs[:20]:
                     v = float(norm[idx])
                     intensity = int(max(0, min(255, 127 + 120 * v)))
                     color = f"#{intensity:02x}64{(255-intensity):02x}"
-                    c.create_rectangle(x, y, x + 12, y + 12, fill=color, outline="")
-                    x += 14
-                y += 20
+                    c.create_rectangle(x, y, x + 10, y + 10, fill=color, outline="")
+                    x += 12
+                    if x + 10 > (x0 + col_w):
+                        break
+                y += 18
+            col_ys[col_i] = y + 6
 
-        # Quadrants
-        if self._groups.quads:
-            c.create_text(8, y, anchor="nw", text="Quadrants", fill="#333", font=("TkDefaultFont", 8, "bold"))
+        def _draw_quad_section(col_i: int, quads: list[tuple[str, dict[str, int]]]) -> None:
+            if not quads:
+                return
+            x0 = col_lefts[col_i]
+            y = col_ys[col_i]
+            c.create_text(x0, y, anchor="nw", text="Quadrants", fill="#333", font=("TkDefaultFont", 8, "bold"))
             y += 18
-            for base, idx_map in self._groups.quads[:3]:
-                c.create_text(8, y, anchor="nw", text=base, font=("TkDefaultFont", 8))
-                grid_x, grid_y = 240, y
-                cell = 18
+            for base, idx_map in quads[:4]:
+                c.create_text(x0, y, anchor="nw", text=base, font=("TkDefaultFont", 8))
+                cell = 16
+                grid_x = x0 + col_w - (2 * cell + 6)
+                grid_y = y
                 mapping = {"_NW": (0, 0), "_NE": (1, 0), "_SW": (0, 1), "_SE": (1, 1)}
                 for suf, (gx, gy) in mapping.items():
                     idx = idx_map[suf]
                     v = float(norm[idx])
                     intensity = int(max(0, min(255, 127 + 120 * v)))
                     color = f"#{intensity:02x}{intensity:02x}c8"
-                    x0 = grid_x + gx * cell
-                    y0 = grid_y + gy * cell
-                    c.create_rectangle(x0, y0, x0 + cell, y0 + cell, fill=color, outline="#666")
-                y += 44
+                    x1 = grid_x + gx * cell
+                    y1 = grid_y + gy * cell
+                    c.create_rectangle(x1, y1, x1 + cell, y1 + cell, fill=color, outline="#666")
+                y += 38
+            col_ys[col_i] = y + 6
 
-        c.configure(scrollregion=(0, 0, right + 70, y + 8))
+        _draw_scalar_section(_next_col(), sorted(self._groups.scalar_idxs))
+        _draw_xy_section(_next_col(), self._groups.xy_pairs)
+        _draw_indexed_section(_next_col(), self._groups.indexed)
+        _draw_quad_section(_next_col(), self._groups.quads)
+
+        c.configure(scrollregion=(0, 0, canvas_w, max(col_ys) + 8))
 
 
 def make_live_monitor(training_params: dict, obs_spec: Any) -> LiveTelemetryMonitor | None:

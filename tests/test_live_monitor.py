@@ -9,8 +9,10 @@ from framework.live_monitor import (
     _classify_observation_features,
     _derive_step_components,
     _fmt_action,
+    _observation_column_count,
     _rolling_means,
     _reward_sort_key,
+    _split_into_columns_preserving_order,
 )
 
 
@@ -55,6 +57,22 @@ class TestObservationClassification(unittest.TestCase):
         self.assertIn("screen_enemy", [base for base, _ in groups.quads])
         speed_idx = names.index("speed_ms")
         self.assertIn(speed_idx, groups.scalar_idxs)
+
+    def test_classifies_mid_index_names_as_indexed_vector(self):
+        names = ["wheel_0_contact", "wheel_1_contact", "wheel_2_contact", "wheel_3_contact"]
+        groups = _classify_observation_features(names)
+        self.assertIn("wheel_contact", [base for base, _ in groups.indexed])
+        self.assertEqual(groups.scalar_idxs, [])
+
+
+class TestLayoutHelpers(unittest.TestCase):
+    def test_split_into_columns_preserves_order(self):
+        cols = _split_into_columns_preserving_order([1, 2, 3, 4, 5], n_cols=2)
+        self.assertEqual(cols, [[1, 2, 3], [4, 5]])
+
+    def test_observation_column_count_switches_at_wide_width(self):
+        self.assertEqual(_observation_column_count(900), 3)
+        self.assertEqual(_observation_column_count(1200), 4)
 
 
 class TestDisplayHelpers(unittest.TestCase):

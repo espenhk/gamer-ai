@@ -5,9 +5,13 @@ Install with::
 
     pip install pyirsdk
 
-Phase 1 is telemetry-only (read-only): the environment reads live car
-state but does **not** inject actions.  Action injection (Phase 2) will
-use vJoy or similar virtual controller.
+Two operating modes:
+
+- **Phase 1 — telemetry-only** (``action_mode: telemetry_only``):
+  reads live car state but does **not** inject actions.
+- **Phase 2 — live action injection** (``action_mode: live``):
+  reads telemetry *and* sends steer/throttle/brake commands via
+  a vJoy virtual joystick controller.
 
 If ``pyirsdk`` is not installed, importing this module raises
 ``ImportError``.  The entry point in ``main.py`` converts that to a
@@ -36,6 +40,7 @@ import numpy as np
 from gymnasium import spaces
 
 from framework.base_env import BaseGameEnv
+from games.iracing.controller import BaseController, NullController, make_controller
 from games.iracing.obs_spec import BASE_OBS_DIM
 from games.iracing.reward import IRacingRewardConfig, IRacingRewardCalculator
 
@@ -51,6 +56,10 @@ class IRacingEnv(BaseGameEnv):
         IRacingRewardConfig instance.  If None, uses Python defaults.
     max_episode_time_s :
         Wall-clock seconds before the episode is truncated.
+    controller :
+        Action injection controller.  ``NullController`` (default) discards
+        actions (telemetry-only mode).  Pass a ``VJoyController`` for live
+        action injection.
     """
 
     metadata = {"render_modes": []}
@@ -59,12 +68,14 @@ class IRacingEnv(BaseGameEnv):
         self,
         reward_config: IRacingRewardConfig | None = None,
         max_episode_time_s: float = 120.0,
+        controller: BaseController | None = None,
     ) -> None:
         super().__init__()
 
         self._reward_config = reward_config or IRacingRewardConfig()
         self._max_episode_time_s = max_episode_time_s
         self._reward_calc = IRacingRewardCalculator(self._reward_config)
+        self._controller = controller or NullController()
 
         self.observation_space = spaces.Box(
             low=-np.inf,
@@ -103,6 +114,7 @@ class IRacingEnv(BaseGameEnv):
     ) -> tuple[np.ndarray, dict]:
         super().reset(seed=seed)
         self._ensure_connected()
+        self._controller.reset()
 
         self._prev_progress = 0.0
         self._elapsed_s = 0.0
@@ -114,9 +126,14 @@ class IRacingEnv(BaseGameEnv):
         return obs, {}
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
-        # Phase 1: telemetry-only — action is ignored (no injection yet).
         self._step_count += 1
         self._elapsed_s = time.monotonic() - self._episode_start_s
+
+        # Inject action via the controller (no-op for NullController).
+        steer = float(np.clip(action[0], -1.0, 1.0))
+        throttle = float(np.clip(action[1], 0.0, 1.0))
+        brake = float(np.clip(action[2], 0.0, 1.0))
+        self._controller.send(steer=steer, throttle=throttle, brake=brake)
 
         obs = self._read_telemetry()
         speed = float(obs[0])
@@ -162,6 +179,7 @@ class IRacingEnv(BaseGameEnv):
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
+        self._controller.close()
         if self._connected:
             self._ir.shutdown()
             self._connected = False
@@ -213,15 +231,25 @@ class IRacingEnv(BaseGameEnv):
 def make_env(
     experiment_dir: str | Path,
     max_episode_time_s: float = 120.0,
+    action_mode: str = "telemetry_only",
 ) -> IRacingEnv:
-    """Factory that wires up an IRacingEnv from an experiment directory."""
+    """Factory that wires up an IRacingEnv from an experiment directory.
+
+    Parameters
+    ----------
+    action_mode :
+        ``"telemetry_only"`` (default) — read-only telemetry, actions discarded.
+        ``"live"`` — inject actions via vJoy virtual controller.
+    """
     experiment_dir = Path(experiment_dir)
     reward_cfg_path = experiment_dir / "reward_config.yaml"
     if reward_cfg_path.exists():
         reward_config = IRacingRewardConfig.from_yaml(str(reward_cfg_path))
     else:
         reward_config = IRacingRewardConfig()
+    controller = make_controller(action_mode)
     return IRacingEnv(
         reward_config=reward_config,
         max_episode_time_s=max_episode_time_s,
+        controller=controller,
     )

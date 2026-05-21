@@ -148,6 +148,8 @@ _ABBREV = {
     "off_track_penalty": "otp",
     "lap_time_improvement_bonus": "ltib",
     "lidar_wall_weight": "lww",
+    # iracing params
+    "action_mode": "actm",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
     "curiosity_weight": "cwgt",

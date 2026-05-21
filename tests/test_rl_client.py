@@ -31,7 +31,13 @@ _iface.TMInterface = MagicMock
 # ---------------------------------------------------------------------------
 # Now we can safely import the module under test.
 # ---------------------------------------------------------------------------
-from games.tmnf.clients.rl_client import RLClient, StepState, _DEFAULT_ACTION, ACTIONS  # noqa: E402
+from games.tmnf.clients.rl_client import (  # noqa: E402
+    ACTIONS,
+    RLClient,
+    StepState,
+    _DEFAULT_ACTION,
+    _FINISH_THRESHOLD,
+)
 
 
 def _make_state_data(track_progress=0.5, lateral_offset=0.0, speed=10.0):
@@ -280,7 +286,7 @@ class TestActionWindow(unittest.TestCase):
             self.client._state_queue.get_nowait()
         iface.set_input_state.reset_mock()
         # Tick 3: transit, but inject finish.
-        finished_state = _make_state_data(track_progress=0.97)
+        finished_state = _make_state_data(track_progress=_FINISH_THRESHOLD)
         self._run_step(iface, action=np.array([1.0, 1.0, 0.0], dtype=np.float32),
                        state_data=finished_state)
         iface.set_input_state.assert_called_once()

@@ -17,6 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **iRacing live action injection** (`games/iracing/controller.py`):
+  Phase 2 action injection via vJoy virtual joystick.  New
+  `action_mode` training param (`"telemetry_only"` default,
+  `"live"` for vJoy injection).  `VJoyController` maps
+  steer/throttle/brake to vJoy axes; `NullController` preserves
+  existing telemetry-only behaviour.  `pyvjoy` is an optional
+  dependency (only required for `action_mode: live`).
+
 
 ---
 

@@ -23,7 +23,7 @@ from pathlib import Path
 # Source of truth for the package version.  Bumped by scripts/release.py
 # at release time; pyproject.toml is updated to the same value in the
 # same commit.  Keep both in sync.
-PACKAGE_VERSION: str = "0.1.5"
+PACKAGE_VERSION: str = "0.1.6"
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

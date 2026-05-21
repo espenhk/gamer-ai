@@ -70,11 +70,11 @@ class GameAdapter(Protocol):
 # ---------------------------------------------------------------------------
 
 GAME_ADAPTERS: dict[str, Callable[[], GameAdapter]] = {
-    "tmnf":           lambda: __import__("games.tmnf.adapter",           fromlist=["make_adapter"]).make_adapter(),
-    "torcs":          lambda: __import__("games.torcs.adapter",          fromlist=["make_adapter"]).make_adapter(),
-    "sc2":            lambda: __import__("games.sc2.adapter",            fromlist=["make_adapter"]).make_adapter(),
-    "beamng":         lambda: __import__("games.beamng.adapter",         fromlist=["make_adapter"]).make_adapter(),
-    "car_racing":     lambda: __import__("games.car_racing.adapter",     fromlist=["make_adapter"]).make_adapter(),
-    "rocket_league":  lambda: __import__("games.rocket_league.adapter",  fromlist=["make_adapter"]).make_adapter(),
-    "iracing":        lambda: __import__("games.iracing.adapter",        fromlist=["make_adapter"]).make_adapter(),
+    "tmnf":       lambda: __import__("games.tmnf.adapter",       fromlist=["make_adapter"]).make_adapter(),
+    "torcs":      lambda: __import__("games.torcs.adapter",      fromlist=["make_adapter"]).make_adapter(),
+    "sc2":        lambda: __import__("games.sc2.adapter",        fromlist=["make_adapter"]).make_adapter(),
+    "beamng":     lambda: __import__("games.beamng.adapter",     fromlist=["make_adapter"]).make_adapter(),
+    "car_racing": lambda: __import__("games.car_racing.adapter", fromlist=["make_adapter"]).make_adapter(),
+    "rocket_league": lambda: __import__("games.rocket_league.adapter", fromlist=["make_adapter"]).make_adapter(),
+    "iracing":    lambda: __import__("games.iracing.adapter",    fromlist=["make_adapter"]).make_adapter(),
 }

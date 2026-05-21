@@ -43,6 +43,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **Rocket League team support**: env now uses `team_size=3` and observation
   slots for 3 opponents + 2 friendlies, enabling 3v3-state training inputs.
 
+---
+
+## [0.2.2] - 2026-05-21
+
+- **TMNF bug fix:** Finish-detection threshold raised from 0.95 → 0.98 so that
+  near-end track sections (e.g. the drop at the end of A03) no longer trigger a
+  false finish before the physical finish line is reached.
 
 ---
 

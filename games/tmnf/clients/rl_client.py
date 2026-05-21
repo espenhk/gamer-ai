@@ -59,8 +59,9 @@ _HARD_CRASH_THRESHOLD_M = 50.0
 
 # Finish is detected when track_progress reaches this threshold.
 # Slightly below 1.0 to catch cases where the game rounds or caps progress
-# just before the exact finish line value.
-_FINISH_THRESHOLD = 0.95
+# just before the exact finish line value.  0.98 avoids false positives on
+# longer tracks where 0.95 could trigger well before the physical finish line.
+_FINISH_THRESHOLD = 0.98
 
 
 # ---------------------------------------------------------------------------

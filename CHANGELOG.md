@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.1.4] - 2026-05-21
+
 ### Documentation
 
 - Add `docs/framework/` — one Markdown page per framework-side protocol

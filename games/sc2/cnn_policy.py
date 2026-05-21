@@ -167,6 +167,7 @@ class SC2CNNModel:
         self.b_fn = np.zeros(_N_FUNCS, dtype=np.float32)
         self.W_sp = _he((_N_SPATIAL_CELLS, self._FC_DIM))
         self.b_sp = np.zeros(_N_SPATIAL_CELLS, dtype=np.float32)
+        self._available_fn_ids: set[int] | None = None
 
     @property
     def flat_dim(self) -> int:
@@ -225,6 +226,9 @@ class SC2CNNModel:
         obj.b_fn = _take((_N_FUNCS,))
         obj.W_sp = _take((_N_SPATIAL_CELLS, self._FC_DIM))
         obj.b_sp = _take((_N_SPATIAL_CELLS,))
+        obj._available_fn_ids = (
+            set(self._available_fn_ids) if self._available_fn_ids is not None else None
+        )
         return obj
 
     def forward(
@@ -271,13 +275,21 @@ class SC2CNNModel:
                 "'flat' and 'spatial'.  Got: " + type(obs).__name__
             )
         fn_scores, sp_scores = self.forward(spatial, flat_obs)
+        if self._available_fn_ids is not None:
+            for i in range(_N_FUNCS):
+                if i not in self._available_fn_ids:
+                    fn_scores[i] = -np.inf
+            if not np.isfinite(fn_scores).any():
+                fn_scores[0] = 0.0
         fn_idx   = int(np.argmax(fn_scores))
         cell_idx = int(np.argmax(sp_scores))
         x, y     = _GRID_XY[cell_idx]
         return np.array([fn_idx, x, y, 0.0], dtype=np.float32)
 
     def on_episode_start(self, **kwargs) -> None:
-        pass
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        self._available_fn_ids = set(available) if available is not None else None
 
     def on_episode_end(self) -> None:
         pass
@@ -291,7 +303,10 @@ class SC2CNNModel:
         done: bool,
         **kwargs,
     ) -> None:
-        pass  # trained via outer evolutionary optimiser
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        if available is not None:
+            self._available_fn_ids = set(available)
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +459,8 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         return self._champion(obs)
 
     def on_episode_start(self, **kwargs) -> None:
-        pass
+        if self._champion is not None:
+            self._champion.on_episode_start(**kwargs)
 
     def on_episode_end(self) -> None:
         pass
@@ -458,7 +474,8 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         done: bool,
         **kwargs,
     ) -> None:
-        pass
+        if self._champion is not None:
+            self._champion.update(obs, action, reward, next_obs, done, **kwargs)
 
     # ------------------------------------------------------------------
     # Persistence

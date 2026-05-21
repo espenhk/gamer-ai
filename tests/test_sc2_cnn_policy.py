@@ -125,6 +125,30 @@ class TestSC2CNNModelShape(unittest.TestCase):
         self.assertEqual(fn_sc.shape[0], N_FUNCTION_IDS)
         self.assertEqual(sp_sc.shape[0], len(DISCRETE_ACTIONS))
 
+    def test_available_fn_ids_masked_in_call(self):
+        model = _make_model(n_channels=2)
+        model.W1.fill(0.0); model.b1.fill(0.0)
+        model.W2.fill(0.0); model.b2.fill(0.0)
+        model.W3.fill(0.0); model.b3.fill(0.0)
+        model.W_fn.fill(0.0)
+        model.b_fn.fill(-1.0)
+        model.b_fn[4] = 10.0
+        model.on_episode_start(info={"available_fn_ids": {1}})
+        action = model(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 1)
+
+    def test_empty_available_fn_ids_falls_back_to_no_op(self):
+        model = _make_model(n_channels=2)
+        model.W1.fill(0.0); model.b1.fill(0.0)
+        model.W2.fill(0.0); model.b2.fill(0.0)
+        model.W3.fill(0.0); model.b3.fill(0.0)
+        model.W_fn.fill(0.0)
+        model.b_fn.fill(-1.0)
+        model.b_fn[4] = 10.0
+        model.on_episode_start(info={"available_fn_ids": set()})
+        action = model(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 0)
+
 
 # ---------------------------------------------------------------------------
 # SC2CNNEvolutionPolicy
@@ -175,6 +199,19 @@ class TestSC2CNNEvolutionPolicy(unittest.TestCase):
         obs    = _dict_obs(n_channels=2)
         action = self.policy(obs)
         self.assertEqual(action.shape, (4,))
+
+    def test_on_episode_start_forwards_available_fn_ids_to_champion(self):
+        champion = _make_model(n_channels=2)
+        champion.W1.fill(0.0); champion.b1.fill(0.0)
+        champion.W2.fill(0.0); champion.b2.fill(0.0)
+        champion.W3.fill(0.0); champion.b3.fill(0.0)
+        champion.W_fn.fill(0.0)
+        champion.b_fn.fill(-1.0)
+        champion.b_fn[5] = 10.0
+        self.policy._champion = champion
+        self.policy.on_episode_start(info={"available_fn_ids": {2}})
+        action = self.policy(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 2)
 
     def test_update_wrong_rewards_count_raises(self):
         self.policy.sample_population()

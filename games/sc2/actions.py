@@ -440,9 +440,12 @@ def action_to_function_call(
     y_norm = float(np.clip(action[2], 0.0, 1.0))
     queue = int(np.clip(round(float(action[3])), 0, 1))
     name = FUNCTION_IDS.get(fn_idx, "no_op")
+    fn = None
     try:
         fn = actions.FUNCTIONS[name]
-    except KeyError:
+    except (TypeError, KeyError):
+        fn = getattr(actions.FUNCTIONS, name, None)
+    if fn is None:
         fn = actions.FUNCTIONS.no_op
         name = "no_op"
     fn_id = int(fn.id)

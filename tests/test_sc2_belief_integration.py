@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from games.sc2.belief_schema import belief_obs_dims
+from games.sc2.belief_schema import belief_obs_dims, load_belief_config
 from games.sc2.env import SC2Env
 from games.sc2.obs_spec import BASE_OBS_DIM, LADDER_OBS_DIM
 
@@ -16,7 +16,9 @@ from games.sc2.obs_spec import BASE_OBS_DIM, LADDER_OBS_DIM
 # Helpers
 # ---------------------------------------------------------------------------
 
-_BELIEF_EXTRA_DIMS = len(belief_obs_dims())  # 192 for default 8×8 grid
+_BELIEF_CFG = load_belief_config("games/sc2/config/belief_config.yaml")
+_BELIEF_EXTRA_DIMS = len(belief_obs_dims(_BELIEF_CFG))
+_N_SLOTS = int(_BELIEF_CFG["region_grid"][0] * _BELIEF_CFG["region_grid"][1])
 
 # A 64×64 all-visible minimap (visibility_map value 2 = fully visible).
 _FULL_VIS = np.full((64, 64), 2, dtype=np.float32)
@@ -101,17 +103,19 @@ class TestBeliefResetState(unittest.TestCase):
     def test_reset_belief_enc_all_zero(self):
         env = _make_belief_env()
         obs, _ = env.reset()
-        # belief enc occupies dims [BASE_OBS_DIM : BASE_OBS_DIM + 2*64]
-        n_slots = 64
-        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * n_slots]
-        np.testing.assert_array_equal(belief_enc, np.zeros(2 * n_slots, dtype=np.float32))
+        # belief enc occupies dims [BASE_OBS_DIM : BASE_OBS_DIM + 2*n_slots]
+        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * _N_SLOTS]
+        np.testing.assert_array_equal(
+            belief_enc, np.zeros(2 * _N_SLOTS, dtype=np.float32)
+        )
 
     def test_reset_staleness_all_ones(self):
         env = _make_belief_env()
         obs, _ = env.reset()
-        n_slots = 64
-        staleness = obs[BASE_OBS_DIM + 2 * n_slots:]
-        np.testing.assert_array_almost_equal(staleness, np.ones(n_slots, dtype=np.float32))
+        staleness = obs[BASE_OBS_DIM + 2 * _N_SLOTS:]
+        np.testing.assert_array_almost_equal(
+            staleness, np.ones(_N_SLOTS, dtype=np.float32)
+        )
 
     def test_second_reset_clears_belief(self):
         """Belief state accumulated during an episode is cleared on re-reset."""
@@ -121,9 +125,10 @@ class TestBeliefResetState(unittest.TestCase):
         env.step(np.zeros(4, dtype=np.float32))
         # Reset again — belief enc should be all zeros again.
         obs, _ = env.reset()
-        n_slots = 64
-        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * n_slots]
-        np.testing.assert_array_equal(belief_enc, np.zeros(2 * n_slots, dtype=np.float32))
+        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * _N_SLOTS]
+        np.testing.assert_array_equal(
+            belief_enc, np.zeros(2 * _N_SLOTS, dtype=np.float32)
+        )
 
 
 class TestBeliefStepAppendsObs(unittest.TestCase):
@@ -140,8 +145,7 @@ class TestBeliefStepAppendsObs(unittest.TestCase):
         env = _make_belief_env(minimap_vis=_FULL_VIS)
         env.reset()
         obs, _, _, _, _ = env.step(np.zeros(4, dtype=np.float32))
-        n_slots = 64
-        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * n_slots]
+        belief_enc = obs[BASE_OBS_DIM: BASE_OBS_DIM + 2 * _N_SLOTS]
         # At least the confidence slots should be 1.0 for visible regions.
         self.assertTrue(np.any(belief_enc > 0.0))
 
@@ -150,8 +154,7 @@ class TestBeliefStepAppendsObs(unittest.TestCase):
         env = _make_belief_env(minimap_vis=_FULL_VIS)
         env.reset()
         obs_after, _, _, _, _ = env.step(np.zeros(4, dtype=np.float32))
-        n_slots = 64
-        staleness = obs_after[BASE_OBS_DIM + 2 * n_slots:]
+        staleness = obs_after[BASE_OBS_DIM + 2 * _N_SLOTS:]
         # After seeing all regions, every staleness should be < 1.
         self.assertTrue(np.all(staleness < 1.0))
 

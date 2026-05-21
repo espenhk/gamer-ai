@@ -395,6 +395,8 @@ class TestCoordinator:
         )
         with opener.open(login_req, timeout=5) as r:
             assert r.geturl().endswith("/monitor")
+            html = r.read().decode()
+            assert '""": "&quot;"' not in html
 
         work_req = urllib.request.Request(
             self._url(coord, "/work"),

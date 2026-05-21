@@ -635,11 +635,11 @@ class Coordinator:
     let selectedRun = null;
 
     function esc(value) {
-      return String(value ?? "").replace(/[&<>\"']/g, (ch) => ({
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         "&": "&amp;",
         "<": "&lt;",
         ">": "&gt;",
-        "\"": "&quot;",
+        '"': "&quot;",
         "'": "&#39;",
       })[ch]);
     }

@@ -19,6 +19,8 @@ Endpoints:
                      (used by game-filtered workers that receive an incompatible item)
   GET  /status     → 200 + JSON summary (queue depth, done, active workers)
   POST /heartbeat  → 200 ack; updates last-seen timestamp for a worker
+  GET  /monitor    → mobile-friendly web UI with username/password login
+  GET  /monitor/api/status → authenticated JSON payload for the web UI
 
 Usage (called automatically by grid_search.py --distribute):
     from distributed.coordinator import Coordinator

@@ -17,6 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Distributed coordinator: new mobile-friendly `/monitor` web app with
+  username/password login, a run selector, and per-run queued / active /
+  completed state so users can watch multi-machine runs from a phone. By
+  default the monitor username is `monitor` and the password reuses the
+  coordinator token; both can be overridden with
+  `distribute.monitor_username` / `distribute.monitor_password` or the
+  matching CLI flags.
 
 ---
 

@@ -315,6 +315,18 @@ While a worker is running an experiment, it POSTs `/heartbeat` every `--heartbea
 
 `GET /status` returns a JSON summary with queue depth, completed count, and active workers — handy for monitoring from `curl` or a dashboard without tailing logs.
 
+### Mobile run monitor
+
+The coordinator also serves a mobile-friendly monitor at `GET /monitor`. It shows
+queued / active / completed runs, lets you switch between runs with a selector, and
+surfaces which worker/computer currently owns the active run.
+
+- Default login: username `monitor`, password = the coordinator token (`--token` /
+  `TMNF_GRID_TOKEN` / auto-generated token).
+- Override the web credentials with `--monitor-username`, `--monitor-password`, or
+  the grid-config keys `distribute.monitor_username` and
+  `distribute.monitor_password`.
+
 ### Same-machine smoke test
 
 To verify the pipeline end-to-end on a single box, open two shells:

@@ -36,6 +36,9 @@ import uuid as _uuid
 
 import yaml
 
+from framework.env_loader import load_dotenv
+load_dotenv()
+
 from distributed.protocol import ComboSpec
 from distributed.coordinator import Coordinator
 

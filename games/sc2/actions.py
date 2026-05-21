@@ -440,7 +440,11 @@ def action_to_function_call(
     y_norm = float(np.clip(action[2], 0.0, 1.0))
     queue = int(np.clip(round(float(action[3])), 0, 1))
     name = FUNCTION_IDS.get(fn_idx, "no_op")
-    fn = getattr(actions.FUNCTIONS, name, actions.FUNCTIONS.no_op)
+    try:
+        fn = actions.FUNCTIONS[name]
+    except KeyError:
+        fn = actions.FUNCTIONS.no_op
+        name = "no_op"
     fn_id = int(fn.id)
     minimap = screen_size if minimap_size is None else minimap_size
     target_size = minimap if name.endswith("_minimap") else screen_size

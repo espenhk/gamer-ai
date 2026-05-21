@@ -27,6 +27,9 @@ import sys
 
 import yaml
 
+from framework.env_loader import load_dotenv
+load_dotenv()
+
 from framework.game_adapter import GAME_ADAPTERS
 from framework.run_config import RunConfig
 from framework.training import train_rl

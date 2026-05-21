@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from typing import TYPE_CHECKING
 
 import yaml
@@ -200,7 +201,7 @@ def _load_champion_policy(
         return SC2LSTMPolicy.from_cfg(cfg, obs_spec)
 
     if policy_type == "sc2_neural_dqn":
-        from games.sc2.policies import SC2NeuralDQNPolicy
+        from games.sc2.sc2_policies import SC2NeuralDQNPolicy
         return SC2NeuralDQNPolicy.from_cfg(cfg, obs_spec)
 
     if policy_type == "sc2_cnn":
@@ -221,16 +222,52 @@ def _load_champion_policy(
         return policy
 
     if policy_type == "neural_dqn":
-        from games.sc2.policies import NeuralDQNPolicy
-        return NeuralDQNPolicy.from_cfg(cfg, obs_spec)
+        warnings.warn(
+            "Bare-name policy_type 'neural_dqn' is deprecated for SC2. "
+            "Use 'sc2_neural_dqn' in training configs. Loading legacy champion for play only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from games.sc2.sc2_policies import SC2NeuralDQNPolicy
+        return SC2NeuralDQNPolicy.from_cfg(cfg, obs_spec)
 
     if policy_type == "reinforce":
-        from games.sc2.policies import REINFORCEPolicy
-        return REINFORCEPolicy.from_cfg(cfg, obs_spec)
+        warnings.warn(
+            "Bare-name policy_type 'reinforce' is deprecated for SC2. "
+            "Use 'sc2_reinforce' in training configs. Loading legacy champion for play only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if (
+            any(k in cfg for k in ("weights", "biases", "baseline_value"))
+            and "trunk_weights" not in cfg
+        ):
+            raise SystemExit(
+                "Unsupported legacy SC2 bare-name 'reinforce' weights format detected. "
+                "This format was removed; retrain/save with policy_type 'sc2_reinforce'."
+            )
+        from games.sc2.sc2_policies import SC2REINFORCEPolicy
+        return SC2REINFORCEPolicy.from_cfg(cfg, obs_spec)
 
     if policy_type == "lstm":
-        from games.sc2.policies import LSTMPolicy
-        return LSTMPolicy.from_cfg(cfg, obs_spec)
+        warnings.warn(
+            "Bare-name policy_type 'lstm' is deprecated for SC2. "
+            "Use 'sc2_lstm' in training configs. Loading legacy champion for play only.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if any(k in cfg for k in ("W_fn", "W_x", "W_y", "W_queue")):
+            raise SystemExit(
+                "Unsupported legacy SC2 bare-name 'lstm' weights format detected. "
+                "This format was removed; retrain/save with policy_type 'sc2_lstm'."
+            )
+        from games.sc2.sc2_policies import SC2LSTMPolicy
+        if "W_out" in cfg:
+            return SC2LSTMPolicy.from_cfg(cfg, obs_spec)
+        raise SystemExit(
+            "Unsupported SC2 bare-name 'lstm' weights format. "
+            "Use a champion saved with policy_type 'sc2_lstm'."
+        )
 
     # No explicit policy_type — detect format by key structure.
     # SC2GeneticPolicy / SC2CMAESPolicy save via SC2MultiHeadLinearPolicy.save() →

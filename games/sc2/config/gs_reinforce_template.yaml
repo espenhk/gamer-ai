@@ -41,8 +41,8 @@ training_params:
   minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 500                 # 1000 episodes; REINFORCE needs more episodes than evolutionary methods
-  policy_type: reinforce
+  n_sims: 200                 # 200 episodes; REINFORCE needs more episodes than evolutionary methods
+  policy_type: sc2_reinforce
   obs_spec_preset: rich
   enable_belief: true
   learning_rate: 0.1

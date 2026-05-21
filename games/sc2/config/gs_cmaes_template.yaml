@@ -40,7 +40,7 @@ training_params:
   max_apm: 300
   agent_race: terran
   n_sims: 50                  # 50 generations; total episodes = n_sims × population_size × eval_episodes
-  policy_type: cmaes
+  policy_type: sc2_cmaes
   obs_spec_preset: rich
   enable_belief: true
   population_size: 50

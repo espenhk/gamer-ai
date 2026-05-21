@@ -602,10 +602,8 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `sc2_neural_net` | TMNF-style MLP (pure numpy) with SC2-native multi-head action encoding; mutate-and-keep evolutionary search | `games/sc2/sc2_policies.py`; hyperparam `hidden_sizes` |
 | `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
 | `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
-| `cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2LinearPolicy` weights *(legacy)* | `games/sc2/policies.py`; prefer `sc2_cmaes` |
-| `neural_dqn` | Deep Q-network with experience replay *(legacy)* | `games/sc2/policies.py`; selects from `DISCRETE_ACTIONS` |
-| `reinforce` | Monte Carlo policy gradient *(legacy)* | `games/sc2/policies.py`; selects from `DISCRETE_ACTIONS` |
-| `lstm` | LSTM policy trained by evolutionary search *(legacy)* | `games/sc2/policies.py`; prefer `sc2_lstm` |
+
+> **Breaking change vs. earlier versions:** The bare-name `cmaes`, `reinforce`, `lstm`, and `neural_dqn` policy_types are no longer valid for SC2. Migrate configs to `sc2_cmaes`, `sc2_reinforce`, `sc2_lstm`, and `sc2_neural_dqn` respectively.
 
 ### Reward tuning (`reward_config.yaml`)
 

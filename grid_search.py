@@ -432,7 +432,6 @@ def _run_local(
             config=RunConfig.from_training_params(t_with_pp),
             probe=adapter.build_probe(t_with_pp),
             warmup=adapter.build_warmup(t_with_pp),
-            extras=adapter.build_extras(weights_file, t_with_pp, re_initialize),
             no_interrupt=no_interrupt or i > 1,
             re_initialize=re_initialize,
         )

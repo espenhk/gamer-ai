@@ -2,6 +2,7 @@
 
 - [Coverage at a glance](#coverage-at-a-glance)
 - [Framework / shared](#framework--shared)
+  - [test\_cmaes\_distribution.py — `CMAESDistribution` pure-math unit tests](#test_cmaes_distributionpy--cmaesdistribution-pure-math-unit-tests)
   - [test\_analytics\_no\_matplotlib.py — analytics importable when matplotlib missing](#test_analytics_no_matplotlibpy--analytics-importable-when-matplotlib-missing)
   - [test\_analytics\_task\_metrics.py — `TaskMetrics` dataclass + summary table formatting](#test_analytics_task_metricspy--taskmetrics-dataclass--summary-table-formatting)
   - [test\_belief.py — fog-of-war belief encoder](#test_beliefpy--fog-of-war-belief-encoder)
@@ -25,16 +26,18 @@
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
+  - [test\_policy\_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery](#test_policy_registrypy--policy_registry--basepolicy-registry-machinery)
+  - [test\_sc2\_legacy\_names\_rejected.py — SC2 bare legacy policy names rejected](#test_sc2_legacy_names_rejectedpy--sc2-bare-legacy-policy-names-rejected)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
   - [test\_genetic\_policy.py — population evolutionary loop](#test_genetic_policypy--population-evolutionary-loop)
-  - [test\_cmaes\_policy.py — CMA-ES on linear weights](#test_cmaes_policypy--cma-es-on-linear-weights)
+  - [test\_cmaes\_policy.py — `CMAESPolicy` (framework) via TMNF factory](#test_cmaes_policypy--cmaespolicy-framework-via-tmnf-factory)
   - [test\_epsilon\_greedy\_policy.py — tabular Q-learning](#test_epsilon_greedy_policypy--tabular-q-learning)
   - [test\_mcts\_policy.py — UCT-style online Q](#test_mcts_policypy--uct-style-online-q)
-  - [test\_neural\_dqn\_policy.py — DQN (replay + target net)](#test_neural_dqn_policypy--dqn-replay--target-net)
-  - [test\_reinforce\_policy.py — Monte-Carlo policy gradient](#test_reinforce_policypy--monte-carlo-policy-gradient)
-  - [test\_lstm\_policy.py — LSTM evolution policy](#test_lstm_policypy--lstm-evolution-policy)
+  - [test\_neural\_dqn\_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`](#test_neural_dqn_policypy--dqnpolicy-framework--replaybuffer)
+  - [test\_reinforce\_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG](#test_reinforce_policypy--reinforcepolicy-framework-monte-carlo-pg)
+  - [test\_lstm\_policy.py — `LSTMCore` + `LSTMEvolutionPolicy` (framework)](#test_lstm_policypy--lstmcore--lstmevolutionpolicy-framework)
 - [TMNF I/O](#tmnf-io)
   - [test\_rl\_client.py — `RLClient` (game-thread bridge, action windowing)](#test_rl_clientpy--rlclient-game-thread-bridge-action-windowing)
 - [TORCS](#torcs)
@@ -53,12 +56,12 @@
   - [test\_sc2\_apm\_limiter.py — token-bucket APM limiter + SC2Env integration](#test_sc2_apm_limiterpy--token-bucket-apm-limiter--sc2env-integration)
   - [test\_sc2\_belief\_integration.py — fog-of-war belief system wired into SC2Env (issue #111)](#test_sc2_belief_integrationpy--fog-of-war-belief-system-wired-into-sc2env-issue-111)
   - [test\_sc2\_cmaes\_policy.py — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
-  - [test\_sc2\_lstm\_policy.py — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy`](#test_sc2_lstm_policypy--sc2lstmpolicy--sc2lstmevolutionpolicy)
+  - [test\_sc2\_lstm\_policy.py — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy` (thin framework subclass)](#test_sc2_lstm_policypy--sc2lstmpolicy--sc2lstmevolutionpolicy-thin-framework-subclass)
   - [test\_sc2\_genetic\_policy.py — `SC2MultiHeadLinearPolicy` + genetic trainer](#test_sc2_genetic_policypy--sc2multiheadlinearpolicy--genetic-trainer)
   - [test\_sc2\_neural\_net\_policy.py — hill-climbing MLP policy for SC2](#test_sc2_neural_net_policypy--hill-climbing-mlp-policy-for-sc2)
   - [test\_sc2\_neural\_dqn\_policy.py — masked DQN for SC2](#test_sc2_neural_dqn_policypy--masked-dqn-for-sc2)
   - [test\_sc2\_cnn\_policy.py — CNN feature extractor + CMA-ES variant](#test_sc2_cnn_policypy--cnn-feature-extractor--cma-es-variant)
-  - [test\_sc2\_reinforce\_policy.py — REINFORCE policy for SC2](#test_sc2_reinforce_policypy--reinforce-policy-for-sc2)
+  - [test\_sc2\_reinforce\_policy.py — `SC2REINFORCEPolicy` (thin subclass of `TwoHeadREINFORCEPolicy`)](#test_sc2_reinforce_policypy--sc2reinforcepolicy-thin-subclass-of-twoheadreinforce)
   - [test\_sc2\_eval.py — `--eval` evaluation mode](#test_sc2_evalpy----eval-evaluation-mode)
   - [test\_sc2\_play.py — `play_sc2.py` script](#test_sc2_playpy--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py — Simple64 ladder integration](#test_sc2_simple64_trainingpy--simple64-ladder-integration)
@@ -99,7 +102,12 @@ Game-agnostic plumbing under `framework/`, `distributed/`, `config/`,
 `analytics.py`, `grid_search.py`, the train_rl entry point, and shared utility
 modules.
 
-**Tested.** Reward calculator math (linear components, n_ticks scaling,
+**Tested.** `CMAESDistribution` pure-math (initialisation invariants,
+sample/update mechanics, convergence on a quadratic, save/load .npz
+round-trips, dimension mismatch guard); framework ↔ TMNF byte-identical
+forward-pass verification for `DQNPolicy`, `REINFORCEPolicy`, and `LSTMCore`
+(Q-values, softmax logits, hidden-state trajectory, seed-matched initial
+weights). Reward calculator math (linear components, n_ticks scaling,
 finish-bonus / progress invariants, curiosity glue); curiosity modules (ICM
 and RND, factory dispatch); fog-of-war belief encoder; staleness-based
 info-gain; `TaskMetrics` aggregation and summary-table formatting;
@@ -135,6 +143,14 @@ Terraform stack under `infrastructure/`; the Windows bootstrap script
 behaviour of the actual `train_rl()` loop end-to-end on a real env;
 the actual PySC2 binary spawn path under `ParallelEvaluator` — only the
 worker mechanics are unit-tested with a dummy env.
+
+### test_cmaes_distribution.py — `CMAESDistribution` pure-math unit tests
+- Init: n / λ / μ=λ/2 / recombination weights sum=1 and decreasing / σ stored / C=I / ps+pc=0 / gen=0 / μ_eff > 1
+- initialize_random: mean set to zero
+- sample: returns λ vectors of shape (n,) / distinct / fills pop_xs/pop_ys / reproducible with same seed
+- update: returns (best_r, best_idx) tuple / correct best values / gen increments / mean shifts / σ positive / C symmetric / C positive-definite / multiple generations move mean / wrong reward count raises / no-sample raises
+- Convergence: mean converges toward quadratic minimum after 30 generations
+- Save/load: preserves mean / σ / covariance / generation / dim mismatch raises / evolution continues correctly from loaded state
 
 ### test_analytics_no_matplotlib.py — analytics importable when matplotlib missing
 - framework analytics import works without matplotlib
@@ -201,12 +217,14 @@ worker mechanics are unit-tested with a dummy env.
 
 ### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG adapter abstractions
 - registry: all games registered; adapter instantiable
-- TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup/build_extras, decorate_reward_cfg
-- TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup/extras = None
+- TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
+- TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
 - SC2: experiment_dir includes game/policy/map hierarchy, track override, track_label, build_probe/warmup = None
-- SC2 policy validation: hill_climbing/genetic/neural_net rejected with ValueError; error contains migration hint (sc2_genetic); unknown policy_params keys rejected per type (sc2_genetic, cmaes, sc2_cmaes, sc2_lstm, sc2_reinforce); valid params accepted without error; empty policy_params never raises
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
+
+(SC2 policy/param validation moved to test_policy_registry.py with the
+`compatible_with` hook in Phase D — `build_extras` was deleted.)
 
 ### test_sc2_map_access_gate.py — Cross-process SC2 map-access serialiser (issue #254)
 - single-process: first call returns 0 wait / second call within gap waits remainder / second call after gap waits 0 / `gap_s=0` short-circuits with no I/O / negative `gap_s` treated as disabled / corrupt or empty timestamp file treated as "no prior access" / future timestamp clamped to now (clock-skew robustness)
@@ -261,7 +279,7 @@ worker mechanics are unit-tested with a dummy env.
 - SC2 binary spawn smoke test is opt-in (skipped unless `RUN_SC2_TESTS=1`); the worker mechanics are exercised entirely against the dummy env in the unit tests
 
 ### test_train_rl_signature.py — public `train_rl()` API
-- accepts game+config params; accepts optional specs; accepts control flags; no legacy flat params
+- accepts game+config params; accepts optional specs (probe/warmup); `extras` param removed (Phase D); accepts control flags; no legacy flat params; `GameSpec` requires explicit `game_name` (no empty-default bypass)
 
 ### test_new_best_logging.py — `_log_new_best_details` + `_print_episode_summary`
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
@@ -290,6 +308,26 @@ worker mechanics are unit-tested with a dummy env.
 - `code_version()` is cached (identical return on repeated calls)
 - when `git` is unavailable: `git_revision()` returns `(None, False)` and `code_version()` falls back to bare `PACKAGE_VERSION`
 
+### test_policy_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery
+- `register_policy` raises on duplicate `POLICY_TYPE`
+- `register_policy` raises when `POLICY_TYPE == ""`
+- All five built-ins (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are registered after importing `framework.policies`
+- Each registered class maps to the correct concrete class
+- Each registered class has `LOOP_TYPE` in `{"hill_climbing", "q_learning", "cmaes", "genetic"}`
+- `_validate_params` raises on unknown keys when `VALID_POLICY_PARAMS` is non-empty
+- `_validate_params` is a no-op when `VALID_POLICY_PARAMS` is empty
+- `_validate_params` accepts all valid keys without raising
+- `_make_policy("hill_climbing", ...)` returns a `WeightedLinearPolicy` via the registry path
+- `_make_policy` raises on an unknown `policy_type`
+- compatibility hook (Phase D): `hill_climbing`/`genetic`/`neural_net` rejected on the `sc2` game via `_make_policy(game_name="sc2")` with a ValueError naming the bad type, the `sc2_`-prefixed migration hint, and CLAUDE.md; the same policies are accepted on non-SC2 games; `BasePolicy.compatible_with` defaults to allow-all
+- SC2-native registry policies (`sc2_genetic`/`sc2_neural_net`/`sc2_neural_dqn`/`sc2_cnn`) require `game_name=="sc2"` and reject non-SC2 game names with an explicit hint
+- every registered policy with a non-empty `VALID_POLICY_PARAMS` rejects a bogus key
+- SC2 policies (after importing every game's policy module): the three Phase-D-migrated types (`sc2_cnn`, `sc2_neural_net`, `sc2_neural_dqn`) are registered with the expected `LOOP_TYPE`; per-type `VALID_POLICY_PARAMS` rejects unknown keys (sc2_genetic/sc2_neural_net/sc2_cmaes/sc2_lstm/sc2_reinforce/sc2_neural_dqn/cmaes) and accepts valid + empty params — replaces the SC2 `build_extras` validation cases removed from test_game_adapter.py
+
+### test_sc2_legacy_names_rejected.py — SC2 bare legacy policy names rejected
+- `_make_policy(..., game_name=\"sc2\")` rejects SC2 bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with the generic unknown-policy error
+- Error message includes registered `sc2_*` alternatives (including each expected replacement)
+
 ## TMNF policies
 
 Trackmania-Nations-Forever-specific code under `games/tmnf/`. Policies live
@@ -308,6 +346,14 @@ problem (2-arm bandit, quadratic max). `RLClient`'s threading model — the
 tick-window state machine, decision_idx clamping, and the finish/respawn /
 hard-crash forced-commit paths — is fully covered against a `MagicMock`
 TMInterface.
+
+Note: `test_cmaes_policy.py`, `test_neural_dqn_policy.py`,
+`test_reinforce_policy.py`, and `test_lstm_policy.py` now import from
+`framework.cmaes`, `framework.dqn` / `framework.replay`, `framework.reinforce`,
+and `framework.lstm` respectively (Phase A extraction).  They exercise the
+framework classes through TMNF-flavoured instantiation
+(`obs_spec=TMNF_OBS_SPEC`, TMNF action decoder / `DISCRETE_ACTIONS`), so all
+TMNF-specific behaviour is still covered.
 
 **Not tested.** The actual TMInterface bind to a running Trackmania process;
 the `mss` window-grab + OpenCV LIDAR pipeline (only the *configuration* of
@@ -330,7 +376,7 @@ real driving on the `a03_centerline` track.
 - eval_episodes: default=1 / stored / in to_cfg / cfg roundtrip / cfg default / single reward / 3-episode average / reset count
 - adaptive mutation: mutation_scale logged in GreedySimResult / scale decreases on zero-improvement run / disabled leaves scale unchanged
 
-### test_cmaes_policy.py — CMA-ES on linear weights
+### test_cmaes_policy.py — `CMAESPolicy` (framework) via TMNF factory
 - defaults: pop size / μ=λ/2 / weights sum=1 / C=I at init
 - init: random zero mean / from champion seeds mean / sets champion
 - sample: returns count / WeightedLinearPolicy instances / fills pop_xs/ys
@@ -346,27 +392,27 @@ real driving on the `a03_centerline` track.
 ### test_mcts_policy.py — UCT-style online Q
 - action in range; unseen state random; visit count increments; Q changes; exploitation prefers high Q; visits accumulate
 
-### test_neural_dqn_policy.py — DQN (replay + target net)
-- ReplayBuffer: push+len / circular eviction / sample shapes / w/o replacement / with replacement when small
-- Policy: action shape+range / greedy discrete / random when ε=1 / buffer fills on update / ε decays / floored / target sync / weight shapes
-- Cfg: roundtrip / policy_type key / on_episode_end no-op / missing keys raise / shape mismatch raises
+### test_neural_dqn_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`
+- ReplayBuffer (`framework.replay`): push+len / circular eviction / sample shapes / w/o replacement / with replacement when small
+- DQNPolicy (`framework.dqn`): action shape+range / greedy discrete / random when ε=1 / buffer fills on update / ε decays / floored / target sync / weight shapes
+- Cfg: roundtrip (`policy_type="dqn"`) / on_episode_end no-op / missing keys raise / shape mismatch raises (via `TMNF_OBS_SPEC.with_lidar`)
 - Bandit convergence; save/load replay buffer + Adam moments; wrong obs_dim raises
 
-### test_reinforce_policy.py — Monte-Carlo policy gradient
-- action shape; steer range; accel/brake binary; discrete
+### test_reinforce_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG
+- action shape; steer range; accel/brake discrete; action from DISCRETE_ACTIONS
 - buffers: fill / clear on episode end / empty on_episode_end no-op
 - weights match hidden_sizes; buffer lengths match; weights change after update; gradient direction
-- entropy_coeff = 0 vs nonzero; cfg required keys / policy_type / restore weights+hyperparams; save+reload; lidar; baseline roundtrip; wrong obs dim raises
+- entropy_coeff = 0 vs nonzero; cfg required keys (`output_dim` not `n_lidar_rays`) / policy_type / restore weights+hyperparams; save+reload; lidar via `obs_spec.with_lidar(4)`; baseline roundtrip; wrong obs dim raises
 
-### test_lstm_policy.py — LSTM evolution policy
-- Forward: action shape / steer range / accel+brake binary / hidden updates / episode reset zeros / update no-op / different history → different action
-- Flat encoding: dim correct / to_flat shape / roundtrip / zeros hidden / preserves weights / wrong size raises / mutated differs / same hidden_size / lidar roundtrip
-- Cfg: required keys / policy_type / from_cfg roundtrip / save+reload
-- Trainer: pop size / σ property / champion = -inf / flat dim matches template / μ=λ/2 / recomb sum=1
-- Sample: count / LSTM type / fills buffer / distinct individuals
+### test_lstm_policy.py — `LSTMCore` + `LSTMEvolutionPolicy` (framework)
+- LSTMCore (`framework.lstm`): action shape / steer range / accel+brake binary / hidden updates / episode reset zeros / update no-op / different history → different action
+- Flat encoding: dim correct / to_flat shape / roundtrip / zeros hidden / preserves weights / wrong size raises / mutated differs / same hidden_size / lidar roundtrip via `obs_spec.with_lidar(3)`
+- Cfg: required keys (`obs_dim` not `n_lidar_rays`) / policy_type / from_cfg roundtrip / save+reload
+- LSTMEvolutionPolicy: pop size / σ property / champion = -inf / flat dim matches template / μ=λ/2 / recomb sum=1
+- Sample: count / LSTMCore type / fills buffer / distinct individuals
 - Update: true first time / sets champion / tracks best / false on no improve / mean shifts / wrong count raises / no sample raises / σ adapts
 - Call: raises before update / valid after; on_episode_end resets champion hidden state
-- to_cfg keys / policy_type / save yaml / init from champion / mean→target / save+load roundtrip / wrong flat dim raises
+- to_cfg keys (`sigma` + `champion_reward`; no `n_lidar_rays`) / policy_type / save yaml / init from champion / mean→target / save+load roundtrip / wrong flat dim raises
 
 ## TMNF I/O
 
@@ -599,10 +645,9 @@ handful of iterations only).
 
 ### test_sc2_neural_dqn_policy.py — masked DQN for SC2
 - fn_idx_for_cell: centre=select_army / others=move_screen / consistent / int
-- Available mask: None=all true / empty=all false / select_army only / move_screen only / both / dtype bool
-- Masked replay buffer: push+len / default mask all true / 6-tuple sample / mask shape / preserves mask / circular eviction
-- Policy: illegal never picked greedy / picks best / random respects mask / all-masked fallback / mask cached from update info / from None info / on_episode_start resets / buffer is masked / mask stored / all-true when no info / fills on update / gradient step runs / illegal Q not bootstrapped
-- Cfg: policy_type / from_cfg roundtrip / trainer-state roundtrip / masks preserved / backward-compat no masks / shape mismatch raises
+- Available mask: all fn_ids / empty / select_army only / move_screen only / both / dtype bool
+- Policy: illegal never picked greedy / random respects mask / all-true mask allows all fn_idx values / mask cached from update info / missing info resets to all-true / on_episode_start primes from reset info
+- Cfg + trainer state: policy_type / from_cfg roundtrip / trainer-state roundtrip / shape mismatch raises
 - available_fn_ids: None when missing / key always present
 
 ### test_sc2_cnn_policy.py — CNN feature extractor + CMA-ES variant
@@ -626,7 +671,7 @@ handful of iterations only).
 - _run_episode: policy called each step; step count matches env steps; on_episode_start(info=<dict>) — info kwarg present with available_fn_ids; update(prev_obs, action, reward, next_obs, done, info=info) — shapes, available_fn_ids, done=True on last step; outcome from terminal info; substitution counted when executed≠requested; no substitution when match; cumulative reward summed
 
 ### test_sc2_play.py — `play_sc2.py` script
-- Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / neural_dqn / reinforce / lstm; cmaes no policy_type → SC2Linear; unknown → SC2Linear
+- Missing weights raises; loads sc2_multi_head for sc2_genetic / correct weights / sc2_neural_dqn / sc2_reinforce / sc2_lstm; legacy bare-name reinforce/lstm weight formats fail fast; cmaes no policy_type → SC2Linear; unknown → SC2Linear
 - Outcome handling: win / loss / draw / none
 - Episode loop: calls policy each step / client until done / on_episode_start(info=<dict>)+end / works without lifecycle hooks
 - Play-mode flag: stored / default false; `make_sc2_env` lazy on reset
@@ -637,9 +682,9 @@ handful of iterations only).
 - Outcomes: win+bonus / loss+penalty; economy reward flows through
 - Action: fn_idx valid / xy continuous / queue binary / shape
 - Pop usage: sc2_genetic uses SC2Linear / cmaes offspring use SC2Linear; SC2Linear and sc2_genetic action shape
-- Per-policy on Simple64: epsilon_greedy / mcts / neural_dqn shape+update / cmaes sample+update / reinforce shape+episode / lstm shape / lstm-evolution sample+update
-- Training loops (mocked env): sc2_genetic / cmaes / neural_dqn / reinforce / lstm
-- Trainer state roundtrips: cmaes / neural_dqn
+- Per-policy on Simple64: epsilon_greedy / mcts / sc2_neural_dqn shape+update / sc2_cmaes sample+update / sc2_reinforce shape+episode / sc2_lstm shape / sc2_lstm-evolution sample+update
+- Training loops (mocked env): sc2_genetic / sc2_cmaes / sc2_neural_dqn / sc2_reinforce / sc2_lstm
+- Trainer state roundtrips: sc2_cmaes / sc2_neural_dqn
 
 ### test_sc2_analytics.py — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags

@@ -96,11 +96,11 @@ class TestLoadChampionPolicy(unittest.TestCase):
         finally:
             os.unlink(tmp)
 
-    def test_loads_neural_dqn_policy(self):
+    def test_loads_sc2_neural_dqn_policy(self):
         from games.sc2.play import _load_champion_policy
-        from games.sc2.policies import NeuralDQNPolicy
+        from games.sc2.sc2_policies import SC2NeuralDQNPolicy
 
-        cfg = {"policy_type": "neural_dqn", "hidden_sizes": [16]}
+        cfg = {"policy_type": "sc2_neural_dqn", "hidden_sizes": [16]}
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
         ) as f:
@@ -109,15 +109,15 @@ class TestLoadChampionPolicy(unittest.TestCase):
 
         try:
             policy = _load_champion_policy(tmp, "MoveToBeacon")
-            self.assertIsInstance(policy, NeuralDQNPolicy)
+            self.assertIsInstance(policy, SC2NeuralDQNPolicy)
         finally:
             os.unlink(tmp)
 
-    def test_loads_reinforce_policy(self):
+    def test_loads_sc2_reinforce_policy(self):
         from games.sc2.play import _load_champion_policy
-        from games.sc2.policies import REINFORCEPolicy
+        from games.sc2.sc2_policies import SC2REINFORCEPolicy
 
-        cfg = {"policy_type": "reinforce", "hidden_sizes": [16]}
+        cfg = {"policy_type": "sc2_reinforce", "hidden_sizes": [16]}
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".yaml", delete=False
         ) as f:
@@ -126,17 +126,17 @@ class TestLoadChampionPolicy(unittest.TestCase):
 
         try:
             policy = _load_champion_policy(tmp, "MoveToBeacon")
-            self.assertIsInstance(policy, REINFORCEPolicy)
+            self.assertIsInstance(policy, SC2REINFORCEPolicy)
         finally:
             os.unlink(tmp)
 
-    def test_loads_lstm_policy(self):
+    def test_loads_sc2_lstm_policy(self):
         from games.sc2.play import _load_champion_policy
-        from games.sc2.policies import LSTMPolicy
+        from games.sc2.sc2_policies import SC2LSTMPolicy
         from games.sc2.obs_spec import get_spec
 
         obs_spec = get_spec("MoveToBeacon")
-        proto = LSTMPolicy(obs_spec=obs_spec, hidden_size=8)
+        proto = SC2LSTMPolicy(obs_spec=obs_spec, hidden_size=8)
         cfg = proto.to_cfg()
 
         with tempfile.NamedTemporaryFile(
@@ -147,7 +147,51 @@ class TestLoadChampionPolicy(unittest.TestCase):
 
         try:
             policy = _load_champion_policy(tmp, "MoveToBeacon")
-            self.assertIsInstance(policy, LSTMPolicy)
+            self.assertIsInstance(policy, SC2LSTMPolicy)
+        finally:
+            os.unlink(tmp)
+
+    def test_bare_reinforce_with_legacy_weights_raises(self):
+        from games.sc2.play import _load_champion_policy
+
+        cfg = {
+            "policy_type": "reinforce",
+            "hidden_sizes": [16],
+            "weights": [[0.0]],
+            "biases": [[0.0]],
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(cfg, f)
+            tmp = f.name
+
+        try:
+            with self.assertRaises(SystemExit):
+                _load_champion_policy(tmp, "MoveToBeacon")
+        finally:
+            os.unlink(tmp)
+
+    def test_bare_lstm_with_legacy_weights_raises(self):
+        from games.sc2.play import _load_champion_policy
+
+        cfg = {
+            "policy_type": "lstm",
+            "hidden_size": 8,
+            "W_fn": [0.0],
+            "W_x": [0.0],
+            "W_y": [0.0],
+            "W_queue": [0.0],
+        }
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(cfg, f)
+            tmp = f.name
+
+        try:
+            with self.assertRaises(SystemExit):
+                _load_champion_policy(tmp, "MoveToBeacon")
         finally:
             os.unlink(tmp)
 

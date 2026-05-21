@@ -134,6 +134,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
     descriptions to match the issue #253 unit-position tracking fix.
 
 ### Added
+- `POLICY_REGISTRY` and `register_policy` decorator in `framework/policies.py`; the five built-in policies (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are now self-describing with `POLICY_TYPE`, `LOOP_TYPE`, `VALID_POLICY_PARAMS`, and `_construct_or_resume`. `framework/training.py:_make_policy` is now a single `POLICY_REGISTRY` lookup plus a game-compatibility check (Phases B–D of #224).
+- Phase C of #224: all game-specific policies migrated to thin registered subclasses. `games/tmnf/policies.py` now registers `neural_dqn`, `cmaes`, `reinforce`, and `lstm` as `@register_policy` subclasses of the framework algorithm classes; `games/sc2/sc2_policies.py` registers `sc2_genetic`, `sc2_reinforce`, `sc2_cmaes`, and `sc2_lstm`. Factory closures and loop-dispatch entries in both adapters removed for the migrated types; `build_extras` in TMNF adapter now returns `None`. Net: ~2 500 lines of duplicated algorithm code deleted.
+- `BasePolicy.compatible_with(game_name)` class hook returning `(ok, migration_hint)`; the continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`) override it to reject SC2, replacing the SC2 adapter's free-function check. `GameSpec` gains a `game_name` field so the check has the game identity (Phase D of #224, #231).
+- `_GradEntry` namedtuple exported from `framework/reinforce.py` and used by `TwoHeadREINFORCEPolicy` for per-step trajectory storage; re-exported from `games/sc2/sc2_policies.py` for backward compatibility.
+- `framework/README.md`: developer guide documenting the policy registry, all five algorithm modules, per-algorithm adaptation hooks, and a worked example showing how to create a new game's policies from scratch.
 - New post-merge workflow `.github/workflows/auto-version-bump.yml` that
   automatically runs after a PR is merged into `main`, infers release bump
   type from PR-template checkboxes (`Patch` default, `Minor`, `Major`),
@@ -174,8 +179,28 @@ formatting, internal refactors with no behaviour change — can be skipped.
   loops (`_greedy_loop`, `_greedy_loop_cmaes`, `_greedy_loop_genetic`,
   `_greedy_loop_q_learning`).  New training param: `log_stats_every_n_sims`
   (integer, default `10`, stored in `training_params.yaml`).
+- **SC2 intra-run parallel evaluation** (issue #229).
+  Population-based SC2 policies (`sc2_genetic`, `sc2_cmaes`, `sc2_lstm`,
+  `sc2_cnn`) can now evaluate individuals concurrently across multiple
+  local SC2 binaries.  Set `n_workers > 1` in `training_params.yaml`
+  to spawn a persistent worker pool (one SC2 env per worker, spawn
+  start method) — each generation's offspring are scored in parallel
+  while the distribution update remains generation-synchronous (genetic
+  and cmaes loop dispatch).
+  New config keys: `n_workers` (default `1`),
+  `worker_start_stagger_s` (default `5.0`),
+  `worker_warmup_timeout_s` (default `90.0`),
+  `worker_base_seed` (default `0`).  See the *Intra-run parallel
+  evaluation* subsection in `CLAUDE.md` for sizing guidance.
+- `framework.parallel_eval.ParallelEvaluator` — game-agnostic worker
+  pool used internally by `train_rl` when `n_workers > 1`.
 
 ### Changed
+- Phase D of #224 (#231): removed the `PolicyExtras` infrastructure. `framework/training.py:_make_policy` is now a single `POLICY_REGISTRY` lookup plus a compatibility check; `train_rl` no longer takes an `extras=` parameter and reads the greedy-loop type directly from `policy.LOOP_TYPE`. `GameAdapter.build_extras` and all per-game implementations are deleted; each adapter now registers its policy types via a side-effect import inside `build_game_spec`. The remaining SC2 policies (`sc2_cnn`, `sc2_neural_net`, `sc2_neural_dqn`) are now `@register_policy` classes. Misconfigured/unknown `policy_type` values fail fast before the game is launched.
+- `SC2REINFORCEPolicy` is now a thin subclass of `framework.reinforce.TwoHeadREINFORCEPolicy`; all gradient math is inherited from the framework class, eliminating ~430 lines of duplicated REINFORCE code from `games/sc2/sc2_policies.py`. YAML champion format and test compatibility are preserved.
+- `SC2LSTMEvolutionPolicy` is now a thin subclass of `framework.lstm.LSTMEvolutionPolicy` (which gained an optional `_template` keyword argument); all isotropic-ES mechanics are inherited, eliminating ~200 lines of duplicated ES code. The inner `SC2LSTMPolicy` individual is injected via `_template`.
+- `framework.lstm.LSTMEvolutionPolicy.__init__` accepts a new keyword-only `_template` parameter: when supplied, it is used as the inner individual instead of constructing a `LSTMCore`. Existing call sites are unaffected (default `None`).
+- Fixed `TwoHeadREINFORCEPolicy` handling of `hidden_sizes=[]`: the constructor now uses `list(hidden_sizes) if hidden_sizes is not None else [128, 64]` instead of `list(hidden_sizes or [128, 64])`, which incorrectly treated an empty list as falsy.
 - Experiment output directories now use nested folders instead of encoding
   policy/grid params into one long experiment folder name:
   `experiments/<game>/<policy>/<map>/<experiment_name>/<param_1>__<param_2>...`.
@@ -217,6 +242,9 @@ formatting, internal refactors with no behaviour change — can be skipped.
   only genuine relocation and stays a minority contributor, and `score_weight`
   is raised (`10.0` → `100.0`) so task score dominates the shaping terms.
 
+### Removed
+- **Breaking (SC2 only):** the legacy bare-name SC2 policy types `cmaes`, `reinforce`, `lstm`, and `neural_dqn` are no longer constructible on the `sc2` game — they were only reachable through the now-deleted `build_extras` factories and cannot share the registry names used by their TMNF counterparts. Selecting one now fails with the standard "Unknown policy_type" error; use the `sc2_`-prefixed equivalents (`sc2_cmaes`, `sc2_reinforce`, `sc2_lstm`, `sc2_neural_dqn`). This pulls forward the breaking change originally scheduled for Phase E of #224.
+
 ### Fixed
 - SC2 `.SC2Map` file race when multiple PySC2 binaries boot on the same
   host (issue #254). `games.sc2.client.SC2Client._make_sc2_env` now
@@ -245,23 +273,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   spamming `Move_screen` to many locations without moving units yields no
   repeated reward. Grid cells are marked visited whenever friendly units are
   visible, and the bonus fires at most once per grid cell per episode.
-
-### Added
-- **SC2 intra-run parallel evaluation** (issue #229).
-  Population-based SC2 policies (`sc2_genetic`, `sc2_cmaes`, `sc2_lstm`,
-  `sc2_cnn`) can now evaluate individuals concurrently across multiple
-  local SC2 binaries.  Set `n_workers > 1` in `training_params.yaml`
-  to spawn a persistent worker pool (one SC2 env per worker, spawn
-  start method) — each generation's offspring are scored in parallel
-  while the distribution update remains generation-synchronous (genetic
-  and cmaes loop dispatch).
-  New config keys: `n_workers` (default `1`),
-  `worker_start_stagger_s` (default `5.0`),
-  `worker_warmup_timeout_s` (default `90.0`),
-  `worker_base_seed` (default `0`).  See the *Intra-run parallel
-  evaluation* subsection in `CLAUDE.md` for sizing guidance.
-- `framework.parallel_eval.ParallelEvaluator` — game-agnostic worker
-  pool used internally by `train_rl` when `n_workers > 1`.
 - Versioning + release system. `framework/version.py` resolves a
   runtime `code_version` string of the form
   `<PACKAGE_VERSION>+g<sha7>[.dirty]`; the value is persisted in every

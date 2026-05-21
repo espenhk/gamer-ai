@@ -253,7 +253,6 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
         config=RunConfig.from_training_params(p),
         probe=adapter.build_probe(p),
         warmup=adapter.build_warmup(p),
-        extras=adapter.build_extras(weights_file, p, re_initialize),
         no_interrupt=args.no_interrupt,
         re_initialize=re_initialize,
     )

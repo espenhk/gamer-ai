@@ -41,8 +41,8 @@ training_params:
   minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 1000
-  policy_type: neural_dqn
+  n_sims: 200                 # 200 episodes; ~48 000 env steps total
+  policy_type: sc2_neural_dqn
   obs_spec_preset: rich
   enable_belief: true      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: [0.0005, 0.001, 0.01]

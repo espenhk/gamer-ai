@@ -365,30 +365,23 @@ class TestMaybeBuildEvaluator:
         Regression guard for the docs-vs-code drift the Copilot reviewer
         flagged on PR #250: CLAUDE.md and CHANGELOG promise that
         sc2_genetic / sc2_cmaes / sc2_lstm / sc2_cnn all benefit from
-        ``n_workers > 1``.  All four route through `_extra_dispatch.get(...)
-        == "cmaes"` (sc2_cmaes / sc2_lstm / sc2_cnn) or `"genetic"`
-        (sc2_genetic), both of which `_PARALLEL_EVAL_LOOPS` accepts.
+        ``n_workers > 1``.  All four route through LOOP_TYPE == "cmaes"
+        (sc2_cmaes / sc2_lstm / sc2_cnn) or "genetic" (sc2_genetic),
+        both of which ``_PARALLEL_EVAL_LOOPS`` accepts.
         """
         from framework.training import _maybe_build_evaluator
-        from games.sc2.adapter import make_adapter
+        from framework.policies import POLICY_REGISTRY
 
-        # SC2 adapter is the source of truth for which loop_kind each
-        # policy_type uses.  This way the assertion below stays in sync
-        # with the adapter's loop_dispatch table.
-        adapter = make_adapter()
-        extras = adapter.build_extras(
-            weights_file="/tmp/__noop__.yaml",
-            training_params={"policy_type": policy_type,
-                             "in_game_episode_s": 1.0,
-                             "map_name": "MoveToBeacon"},
-            re_initialize=True,
-        )
-        loop_kind = (
-            "genetic" if policy_type == "genetic"
-            else (extras.loop_dispatch if extras else {}).get(policy_type)
-        )
+        # Import SC2 policies so they register themselves.
+        import games.sc2.sc2_policies  # noqa: F401
+
+        # Look up the LOOP_TYPE from the registry — this is the source of truth
+        # now that build_extras is removed (Phase D of #224).
+        cls = POLICY_REGISTRY.get(policy_type)
+        assert cls is not None, f"{policy_type!r} not in POLICY_REGISTRY"
+        loop_kind = cls.LOOP_TYPE
         assert loop_kind is not None, (
-            f"adapter has no loop_dispatch entry for {policy_type!r}"
+            f"LOOP_TYPE is None for {policy_type!r}"
         )
 
         class _FakePop:

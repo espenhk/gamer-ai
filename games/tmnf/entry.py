@@ -20,13 +20,7 @@ from games.tmnf.actions import DISCRETE_ACTIONS, PROBE_ACTIONS, WARMUP_ACTION
 from games.tmnf.analytics import save_experiment_results
 from games.tmnf.env import make_env
 from games.tmnf.obs_spec import TMNF_OBS_SPEC
-from games.tmnf.policies import (
-    CMAESPolicy,
-    LSTMEvolutionPolicy,
-    LSTMPolicy,
-    NeuralDQNPolicy,
-    REINFORCEPolicy,
-)
+import games.tmnf.policies  # noqa: F401 — side-effect: registers TMNF policies
 
 logger = logging.getLogger(__name__)
 
@@ -61,103 +55,6 @@ def run(args: argparse.Namespace) -> None:
     policy_params = p.get("policy_params") or {}
     re_initialize = args.re_initialize
 
-    # Factory callables for TMNF-specific policy types (injected into framework).
-    def _make_neural_dqn() -> NeuralDQNPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f)
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "neural_dqn":
-                return NeuralDQNPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-        return NeuralDQNPolicy(
-            hidden_sizes        = policy_params.get("hidden_sizes",        [64, 64]),
-            replay_buffer_size  = policy_params.get("replay_buffer_size",  10000),
-            batch_size          = policy_params.get("batch_size",          64),
-            min_replay_size     = policy_params.get("min_replay_size",     500),
-            target_update_freq  = policy_params.get("target_update_freq",  200),
-            learning_rate       = policy_params.get("learning_rate",       0.001),
-            epsilon_start       = policy_params.get("epsilon_start",       1.0),
-            epsilon_end         = policy_params.get("epsilon_end",         0.05),
-            epsilon_decay_steps = policy_params.get("epsilon_decay_steps", 5000),
-            gamma               = policy_params.get("gamma",               0.99),
-            n_lidar_rays        = n_lidar_rays,
-        )
-
-    def _make_cmaes() -> CMAESPolicy:
-        pop_size = policy_params.get("population_size", 20)
-        sigma    = policy_params.get("initial_sigma",   0.3)
-        policy   = CMAESPolicy(
-            population_size = pop_size,
-            initial_sigma   = sigma,
-            n_lidar_rays    = n_lidar_rays,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            from games.tmnf.policies import WeightedLinearPolicy as _WLP
-            champion = _WLP.from_cfg(
-                yaml.safe_load(open(weights_file)) or {}, n_lidar_rays=n_lidar_rays
-            )
-            policy.initialize_from_champion(champion)
-        else:
-            policy.initialize_random()
-        return policy
-
-    def _make_reinforce() -> REINFORCEPolicy:
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "reinforce":
-                return REINFORCEPolicy.from_cfg(_cfg, n_lidar_rays=n_lidar_rays)
-        return REINFORCEPolicy(
-            hidden_sizes  = policy_params.get("hidden_sizes",  [64, 64]),
-            learning_rate = policy_params.get("learning_rate", 0.001),
-            gamma         = policy_params.get("gamma",         0.99),
-            entropy_coeff = policy_params.get("entropy_coeff", 0.01),
-            baseline      = policy_params.get("baseline",      "running_mean"),
-            n_lidar_rays  = n_lidar_rays,
-        )
-
-    def _make_lstm() -> LSTMEvolutionPolicy:
-        hidden_size = policy_params.get("hidden_size",     32)
-        pop_size    = policy_params.get("population_size", 20)
-        sigma       = policy_params.get("initial_sigma",   0.05)
-        policy      = LSTMEvolutionPolicy(
-            hidden_size     = hidden_size,
-            population_size = pop_size,
-            initial_sigma   = sigma,
-            n_lidar_rays    = n_lidar_rays,
-        )
-        if os.path.exists(weights_file) and not re_initialize:
-            with open(weights_file) as _f:
-                _cfg = yaml.safe_load(_f) or {}
-            if isinstance(_cfg, dict) and _cfg.get("policy_type") == "lstm":
-                saved_hidden_size = _cfg.get("hidden_size")
-                saved_n_lidar_rays = _cfg.get("n_lidar_rays")
-                if saved_hidden_size is not None and saved_hidden_size != hidden_size:
-                    raise ValueError(
-                        "Saved LSTM champion hidden_size does not match current run: "
-                        f"saved={saved_hidden_size}, current={hidden_size}"
-                    )
-                if saved_n_lidar_rays is not None and saved_n_lidar_rays != n_lidar_rays:
-                    raise ValueError(
-                        "Saved LSTM champion n_lidar_rays does not match current run: "
-                        f"saved={saved_n_lidar_rays}, current={n_lidar_rays}"
-                    )
-                champion = LSTMPolicy.from_cfg(_cfg)
-                policy.initialize_from_champion(champion)
-        return policy
-
-    extra_policy_types = {
-        "neural_dqn": _make_neural_dqn,
-        "cmaes":      _make_cmaes,
-        "reinforce":  _make_reinforce,
-        "lstm":       _make_lstm,
-    }
-    extra_loop_dispatch = {
-        "neural_dqn": "q_learning",
-        "cmaes":      "cmaes",
-        "reinforce":  "q_learning",
-        "lstm":       "cmaes",
-    }
-
     data = train_rl(
         experiment_name     = args.experiment,
         make_env_fn         = lambda: make_env(
@@ -190,8 +87,6 @@ def run(args: argparse.Namespace) -> None:
         policy_params       = policy_params,
         track               = track,
         adaptive_mutation   = p.get("adaptive_mutation", True),
-        extra_policy_types  = extra_policy_types,
-        extra_loop_dispatch = extra_loop_dispatch,
         patience            = p.get("patience", 0),
     )
 

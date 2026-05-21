@@ -27,6 +27,9 @@ formatting, internal refactors with no behaviour change — can be skipped.
   See `games/rocket_league/README.md` for install instructions.
   New reward config keys: `vel_to_ball_weight`, `boost_weight`, `touch_bonus`,
   `goal_weight`, `concede_penalty`.  New training param: `tick_skip`.
+- **Rocket League grid-search templates**: added one tuned template per currently
+  supported policy type (`hill_climbing`, `neural_net`, `epsilon_greedy`,
+  `mcts`, `genetic`) under `games/rocket_league/config/`.
 
 
 

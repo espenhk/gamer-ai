@@ -42,9 +42,17 @@ Single-agent reinforcement learning for Rocket League via
 # Single experiment (default config)
 python main.py myrun --game rocket_league --no-interrupt
 
-# Grid search
-python grid_search.py games/rocket_league/config/grid_search_template.yaml --game rocket_league
+# Grid search (genetic template)
+python grid_search.py games/rocket_league/config/gs_genetic_template.yaml --game rocket_league
 ```
+
+Available Rocket League grid-search templates:
+
+- `games/rocket_league/config/gs_hill_climbing_template.yaml`
+- `games/rocket_league/config/gs_neural_net_template.yaml`
+- `games/rocket_league/config/gs_epsilon_greedy_template.yaml`
+- `games/rocket_league/config/gs_mcts_template.yaml`
+- `games/rocket_league/config/gs_genetic_template.yaml`
 
 The first run creates `experiments/rocket_league/<policy>/<track>/<name>/` and
 copies both master configs in.  Edit the experiment-local copies to tune
@@ -119,7 +127,7 @@ scales.
 | `in_game_episode_s` | `300.0` | 5 minutes per episode (RLGym default match length). |
 | `tick_skip` | `8` | Physics frames per `step()` call; 8 ≈ 15 Hz. |
 | `n_sims` | `100` | Greedy generations for genetic/CMA-ES. |
-| `policy_type` | `genetic` | Algorithm; same choices as other games. |
+| `policy_type` | `genetic` | Supported: `hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`. |
 
 ---
 

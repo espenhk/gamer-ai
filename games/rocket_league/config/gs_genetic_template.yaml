@@ -1,0 +1,28 @@
+# Grid search template: genetic — Rocket League
+#
+# Usage:
+#   python grid_search.py games/rocket_league/config/gs_genetic_template.yaml --game rocket_league
+#
+# Good first sweep: population_size × mutation_scale × vel_to_ball_weight.
+
+base_name: "gs_rl_genetic_v1"
+game: rocket_league
+
+training_params:
+  in_game_episode_s: 300.0
+  tick_skip: 8
+  n_sims: 100
+  policy_type: genetic
+  population_size: [12, 20]
+  elite_k: 3
+  eval_episodes: 1
+  mutation_scale: [0.03, 0.07]
+  mutation_share: 1.0
+
+reward_params:
+  vel_to_ball_weight: [0.005, 0.01]
+  boost_weight: -0.002
+  touch_bonus: [0.5, 1.0]
+  goal_weight: 10.0
+  concede_penalty: 5.0
+  step_penalty: -0.001

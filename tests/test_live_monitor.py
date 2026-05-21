@@ -89,6 +89,16 @@ class TestDisplayHelpers(unittest.TestCase):
             "brake 80% | steer right 25%",
         )
 
+    def test_fmt_action_treats_small_pedal_values_as_effectively_zero(self):
+        self.assertEqual(
+            _fmt_action([0.0, 0.01, 0.8]),
+            "brake 80% | steer straight",
+        )
+        self.assertEqual(
+            _fmt_action([0.0, 0.8, 0.01]),
+            "accel 80% | steer straight",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

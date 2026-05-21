@@ -18,7 +18,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Fixed
-- **Live GUI** (`framework/live_monitor.py`): the "Last 10 actions" panel now renders 3-axis driving actions in a legible control-oriented format, hiding zero-value accel/brake terms (`accel % | steer ...` or `brake % | steer ...`) instead of raw vectors.
+- **Live GUI** (`framework/live_monitor.py`): the "Last 10 actions" panel now renders 3-axis driving actions in a legible control-oriented format, treating tiny pedal values (`<= 0.01`) as effectively zero so it cleanly shows `accel % | steer ...` or `brake % | steer ...` instead of raw vectors.
 
 ---
 

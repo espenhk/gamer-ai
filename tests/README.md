@@ -233,7 +233,7 @@ worker mechanics are unit-tested with a dummy env.
 - rolling-average values are computed from the latest 5 steps
 - observation grouping detects x/y pairs, indexed vectors, quadrant grids, and scalar fallbacks
 - reward ordering keeps known keys in fixed logical order and appends unknown keys alphabetically
-- action formatting renders 3-value TMNF controls with steer direction/percent and suppresses zero-only accel/brake terms, while still truncating long vectors after six entries
+- action formatting renders 3-value TMNF controls with steer direction/percent, treats tiny pedal values (`<= 0.01`) as effectively zero when choosing accel-only vs brake-only display, and still truncates long vectors after six entries
 
 ### test_obs_memory.py — frame-stacking observation wrapper
 - shape; reset fills initial; step shifts frames; k=1 passthrough; invalid k raises; most-recent zero-padded; clear

@@ -17,7 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
+### Added
+- **iRacing telemetry integration** (`games/iracing/`): Phase 1 read-only
+  telemetry via `pyirsdk`.  21-dim observation (speed, RPM, gear, fuel,
+  tire loads/temps, brake bias, lap times, …), standard steer/accel/brake
+  action space, progress + centerline + off-track reward.  Registered as
+  `--game iracing` in `main.py` and `grid_search.py`.
 
 ---
 

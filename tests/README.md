@@ -14,7 +14,7 @@
   - [test\_distributed.py — coordinator/worker protocol + HTTP server](#test_distributedpy--coordinatorworker-protocol--http-server)
   - [test\_early\_stopping.py — early-stop logic in greedy + Q loops](#test_early_stoppingpy--early-stop-logic-in-greedy--q-loops)
   - [test\_env\_termination.py — `_classify_termination()`](#test_env_terminationpy--_classify_termination)
-  - [test\_game\_adapter.py — TMNF/TORCS/SC2/BeamNG adapter abstractions](#test_game_adapterpy--tmnftorcssc2beamng-adapter-abstractions)
+  - [test\_game\_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing adapter abstractions](#test_game_adapterpy--tmnftorcssc2beamngiracing-adapter-abstractions)
   - [test\_grid\_search.py — Cartesian-product expansion + naming](#test_grid_searchpy--cartesian-product-expansion--naming)
   - [test\_info\_gain.py — staleness-based intrinsic reward](#test_info_gainpy--staleness-based-intrinsic-reward)
   - [test\_live\_monitor.py — live GUI monitor helpers](#test_live_monitorpy--live-gui-monitor-helpers)
@@ -215,13 +215,14 @@ worker mechanics are unit-tested with a dummy env.
 ### test_env_termination.py — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
 
-### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG adapter abstractions
+### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing adapter abstractions
 - registry: all games registered; adapter instantiable
 - TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
 - TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
 - SC2: experiment_dir includes game/policy/map hierarchy, track override, track_label, build_probe/warmup = None
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
+- iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)

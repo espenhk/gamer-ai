@@ -145,6 +145,8 @@ _ABBREV = {
     "attack_bonus": "atb",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
+    "off_track_penalty": "otp",
+    "lap_time_improvement_bonus": "ltib",
     "lidar_wall_weight": "lww",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
@@ -695,7 +697,7 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default=None,
-        choices=["tmnf", "beamng", "car_racing", "torcs", "sc2"],
+        choices=["tmnf", "beamng", "car_racing", "torcs", "sc2", "iracing"],
         help="Override game (default: from YAML 'game:' field, or tmnf)",
     )
     parser.add_argument(

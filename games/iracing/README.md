@@ -1,0 +1,191 @@
+# iRacing
+
+[iRacing](https://www.iracing.com/) telemetry integration for the gamer-ai
+reinforcement learning framework.  Uses
+[pyirsdk](https://github.com/kutu/pyirsdk) to read live telemetry from the
+iRacing simulator.
+
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Python dependencies](#python-dependencies)
+- [Running](#running)
+  - [Telemetry-only mode (Phase 1)](#telemetry-only-mode-phase-1)
+  - [Live action injection (Phase 2 — future)](#live-action-injection-phase-2--future)
+- [SimHub vs pyirsdk](#simhub-vs-pyirsdk)
+- [Configuration](#configuration)
+- [Observation space](#observation-space)
+- [Action space](#action-space)
+- [Reward](#reward)
+- [Example commands](#example-commands)
+- [Supported policies](#supported-policies)
+
+---
+
+## Installation
+
+### Prerequisites
+
+- **Windows** — iRacing only runs on Windows.
+- **iRacing subscription** — a valid iRacing account with the simulator
+  installed.
+- Python 3.11+, Poetry.
+
+### Python dependencies
+
+Install `pyirsdk`:
+
+```bash
+pip install pyirsdk
+```
+
+Then install the rest of the project dependencies:
+
+```bash
+poetry install
+```
+
+---
+
+## Running
+
+### Telemetry-only mode (Phase 1)
+
+In Phase 1, the agent **reads** telemetry (speed, position, lap
+progress, tire temps, etc.) but does **not** inject actions into the
+game.  You drive manually or replay a saved session while the agent
+observes.
+
+1. Launch iRacing and enter a practice session (or replay a recorded
+   session).
+2. Start the training loop:
+
+```bash
+python main.py smoke --game iracing --no-interrupt
+```
+
+The environment connects to the running iRacing instance via the
+shared-memory telemetry API.
+
+### Live action injection (Phase 2 — future)
+
+Phase 2 will add action injection via a virtual controller (e.g.
+[vJoy](https://github.com/jshafer817/vJoy)).  This will allow the
+agent to steer, accelerate, and brake in real time.  Tracked in a
+separate issue.
+
+---
+
+## SimHub vs pyirsdk
+
+| | `pyirsdk` | SimHub |
+|---|---|---|
+| **What** | Pure Python SDK — reads iRacing shared memory directly | Universal telemetry hub (GUI app) with plugin ecosystem |
+| **Latency** | Minimal (direct memory-mapped file read) | Slight overhead (SimHub processes data before forwarding) |
+| **Programmability** | Full Python API, MIT-licensed | Plugin/script system; heavier setup |
+| **Our choice** | ✅ Used in Phase 1 | Possible future integration for dashboard / overlay |
+
+We use `pyirsdk` because it gives low-latency, programmatic access to
+every telemetry variable without requiring a GUI intermediary.
+
+---
+
+## Configuration
+
+| File | Purpose |
+|---|---|
+| `games/iracing/config/training_params.yaml` | Episode settings, policy type, hyperparams |
+| `games/iracing/config/reward_config.yaml` | Reward weights |
+
+---
+
+## Observation space
+
+21-dimensional float32 vector extracted from iRacing telemetry:
+
+| Feature | Scale | Description |
+|---|---|---|
+| `speed_ms` | 100.0 | Vehicle speed (m/s) |
+| `lateral_offset_m` | 5.0 | Metres from track centre |
+| `track_progress` | 1.0 | Fraction of track completed [0, 1] |
+| `yaw_error_rad` | π | Track heading minus car heading |
+| `rpm` | 8000.0 | Engine RPM |
+| `gear` | 6.0 | Current gear |
+| `fuel_pct` | 1.0 | Fuel level [0, 1] |
+| `throttle` | 1.0 | Throttle input [0, 1] |
+| `brake` | 1.0 | Brake input [0, 1] |
+| `steering` | 1.0 | Steering input [-1, 1] |
+| `tire_load_fl`–`tire_load_rr` | 5000.0 | Per-wheel tyre load (N) |
+| `tire_temp_fl`–`tire_temp_rr` | 150.0 | Per-wheel tyre surface temp (°C) |
+| `brake_bias` | 1.0 | Brake bias front/rear |
+| `lap_time_s` | 120.0 | Current lap elapsed time |
+| `best_lap_time_s` | 120.0 | Session best lap time |
+
+---
+
+## Action space
+
+Continuous: `Box([-1, 0, 0], [1, 1, 1], shape=(3,))`
+
+| Output | Range | Effect |
+|---|---|---|
+| `steer` | [−1, 1] | Full left to full right |
+| `accel` | [0, 1] | Throttle |
+| `brake` | [0, 1] | Braking force |
+
+Discrete policies use a 9-cell grid: {brake, coast, accel} × {left,
+straight, right}.
+
+> **Note:** In Phase 1 (telemetry-only), actions are computed by the
+> policy but **not** injected into iRacing.  Phase 2 will inject via
+> vJoy or similar.
+
+---
+
+## Reward
+
+Configured in `games/iracing/config/reward_config.yaml`:
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `progress_weight` | 10000.0 | Proportional to track progress delta |
+| `centerline_weight` | −0.1 | Lateral offset penalty coefficient |
+| `centerline_exp` | 2.0 | Exponent for centerline penalty |
+| `speed_weight` | 0.05 | Bonus per m/s |
+| `step_penalty` | −0.05 | Per-tick time cost |
+| `finish_bonus` | 5000.0 | One-time bonus at lap completion |
+| `off_track_penalty` | −10.0 | Penalty when iRacing reports off-track |
+| `lap_time_improvement_bonus` | 100.0 | Bonus for improving on best lap time |
+| `crash_threshold_m` | 25.0 | Terminates episode on large lateral offset |
+
+---
+
+## Example commands
+
+```bash
+# Single experiment (telemetry-only)
+python main.py my_iracing_run --game iracing --no-interrupt
+
+# With a specific track override
+python main.py my_run --game iracing --track laguna_seca
+```
+
+Results are saved to `experiments/iracing/<policy>/<track>/<name>/results/`.
+
+---
+
+## Supported policies
+
+All framework policies work with iRacing.  Set `policy_type` in
+`games/iracing/config/training_params.yaml`.
+
+| `policy_type` | Algorithm | Notes |
+|---|---|---|
+| `hill_climbing` | Mutate-and-keep linear policy | Includes probe + cold-start phases |
+| `neural_net` | MLP mutate-and-keep | Configure `hidden_sizes` |
+| `epsilon_greedy` | Tabular Q-learning | Classical RL baseline |
+| `mcts` | UCT-style Q-learning | Systematic exploration |
+| `genetic` | Population evolutionary | Good for escaping local optima |
+| `cmaes` | CMA-ES over flat weight vector | Best general-purpose for linear |
+| `neural_dqn` | Deep Q-network | Gradient-based neural training |
+| `reinforce` | Monte Carlo policy gradient | Stochastic policy |
+| `lstm` | LSTM + isotropic ES | Temporal memory |

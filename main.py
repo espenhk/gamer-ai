@@ -11,6 +11,7 @@ Supports multiple games via the ``--game`` flag:
     python main.py <experiment> --game car_racing
     python main.py <experiment> --game torcs
     python main.py <experiment> --game sc2
+    python main.py <experiment> --game iracing
 
 All algorithm logic lives in framework/training.py.
 Game-specific logic lives in games/<name>/.
@@ -48,11 +49,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--game",
         default="tmnf",
-        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"],
+        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "iracing"],
         help=(
             "Select which simulator to use. "
-            "Choices: tmnf (default), beamng, assetto, car_racing, torcs, sc2. "
-            "beamng and assetto require optional simulator dependencies."
+            "Choices: tmnf (default), beamng, assetto, car_racing, torcs, sc2, iracing. "
+            "beamng, assetto and iracing require optional simulator dependencies."
         ),
     )
     parser.add_argument(

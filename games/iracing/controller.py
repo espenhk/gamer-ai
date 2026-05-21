@@ -4,7 +4,7 @@ Provides a pluggable controller abstraction for sending steer/throttle/brake
 commands to iRacing.
 
 ``NullController``
-    Default (Phase 1) — logs actions but does **not** inject them.
+    Default (Phase 1) — discards actions and does **not** inject them.
 
 ``VJoyController``
     Phase 2 — injects actions via a `vJoy <https://github.com/jshafer817/vJoy>`_

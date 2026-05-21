@@ -9,8 +9,9 @@ Validates:
 
 from __future__ import annotations
 
+import builtins
 import pytest
-import numpy as np
+import sys
 
 from games.iracing.controller import (
     BaseController,
@@ -109,8 +110,16 @@ class TestMakeController:
         with pytest.raises(ValueError, match="Unknown action_mode"):
             make_controller("bogus")
 
-    def test_live_mode_without_pyvjoy_raises_import_error(self):
-        # pyvjoy is not installed in CI, so this should raise ImportError.
+    def test_live_mode_without_pyvjoy_raises_import_error(self, monkeypatch):
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "pyvjoy":
+                raise ImportError("No module named 'pyvjoy'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.delitem(sys.modules, "pyvjoy", raising=False)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="pyvjoy"):
             make_controller("live")
 
@@ -139,19 +148,8 @@ class TestVJoyControllerWithMock:
 
         fake_pyvjoy = types.ModuleType("pyvjoy")
         fake_pyvjoy.VJoyDevice = _FakeVJoyDevice  # type: ignore[attr-defined]
-        monkeypatch.setitem(
-            __import__("sys").modules, "pyvjoy", fake_pyvjoy
-        )
-
-        # Now construct the controller — it will import the fake module.
-        controller = VJoyController.__new__(VJoyController)
-        controller._device_id = 1
-        controller._steer_axis = VJoyController.HID_USAGE_X
-        controller._throttle_axis = VJoyController.HID_USAGE_Y
-        controller._brake_axis = VJoyController.HID_USAGE_Z
-        controller._pyvjoy = fake_pyvjoy
-        controller._joy = _FakeVJoyDevice(1)
-        return controller
+        monkeypatch.setitem(sys.modules, "pyvjoy", fake_pyvjoy)
+        return VJoyController(device_id=1)
 
     def test_send_sets_all_axes(self, ctrl):
         ctrl.send(steer=0.0, throttle=1.0, brake=0.0)

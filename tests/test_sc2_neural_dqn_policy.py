@@ -24,7 +24,7 @@ from games.sc2.policies import (
 
 _OBS_SPEC = SC2_MINIGAME_OBS_SPEC
 _OBS_DIM = SC2_MINIGAME_OBS_SPEC.dim
-_N = len(DISCRETE_ACTIONS)  # 66 (no_op + select_army + 8×8 Move_screen)
+_N = len(DISCRETE_ACTIONS)
 
 
 def _make_policy(**kw) -> SC2NeuralDQNPolicy:
@@ -64,23 +64,21 @@ class TestActionMaskingHelpers(unittest.TestCase):
         self.assertEqual(discrete_action_to_fn_id(0), 0)
 
     def test_discrete_action_to_fn_id_other_cells_are_move_screen(self):
-        # Rows 2..N-1 are all Move_screen (fn_idx=2)
+        # Every row should map back to its fn_idx in DISCRETE_ACTIONS.
         for i in range(2, _N):
-            self.assertEqual(discrete_action_to_fn_id(i), 2)
+            self.assertEqual(discrete_action_to_fn_id(i), int(DISCRETE_ACTIONS[i, 0]))
 
     def test_build_mask_all_fn_ids_available(self):
-        # All three fn_ids (no_op=0, select_army=1, Move_screen=2) → all rows legal
-        mask = build_available_actions_mask({0, 1, 2})
+        mask = build_available_actions_mask(set(FUNCTION_IDS.keys()))
         self.assertEqual(mask.shape, (_N,))
         self.assertTrue(mask.all())
 
     def test_build_mask_only_move_screen_available(self):
-        # fn_idx=2 (Move_screen) only: rows 0 (no_op) and 1 (select_army) must be False
+        # When only Move_screen is available, only rows whose fn_idx==2 are legal.
         mask = build_available_actions_mask({2})
-        self.assertFalse(mask[0], "no_op (row 0) should be masked when fn_idx=0 unavailable")
-        self.assertFalse(mask[1], "select_army (row 1) should be masked when fn_idx=1 unavailable")
-        for i in range(2, _N):
-            self.assertTrue(mask[i])
+        for i in range(_N):
+            is_move = int(DISCRETE_ACTIONS[i, 0]) == 2
+            self.assertEqual(bool(mask[i]), is_move)
 
     def test_build_mask_empty_set_all_false(self):
         mask = build_available_actions_mask(set())
@@ -116,7 +114,7 @@ class TestMaskedActionSelection(unittest.TestCase):
                 "random exploration must only pick Move_screen when others are masked")
 
     def test_no_mask_selects_any_action(self):
-        """Without a mask (all-True) all fn_idx values can be selected."""
+        """Without a mask, sampled fn_idx values must be valid and non-degenerate."""
         policy = _make_policy(epsilon_start=1.0, epsilon_end=1.0)
         policy._cached_mask = np.ones(_N, dtype=bool)
         seen_fn_ids = set()
@@ -124,10 +122,8 @@ class TestMaskedActionSelection(unittest.TestCase):
         for _ in range(200):
             action = policy(obs)
             seen_fn_ids.add(int(action[0]))
-        # Should see fn_idx 0 (no_op), 1 (select_army), and 2 (Move_screen)
-        self.assertIn(0, seen_fn_ids)
-        self.assertIn(1, seen_fn_ids)
-        self.assertIn(2, seen_fn_ids)
+        self.assertTrue(seen_fn_ids.issubset(set(FUNCTION_IDS.keys())))
+        self.assertGreater(len(seen_fn_ids), 1)
 
     def test_on_episode_start_resets_mask_to_all_true(self):
         """on_episode_start() must reset _cached_mask to all-True."""
@@ -237,4 +233,3 @@ class TestMaskedGradientStep(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

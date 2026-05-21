@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.2.3] - 2026-05-21
+
 ### Added
 - **Rocket League integration** (`--game rocket_league`): single-agent RL via
   [RLGym](https://rlgym.org/).  142-dim observation (car/ball + 2 teammate
@@ -49,7 +54,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   steer/throttle/brake to vJoy axes; `NullController` preserves
   existing telemetry-only behaviour.  `pyvjoy` is an optional
   dependency (only required for `action_mode: live`).
-
 
 ---
 

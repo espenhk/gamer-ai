@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_race
 from games.sc2.obs_spec import get_spec
 
 logger = logging.getLogger(__name__)
@@ -290,6 +290,10 @@ class SC2Client:
         # Lookup table for unit-type ids → label, populated lazily so unit
         # tests don't import pysc2.lib.units at module load.
         self._unit_type_id_to_name: dict[int, str] | None = None
+        # Lookup table for unit-type ids → race label ("terran"/"protoss"/"zerg").
+        # Used to infer a race-consistent available-fn mask when PySC2
+        # available_actions mapping is missing or overly broad.
+        self._unit_type_id_to_race: dict[int, str] | None = None
         # Lookup table for unit-type ids → attack range (game units), used by
         # self_attack_range_px for idle-bonus gating.
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
@@ -609,6 +613,12 @@ class SC2Client:
                     for pid in self._available_actions
                     if pid in id_map
                 }
+            inferred_fn_ids = self._infer_fn_ids_from_units(ob)
+            if inferred_fn_ids is not None:
+                if available_fn_ids is None:
+                    available_fn_ids = set(inferred_fn_ids)
+                else:
+                    available_fn_ids &= inferred_fn_ids
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -1232,6 +1242,77 @@ class SC2Client:
                 if member.name in _RICH_UNIT_TYPES:
                     lookup[int(member.value)] = member.name
         return lookup
+
+    @staticmethod
+    def _build_unit_type_race_lookup() -> dict[int, str]:
+        """Build {unit_type_id: race_label} from pysc2.lib.units enums."""
+        try:
+            from pysc2.lib import units as pysc2_units  # type: ignore[import-untyped]
+        except ImportError:
+            return {}
+        lookup: dict[int, str] = {}
+        race_groups = (
+            ("terran", getattr(pysc2_units, "Terran", None)),
+            ("protoss", getattr(pysc2_units, "Protoss", None)),
+            ("zerg", getattr(pysc2_units, "Zerg", None)),
+        )
+        for race_name, group in race_groups:
+            if group is None:
+                continue
+            for member in group:
+                lookup[int(member.value)] = race_name
+        return lookup
+
+    def _infer_fn_ids_from_units(self, ob: Any) -> set[int] | None:
+        """Infer a race-consistent fn-id set from visible/selected own units.
+
+        This supplements PySC2 available_actions mapping with unit/building-type
+        context so obviously cross-race actions are masked out.
+        """
+        if self._unit_type_id_to_race is None:
+            self._unit_type_id_to_race = self._build_unit_type_race_lookup()
+        if not self._unit_type_id_to_race:
+            return None
+
+        race_votes: set[str] = set()
+        feat_units = self._safe_array(ob, "feature_units")
+        if (
+            feat_units is not None
+            and feat_units.size > 0
+            and feat_units.ndim == 2
+            and feat_units.shape[1] >= 2
+        ):
+            for row in feat_units:
+                if int(row[1]) != 1:
+                    continue
+                race = self._unit_type_id_to_race.get(int(row[0]))
+                if race is not None:
+                    race_votes.add(race)
+
+        for key in ("single_select", "multi_select"):
+            selected = self._safe_array(ob, key)
+            if (
+                selected is None
+                or selected.size == 0
+            ):
+                continue
+            if selected.ndim == 1:
+                if selected.shape[0] < 1:
+                    continue
+                rows = selected[np.newaxis, :]
+            elif selected.ndim == 2 and selected.shape[1] >= 1:
+                rows = selected
+            else:
+                continue
+            for row in rows:
+                race = self._unit_type_id_to_race.get(int(row[0]))
+                if race is not None:
+                    race_votes.add(race)
+
+        if len(race_votes) != 1:
+            return None
+        inferred_race = next(iter(race_votes))
+        return set(fn_ids_for_race(inferred_race))
 
     @staticmethod
     def _get_rich_unit_types() -> tuple:

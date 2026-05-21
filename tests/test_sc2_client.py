@@ -769,6 +769,8 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
         """When the observation has no available_actions key, available_fn_ids is None."""
         client = SC2Client(map_name="MoveToBeacon")
         ob = self._minigame_ob(available_actions=None)
+        client._unit_type_id_to_race = {1: "terran"}
+        ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)
         _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertIn("available_fn_ids", info)
         self.assertIsNone(info["available_fn_ids"])
@@ -829,6 +831,58 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             ob = self._minigame_ob(available_actions=np.array([0, 7]))
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
             self.assertIsInstance(info["available_fn_ids"], set)
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_inferred_from_visible_unit_race(self):
+        """When PySC2 ID mapping is unavailable, infer a race-consistent fn set
+        from owned unit/building types."""
+        import games.sc2.client as sc2_client_mod
+        from games.sc2.actions import fn_ids_for_race
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
+            ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], set(fn_ids_for_race("terran")))
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_intersects_with_inferred_race_filter(self):
+        """Mapped available_fn_ids are intersected with inferred race actions."""
+        import games.sc2.client as sc2_client_mod
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 50)
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 50}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
+            ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], {0, 8})
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_inferred_from_one_dimensional_single_select(self):
+        """1-D select arrays still participate in race-aware masking."""
+        import games.sc2.client as sc2_client_mod
+        from games.sc2.actions import fn_ids_for_race
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
+            ob["single_select"] = np.array([1, 1, 45, 0, 0, 0, 0], dtype=np.int32)
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], set(fn_ids_for_race("terran")))
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 import numpy as np
@@ -122,6 +123,7 @@ _pysc2_id_to_fn_idx: dict[int, int] | None = None
 # stays blocked while no units are selected. Prevents permanent idling after
 # round/selection transitions in minigames while still avoiding per-step spam.
 _SELECT_ARMY_RETRY_BLOCKED_STEPS: int = 8
+_SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
 # ---------------------------------------------------------------------------
 # Lazy PySC2 field-name helpers
@@ -340,7 +342,30 @@ class SC2Client:
             return None
         try:
             os.makedirs(replay_dir, exist_ok=True)
-            return self._sc2_env.save_replay(replay_dir, prefix=prefix)
+            result: dict[str, Any] = {"path": None, "exc": None}
+
+            def _save() -> None:
+                try:
+                    result["path"] = self._sc2_env.save_replay(replay_dir, prefix=prefix)
+                except Exception as exc:
+                    result["exc"] = exc
+
+            worker = threading.Thread(
+                target=_save,
+                name="sc2-save-replay",
+                daemon=True,
+            )
+            worker.start()
+            worker.join(timeout=_SAVE_REPLAY_TIMEOUT_S)
+            if worker.is_alive():
+                logger.warning(
+                    "SC2Client.save_replay timed out after %.1fs; skipping.",
+                    _SAVE_REPLAY_TIMEOUT_S,
+                )
+                return None
+            if result["exc"] is not None:
+                raise result["exc"]
+            return result["path"]
         except Exception as exc:
             logger.warning("SC2Client.save_replay failed: %s", exc)
             return None

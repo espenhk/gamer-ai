@@ -12,6 +12,7 @@ Covers:
 """
 import os
 import sys
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -78,6 +79,28 @@ class TestSC2ClientSaveReplay(unittest.TestCase):
             result = client.save_replay("/tmp/replays", "myrun_best-01")
 
         self.assertIsNone(result)
+
+    def test_save_timeout_returns_none(self):
+        client = self._make_client()
+        mock_env = MagicMock()
+
+        def _slow_save(*args, **kwargs):
+            time.sleep(0.2)
+            return "/tmp/replays/myrun_best-01.SC2Replay"
+
+        mock_env.save_replay.side_effect = _slow_save
+        client._sc2_env = mock_env
+
+        with (
+            patch("games.sc2.client.os.makedirs"),
+            patch("games.sc2.client._SAVE_REPLAY_TIMEOUT_S", 0.01),
+        ):
+            start = time.monotonic()
+            result = client.save_replay("/tmp/replays", "myrun_best-01")
+            elapsed = time.monotonic() - start
+
+        self.assertIsNone(result)
+        self.assertLess(elapsed, 0.15)
 
 
 # ---------------------------------------------------------------------------

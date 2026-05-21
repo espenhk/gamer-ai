@@ -17,6 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Documentation
+
+- Add `docs/framework/` — one Markdown page per framework-side protocol
+  (`GameAdapter`, the `GameSpec`/`RunConfig`/`ProbeSpec`/`WarmupSpec`/
+  `PolicyExtras` config bundles, `BaseGameEnv`, `RewardCalculatorBase`,
+  `BasePolicy`, `ObsSpec`), each with method contracts and a worked
+  example. Linked bidirectionally from `CONTRIBUTING.md` ("Adding a new
+  game") and `CLAUDE.md` (#220).
 
 ---
 

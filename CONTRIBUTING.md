@@ -165,19 +165,27 @@ framework through a single `GameAdapter`. The pattern is the same for
 every game in the repo — `games/car_racing/` is the smallest reference
 implementation; copy it as a starting point.
 
+> **Read the protocol docs first.** Every framework-side seam you'll touch
+> is documented one file per protocol under
+> [`docs/framework/`](docs/framework/README.md) — `GameAdapter`,
+> `GameSpec` / `RunConfig` / `ProbeSpec` / `WarmupSpec` / `PolicyExtras`,
+> `BaseGameEnv`, `RewardCalculatorBase`, `BasePolicy`, and `ObsSpec`, each
+> with a worked example. You should be able to read those end-to-end and
+> write a `_template` adapter without opening any `games/<name>/` code.
+
 ### What you need to implement
 
-| File | Role |
-|---|---|
-| `games/<name>/adapter.py` | Implements `framework.game_adapter.GameAdapter`. Wires the game-specific objects below into the framework. Must expose `make_adapter()`. |
-| `games/<name>/env.py` | `gymnasium.Env` subclass. Resets the game, steps it, returns `(obs, reward, terminated, truncated, info)`. |
-| `games/<name>/obs_spec.py` | Module-level constant describing the flat observation vector (names + scales). Used for normalisation, analytics labels, and weight-file migration. |
-| `games/<name>/actions.py` | `DISCRETE_ACTIONS` — the list of discrete action tuples that tabular policies can pick from. |
-| `games/<name>/reward.py` | `RewardCalculator` + `RewardConfig` for the game. |
-| `games/<name>/analytics.py` | `save_experiment_results(...)` — at minimum produce a `results.md` and a reward-over-time plot. |
-| `games/<name>/config/training_params.yaml` | Master training params copied into each new experiment. |
-| `games/<name>/config/reward_config.yaml` | Master reward weights copied into each new experiment. |
-| `games/<name>/README.md` | Per-game user-facing README — install, run, obs/action/reward tables. |
+| File | Role | Protocol doc |
+|---|---|---|
+| `games/<name>/adapter.py` | Implements `framework.game_adapter.GameAdapter`. Wires the game-specific objects below into the framework. Must expose `make_adapter()`. | [`game_adapter.md`](docs/framework/game_adapter.md), [`run_config.md`](docs/framework/run_config.md) |
+| `games/<name>/env.py` | `BaseGameEnv` subclass (a `gymnasium.Env`). Resets the game, steps it, returns `(obs, reward, terminated, truncated, info)`. | [`base_env.md`](docs/framework/base_env.md) |
+| `games/<name>/obs_spec.py` | Module-level `ObsSpec` describing the flat observation vector (names + scales). Used for normalisation, analytics labels, and weight-file migration. | [`obs_spec.md`](docs/framework/obs_spec.md) |
+| `games/<name>/actions.py` | `DISCRETE_ACTIONS` — the list of discrete action tuples that tabular policies can pick from. | — |
+| `games/<name>/reward.py` | `RewardCalculator` + `RewardConfig` for the game. | [`reward.md`](docs/framework/reward.md) |
+| `games/<name>/analytics.py` | `save_experiment_results(...)` — at minimum produce a `results.md` and a reward-over-time plot. | — |
+| `games/<name>/config/training_params.yaml` | Master training params copied into each new experiment. | — |
+| `games/<name>/config/reward_config.yaml` | Master reward weights copied into each new experiment. | — |
+| `games/<name>/README.md` | Per-game user-facing README — install, run, obs/action/reward tables. | — |
 
 Then register the adapter in `framework/game_adapter.GAME_ADAPTERS` and
 add `<name>` to the `--game` choices in `main.py`.
@@ -236,12 +244,17 @@ add `<name>` to the `--game` choices in `main.py`.
 
 Policies live in `framework/policies.py` (game-agnostic) or under
 `games/<name>/` (game-specific, e.g. `sc2_genetic`). Every policy
-inherits from `BasePolicy` and implements:
+inherits from `BasePolicy` —
+[`docs/framework/policies.md`](docs/framework/policies.md) documents the
+full interface with a worked example. In short:
 
-- `act(obs)` — pick an action given a normalised observation vector.
-- `update(...)` — for trainable policies; no-op for hand-coded baselines.
-- `save(path)` / `load(path)` — YAML for linear / tabular policies,
-  numpy `.npz` for neural / LSTM / CNN.
+- `__call__(obs)` — pick an action given an observation vector (the
+  "`act`" step).
+- `update(...)` — for trainable online policies; no-op for hand-coded
+  baselines and evolutionary policies.
+- `save(path)` writes; loading happens through construction
+  (`from_cfg` / the weights-file constructor argument) — there is no
+  `load()` method.
 
 Add the new `policy_type` string to `CLAUDE.md`'s policy table, update
 the `README.md` policy table if it's game-agnostic, and ship at least

@@ -20,6 +20,15 @@ config, observation/action space, reward, and supported policies. This file
 is the architecture overview — defer to those per-game READMEs for
 game-specific specifics.
 
+The framework-side protocols a contributor implements to ship a game or a
+policy are documented one file per protocol under
+[`docs/framework/`](docs/framework/README.md): `GameAdapter`, the
+`GameSpec` / `RunConfig` / `ProbeSpec` / `WarmupSpec` / `PolicyExtras`
+config bundles, `BaseGameEnv`, `RewardCalculatorBase`, `BasePolicy`, and
+`ObsSpec`. The sections below describe how these are configured and
+combined; the `docs/framework/` pages give the per-protocol method
+contracts and worked examples.
+
 ---
 
 ## Repository Structure
@@ -196,7 +205,7 @@ data on disk.
 
 ## Policies
 
-All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`.
+Framework policies live in `framework/policies.py`, with additional game-specific policies under `games/<name>/`. All inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`. The `BasePolicy` method contract (`__call__` / `update` / `save` / trainer-state, the weight-file format, and the "missing key → 0.0" migration rule) is documented in [`docs/framework/policies.md`](docs/framework/policies.md).
 
 | `policy_type` | Class | Algorithm |
 |---|---|---|
@@ -355,9 +364,17 @@ are documented in the StarCraft 2 section below.
 
 ## RL Environment (`rl/env.py`)
 
+The game-agnostic `BaseGameEnv` contract (`reset`/`step`, `terminated` vs
+`truncated`, the `info` dict, the optional episode-time-limit hooks, and
+threading expectations) is documented in
+[`docs/framework/base_env.md`](docs/framework/base_env.md); the
+reward-side contract is in
+[`docs/framework/reward.md`](docs/framework/reward.md). The TMNF-specific
+spaces below are one concrete instance of that contract.
+
 ### Observation (15 + n_lidar_rays floats, float32)
 
-Defined in `obs_spec.py` — single source of truth for feature names, scales, descriptions.
+Defined in `obs_spec.py` — single source of truth for feature names, scales, descriptions. The generic `ObsSpec` / `ObsDim` contract (naming, normalisation, auto-migration) is documented in [`docs/framework/obs_spec.md`](docs/framework/obs_spec.md).
 
 | Index | Name | Scale | Description |
 |-------|------|-------|-------------|

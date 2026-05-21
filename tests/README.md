@@ -232,8 +232,9 @@ worker mechanics are unit-tested with a dummy env.
 ### test_live_monitor.py — live GUI monitor helpers
 - reward-component extraction prefers per-step components and falls back to differencing cumulative episode totals
 - rolling-average values are computed from the latest 5 steps
-- observation grouping detects x/y pairs, indexed vectors, quadrant grids, and scalar fallbacks
+- observation grouping detects x/y pairs, indexed vectors (including mid-index names like `wheel_0_contact`), quadrant grids, and scalar fallbacks
 - reward ordering keeps known keys in fixed logical order and appends unknown keys alphabetically
+- layout helpers split rows into display columns while preserving order and switch observation panel column count from 3 to 4 on wide canvases
 - action formatting renders 3-value TMNF controls with steer direction/percent, treats tiny pedal values (`<= 0.01`) as effectively zero when choosing accel-only vs brake-only display, and still truncates long vectors after six entries
 
 ### test_obs_memory.py — frame-stacking observation wrapper

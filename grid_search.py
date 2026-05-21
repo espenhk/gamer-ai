@@ -457,6 +457,8 @@ def _run_distributed(
     bind_host: str,
     allow_non_lan: bool,
     game_name: str,
+    monitor_username: str,
+    monitor_password: str,
     local_workers: int = 1,
     local_worker_start_stagger_s: float = 5.0,
     no_interrupt: bool = False,
@@ -489,6 +491,8 @@ def _run_distributed(
         heartbeat_timeout=heartbeat_timeout,
         bind_host=bind_host,
         allow_non_lan=allow_non_lan,
+        monitor_username=monitor_username,
+        monitor_password=monitor_password,
     )
     worker_procs: list[subprocess.Popen] = []
     try:
@@ -791,6 +795,18 @@ def main() -> None:
         "coordinator only accepts loopback/private/link-local clients.",
     )
     parser.add_argument(
+        "--monitor-username",
+        default=None,
+        help="Username for the mobile run monitor (default: 'monitor', or "
+        "value from config distribute.monitor_username).",
+    )
+    parser.add_argument(
+        "--monitor-password",
+        default=None,
+        help="Password for the mobile run monitor (default: shared worker "
+        "token, or value from config distribute.monitor_password).",
+    )
+    parser.add_argument(
         "--local-worker-stagger",
         type=float,
         default=None,
@@ -909,6 +925,16 @@ def main() -> None:
                 "Auto-generated token for distributed run (%s). Pass it to workers via --token or TMNF_GRID_TOKEN.",
                 token_preview,
             )
+        monitor_username = (
+            args.monitor_username
+            or distribute_cfg.get("monitor_username")
+            or "monitor"
+        )
+        monitor_password = (
+            args.monitor_password
+            or distribute_cfg.get("monitor_password")
+            or token
+        )
         all_runs = _run_distributed(
             adapter,
             combos,
@@ -920,6 +946,8 @@ def main() -> None:
             bind_host=bind_host,
             allow_non_lan=allow_non_lan,
             game_name=game_name,
+            monitor_username=monitor_username,
+            monitor_password=monitor_password,
             local_workers=local_workers,
             local_worker_start_stagger_s=local_worker_stagger,
             no_interrupt=args.no_interrupt,

@@ -183,7 +183,8 @@ worker mechanics are unit-tested with a dummy env.
 - ComboSpec round-trip + JSON serialisable; ResultPayload round-trip + valid JSON
 - payload preserves greedy_sims / throttle counts / trace / none-trace / metadata / task-metric fields / SC2 analytics fields
 - numpy arrays serialised
-- HTTP: serves all combos / status endpoint / result accepted + done event
+- HTTP: serves all combos / lightweight status endpoint (counts + workers) / result accepted + done event
+- mobile monitor: `/monitor` login page is public, does not prefill custom monitor usernames, `/monitor/api/status` requires session login, authenticated status includes per-run queued/in-progress/done state + selected-run details
 - unknown combo rejected; duplicate result ignored; stale worker re-queued; heartbeat prevents requeue
 - empty queue returns immediately; unauthorized rejected
 - LAN source-IP filtering: private/loopback/link-local clients allowed by default; public IPs rejected with 403 unless `allow_non_lan=True`

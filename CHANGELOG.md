@@ -17,8 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-### Fixed
-- **Live GUI** (`framework/live_monitor.py`): reward rows now render in two columns, observation sections render in adaptive 3–4 columns, and mid-index names (e.g. `wheel_0_contact`) are grouped as indexed vectors so logical groups stay together.
+### Added
+- Distributed coordinator: new mobile-friendly `/monitor` web app with
+  username/password login, a run selector, and per-run queued / active /
+  completed state so users can watch multi-machine runs from a phone. By
+  default the monitor username is `monitor` and the password reuses the
+  coordinator token; both can be overridden with
+  `distribute.monitor_username` / `distribute.monitor_password` or the
+  matching CLI flags.
 
 ---
 

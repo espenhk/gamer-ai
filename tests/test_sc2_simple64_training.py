@@ -32,7 +32,7 @@ from framework.training import (
     _greedy_loop_cmaes,
     _greedy_loop_q_learning,
 )
-from games.sc2.actions import DISCRETE_ACTIONS
+from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
 
 _OBS_SPEC = SC2_LADDER_OBS_SPEC
 _HEAD_NAMES = ["fn_idx", "x", "y", "queue"]
@@ -217,16 +217,17 @@ class TestSC2LinearPolicyActionEncoding(unittest.TestCase):
         return np.ones(_OBS_DIM, dtype=np.float32)
 
     def test_fn_idx_in_valid_range(self):
-        """fn_idx must be in [0, N_FUNCS-1] = [0, 5], not clipped to [-1,1]."""
+        """fn_idx must be in [0, N_FUNCS-1], not clipped to [-1,1]."""
+        max_fn_idx = float(len(FUNCTION_IDS) - 1)
         rng = np.random.default_rng(0)
         for _ in range(20):
             policy = SC2LinearPolicy(_OBS_SPEC, _HEAD_NAMES)
-            # Set large positive weights so sigmoid output is near 1 → fn_idx ≈ 5
+            # Set large positive weights so sigmoid output is near the top fn_idx.
             for head in _HEAD_NAMES:
                 policy._weights[head] = rng.standard_normal(_OBS_DIM).astype(np.float32) * 5.0
             action = policy(self._obs())
             self.assertGreaterEqual(float(action[0]), 0.0)
-            self.assertLessEqual(float(action[0]), 5.0)
+            self.assertLessEqual(float(action[0]), max_fn_idx)
 
     def test_x_y_are_continuous_not_binary(self):
         """x and y must be in (0, 1), not forced to {0, 1} extremes."""
@@ -270,6 +271,7 @@ class TestSC2LinearPolicyActionEncoding(unittest.TestCase):
 
     def test_cmaes_offspring_use_sc2_linear(self):
         """CMAESPolicy offspring must be SC2LinearPolicy instances."""
+        max_fn_idx = float(len(FUNCTION_IDS) - 1)
         policy = CMAESPolicy(obs_spec=_OBS_SPEC, head_names=_HEAD_NAMES, population_size=4)
         offspring = policy.sample_population()
         for ind in offspring:
@@ -277,7 +279,7 @@ class TestSC2LinearPolicyActionEncoding(unittest.TestCase):
             # Also verify the fn_idx range is valid
             action = ind(self._obs())
             self.assertGreaterEqual(float(action[0]), 0.0)
-            self.assertLessEqual(float(action[0]), 5.0)
+            self.assertLessEqual(float(action[0]), max_fn_idx)
 
 
 # ---------------------------------------------------------------------------

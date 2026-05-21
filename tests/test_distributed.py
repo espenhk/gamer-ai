@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import urllib.parse
 
 import pytest
 
@@ -284,6 +285,14 @@ class TestCoordinator:
         )
         return urllib.request.urlopen(req, timeout=5)
 
+    def _monitor_opener(self):
+        import http.cookiejar
+        import urllib.request
+
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        return opener
+
     def test_work_queue_serves_all_combos(self):
         combos = [_make_combo(f"c{i}") for i in range(3)]
         coord = self._start_coord(combos)
@@ -312,6 +321,133 @@ class TestCoordinator:
         assert status["total"] == 2
         assert status["queued"] == 2
         assert status["done"] == 0
+        assert "runs" not in status
+        coord.stop()
+
+    def test_monitor_login_page_served_without_bearer_token(self):
+        import urllib.request
+
+        coord = self._start_coord([_make_combo("monitor_test")])
+        with urllib.request.urlopen(self._url(coord, "/monitor"), timeout=5) as r:
+            body = r.read().decode()
+
+        assert r.status == 200
+        assert "Run monitor login" in body
+        coord.stop()
+
+    def test_monitor_login_does_not_leak_custom_username(self):
+        import urllib.request
+
+        coord = Coordinator(
+            [_make_combo("monitor_test")],
+            token=_TEST_TOKEN,
+            port=0,
+            heartbeat_timeout=30.0,
+            monitor_username="private-user",
+        )
+        coord.start()
+        time.sleep(0.05)
+
+        with urllib.request.urlopen(self._url(coord, "/monitor"), timeout=5) as r:
+            body = r.read().decode()
+
+        assert r.status == 200
+        assert 'value=""' in body
+        assert "private-user" not in body
+        coord.stop()
+
+    def test_monitor_api_requires_login(self):
+        import urllib.error
+        import urllib.request
+
+        coord = self._start_coord([_make_combo("monitor_test")])
+        req = urllib.request.Request(self._url(coord, "/monitor/api/status"))
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+
+        coord.stop()
+
+    def test_monitor_login_rejects_invalid_credentials(self):
+        import urllib.error
+        import urllib.request
+
+        coord = self._start_coord([_make_combo("monitor_test")])
+        body = urllib.parse.urlencode(
+            {"username": "monitor", "password": "wrong"}
+        ).encode()
+        req = urllib.request.Request(
+            self._url(coord, "/monitor/login"),
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": str(len(body)),
+            },
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            assert False, "expected 401"
+        except urllib.error.HTTPError as e:
+            assert e.code == 401
+            assert "Invalid username or password." in e.read().decode()
+
+        coord.stop()
+
+    def test_monitor_api_reports_run_states_after_login(self):
+        import urllib.request
+
+        combos = [_make_combo("queued_run"), _make_combo("active_run")]
+        coord = self._start_coord(combos)
+        opener = self._monitor_opener()
+        body = urllib.parse.urlencode(
+            {"username": "monitor", "password": _TEST_TOKEN}
+        ).encode()
+        login_req = urllib.request.Request(
+            self._url(coord, "/monitor/login"),
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": str(len(body)),
+            },
+        )
+        with opener.open(login_req, timeout=5) as r:
+            assert r.geturl().endswith("/monitor")
+            html = r.read().decode()
+            assert '""": "&quot;"' not in html
+
+        work_req = urllib.request.Request(
+            self._url(coord, "/work"),
+            headers=self._auth_headers({"X-Worker-Id": "box-a"}),
+        )
+        with urllib.request.urlopen(work_req, timeout=5) as r:
+            assert r.status == 200
+            spec = combo_from_dict(json.loads(r.read()))
+            assert spec.name == "queued_run"
+
+        with opener.open(self._url(coord, "/monitor/api/status"), timeout=5) as r:
+            status = json.loads(r.read())
+
+        runs = {run["name"]: run for run in status["runs"]}
+        assert runs["queued_run"]["state"] == "in_progress"
+        assert runs["queued_run"]["worker_id"] == "box-a"
+        assert runs["active_run"]["state"] == "queued"
+
+        data = _make_experiment_data_dict("queued_run")
+        payload = ResultPayload(name="queued_run", data_json=experiment_to_json(data))
+        result_body = json.dumps(result_to_dict(payload)).encode()
+        with self._post(coord, "/result", result_body) as r:
+            assert r.status == 200
+
+        with opener.open(self._url(coord, "/monitor/api/status"), timeout=5) as r:
+            status = json.loads(r.read())
+
+        runs = {run["name"]: run for run in status["runs"]}
+        assert runs["queued_run"]["state"] == "done"
+        assert runs["queued_run"]["best_reward"] == pytest.approx(123.4)
         coord.stop()
 
     def test_result_accepted_and_done_event_fires(self):

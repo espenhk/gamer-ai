@@ -205,7 +205,7 @@ data on disk.
 
 ## Policies
 
-All policies live in `policies.py`, inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`. The `BasePolicy` method contract (`__call__` / `update` / `save` / trainer-state, the weight-file format, and the "missing key → 0.0" migration rule) is documented in [`docs/framework/policies.md`](docs/framework/policies.md).
+Framework policies live in `framework/policies.py`, with additional game-specific policies under `games/<name>/`. All inherit `BasePolicy`. Active policy set via `policy_type` in `training_params.yaml`. The `BasePolicy` method contract (`__call__` / `update` / `save` / trainer-state, the weight-file format, and the "missing key → 0.0" migration rule) is documented in [`docs/framework/policies.md`](docs/framework/policies.md).
 
 | `policy_type` | Class | Algorithm |
 |---|---|---|

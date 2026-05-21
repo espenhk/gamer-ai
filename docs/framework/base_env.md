@@ -30,9 +30,10 @@ obs, reward, terminated, truncated, info = env.step(action)
 - **`obs`** — a `float32` array whose shape matches `observation_space`
   (and your [`ObsSpec`](obs_spec.md)). In practice you build it in
   `_build_obs(step)` (see below).
-- **`reward`** — the env may return its own native reward, but the
-  framework recomputes the training reward via the
-  [`RewardCalculator`](reward.md); pass anything useful through `info`.
+- **`reward`** — the training reward your env returns from `env.step()`.
+  Many envs compute or shape this internally via a game-specific
+  [`RewardCalculator`](reward.md); the framework loop consumes the value
+  as-is.
 - **`terminated`** vs **`truncated`** — keep them distinct:
   - `terminated = True` → the episode reached a real end state (finished
     the track, won/lost the game, crashed past a threshold).
@@ -54,17 +55,18 @@ shape must match `self.observation_space` and the feature order must match
 your `ObsSpec`. This is the single source of the obs vector — `reset()`
 and `step()` both route through it.
 
-### `_get_game_info()` — optional, defaults to `{}`
+### `_get_game_info()` — optional helper, defaults to `{}`
 
 ```python
 def _get_game_info(self) -> dict:
     return {}   # default
 ```
 
-Return a dict of game-specific metrics for the current step. The framework
-merges these into the Gymnasium `info` dict, where both analytics and the
-reward calculator can read them **without any framework coupling** to
-game concepts. Recommended keys for racing-style games:
+Return a dict of game-specific metrics for the current step **if your env
+chooses to use this helper**. `BaseGameEnv` does not merge this into the
+Gymnasium `info` dict for you; several envs build `info` directly in
+`reset()` / `step()` and never implement `_get_game_info()`. Recommended
+keys for racing-style games:
 
 | Key | Meaning |
 |---|---|
@@ -73,9 +75,9 @@ game concepts. Recommended keys for racing-style games:
 | `laps_completed` | Cumulative lap count. |
 | `lateral_offset` | Metres from the centreline. |
 
-This is also how you feed signals to your reward calculator — put them in
-`info` rather than inventing bespoke positional parameters (see
-[`reward.md`](reward.md)).
+If your env uses a reward calculator, this is also a good place to gather
+the signals you will pass through `info` rather than inventing bespoke
+positional parameters (see [`reward.md`](reward.md)).
 
 ## Episode time limit (optional capability)
 

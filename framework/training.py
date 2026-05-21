@@ -693,8 +693,9 @@ def _greedy_loop(
     best_policy  = policy
     greedy_sims: list[GreedySimResult] = []
 
-    if isinstance(best_policy, NeuralNetPolicy):
-        # Single-candidate hill-climbing for neural_net
+    if not isinstance(best_policy, WeightedLinearPolicy):
+        # Single-candidate hill-climbing for NeuralNetPolicy / SC2NeuralNetPolicy
+        # and any future non-linear hill-climbing policy
         full_episode_time_s = env.get_episode_time_limit()
         no_improve_streak = 0
         early_stopped     = False

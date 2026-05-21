@@ -117,6 +117,15 @@ class TestDisplayHelpers(unittest.TestCase):
             "accel 80% | steer straight",
         )
 
+    def test_fmt_action_formats_sc2_screen_actions(self):
+        self.assertEqual(
+            _fmt_action([2.0, 10.0 / 63.0, 25.0 / 63.0, 0.0]),
+            "move screen: (10,25)",
+        )
+
+    def test_fmt_action_hides_sc2_no_op(self):
+        self.assertEqual(_fmt_action([0.0, 0.0, 0.0, 0.0]), "")
+
 
 if __name__ == "__main__":
     unittest.main()

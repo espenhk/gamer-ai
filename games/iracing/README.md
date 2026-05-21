@@ -10,7 +10,7 @@ iRacing simulator.
   - [Python dependencies](#python-dependencies)
 - [Running](#running)
   - [Telemetry-only mode (Phase 1)](#telemetry-only-mode-phase-1)
-  - [Live action injection (Phase 2 — future)](#live-action-injection-phase-2--future)
+  - [Live action injection (Phase 2)](#live-action-injection-phase-2)
 - [SimHub vs pyirsdk](#simhub-vs-pyirsdk)
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
@@ -36,6 +36,16 @@ Install `pyirsdk`:
 
 ```bash
 pip install pyirsdk
+```
+
+For **live action injection** (Phase 2), also install the vJoy driver
+and the `pyvjoy` Python binding:
+
+1. Download and install [vJoy](https://github.com/jshafer817/vJoy).
+2. Install the Python binding:
+
+```bash
+pip install pyvjoy
 ```
 
 Then install the rest of the project dependencies:
@@ -66,12 +76,32 @@ python main.py smoke --game iracing --no-interrupt
 The environment connects to the running iRacing instance via the
 shared-memory telemetry API.
 
-### Live action injection (Phase 2 — future)
+### Live action injection (Phase 2)
 
-Phase 2 will add action injection via a virtual controller (e.g.
-[vJoy](https://github.com/jshafer817/vJoy)).  This will allow the
-agent to steer, accelerate, and brake in real time.  Tracked in a
-separate issue.
+In Phase 2, the agent **sends steer/throttle/brake commands** to iRacing
+via a [vJoy](https://github.com/jshafer817/vJoy) virtual joystick.
+
+1. Install the vJoy driver and `pyvjoy` (see [Prerequisites](#python-dependencies)).
+2. Configure iRacing to use the vJoy device as a controller
+   (Options → Controls → assign axes for steer, throttle, brake).
+3. Set `action_mode: live` in `training_params.yaml`:
+
+```yaml
+action_mode: live
+```
+
+4. Launch iRacing and enter a practice session.
+5. Start the training loop:
+
+```bash
+python main.py my_run --game iracing --no-interrupt
+```
+
+The agent reads telemetry **and** injects actions each step.
+
+> **Safety note:** The agent will actively control the car.  Start in a
+> practice session on a safe track.  You can take back control at any
+> time by pressing Escape in iRacing.
 
 ---
 
@@ -95,6 +125,15 @@ every telemetry variable without requiring a GUI intermediary.
 |---|---|
 | `games/iracing/config/training_params.yaml` | Episode settings, policy type, hyperparams |
 | `games/iracing/config/reward_config.yaml` | Reward weights |
+
+### Key training params
+
+| Parameter | Default | Description |
+|---|---|---|
+| `action_mode` | `telemetry_only` | `"telemetry_only"` (Phase 1 — read-only) or `"live"` (Phase 2 — vJoy injection) |
+| `track` | `laguna_seca` | Reference track name |
+| `in_game_episode_s` | `120.0` | Wall-clock seconds per episode |
+| `policy_type` | `genetic` | Algorithm (see Supported policies below) |
 
 ---
 
@@ -135,9 +174,9 @@ Continuous: `Box([-1, 0, 0], [1, 1, 1], shape=(3,))`
 Discrete policies use a 9-cell grid: {brake, coast, accel} × {left,
 straight, right}.
 
-> **Note:** In Phase 1 (telemetry-only), actions are computed by the
-> policy but **not** injected into iRacing.  Phase 2 will inject via
-> vJoy or similar.
+In **telemetry-only** mode (`action_mode: telemetry_only`), actions are
+computed by the policy but discarded.  In **live** mode
+(`action_mode: live`), actions are injected into iRacing via vJoy.
 
 ---
 
@@ -162,7 +201,11 @@ Configured in `games/iracing/config/reward_config.yaml`:
 ## Example commands
 
 ```bash
-# Single experiment (telemetry-only)
+# Single experiment — telemetry-only (default)
+python main.py my_iracing_run --game iracing --no-interrupt
+
+# Live action injection (requires vJoy + pyvjoy)
+# Set action_mode: live in training_params.yaml first, then:
 python main.py my_iracing_run --game iracing --no-interrupt
 
 # With a specific track override

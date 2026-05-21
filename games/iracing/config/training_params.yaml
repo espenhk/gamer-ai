@@ -10,6 +10,11 @@ mutation_share: 1.0          # fraction of weights perturbed per mutation (1.0 =
 adaptive_mutation: true      # apply 1/5th success rule during greedy phase
 patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
 
+# Action injection mode:
+#   "telemetry_only" — Phase 1: read-only telemetry, actions are not sent to the game.
+#   "live"           — Phase 2: inject steer/throttle/brake via vJoy virtual controller.
+action_mode: telemetry_only
+
 # Policy algorithm for the greedy training phase.
 policy_type: genetic
 

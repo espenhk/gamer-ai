@@ -16,6 +16,7 @@
   - [test\_env\_termination.py — `_classify_termination()`](#test_env_terminationpy--_classify_termination)
   - [test\_game\_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing adapter abstractions](#test_game_adapterpy--tmnftorcssc2beamngiracing-adapter-abstractions)
   - [test\_grid\_search.py — Cartesian-product expansion + naming](#test_grid_searchpy--cartesian-product-expansion--naming)
+  - [test\_iracing\_controller.py — iRacing action injection controller](#test_iracing_controllerpy--iracing-action-injection-controller)
   - [test\_info\_gain.py — staleness-based intrinsic reward](#test_info_gainpy--staleness-based-intrinsic-reward)
   - [test\_live\_monitor.py — live GUI monitor helpers](#test_live_monitorpy--live-gui-monitor-helpers)
   - [test\_obs\_memory.py — frame-stacking observation wrapper](#test_obs_memorypy--frame-stacking-observation-wrapper)
@@ -226,6 +227,12 @@ worker mechanics are unit-tested with a dummy env.
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)
+
+### test_iracing_controller.py — iRacing action injection controller
+- NullController: implements BaseController, send/reset/close are safe no-ops
+- axis conversion: bipolar [-1,1]→[1,32768] boundary values (−1→min, 0→mid, 1→max), clamping, half values; unipolar [0,1]→[1,32768] boundary values, clamping
+- make_controller factory: `"telemetry_only"` → NullController, unknown mode raises ValueError, `"live"` without pyvjoy raises ImportError
+- VJoyController (mock-based): send sets all three axes correctly, full-left/full-brake, out-of-range clamping, reset centres steer + zeros pedals, close resets axes
 
 ### test_sc2_map_access_gate.py — Cross-process SC2 map-access serialiser (issue #254)
 - single-process: first call returns 0 wait / second call within gap waits remainder / second call after gap waits 0 / `gap_s=0` short-circuits with no I/O / negative `gap_s` treated as disabled / corrupt or empty timestamp file treated as "no prior access" / future timestamp clamped to now (clock-skew robustness)

@@ -49,6 +49,7 @@ class IRacingAdapter:
             return make_env(
                 experiment_dir=experiment_dir,
                 max_episode_time_s=training_params["in_game_episode_s"],
+                action_mode=training_params.get("action_mode", "telemetry_only"),
             )
 
         return GameSpec(

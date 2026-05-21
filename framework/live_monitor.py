@@ -185,7 +185,13 @@ def _fmt_action(action: Any) -> str:
                 steer_label = f"left {steer_pct}%"
             else:
                 steer_label = f"right {steer_pct}%"
-            return f"accel {accel}% / brake {brake}% | steer {steer_label}"
+            if brake == 0 and accel > 0:
+                pedal_label = f"accel {accel}%"
+            elif accel == 0 and brake > 0:
+                pedal_label = f"brake {brake}%"
+            else:
+                pedal_label = f"accel {accel}% / brake {brake}%"
+            return f"{pedal_label} | steer {steer_label}"
         return "[" + ", ".join(f"{v:+.2f}" for v in arr[:6]) + ("]" if len(arr) <= 6 else "…]")
     except Exception:
         return str(action)[:40]

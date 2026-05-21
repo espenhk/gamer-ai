@@ -17,40 +17,19 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
----
-
-## [0.1.3] - 2026-05-20
-
-### Fixed
-- SC2: agents on BuildMarines, Simple64, and every other non-movement map were
-  unable to train units, construct buildings, or issue any race-specific command
-  because `FUNCTION_IDS` only contained 6 entries (movement + harvest).
-  `FUNCTION_IDS` now covers all 118 Terran, Protoss, and Zerg build / train /
-  morph / ability commands used in standard PySC2 play (fn_idx 0–117).
-  `SPATIAL_FN_IDS` is auto-derived as the frozenset of fn_ids whose names end in
-  `_screen` or `_minimap` (55 entries); every spatial function now gets a full
-  `N×N` (`SCREEN_GRID_RESOLUTION²`, default 8×8 = 64 rows) block in
-  `DISCRETE_ACTIONS`, giving a uniform `[command × location]` layout (3 583 rows
-  total).  Race gating (`RACE_FUNCTION_IDS`, `fn_ids_for_race()`, private
-  `_TERRAN_FN_IDS` / `_PROTOSS_FN_IDS` / `_ZERG_FN_IDS` sets) ensures that
-  agents only ever see the actions valid for their race — this permanent mask is
-  applied in every SC2 policy's `__call__` before the per-step
-  `available_fn_ids` mask.  All four multi-head SC2 policies
-  (`SC2GeneticPolicy`, `SC2CMAESPolicy`, `SC2LSTMEvolutionPolicy`, and the
-  `SC2MultiHeadLinearPolicy` base) accept and propagate a `race` parameter.
-  `N_FUNCTION_IDS` grows from 6 to 118 automatically; existing weight files
-  migrate cleanly via the zero-default path.  (Closes #276)
-
----
-
-## [0.1.2] - 2026-05-20
+### Changed
+- **Live GUI** (`framework/live_monitor.py`): window shrunk from 1200×850 to 960×720; reward and observation panels are now independently scrollable (mousewheel supported); reward components are displayed in a fixed logical order (no more jumping); scalar observations are shown in stable obs-spec order rather than sorted by magnitude; subtle vertical grid lines added to all bar charts; a new "Last 10 actions" panel shows the most recent actions in a fixed sidebar.
+- `framework/training.py`: `live_monitor.on_step()` now receives the current `action` so the actions panel can display it.
 
 ---
 
 ## [0.1.1] - 2026-05-20
 
 ### Documentation
+- `README.md` now links directly to the
+  `good first issue` filter, `CONTRIBUTING.md` documents the canonical
+  issue-label taxonomy, and the shared issue template now applies the
+  default `triage` label on newly opened issues.
 - PR template (`.github/PULL_REQUEST_TEMPLATE.md`) now carries a
   `Closes #<issue>` line near the top so PRs auto-close their issue on
   merge.  `CLAUDE.md` gains a **Pull requests** section requiring every
@@ -75,6 +54,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
     descriptions to match the issue #253 unit-position tracking fix.
 
 ### Added
+- New post-merge workflow `.github/workflows/auto-version-bump.yml` that
+  automatically runs after a PR is merged into `main`, infers release bump
+  type from PR-template checkboxes (`Patch` default, `Minor`, `Major`),
+  computes the next SemVer, and runs `scripts/release.py --no-tag` to bump
+  `pyproject.toml` + `framework/version.py` and roll `## [Unreleased]` into
+  a dated version section.
+- Analytics reports now surface code version tags more prominently:
+  single-run `results.md` includes a dedicated **Code Version** block, and
+  grid-search `summary.md` includes a **Code Versions** section plus a
+  per-experiment `Code version` stat row.
 - Optional live training GUI (`--live-gui`) for both `main.py` and
   `grid_search.py`. The window updates during training (not post-run only):
   - reward-component bar chart per step with a 5-step rolling average, plus
@@ -393,3 +382,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Fixed
 - Test dependency wiring and a batch of failing tests (#100).
+
+---
+

@@ -6,6 +6,7 @@ import unittest
 from collections import deque
 
 from framework.live_monitor import (
+    LiveTelemetryMonitor,
     _classify_observation_features,
     _derive_step_components,
     _fmt_action,
@@ -116,6 +117,45 @@ class TestDisplayHelpers(unittest.TestCase):
             _fmt_action([0.0, 0.8, 0.01]),
             "accel 80% | steer straight",
         )
+
+    def test_fmt_action_formats_sc2_screen_actions(self):
+        self.assertEqual(
+            _fmt_action([2.0, 10.0 / 63.0, 25.0 / 63.0, 0.0]),
+            "move screen: (10,25)",
+        )
+
+    def test_fmt_action_hides_sc2_no_op(self):
+        self.assertEqual(_fmt_action([0.0, 0.0, 0.0, 0.0]), "")
+
+
+class _FakeCanvas:
+    def __init__(self):
+        self.texts = []
+        self.scrollregion = None
+
+    def delete(self, *_args, **_kwargs):
+        return None
+
+    def create_text(self, _x, _y, **kwargs):
+        self.texts.append(kwargs.get("text", ""))
+        return None
+
+    def configure(self, **kwargs):
+        self.scrollregion = kwargs.get("scrollregion")
+
+    def winfo_width(self):
+        return 200
+
+
+class TestActionPanel(unittest.TestCase):
+    def test_draw_action_panel_skips_no_op_lines_entirely(self):
+        monitor = LiveTelemetryMonitor(["obs"], [1.0], rolling_window=5)
+        monitor._action_canvas = _FakeCanvas()
+        monitor._last_actions.append((1, [0.0, 0.0, 0.0, 0.0]))
+
+        monitor._draw_action_panel()
+
+        self.assertEqual(monitor._action_canvas.texts, [])
 
 
 if __name__ == "__main__":

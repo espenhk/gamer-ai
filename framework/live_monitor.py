@@ -194,6 +194,27 @@ def _fmt_action(action: Any) -> str:
         return "—"
     try:
         arr = np.asarray(action, dtype=np.float32).flatten()
+        if len(arr) == 4 and np.isfinite(arr[:4]).all():
+            try:
+                from games.sc2.actions import FUNCTION_IDS
+            except Exception:
+                FUNCTION_IDS = {}
+            fn_idx = int(round(float(arr[0])))
+            fn_name = FUNCTION_IDS.get(fn_idx)
+            if fn_name == "no_op":
+                return ""
+            if fn_name is not None:
+                x = int(round(float(np.clip(arr[1], 0.0, 1.0) * 63.0)))
+                y = int(round(float(np.clip(arr[2], 0.0, 1.0) * 63.0)))
+                base_name = fn_name.replace("_screen", "").replace("_minimap", "")
+                base = base_name.replace("_quick", "").replace("_", " ").lower()
+                if fn_name == "select_point":
+                    return f"select screen: ({x},{y})"
+                if fn_name.endswith("_screen"):
+                    return f"{base} screen: ({x},{y})"
+                if fn_name.endswith("_minimap"):
+                    return f"{base} minimap: ({x},{y})"
+                return base
         if len(arr) == 3 and np.isfinite(arr[:3]).all():
             effective_zero = 0.01
             steer = float(np.clip(arr[0], -1.0, 1.0))
@@ -439,10 +460,15 @@ class LiveTelemetryMonitor:
         y = 8
         row_h = 18
         actions = list(self._last_actions)
+        shown = 0
         for step_i, act in reversed(actions):
-            label = f"#{step_i:>5}: {_fmt_action(act)}"
+            action_text = _fmt_action(act)
+            if not action_text:
+                continue
+            label = f"#{step_i:>5}: {action_text}"
             c.create_text(8, y, anchor="nw", text=label, font=("TkFixedFont", 8), fill="#222")
             y += row_h
+            shown += 1
 
         c.configure(scrollregion=(0, 0, int(c.winfo_width()) or 200, y + 4))
 

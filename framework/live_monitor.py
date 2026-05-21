@@ -174,6 +174,29 @@ def _fmt_action(action: Any) -> str:
         return "—"
     try:
         arr = np.asarray(action, dtype=np.float32).flatten()
+        if len(arr) == 3 and np.isfinite(arr[:3]).all():
+            effective_zero = 0.01
+            steer = float(np.clip(arr[0], -1.0, 1.0))
+            accel_raw = float(np.clip(arr[1], 0.0, 1.0))
+            brake_raw = float(np.clip(arr[2], 0.0, 1.0))
+            accel_active = accel_raw > effective_zero
+            brake_active = brake_raw > effective_zero
+            accel = int(round(accel_raw * 100)) if accel_active else 0
+            brake = int(round(brake_raw * 100)) if brake_active else 0
+            steer_pct = int(round(abs(steer) * 100))
+            if steer_pct == 0:
+                steer_label = "straight"
+            elif steer < 0:
+                steer_label = f"left {steer_pct}%"
+            else:
+                steer_label = f"right {steer_pct}%"
+            if accel_active and not brake_active:
+                pedal_label = f"accel {accel}%"
+            elif brake_active and not accel_active:
+                pedal_label = f"brake {brake}%"
+            else:
+                pedal_label = f"accel {accel}% / brake {brake}%"
+            return f"{pedal_label} | steer {steer_label}"
         return "[" + ", ".join(f"{v:+.2f}" for v in arr[:6]) + ("]" if len(arr) <= 6 else "…]")
     except Exception:
         return str(action)[:40]

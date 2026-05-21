@@ -156,6 +156,8 @@ _ABBREV = {
     "concede_penalty": "cp",
     # rocket_league training params
     "tick_skip": "ts",
+    # iracing params
+    "action_mode": "actm",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
     "curiosity_weight": "cwgt",

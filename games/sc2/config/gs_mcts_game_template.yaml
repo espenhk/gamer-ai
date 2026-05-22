@@ -35,7 +35,7 @@
 # obs dims gives 3^235–3^287 ≈ 10^112–10^137 possible states — no state
 # would ever be revisited.  Use neural_dqn for belief + Q-learning.
 
-base_name: "gs_sc2_mcts_game_v1"
+base_name: "v1"
 game: sc2
 
 training_params:

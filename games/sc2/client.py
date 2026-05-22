@@ -18,7 +18,13 @@ from typing import Any
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_race
+from games.sc2.actions import (
+    FUNCTION_IDS,
+    PREREQ_STRUCTURE_NAMES,
+    action_to_function_call,
+    fn_ids_blocked_by_prerequisites,
+    fn_ids_for_race,
+)
 from games.sc2.obs_spec import get_spec
 
 logger = logging.getLogger(__name__)
@@ -297,6 +303,15 @@ class SC2Client:
         # Lookup table for unit-type ids → attack range (game units), used by
         # self_attack_range_px for idle-bonus gating.
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
+        # Lookup table for unit-type ids → prerequisite structure name.
+        # Covers only the names listed in PREREQ_STRUCTURE_NAMES so the lookup
+        # stays small and targeted.  Populated lazily on first use.
+        self._prereq_type_id_to_name: dict[int, str] | None = None
+        # Per-episode running maximum of prerequisite structure counts seen in
+        # feature_units.  Allows build-order filtering to stay correct even
+        # when completed structures scroll off the current camera view.
+        # Reset at the start of every episode.
+        self._cumulative_prereq_counts: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -321,6 +336,7 @@ class SC2Client:
         self._selected_count = 0.0
         self._last_fn_idx = 0
         self._blocked_unit_targeted_steps = 0
+        self._cumulative_prereq_counts = {}
         return self._timestep_to_obs_info(timesteps[0])
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict]:
@@ -657,6 +673,20 @@ class SC2Client:
                     available_fn_ids &= inferred_fn_ids
         else:
             self._available_actions = None
+
+        # Build-order prerequisite filtering: update the per-episode running
+        # maximum of prerequisite structure counts, then mask out actions whose
+        # required structures have not yet been seen.  The running maximum
+        # ensures that structures built off-screen remain "known" for the rest
+        # of the episode even after they scroll out of feature_units view.
+        # The filter is only applied when the prereq type lookup is populated
+        # (i.e. pysc2 is available); an empty lookup means structure types
+        # cannot be identified and the filter is skipped to avoid false blocks.
+        self._update_prereq_counts(ob)
+        if available_fn_ids is not None and self._prereq_type_id_to_name:
+            blocked = fn_ids_blocked_by_prerequisites(self._cumulative_prereq_counts)
+            if blocked:
+                available_fn_ids -= blocked
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -1357,6 +1387,61 @@ class SC2Client:
         """Return the _RICH_UNIT_TYPES tuple (lazy import avoids circular deps)."""
         from games.sc2.obs_spec import _RICH_UNIT_TYPES
         return _RICH_UNIT_TYPES
+
+    @staticmethod
+    def _build_prereq_type_lookup() -> dict[int, str]:
+        """Build {unit_type_id: name} for prerequisite structure types only.
+
+        Covers only the names listed in ``PREREQ_STRUCTURE_NAMES`` so the
+        lookup stays small.  Populated lazily on first use; falls back to an
+        empty dict when PySC2 is not installed (unit tests will inject mocks).
+        """
+        try:
+            from pysc2.lib import units as pysc2_units  # type: ignore[import-untyped]
+        except ImportError:
+            return {}
+        lookup: dict[int, str] = {}
+        races = (
+            getattr(pysc2_units, "Terran", None),
+            getattr(pysc2_units, "Protoss", None),
+            getattr(pysc2_units, "Zerg", None),
+        )
+        for race in races:
+            if race is None:
+                continue
+            for member in race:
+                if member.name in PREREQ_STRUCTURE_NAMES:
+                    lookup[int(member.value)] = member.name
+        return lookup
+
+    def _update_prereq_counts(self, ob: Any) -> None:
+        """Update the per-episode running maximum of prerequisite structure counts.
+
+        Scans ``feature_units`` for own units/structures whose names appear in
+        ``PREREQ_STRUCTURE_NAMES`` and updates ``_cumulative_prereq_counts``
+        with the maximum count seen so far.  This ensures that a structure
+        built off-screen (and therefore absent from the current ``feature_units``
+        slice) remains "known" for the rest of the episode.
+        """
+        if self._prereq_type_id_to_name is None:
+            self._prereq_type_id_to_name = self._build_prereq_type_lookup()
+        if not self._prereq_type_id_to_name:
+            return
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return
+        step_counts: dict[str, int] = {}
+        for row in feat_units:
+            if int(row[1]) != 1:   # only count own (alliance == self) units
+                continue
+            name = self._prereq_type_id_to_name.get(int(row[0]))
+            if name is not None:
+                step_counts[name] = step_counts.get(name, 0) + 1
+        for name, count in step_counts.items():
+            if count > self._cumulative_prereq_counts.get(name, 0):
+                self._cumulative_prereq_counts[name] = count
 
     # ------------------------------------------------------------------
     # PySC2 observation helpers

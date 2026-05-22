@@ -847,6 +847,8 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = {}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
+            # Disable prerequisite filtering so this test focuses on race inference.
+            client._prereq_type_id_to_name = {}
             ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
@@ -864,6 +866,8 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 50}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
+            # Disable prerequisite filtering so this test focuses on race inference.
+            client._prereq_type_id_to_name = {}
             ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
@@ -881,6 +885,8 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = {}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
+            # Disable prerequisite filtering so this test focuses on race inference.
+            client._prereq_type_id_to_name = {}
             ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
             ob["single_select"] = np.array([1, 1, 45, 0, 0, 0, 0], dtype=np.int32)
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
@@ -890,7 +896,189 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Issue #135: new rich-preset feature extractors
+# Build-order prerequisite filtering
+# ---------------------------------------------------------------------------
+
+class TestSC2ClientPrerequisiteFiltering(unittest.TestCase):
+    """Tests for build-order prerequisite filtering in _timestep_to_obs_info."""
+
+    def _ob_with_available(self, available_actions=None, feature_units=None):
+        """Build a minimal observation dict."""
+        ob = {
+            "player": _NamedArr({
+                "minerals": 50, "vespene": 0, "food_used": 1, "food_cap": 15,
+                "army_count": 0, "idle_worker_count": 0,
+                "warp_gate_count": 0, "larva_count": 0,
+            }),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+        if available_actions is not None:
+            ob["available_actions"] = available_actions
+        if feature_units is not None:
+            ob["feature_units"] = feature_units
+        return ob
+
+    def test_build_barracks_blocked_without_supply_depot(self):
+        """Build_Barracks (fn_idx 8) is masked when no SupplyDepot has been seen."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # PySC2 reports no_op and Build_Barracks as available.
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            # Inject a prereq lookup: unit_type 19 → "SupplyDepot"
+            client._prereq_type_id_to_name = {19: "SupplyDepot"}
+            # feature_units has only an SCV (type 45, alliance=1) — no supply depot
+            ob = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[45, 1]], dtype=np.int32),
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            # Build_Barracks should be blocked because SupplyDepot count == 0.
+            self.assertIsNotNone(info["available_fn_ids"])
+            self.assertNotIn(8, info["available_fn_ids"])
+            self.assertIn(0, info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_build_barracks_allowed_after_supply_depot_seen(self):
+        """Build_Barracks (fn_idx 8) is available once a SupplyDepot has been seen."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            # Inject a prereq lookup: unit_type 19 → "SupplyDepot"
+            client._prereq_type_id_to_name = {19: "SupplyDepot"}
+            # feature_units contains a SupplyDepot (type 19, alliance=1)
+            ob = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[19, 1]], dtype=np.int32),
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertIn(8, info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_prereq_persists_after_structure_scrolls_off_screen(self):
+        """A structure seen on step N keeps its prerequisite satisfied on step N+1
+        even if it is absent from feature_units (scrolled off screen)."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._prereq_type_id_to_name = {19: "SupplyDepot"}
+            # Step 1: SupplyDepot visible on screen.
+            ob1 = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[19, 1]], dtype=np.int32),
+            )
+            client._timestep_to_obs_info(_FakeTimeStep(ob1))
+            # Step 2: camera moved; SupplyDepot gone from feature_units.
+            ob2 = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[45, 1]], dtype=np.int32),  # SCV only
+            )
+            _, info2 = client._timestep_to_obs_info(_FakeTimeStep(ob2))
+            # SupplyDepot was seen before, so Barracks should still be allowed.
+            self.assertIn(8, info2["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_prereq_counts_reset_on_episode_reset(self):
+        """After reset(), the cumulative prereq counts are cleared so a new
+        episode starts with no structures known."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._prereq_type_id_to_name = {19: "SupplyDepot"}
+            # Manually seed a SupplyDepot into cumulative counts.
+            client._cumulative_prereq_counts = {"SupplyDepot": 1}
+            # Simulate reset by calling _reset state directly (reset() calls SC2).
+            client._cumulative_prereq_counts = {}
+            ob = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[45, 1]], dtype=np.int32),  # SCV only, no depot
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            # No SupplyDepot in this episode yet → Barracks blocked.
+            self.assertNotIn(8, info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_prereq_filter_skipped_when_lookup_empty(self):
+        """When _prereq_type_id_to_name is empty (pysc2 not installed), no
+        additional filtering is applied beyond race/availability masking."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            # Empty lookup → prereq filter is disabled.
+            client._prereq_type_id_to_name = {}
+            ob = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            # Build_Barracks should pass through unchecked.
+            self.assertIn(8, info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_enemy_structures_do_not_satisfy_prerequisites(self):
+        """Only own (alliance==1) structures count towards prerequisites."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._prereq_type_id_to_name = {19: "SupplyDepot"}
+            # feature_units: SupplyDepot belonging to the enemy (alliance=4).
+            ob = self._ob_with_available(
+                available_actions=np.array([0, 321], dtype=np.int32),
+                feature_units=np.array([[19, 4]], dtype=np.int32),
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            # Enemy SupplyDepot should not unlock Barracks.
+            self.assertNotIn(8, info["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_multi_requirement_all_must_be_present(self):
+        """An action requiring multiple structures is only unblocked once all
+        required structures are present (e.g. Train_Thor needs Factory + Armory)."""
+        import games.sc2.client as sc2_client_mod
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # fn_idx 45 = Train_Thor_quick; prerequisites: Factory and Armory.
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 999: 45}
+            client = SC2Client(map_name="MoveToBeacon")
+            # Inject lookup: 30 → "Factory", 31 → "Armory"
+            client._prereq_type_id_to_name = {30: "Factory", 31: "Armory"}
+            # Only Factory present.
+            ob_factory_only = self._ob_with_available(
+                available_actions=np.array([0, 999], dtype=np.int32),
+                feature_units=np.array([[30, 1]], dtype=np.int32),
+            )
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob_factory_only))
+            self.assertNotIn(45, info["available_fn_ids"])
+
+            # Now both Factory and Armory present.
+            client._cumulative_prereq_counts = {}  # clear previous counts
+            ob_both = self._ob_with_available(
+                available_actions=np.array([0, 999], dtype=np.int32),
+                feature_units=np.array([[30, 1], [31, 1]], dtype=np.int32),
+            )
+            _, info2 = client._timestep_to_obs_info(_FakeTimeStep(ob_both))
+            self.assertIn(45, info2["available_fn_ids"])
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+
 # ---------------------------------------------------------------------------
 
 class TestSC2ClientRichExtractors(unittest.TestCase):

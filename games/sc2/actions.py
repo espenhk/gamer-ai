@@ -293,6 +293,145 @@ def fn_ids_for_race(race: str) -> frozenset[int]:
 
 
 # ---------------------------------------------------------------------------
+# Build-order prerequisites
+# ---------------------------------------------------------------------------
+# Maps fn_idx → frozenset of unit/structure names that must exist (count ≥ 1)
+# before the action is allowed.  Only the *direct* prerequisite is listed
+# (e.g. Build_Barracks just needs SupplyDepot; what SupplyDepot itself needs
+# is captured separately by its own entry).  Names follow pysc2.lib.units
+# enum member naming exactly so the client can look them up at runtime.
+#
+# Actions without an entry have no additional structural prerequisites beyond
+# what PySC2's available_actions already enforces (e.g. having an SCV
+# selected for building, or enough minerals).
+
+BUILD_PREREQUISITES: dict[int, frozenset[str]] = {
+    # --- Terran buildings ---
+    8:  frozenset({"SupplyDepot"}),         # Build_Barracks_screen
+    25: frozenset({"Barracks"}),            # Build_EngineeringBay_screen
+    26: frozenset({"Barracks"}),            # Build_Factory_screen
+    27: frozenset({"Factory"}),             # Build_Armory_screen
+    28: frozenset({"Barracks"}),            # Build_Bunker_screen
+    29: frozenset({"EngineeringBay"}),      # Build_MissileTurret_screen
+    30: frozenset({"Factory"}),             # Build_Starport_screen
+    31: frozenset({"Barracks"}),            # Build_GhostAcademy_screen
+    32: frozenset({"Starport"}),            # Build_FusionCore_screen
+    # --- Terran training ---
+    7:  frozenset({"Barracks"}),            # Train_Marine_quick
+    35: frozenset({"Barracks"}),            # Train_Marauder_quick
+    36: frozenset({"GhostAcademy"}),        # Train_Ghost_quick
+    37: frozenset({"Factory"}),             # Train_Hellion_quick
+    38: frozenset({"Factory"}),             # Train_SiegeTank_quick
+    39: frozenset({"Starport"}),            # Train_Medivac_quick
+    40: frozenset({"Starport"}),            # Train_Viking_quick
+    41: frozenset({"Starport"}),            # Train_Raven_quick
+    42: frozenset({"Starport"}),            # Train_Banshee_quick
+    43: frozenset({"FusionCore"}),          # Train_Battlecruiser_quick
+    44: frozenset({"Factory"}),             # Train_Cyclone_quick
+    45: frozenset({"Armory", "Factory"}),   # Train_Thor_quick
+    46: frozenset({"Starport"}),            # Train_Liberator_quick
+    # --- Protoss buildings ---
+    52: frozenset({"Pylon"}),               # Build_Gateway_screen
+    54: frozenset({"Gateway"}),             # Build_CyberneticsCore_screen
+    55: frozenset({"Pylon"}),               # Build_Forge_screen
+    56: frozenset({"Forge"}),               # Build_PhotonCannon_screen
+    57: frozenset({"CyberneticsCore"}),     # Build_RoboticsFacility_screen
+    58: frozenset({"CyberneticsCore"}),     # Build_Stargate_screen
+    59: frozenset({"CyberneticsCore"}),     # Build_TwilightCouncil_screen
+    60: frozenset({"TwilightCouncil"}),     # Build_TemplarArchive_screen
+    61: frozenset({"TwilightCouncil"}),     # Build_DarkShrine_screen
+    62: frozenset({"RoboticsFacility"}),    # Build_RoboticsBay_screen
+    63: frozenset({"Stargate"}),            # Build_FleetBeacon_screen
+    64: frozenset({"Gateway"}),             # Build_ShieldBattery_screen
+    # --- Protoss training ---
+    66: frozenset({"Gateway"}),             # Train_Zealot_quick
+    67: frozenset({"CyberneticsCore"}),     # Train_Stalker_quick
+    68: frozenset({"CyberneticsCore"}),     # Train_Adept_quick
+    69: frozenset({"TemplarArchive"}),      # Train_HighTemplar_quick
+    70: frozenset({"DarkShrine"}),          # Train_DarkTemplar_quick
+    71: frozenset({"CyberneticsCore"}),     # Train_Sentry_quick
+    72: frozenset({"Stargate"}),            # Train_Phoenix_quick
+    73: frozenset({"FleetBeacon"}),         # Train_Carrier_quick
+    74: frozenset({"Stargate"}),            # Train_VoidRay_quick
+    75: frozenset({"Stargate"}),            # Train_Oracle_quick
+    76: frozenset({"RoboticsFacility"}),    # Train_Colossus_quick
+    77: frozenset({"RoboticsFacility"}),    # Train_Immortal_quick
+    78: frozenset({"FleetBeacon"}),         # Train_Tempest_quick
+    79: frozenset({"RoboticsBay"}),         # Train_Disruptor_quick
+    81: frozenset({"FleetBeacon"}),         # Train_Mothership_quick
+    # --- Zerg buildings ---
+    86: frozenset({"SpawningPool"}),        # Build_HydraliskDen_screen
+    87: frozenset({"SpawningPool"}),        # Build_BanelingNest_screen
+    88: frozenset({"SpawningPool"}),        # Build_RoachWarren_screen
+    89: frozenset({"Lair"}),               # Build_Spire_screen
+    90: frozenset({"Lair"}),               # Build_InfestationPit_screen
+    91: frozenset({"Hive"}),               # Build_UltraliskCavern_screen
+    93: frozenset({"SpawningPool"}),        # Build_SpineCrawler_screen
+    94: frozenset({"SpawningPool"}),        # Build_SporeCrawler_screen
+    95: frozenset({"Lair"}),               # Build_NydusNetwork_screen
+    96: frozenset({"HydraliskDen"}),        # Build_LurkerDen_screen
+    # --- Zerg training ---
+    99:  frozenset({"SpawningPool"}),       # Train_Zergling_quick
+    100: frozenset({"BanelingNest"}),       # Train_Baneling_quick
+    101: frozenset({"RoachWarren"}),        # Train_Roach_quick
+    102: frozenset({"RoachWarren"}),        # Train_Ravager_quick
+    103: frozenset({"HydraliskDen"}),       # Train_Hydralisk_quick
+    104: frozenset({"InfestationPit"}),     # Train_Infestor_quick
+    105: frozenset({"InfestationPit"}),     # Train_SwarmHost_quick
+    106: frozenset({"Spire"}),             # Train_Mutalisk_quick
+    107: frozenset({"Spire"}),             # Train_Corruptor_quick
+    108: frozenset({"GreaterSpire"}),       # Train_BroodLord_quick
+    109: frozenset({"InfestationPit"}),     # Train_Viper_quick
+    110: frozenset({"UltraliskCavern"}),    # Train_Ultralisk_quick
+    111: frozenset({"LurkerDenMP"}),        # Train_Lurker_quick (pysc2 names Lurker Den as LurkerDenMP)
+    112: frozenset({"SpawningPool"}),       # Train_Queen_quick
+    # --- Zerg morphs ---
+    113: frozenset({"SpawningPool"}),       # Morph_Lair_quick
+    114: frozenset({"Lair"}),              # Morph_Hive_quick
+    115: frozenset({"Lair"}),              # Morph_Overseer_quick
+    116: frozenset({"Spire"}),             # Morph_GreaterSpire_quick
+    117: frozenset({"GreaterSpire"}),       # Morph_BroodLord_quick
+}
+
+#: All unique unit/structure names that appear in :data:`BUILD_PREREQUISITES`.
+#: Used by the client to build a targeted lookup table.
+PREREQ_STRUCTURE_NAMES: frozenset[str] = frozenset(
+    name
+    for names in BUILD_PREREQUISITES.values()
+    for name in names
+)
+
+
+def fn_ids_blocked_by_prerequisites(unit_counts: dict[str, int]) -> frozenset[int]:
+    """Return fn_idx values whose build-order prerequisites are *not* met.
+
+    Parameters
+    ----------
+    unit_counts :
+        Mapping of structure/unit name → count of that type observed during
+        the current episode.  A count ≥ 1 means the prerequisite is satisfied.
+
+    Returns
+    -------
+    frozenset[int]
+        Set of fn_idx values that should be masked because at least one of
+        their required structures does not yet exist (count == 0 or absent).
+
+    Notes
+    -----
+    Only checks :data:`BUILD_PREREQUISITES`; actions without an entry are never
+    blocked by this function.
+    """
+    blocked: set[int] = set()
+    for fn_idx, required_names in BUILD_PREREQUISITES.items():
+        for name in required_names:
+            if unit_counts.get(name, 0) < 1:
+                blocked.add(fn_idx)
+                break
+    return frozenset(blocked)
+
+
+# ---------------------------------------------------------------------------
 # Discrete action grid for minigame / tabular policies
 # ---------------------------------------------------------------------------
 # fn_ids are processed in ascending order.

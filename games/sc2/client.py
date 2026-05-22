@@ -125,6 +125,11 @@ _pysc2_id_to_fn_idx: dict[int, int] | None = None
 _SELECT_ARMY_RETRY_BLOCKED_STEPS: int = 8
 _SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
+# Worker unit-type names (must match pysc2.lib.units member names).  Used to
+# locate a worker on screen for ``select_point`` when a Build action is blocked
+# and ``select_idle_worker`` is insufficient (workers may all be busy).
+_WORKER_TYPE_NAMES: frozenset[str] = frozenset({"SCV", "Probe", "Drone"})
+
 # ---------------------------------------------------------------------------
 # Lazy PySC2 field-name helpers
 # ---------------------------------------------------------------------------
@@ -297,6 +302,11 @@ class SC2Client:
         # Lookup table for unit-type ids → attack range (game units), used by
         # self_attack_range_px for idle-bonus gating.
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
+        # Cached screen position (x, y) of a friendly worker from the most
+        # recent observation's feature_units.  Used by _action_to_call to
+        # select_point a worker when a Build action is blocked and no units
+        # are selected (select_idle_worker may fail if all workers are busy).
+        self._worker_screen_xy: tuple[int, int] | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -333,8 +343,9 @@ class SC2Client:
 
         Strategy 2 (proactive selection): if no unit is currently selected
         and the requested action is not itself a selection command, replace
-        it with ``select_army`` so the agent never idles with an empty
-        selection.
+        it with a selection action so the agent never idles with an empty
+        selection.  Build actions prefer ``select_point`` on a visible
+        worker; everything else uses ``select_army``.
         """
         fn_idx = int(action[0])
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
@@ -344,14 +355,27 @@ class SC2Client:
             and fn_name != "no_op"
             and not is_selection
         ):
-            from games.sc2.actions import WARMUP_ACTION  # select_army
-            action = WARMUP_ACTION.copy()
-            self._last_fn_idx = 1  # select_army
-            logger.debug(
-                "Proactive selection: %s replaced with select_army "
-                "(no units selected).",
-                fn_name,
-            )
+            if fn_name.startswith("Build_") and self._worker_screen_xy is not None:
+                # Build action: select_point on a visible worker.
+                wx, wy = self._worker_screen_xy
+                x_norm = float(wx) / max(self._screen_size - 1, 1)
+                y_norm = float(wy) / max(self._screen_size - 1, 1)
+                action = np.array([6, x_norm, y_norm, 0], dtype=np.float32)
+                self._last_fn_idx = 6  # select_point
+                logger.debug(
+                    "Proactive selection: %s replaced with select_point "
+                    "on worker at (%d, %d) (no units selected).",
+                    fn_name, wx, wy,
+                )
+            else:
+                from games.sc2.actions import WARMUP_ACTION  # select_army
+                action = WARMUP_ACTION.copy()
+                self._last_fn_idx = 1  # select_army
+                logger.debug(
+                    "Proactive selection: %s replaced with select_army "
+                    "(no units selected).",
+                    fn_name,
+                )
 
         fn_call = self._action_to_call(action)
         timesteps = self._sc2_env.step([fn_call])
@@ -527,8 +551,9 @@ class SC2Client:
         Issues #121 / #124 / #286: when the policy emits a blocked
         selection-required action while no units are selected, fall back to
         a context-aware selection command rather than ``no_op``.  Build
-        actions use ``select_idle_worker`` (a worker is needed to build);
-        everything else falls back to ``select_army``.
+        actions use ``select_point`` on a visible worker (workers may all
+        be busy, so ``select_idle_worker`` is unreliable); everything else
+        falls back to ``select_army``.
         """
         from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
@@ -544,18 +569,22 @@ class SC2Client:
             and int(fn_call.function) not in self._available_actions
         ):
             select_army_id = int(pysc2_actions.FUNCTIONS.select_army.id)
-            select_idle_worker_id = int(
-                pysc2_actions.FUNCTIONS.select_idle_worker.id
-            )
+            select_point_id = int(pysc2_actions.FUNCTIONS.select_point.id)
             selection_required = fn_name != "no_op" and not fn_name.startswith("select_")
             no_units_selected = self._selected_count < 1.0
-            # Context-aware selection: build commands need a worker, not the
-            # army.  Use select_idle_worker when available; fall back to
-            # select_army otherwise.
+            # Context-aware selection: build commands need a worker.  Use
+            # select_point on a visible worker (workers may all be busy, so
+            # select_idle_worker is unreliable); fall back to select_army.
             is_build_action = fn_name.startswith("Build_")
-            if is_build_action and no_units_selected:
-                preferred_select_id = select_idle_worker_id
-                preferred_fn_idx = 4  # FUNCTION_IDS index for select_idle_worker
+            use_select_point_worker = (
+                is_build_action
+                and no_units_selected
+                and self._worker_screen_xy is not None
+                and select_point_id in (self._available_actions or set())
+            )
+            if use_select_point_worker:
+                preferred_select_id = select_point_id
+                preferred_fn_idx = 6  # FUNCTION_IDS index for select_point
             else:
                 preferred_select_id = select_army_id
                 preferred_fn_idx = 1  # FUNCTION_IDS index for select_army
@@ -563,6 +592,7 @@ class SC2Client:
             if preferred_select_id not in (self._available_actions or set()):
                 preferred_select_id = select_army_id
                 preferred_fn_idx = 1
+                use_select_point_worker = False
             if (
                 selection_required
                 and no_units_selected
@@ -585,6 +615,11 @@ class SC2Client:
                     # Reflect the executed action, not the requested one, so the
                     # rich preset's last_fn_* one-hot stays consistent.
                     self._last_fn_idx = preferred_fn_idx
+                    if use_select_point_worker:
+                        wx, wy = self._worker_screen_xy  # type: ignore[misc]
+                        return pysc2_actions.FunctionCall(
+                            select_point_id, [[0], [wx, wy]]
+                        )
                     return pysc2_actions.FunctionCall(preferred_select_id, [[0]])
                 # Between periodic retries, wait with no_op to avoid spamming
                 # selection commands every step during short transition windows.
@@ -645,6 +680,7 @@ class SC2Client:
         feats.update(self._screen_hp_features(feat_screen))
         feats.update(self._topk_enemy_features(feat_screen))
         feats.update(self._per_unit_type_features(ob))
+        self._update_worker_screen_pos(ob)
         feats.update(self._quadrant_features(feat_screen))
         feats.update(self._available_actions_features(ob))
         feats.update(self._last_action_features())
@@ -1269,6 +1305,38 @@ class SC2Client:
         if feat_units.ndim != 2 or feat_units.shape[1] < 2:
             return 0.0
         return float((feat_units[:, 1] == 1).sum())
+
+    def _update_worker_screen_pos(self, ob: Any) -> None:
+        """Cache screen (x, y) of the first friendly worker visible in ``feature_units``.
+
+        PySC2 ``feature_units`` column layout (0-indexed):
+          0=unit_type, 1=alliance, …, 8=x, 9=y.
+
+        Workers are identified by matching the unit_type id against
+        :data:`_WORKER_TYPE_NAMES` via the lazy ``_unit_type_id_to_name``
+        lookup.  The position is stored in ``self._worker_screen_xy`` for
+        use in ``_action_to_call`` (``select_point`` fallback when a Build
+        action is blocked and ``select_idle_worker`` is unavailable or
+        insufficient).
+        """
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            self._worker_screen_xy = None
+            return
+        # Need at least 10 columns (0..9) for unit_type, alliance, …, x, y.
+        if feat_units.ndim != 2 or feat_units.shape[1] < 10:
+            self._worker_screen_xy = None
+            return
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+        for row in feat_units:
+            if int(row[1]) != 1:  # alliance != self
+                continue
+            name = self._unit_type_id_to_name.get(int(row[0]))
+            if name in _WORKER_TYPE_NAMES:
+                self._worker_screen_xy = (int(row[8]), int(row[9]))
+                return
+        self._worker_screen_xy = None
 
     @staticmethod
     def _build_attack_range_lookup() -> dict[int, float]:

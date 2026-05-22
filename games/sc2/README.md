@@ -325,8 +325,8 @@ Tabular / discrete-output policies (`epsilon_greedy`, `mcts`, `neural_dqn`, `rei
 
 When the policy emits any selection-required action (for example move/attack/build/train) while zero units are selected, two complementary mechanisms ensure the agent recovers:
 
-1. **Context-aware pre-selection** (`_action_to_call`): blocked build actions (`Build_*`) use `select_idle_worker` (a worker is needed to build); all other blocked actions fall back to `select_army` (issues #121, #124, #286).
-2. **Proactive selection guard** (`step()`): if `_selected_count` is zero and the requested action is neither `no_op` nor a selection command, the action is replaced with `select_army` *before* it reaches `_action_to_call`, so the agent never idles with an empty selection.
+1. **Context-aware pre-selection** (`_action_to_call`): blocked build actions (`Build_*`) use `select_point` on a visible worker found via `feature_units` (workers may all be busy, so `select_idle_worker` is unreliable); all other blocked actions fall back to `select_army` (issues #121, #124, #286).
+2. **Proactive selection guard** (`step()`): if `_selected_count` is zero and the requested action is neither `no_op` nor a selection command, build actions are replaced with `select_point` on a visible worker (falling back to `select_army`), and all other actions are replaced with `select_army` *before* reaching `_action_to_call`.
 
 Additionally, a 1-step `select_army` warmup is issued at the start of every episode (via `SC2Adapter.build_warmup`).
 

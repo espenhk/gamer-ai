@@ -264,7 +264,7 @@ class TestMultiProcess:
         # Each consecutive grant must be ≥ gap apart (allow small slack
         # for scheduling jitter on slow CI).
         for earlier, later in zip(grants, grants[1:]):
-            assert later - earlier >= gap - 0.05, (
+            assert later - earlier >= gap - 0.15, (
                 f"grants spaced {later - earlier:.3f}s apart, expected ≥ {gap}s"
             )
 

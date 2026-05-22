@@ -141,9 +141,12 @@ class TestSC2Adapter:
         a = self._adapter()
         assert a.build_probe({}) is None
 
-    def test_build_warmup_returns_none(self):
+    def test_build_warmup_returns_select_army(self):
         a = self._adapter()
-        assert a.build_warmup({}) is None
+        warmup = a.build_warmup({})
+        assert warmup is not None
+        assert warmup.steps == 1
+        assert int(warmup.action[0]) == 1  # select_army fn_idx
 
 
 class TestBeamNGAdapter:

@@ -278,6 +278,30 @@ one test under `tests/test_<policy>_policy.py`.
   needs them, so cross-platform CI can import the module without
   pulling in `pywin32` / `tminterface` / `pysc2`.
 
+### Pre-commit hooks
+
+The repo ships a `.pre-commit-config.yaml` that runs **ruff** (lint +
+auto-fix), **ruff format**, and a small set of cheap correctness hooks
+(`check-yaml`, `check-merge-conflict`, `end-of-file-fixer`,
+`trailing-whitespace`).
+
+Set it up once after cloning:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+After that, the hooks run automatically on every `git commit`. You can
+also run them manually across the whole tree at any time:
+
+```bash
+pre-commit run --all-files
+```
+
+CI runs `pre-commit run --all-files` on every PR, so a green local run
+means the CI pre-commit job will pass too.
+
 ---
 
 ## Documentation conventions

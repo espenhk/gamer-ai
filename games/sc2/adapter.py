@@ -185,6 +185,7 @@ class SC2Adapter:
 
     def build_warmup(self, training_params: dict) -> WarmupSpec | None:
         from games.sc2.actions import WARMUP_ACTION
+
         return WarmupSpec(action=WARMUP_ACTION, steps=1)
 
 

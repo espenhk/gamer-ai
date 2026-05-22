@@ -363,21 +363,12 @@ class SC2Client:
         fn_idx = int(action[0])
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
         is_selection = fn_name.startswith("select_")
-        if (
-            self._selected_count < 1.0
-            and fn_name != "no_op"
-            and not is_selection
-        ):
+        if self._selected_count < 1.0 and fn_name != "no_op" and not is_selection:
             select_point_available = (
                 self._available_actions is None
-                or _get_pysc2_id_to_fn_idx().get(_FN_NAME_TO_IDX["select_point"], -1)
-                in self._available_actions
+                or _get_pysc2_id_to_fn_idx().get(_FN_NAME_TO_IDX["select_point"], -1) in self._available_actions
             )
-            if (
-                fn_name.startswith("Build_")
-                and self._worker_screen_xy is not None
-                and select_point_available
-            ):
+            if fn_name.startswith("Build_") and self._worker_screen_xy is not None and select_point_available:
                 # Build action: select_point on a visible worker.
                 wx, wy = self._worker_screen_xy
                 x_norm = float(wx) / max(self._screen_size - 1, 1)
@@ -385,17 +376,18 @@ class SC2Client:
                 action = np.array([6, x_norm, y_norm, 0], dtype=np.float32)
                 self._last_fn_idx = 6  # select_point
                 logger.debug(
-                    "Proactive selection: %s replaced with select_point "
-                    "on worker at (%d, %d) (no units selected).",
-                    fn_name, wx, wy,
+                    "Proactive selection: %s replaced with select_point on worker at (%d, %d) (no units selected).",
+                    fn_name,
+                    wx,
+                    wy,
                 )
             else:
                 from games.sc2.actions import WARMUP_ACTION  # select_army
+
                 action = WARMUP_ACTION.copy()
                 self._last_fn_idx = 1  # select_army
                 logger.debug(
-                    "Proactive selection: %s replaced with select_army "
-                    "(no units selected).",
+                    "Proactive selection: %s replaced with select_army (no units selected).",
                     fn_name,
                 )
 
@@ -612,11 +604,7 @@ class SC2Client:
                 preferred_select_id = select_army_id
                 preferred_fn_idx = 1
                 use_select_point_worker = False
-            if (
-                selection_required
-                and no_units_selected
-                and preferred_select_id in self._available_actions
-            ):
+            if selection_required and no_units_selected and preferred_select_id in self._available_actions:
                 self._blocked_unit_targeted_steps += 1
                 if (
                     self._blocked_unit_targeted_steps == 1
@@ -636,14 +624,13 @@ class SC2Client:
                     self._last_fn_idx = preferred_fn_idx
                     if use_select_point_worker:
                         wx, wy = self._worker_screen_xy  # type: ignore[misc]
-                        return pysc2_actions.FunctionCall(
-                            select_point_id, [[0], [wx, wy]]
-                        )
+                        return pysc2_actions.FunctionCall(select_point_id, [[0], [wx, wy]])
                     return pysc2_actions.FunctionCall(preferred_select_id, [[0]])
                 # Between periodic retries, wait with no_op to avoid spamming
                 # selection commands every step during short transition windows.
                 logger.debug(
-                    "Action %s still blocked after selection; issuing no_op.", fn_name,
+                    "Action %s still blocked after selection; issuing no_op.",
+                    fn_name,
                 )
             else:
                 self._blocked_unit_targeted_steps = 0

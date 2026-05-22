@@ -568,6 +568,7 @@ class _FakeFunctions:
     no_op       = _FakeFn(0)
     select_army = _FakeFn(7)
     Move_screen = _FakeFn(331)
+    Build_Barracks_screen = _FakeFn(321)
 
 
 class _FakeFunctionCall:
@@ -613,6 +614,7 @@ class TestSC2ClientActionFallback(unittest.TestCase):
                 0: _FakeFunctions.no_op.id,
                 1: _FakeFunctions.select_army.id,
                 2: _FakeFunctions.Move_screen.id,
+                8: _FakeFunctions.Build_Barracks_screen.id,
             }.get(fn_idx, _FakeFunctions.no_op.id)
             return _FakeFunctionCall(fn_id, [])
 
@@ -726,6 +728,26 @@ class TestSC2ClientActionFallback(unittest.TestCase):
         self.assertTrue(all(c == _FakeFunctions.no_op.id for c in calls[1:7]))
         self.assertEqual(calls[7], _FakeFunctions.select_army.id)
 
+    def test_build_action_with_no_units_selected_substitutes_select_army(self):
+        """Blocked build action should trigger selection recovery when empty."""
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id, _FakeFunctions.select_army.id,
+        }
+        self.client._selected_count = 0.0
+        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.select_army.id)
+
+    def test_does_not_substitute_select_army_when_units_are_already_selected(self):
+        """Blocked actions for other reasons should remain no_op fallback."""
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id, _FakeFunctions.select_army.id,
+        }
+        self.client._selected_count = 2.0
+        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.no_op.id)
+
 class TestSC2ClientAvailableFnIds(unittest.TestCase):
     """Tests for the info["available_fn_ids"] field added by _timestep_to_obs_info."""
 
@@ -746,10 +768,14 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
     def test_available_fn_ids_absent_when_no_available_actions(self):
         """When the observation has no available_actions key, available_fn_ids is None."""
         client = SC2Client(map_name="MoveToBeacon")
+        client._available_actions = {0, 1}
         ob = self._minigame_ob(available_actions=None)
+        client._unit_type_id_to_race = {1: "terran"}
+        ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)
         _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertIn("available_fn_ids", info)
         self.assertIsNone(info["available_fn_ids"])
+        self.assertIsNone(client._available_actions)
 
     def test_available_fn_ids_none_when_mapping_unavailable(self):
         """When the PySC2 ID→fn_idx mapping is empty (PySC2 not installed),
@@ -807,6 +833,58 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             ob = self._minigame_ob(available_actions=np.array([0, 7]))
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
             self.assertIsInstance(info["available_fn_ids"], set)
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_inferred_from_visible_unit_race(self):
+        """When PySC2 ID mapping is unavailable, infer a race-consistent fn set
+        from owned unit/building types."""
+        import games.sc2.client as sc2_client_mod
+        from games.sc2.actions import fn_ids_for_race
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
+            ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], set(fn_ids_for_race("terran")))
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_intersects_with_inferred_race_filter(self):
+        """Mapped available_fn_ids are intersected with inferred race actions."""
+        import games.sc2.client as sc2_client_mod
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 50)
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 50}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
+            ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], {0, 8})
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_available_fn_ids_inferred_from_one_dimensional_single_select(self):
+        """1-D select arrays still participate in race-aware masking."""
+        import games.sc2.client as sc2_client_mod
+        from games.sc2.actions import fn_ids_for_race
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {}
+            client = SC2Client(map_name="MoveToBeacon")
+            client._unit_type_id_to_race = {1: "terran"}
+            ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
+            ob["single_select"] = np.array([1, 1, 45, 0, 0, 0, 0], dtype=np.int32)
+            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            self.assertEqual(info["available_fn_ids"], set(fn_ids_for_race("terran")))
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
@@ -1405,6 +1483,140 @@ class TestSC2ClientRealtimeParam(unittest.TestCase):
         )
         _, kwargs = fake_sc2_env_mod.SC2Env.call_args
         self.assertTrue(kwargs.get("realtime"), "realtime not forwarded to SC2Env")
+
+
+# ---------------------------------------------------------------------------
+# Issue: SC2 Simple64 doesn't restart when losing
+# SC2Client.reset() must call leave() on ladder env controllers before
+# PySC2's reset() triggers _create_join(), otherwise the SC2 binary can
+# stay on the game-over end screen and reject the new RequestCreateGame.
+# ---------------------------------------------------------------------------
+
+class TestSC2ClientLadderRestart(unittest.TestCase):
+    """SC2Client.reset() calls leave() on controllers for ladder maps."""
+
+    def _make_fake_env(self, controllers=None):
+        """Return a MagicMock that looks like a PySC2 SC2Env."""
+        from unittest.mock import MagicMock
+        fake_env = MagicMock()
+        if controllers is None:
+            fake_ctrl = MagicMock()
+            controllers = [fake_ctrl]
+        fake_env._controllers = controllers
+        # reset() returns a list of timesteps; we only use index 0.
+        fake_ts = MagicMock()
+        fake_ts.last.return_value = False
+        fake_env.reset.return_value = [fake_ts]
+        return fake_env
+
+    def _patch_make_env(self, client, fake_env):
+        """Replace client._make_sc2_env so it returns *fake_env*."""
+        from unittest.mock import MagicMock
+        client._make_sc2_env = MagicMock(return_value=fake_env)
+
+    def _make_ladder_client(self):
+        from games.sc2.client import SC2Client
+        return SC2Client(map_name="Simple64")
+
+    def _make_minigame_client(self):
+        from games.sc2.client import SC2Client
+        return SC2Client(map_name="MoveToBeacon")
+
+    def _patch_timestep_to_obs_info(self, client):
+        """Patch _timestep_to_obs_info to return (zeros_obs, {})."""
+        from unittest.mock import MagicMock
+        dummy_obs = np.zeros(LADDER_OBS_DIM, dtype=np.float32)
+        client._timestep_to_obs_info = MagicMock(return_value=(dummy_obs, {}))
+
+    def test_leave_not_called_on_first_ladder_reset(self):
+        """On the very first reset(), _sc2_env is None so no leave() needed."""
+        client = self._make_ladder_client()
+        fake_env = self._make_fake_env()
+        self._patch_make_env(client, fake_env)
+        self._patch_timestep_to_obs_info(client)
+
+        client.reset()
+
+        # _sc2_env was None → _make_sc2_env creates it, no leave() call.
+        client._make_sc2_env.assert_called_once()
+        for ctrl in fake_env._controllers:
+            ctrl.leave.assert_not_called()
+
+    def test_leave_called_on_second_ladder_reset(self):
+        """On subsequent resets for a ladder map, leave() is called once per
+        controller before PySC2's reset()."""
+        client = self._make_ladder_client()
+        fake_env = self._make_fake_env()
+        self._patch_make_env(client, fake_env)
+        self._patch_timestep_to_obs_info(client)
+
+        # First reset — creates the env.
+        client.reset()
+        ctrl = fake_env._controllers[0]
+        ctrl.leave.assert_not_called()
+
+        # Second reset — leave() must be called before _sc2_env.reset().
+        client.reset()
+        ctrl.leave.assert_called_once()
+        # And PySC2's reset() must also have been called (twice total).
+        self.assertEqual(fake_env.reset.call_count, 2)
+
+    def test_leave_called_for_each_controller(self):
+        """leave() is called on every controller when there are multiple."""
+        from unittest.mock import MagicMock
+        ctrl1, ctrl2 = MagicMock(), MagicMock()
+        client = self._make_ladder_client()
+        fake_env = self._make_fake_env(controllers=[ctrl1, ctrl2])
+        self._patch_make_env(client, fake_env)
+        self._patch_timestep_to_obs_info(client)
+
+        client.reset()  # first reset — no leave
+        client.reset()  # second reset — leave on both controllers
+
+        ctrl1.leave.assert_called_once()
+        ctrl2.leave.assert_called_once()
+
+    def test_leave_not_called_for_minigame_reset(self):
+        """Minigame (non-ladder) maps must not trigger leave() on reset."""
+        client = self._make_minigame_client()
+        fake_env = self._make_fake_env()
+        self._patch_make_env(client, fake_env)
+        self._patch_timestep_to_obs_info(client)
+
+        client.reset()
+        client.reset()
+
+        for ctrl in fake_env._controllers:
+            ctrl.leave.assert_not_called()
+
+    def test_leave_failure_triggers_env_recreate(self):
+        """If leave() raises, the env is closed and a new one is created."""
+        from unittest.mock import MagicMock
+        client = self._make_ladder_client()
+
+        ctrl = MagicMock()
+        ctrl.leave.side_effect = RuntimeError("connection lost")
+
+        fake_env_old = self._make_fake_env(controllers=[ctrl])
+        fake_env_new = self._make_fake_env()
+        self._patch_timestep_to_obs_info(client)
+
+        # _make_sc2_env returns old env on first call, new env on second.
+        client._make_sc2_env = MagicMock(side_effect=[fake_env_old, fake_env_new])
+
+        client.reset()  # first reset — creates old env
+
+        # Patch _timestep_to_obs_info on the client again after env swap.
+        client._timestep_to_obs_info = MagicMock(
+            return_value=(np.zeros(LADDER_OBS_DIM, dtype=np.float32), {})
+        )
+
+        client.reset()  # second reset — leave fails → old env closed, new env created
+
+        fake_env_old.close.assert_called_once()
+        self.assertIs(client._sc2_env, fake_env_new)
+        # PySC2's reset() on the new env must have been called.
+        fake_env_new.reset.assert_called_once()
 
 
 if __name__ == "__main__":

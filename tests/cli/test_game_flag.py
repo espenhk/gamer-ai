@@ -27,7 +27,8 @@ class TestGameFlagChoices(unittest.TestCase):
         parser.add_argument(
             "--game",
             default="tmnf",
-            choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"],
+            choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2",
+                     "rocket_league", "iracing"],
         )
         parser.add_argument("--track", default=None)
         parser.add_argument("--no-interrupt", action="store_true")
@@ -44,7 +45,8 @@ class TestGameFlagChoices(unittest.TestCase):
 
     def test_all_valid_choices_accepted(self):
         parser = self._build_parser()
-        for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"):
+        for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2",
+                     "rocket_league", "iracing"):
             with self.subTest(game=game):
                 args = parser.parse_args(["my_exp", "--game", game])
                 self.assertEqual(args.game, game)
@@ -86,7 +88,8 @@ class TestMainGameFlagChoices(unittest.TestCase):
         import main  # noqa: PLC0415
         original_argv = sys.argv[:]
         try:
-            for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2"):
+            for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2",
+                         "rocket_league", "iracing"):
                 sys.argv = ["main.py", "test_exp", "--game", game]
                 # Patch the runners so we don't actually run training.
                 with patch.object(main, "_run_one", MagicMock()):
@@ -193,6 +196,8 @@ class TestExperimentDirectoryNaming(unittest.TestCase):
             "sc2": ("myrun", {"map_name": "MoveToBeacon"}, "sc2"),
             "beamng": ("myrun", {}, "beamng"),
             "car_racing": ("myrun", {}, "car_racing"),
+            "rocket_league": ("myrun", {}, "rocket_league"),
+            "iracing": ("myrun", {}, "iracing"),
         }
 
         for game_name, (exp_name, tp, expected_substr) in test_cases.items():

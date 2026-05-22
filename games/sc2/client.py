@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 import numpy as np
 
 from framework.obs_spec import ObsSpec
-from games.sc2.actions import FUNCTION_IDS, action_to_function_call
+from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_race
 from games.sc2.obs_spec import get_spec
 
 logger = logging.getLogger(__name__)
@@ -118,10 +119,11 @@ _MARINE_RANGE_PX_AT_64: float = 20.0
 # Built on first use when pysc2 is available.
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
 
-# Retry cadence for re-issuing select_army when a unit-targeted action stays
-# blocked for many consecutive steps. Prevents permanent idling after
+# Retry cadence for re-issuing select_army when a selection-required action
+# stays blocked while no units are selected. Prevents permanent idling after
 # round/selection transitions in minigames while still avoiding per-step spam.
 _SELECT_ARMY_RETRY_BLOCKED_STEPS: int = 8
+_SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
 # ---------------------------------------------------------------------------
 # Lazy PySC2 field-name helpers
@@ -278,14 +280,20 @@ class SC2Client:
         self._cumulative_score: float = 0.0
         self._explored_mask: np.ndarray | None = None
         self._available_actions: set[int] | None = None
+        self._selected_count: float = 0.0
         self._last_fn_idx: int = 0  # for last_fn_* one-hot in rich preset
-        # Consecutive blocked unit-targeted steps where select_army is available.
+        # Consecutive blocked selection-required steps where select_army is
+        # available and no unit is selected.
         # Used to issue one immediate select_army and then periodic retries
         # (instead of permanent no_op) if the blocked state persists.
         self._blocked_unit_targeted_steps: int = 0
         # Lookup table for unit-type ids → label, populated lazily so unit
         # tests don't import pysc2.lib.units at module load.
         self._unit_type_id_to_name: dict[int, str] | None = None
+        # Lookup table for unit-type ids → race label ("terran"/"protoss"/"zerg").
+        # Used to infer a race-consistent available-fn mask when PySC2
+        # available_actions mapping is missing or overly broad.
+        self._unit_type_id_to_race: dict[int, str] | None = None
         # Lookup table for unit-type ids → attack range (game units), used by
         # self_attack_range_px for idle-bonus gating.
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
@@ -298,10 +306,19 @@ class SC2Client:
         """Initialise the SC2 env and return the first observation + info."""
         if self._sc2_env is None:
             self._sc2_env = self._make_sc2_env()
+        elif self._is_ladder:
+            # PySC2's _restart() only calls leave() when there are multiple
+            # controllers, but a 1-Agent + Bot game has a single controller.
+            # Without leave(), the SC2 binary stays on the post-game end
+            # screen and may reject the RequestCreateGame that PySC2's
+            # _create_join() issues next.  Explicitly leave the current game
+            # so the binary returns to the lobby before reset() proceeds.
+            self._leave_ladder_game()
         timesteps = self._sc2_env.reset()
         self._cumulative_score = 0.0
         self._explored_mask = None
         self._available_actions = None
+        self._selected_count = 0.0
         self._last_fn_idx = 0
         self._blocked_unit_targeted_steps = 0
         return self._timestep_to_obs_info(timesteps[0])
@@ -327,6 +344,34 @@ class SC2Client:
             self._sc2_env.close()
             self._sc2_env = None
 
+    def _leave_ladder_game(self) -> None:
+        """Leave the current ladder game so the SC2 binary returns to the lobby.
+
+        PySC2's ``SC2Env._restart()`` only issues ``RequestLeaveGame`` when
+        there are multiple controllers.  For a single-Agent + Bot game there
+        is one controller, so PySC2 skips ``leave()`` and calls
+        ``_create_join()`` directly.  Without the leave, the SC2 binary stays
+        on the post-game end screen and may reject ``RequestCreateGame``,
+        preventing automatic restart between episodes.
+
+        Calling ``leave()`` here moves the binary back to the ``launched``
+        state before PySC2's ``reset()`` triggers ``_create_join()``.
+        If ``leave()`` fails (e.g. the controller is already in a disconnected
+        state), the env is closed and recreated as a fallback.
+        """
+        try:
+            controllers = getattr(self._sc2_env, "_controllers", None) or []
+            for controller in controllers:
+                controller.leave()
+        except Exception as exc:
+            logger.warning(
+                "SC2Client: leave() before ladder reset raised %s; "
+                "closing the SC2 env to force a clean restart.",
+                exc,
+            )
+            self._sc2_env.close()
+            self._sc2_env = self._make_sc2_env()
+
     def save_replay(self, replay_dir: str, prefix: str) -> str | None:
         """Save the most recently played episode as an SC2 replay file.
 
@@ -337,7 +382,30 @@ class SC2Client:
             return None
         try:
             os.makedirs(replay_dir, exist_ok=True)
-            return self._sc2_env.save_replay(replay_dir, prefix=prefix)
+            result: dict[str, Any] = {"path": None, "exc": None}
+
+            def _save() -> None:
+                try:
+                    result["path"] = self._sc2_env.save_replay(replay_dir, prefix=prefix)
+                except Exception as exc:
+                    result["exc"] = exc
+
+            worker = threading.Thread(
+                target=_save,
+                name="sc2-save-replay",
+                daemon=True,
+            )
+            worker.start()
+            worker.join(timeout=_SAVE_REPLAY_TIMEOUT_S)
+            if worker.is_alive():
+                logger.warning(
+                    "SC2Client.save_replay timed out after %.1fs; skipping.",
+                    _SAVE_REPLAY_TIMEOUT_S,
+                )
+                return None
+            if result["exc"] is not None:
+                raise result["exc"]
+            return result["path"]
         except Exception as exc:
             logger.warning("SC2Client.save_replay failed: %s", exc)
             return None
@@ -434,14 +502,12 @@ class SC2Client:
         preconditions like "have units selected"), substitute either
         ``select_army`` or ``no_op`` depending on context.
 
-        Issues #121 / #124: if the policy issues a unit-targeted action
-        (``Move_screen`` / ``Attack_screen`` / ``Harvest_Gather_screen``)
-        but no army is selected, fall back to ``select_army`` rather than
-        ``no_op``.  Otherwise the agent appears to "idle" — the next step
-        has the same observation, the policy emits the same blocked
-        action, and PySC2 keeps no-op'ing it until the policy stochastically
-        elects ``select_army`` itself.  Auto-selecting closes that gap and
-        ensures the very next step can actually move.
+        Issues #121 / #124 / #286: when the policy emits a blocked
+        selection-required action while no units are selected, fall back to
+        ``select_army`` rather than ``no_op``. Otherwise the agent appears to
+        "idle" — the next step has the same observation, the policy emits the
+        same blocked action, and PySC2 keeps no-op'ing it until the policy
+        stochastically elects ``select_army`` itself.
         """
         from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
@@ -457,10 +523,13 @@ class SC2Client:
             and int(fn_call.function) not in self._available_actions
         ):
             select_army_id = int(pysc2_actions.FUNCTIONS.select_army.id)
-            unit_targeted = fn_name in (
-                "Move_screen", "Attack_screen", "Harvest_Gather_screen",
-            )
-            if unit_targeted and select_army_id in self._available_actions:
+            selection_required = fn_name != "no_op" and not fn_name.startswith("select_")
+            no_units_selected = self._selected_count < 1.0
+            if (
+                selection_required
+                and no_units_selected
+                and select_army_id in self._available_actions
+            ):
                 self._blocked_unit_targeted_steps += 1
                 if (
                     self._blocked_unit_targeted_steps == 1
@@ -529,6 +598,7 @@ class SC2Client:
         feats: dict[str, float] = {}
         feats.update(self._player_features(ob))
         feats.update(self._selected_features(ob))
+        self._selected_count = float(feats.get("selected_count", 0.0))
         feats.update(self._screen_summary_features(feat_screen))
         feats.update(self._minimap_summary_features(feat_minimap))
         feats.update(self._score_features(ob))
@@ -579,6 +649,14 @@ class SC2Client:
                     for pid in self._available_actions
                     if pid in id_map
                 }
+            inferred_fn_ids = self._infer_fn_ids_from_units(ob)
+            if inferred_fn_ids is not None:
+                if available_fn_ids is None:
+                    available_fn_ids = set(inferred_fn_ids)
+                else:
+                    available_fn_ids &= inferred_fn_ids
+        else:
+            self._available_actions = None
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -1202,6 +1280,77 @@ class SC2Client:
                 if member.name in _RICH_UNIT_TYPES:
                     lookup[int(member.value)] = member.name
         return lookup
+
+    @staticmethod
+    def _build_unit_type_race_lookup() -> dict[int, str]:
+        """Build {unit_type_id: race_label} from pysc2.lib.units enums."""
+        try:
+            from pysc2.lib import units as pysc2_units  # type: ignore[import-untyped]
+        except ImportError:
+            return {}
+        lookup: dict[int, str] = {}
+        race_groups = (
+            ("terran", getattr(pysc2_units, "Terran", None)),
+            ("protoss", getattr(pysc2_units, "Protoss", None)),
+            ("zerg", getattr(pysc2_units, "Zerg", None)),
+        )
+        for race_name, group in race_groups:
+            if group is None:
+                continue
+            for member in group:
+                lookup[int(member.value)] = race_name
+        return lookup
+
+    def _infer_fn_ids_from_units(self, ob: Any) -> set[int] | None:
+        """Infer a race-consistent fn-id set from visible/selected own units.
+
+        This supplements PySC2 available_actions mapping with unit/building-type
+        context so obviously cross-race actions are masked out.
+        """
+        if self._unit_type_id_to_race is None:
+            self._unit_type_id_to_race = self._build_unit_type_race_lookup()
+        if not self._unit_type_id_to_race:
+            return None
+
+        race_votes: set[str] = set()
+        feat_units = self._safe_array(ob, "feature_units")
+        if (
+            feat_units is not None
+            and feat_units.size > 0
+            and feat_units.ndim == 2
+            and feat_units.shape[1] >= 2
+        ):
+            for row in feat_units:
+                if int(row[1]) != 1:
+                    continue
+                race = self._unit_type_id_to_race.get(int(row[0]))
+                if race is not None:
+                    race_votes.add(race)
+
+        for key in ("single_select", "multi_select"):
+            selected = self._safe_array(ob, key)
+            if (
+                selected is None
+                or selected.size == 0
+            ):
+                continue
+            if selected.ndim == 1:
+                if selected.shape[0] < 1:
+                    continue
+                rows = selected[np.newaxis, :]
+            elif selected.ndim == 2 and selected.shape[1] >= 1:
+                rows = selected
+            else:
+                continue
+            for row in rows:
+                race = self._unit_type_id_to_race.get(int(row[0]))
+                if race is not None:
+                    race_votes.add(race)
+
+        if len(race_votes) != 1:
+            return None
+        inferred_race = next(iter(race_votes))
+        return set(fn_ids_for_race(inferred_race))
 
     @staticmethod
     def _get_rich_unit_types() -> tuple:

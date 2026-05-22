@@ -21,6 +21,7 @@ class TestSC2RewardConfig(unittest.TestCase):
         self.assertEqual(cfg.win_bonus, 100.0)
         self.assertEqual(cfg.loss_penalty, -100.0)
         self.assertEqual(cfg.small_selection_bonus, 0.0)
+        self.assertEqual(cfg.early_random_action_bonus, 0.0)
         self.assertLess(cfg.step_penalty, 0.0)
         self.assertGreater(cfg.move_exploration_bonus, 0.0)
         self.assertLess(cfg.move_repeat_penalty, 0.0)
@@ -563,7 +564,7 @@ class TestSC2RewardComponents(unittest.TestCase):
         for key in ("score", "economy", "idle_penalty", "idle_bonus",
                     "move_exploration", "move_repeat_penalty", "move_self_penalty",
                     "attack_move_bonus", "click_attack_bonus",
-                    "attack_friendly_penalty", "small_selection",
+                    "attack_friendly_penalty", "early_random_action", "small_selection",
                     "step_penalty", "terminal"):
             self.assertIn(key, comp)
 
@@ -977,6 +978,62 @@ class TestSC2AttackMoveBonusAndClickAttackBonus(unittest.TestCase):
         )
         self.assertAlmostEqual(comp_click["attack_move_bonus"],  0.0)
         self.assertAlmostEqual(comp_click["click_attack_bonus"], 2.0)
+
+
+class TestSC2EarlyRandomActionBonus(unittest.TestCase):
+    """Tests for the early-random-action exploration bonus."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {
+            "score_weight": 0.0, "step_penalty": 0.0,
+            "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0,
+        }
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _info(self, fn_idx: int) -> dict:
+        return {"prev_score": 0.0, "score": 0.0, "action_fn_idx": fn_idx}
+
+    def test_fires_for_unseen_non_noop_action_in_window(self):
+        calc = self._make_calc(
+            early_random_action_bonus=3.0,
+            early_random_action_window_steps=10,
+        )
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2),
+        )
+        self.assertAlmostEqual(comp["early_random_action"], 3.0)
+
+    def test_skips_repeated_action(self):
+        calc = self._make_calc(
+            early_random_action_bonus=3.0,
+            early_random_action_window_steps=10,
+        )
+        calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2),
+        )
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=2),
+        )
+        self.assertAlmostEqual(comp["early_random_action"], 0.0)
+
+    def test_skips_actions_after_window(self):
+        calc = self._make_calc(
+            early_random_action_bonus=3.0,
+            early_random_action_window_steps=1,
+        )
+        calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=0),
+        )
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0,
+            info=self._info(fn_idx=3),
+        )
+        self.assertAlmostEqual(comp["early_random_action"], 0.0)
 
 
 class TestSC2UnitLossPenalty(unittest.TestCase):

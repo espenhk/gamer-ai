@@ -147,6 +147,16 @@ class SC2RewardConfig:
         to enabling both ``attack_move_bonus`` and ``click_attack_bonus``
         separately; all three can be active at once.
         Default ``0.0`` — opt-in.
+    early_random_action_bonus :
+        Per-step bonus for trying a previously-unseen non-no-op action
+        function id during the early part of each episode. This explicitly
+        rewards broad early action-space exploration instead of repeatedly
+        exploiting one action that happened to work first.
+        Default ``0.0`` — opt-in.
+    early_random_action_window_steps :
+        Number of episode steps from reset in which
+        ``early_random_action_bonus`` may fire. Outside this window the bonus
+        is disabled. Default ``250``.
     """
 
     score_weight: float = 1.0
@@ -170,6 +180,8 @@ class SC2RewardConfig:
     passive_under_fire_penalty: float = 0.0
     small_selection_bonus: float = 0.0
     attack_bonus: float = 0.0
+    early_random_action_bonus: float = 0.0
+    early_random_action_window_steps: int = 250
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -262,6 +274,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._step_count: int = 0
         # cell -> env step on which the centroid was last seen in that cell.
         self._visited_unit_cells: dict[tuple[int, int], int] = {}
+        self._seen_action_fns: set[int] = set()
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -273,6 +286,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._last_non_noop_target_y = 0.5
         self._step_count = 0
         self._visited_unit_cells = {}
+        self._seen_action_fns = set()
 
     def compute(
         self,
@@ -307,9 +321,10 @@ class SC2RewardCalculator(RewardCalculatorBase):
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
         ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
         ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_bonus``, ``attack_friendly_penalty``, ``unit_loss``,
-        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
-        ``step_penalty`` and ``terminal`` separately.
+        ``attack_bonus``, ``attack_friendly_penalty``,
+        ``early_random_action``, ``unit_loss``, ``damage_taken``,
+        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
+        ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -385,6 +400,20 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist <= idle_gate_px:
                     idle_bonus = cfg.idle_bonus * n_ticks
         components["idle_bonus"] = float(idle_bonus)
+
+        # Early random-action encouragement: reward unseen non-no-op fn_idx
+        # choices in the first N episode steps.
+        early_random_action = 0.0
+        if cfg.early_random_action_bonus != 0.0:
+            early_window_steps = max(0, int(cfg.early_random_action_window_steps))
+            if self._step_count <= early_window_steps:
+                current_fn_idx = int(info.get("action_fn_idx", 0))
+                if current_fn_idx != 0 and current_fn_idx not in self._seen_action_fns:
+                    early_random_action = cfg.early_random_action_bonus * n_ticks
+        current_fn_idx = int(info.get("action_fn_idx", 0))
+        if current_fn_idx != 0:
+            self._seen_action_fns.add(current_fn_idx)
+        components["early_random_action"] = float(early_random_action)
 
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False

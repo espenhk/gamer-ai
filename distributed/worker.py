@@ -33,6 +33,9 @@ import time
 import urllib.error
 import urllib.request
 
+from framework.env_loader import load_dotenv
+load_dotenv()
+
 from distributed.protocol import (
     ComboSpec,
     ResultPayload,

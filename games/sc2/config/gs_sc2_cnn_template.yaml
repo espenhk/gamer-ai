@@ -116,4 +116,4 @@ training_params:
   population_size: [10, 20, 50]
   initial_sigma: [0.005, 0.01]
   policy_params:
-    eval_episodes: 5
+    eval_episodes: 1

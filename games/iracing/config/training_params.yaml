@@ -1,0 +1,23 @@
+# iRacing training parameters.
+
+game: iracing                # game module to use
+track: laguna_seca           # reference track (Skip Barber at Laguna Seca)
+speed: 1.0                   # real-time (telemetry-driven)
+in_game_episode_s: 120.0     # wall-clock seconds per episode
+n_sims: 100                  # greedy simulations / generations after cold-start
+mutation_scale: 0.05         # std-dev of Gaussian noise applied to each perturbed weight
+mutation_share: 1.0          # fraction of weights perturbed per mutation (1.0 = all)
+adaptive_mutation: true      # apply 1/5th success rule during greedy phase
+patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
+
+# Action injection mode:
+#   "telemetry_only" — Phase 1: read-only telemetry, actions are not sent to the game.
+#   "live"           — Phase 2: inject steer/throttle/brake via vJoy virtual controller.
+action_mode: telemetry_only
+
+# Policy algorithm for the greedy training phase.
+policy_type: genetic
+
+policy_params:
+  population_size: 20
+  elite_k: 3

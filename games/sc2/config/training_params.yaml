@@ -70,8 +70,8 @@ enable_belief: false   # set true to activate fog-of-war belief obs + scouting r
 # minute, using a rolling token-bucket so the budget is spread across time
 # rather than all spent in the first second.  No-op actions (fn_idx=0) are
 # always free and do not count toward APM.  Leave unset (null) for no limit.
-# max_apm: 300        # e.g. 300 APM ≈ human intermediate level
-# apm_burst_s: 2.0    # max burst window in seconds (default 2.0)
+max_apm: 300        # e.g. 300 APM ≈ human intermediate level
+apm_burst_s: 2.0    # max burst window in seconds (default 2.0)
 
 # Intra-run parallel evaluation (issue #229) — only applies to
 # population-based policies (sc2_genetic, sc2_cmaes, sc2_lstm, sc2_cnn).

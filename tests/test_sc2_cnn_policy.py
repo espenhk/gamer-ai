@@ -125,6 +125,37 @@ class TestSC2CNNModelShape(unittest.TestCase):
         self.assertEqual(fn_sc.shape[0], N_FUNCTION_IDS)
         self.assertEqual(sp_sc.shape[0], len(DISCRETE_ACTIONS))
 
+    def test_available_fn_ids_masked_in_call(self):
+        model = _make_model(n_channels=2)
+        model.W1.fill(0.0); model.b1.fill(0.0)
+        model.W2.fill(0.0); model.b2.fill(0.0)
+        model.W3.fill(0.0); model.b3.fill(0.0)
+        model.W_fn.fill(0.0)
+        model.b_fn.fill(-1.0)
+        model.b_fn[4] = 10.0
+        model.on_episode_start(info={"available_fn_ids": {1}})
+        action = model(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 1)
+
+    def test_empty_available_fn_ids_falls_back_to_no_op(self):
+        model = _make_model(n_channels=2)
+        model.W1.fill(0.0); model.b1.fill(0.0)
+        model.W2.fill(0.0); model.b2.fill(0.0)
+        model.W3.fill(0.0); model.b3.fill(0.0)
+        model.W_fn.fill(0.0)
+        model.b_fn.fill(-1.0)
+        model.b_fn[4] = 10.0
+        model.on_episode_start(info={"available_fn_ids": set()})
+        action = model(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 0)
+
+    def test_update_without_available_fn_ids_clears_stale_mask(self):
+        model = _make_model(n_channels=2)
+        model._available_fn_ids = {1}  # noqa: SLF001 - white-box test
+        obs = _dict_obs(n_channels=2)
+        model.update(obs, np.zeros(4, dtype=np.float32), 0.0, obs, False, info={})
+        self.assertIsNone(model._available_fn_ids)  # noqa: SLF001 - white-box test
+
 
 # ---------------------------------------------------------------------------
 # SC2CNNEvolutionPolicy
@@ -175,6 +206,19 @@ class TestSC2CNNEvolutionPolicy(unittest.TestCase):
         obs    = _dict_obs(n_channels=2)
         action = self.policy(obs)
         self.assertEqual(action.shape, (4,))
+
+    def test_on_episode_start_forwards_available_fn_ids_to_champion(self):
+        champion = _make_model(n_channels=2)
+        champion.W1.fill(0.0); champion.b1.fill(0.0)
+        champion.W2.fill(0.0); champion.b2.fill(0.0)
+        champion.W3.fill(0.0); champion.b3.fill(0.0)
+        champion.W_fn.fill(0.0)
+        champion.b_fn.fill(-1.0)
+        champion.b_fn[5] = 10.0
+        self.policy._champion = champion
+        self.policy.on_episode_start(info={"available_fn_ids": {2}})
+        action = self.policy(_dict_obs(n_channels=2))
+        self.assertEqual(int(action[0]), 2)
 
     def test_update_wrong_rewards_count_raises(self):
         self.policy.sample_population()
@@ -442,6 +486,57 @@ class TestSC2ClientSpatialObs(unittest.TestCase):
         ts = self._make_timestep(pr)
         _, info = client._timestep_to_obs_info(ts)
         self.assertNotIn("spatial_obs", info)
+
+
+# ---------------------------------------------------------------------------
+# Race mask tests for SC2CNNModel
+# ---------------------------------------------------------------------------
+
+class TestSC2CNNModelRaceMask(unittest.TestCase):
+    """Permanent race filter in SC2CNNModel.__call__."""
+
+    def test_default_race_is_random(self):
+        from games.sc2.actions import fn_ids_for_race
+        model = _make_model(n_channels=2)
+        self.assertEqual(model._race_fn_ids, fn_ids_for_race("random"))  # noqa: SLF001
+
+    def test_terran_race_blocks_zerg_fn_idx(self):
+        """With race='terran', __call__ must never return a Zerg-only fn_idx."""
+        from games.sc2.actions import _ZERG_FN_IDS
+        model = SC2CNNModel(n_channels=2, obs_spec=SC2_MINIGAME_OBS_SPEC, seed=0, race="terran")
+        # Bias b_fn strongly toward a Zerg-only fn_idx (e.g. 82).
+        model.b_fn[:] = -100.0
+        model.b_fn[82] = 100.0
+        obs = _dict_obs(n_channels=2)
+        action = model(obs)
+        self.assertNotIn(int(action[0]), _ZERG_FN_IDS,
+                         f"Terran policy returned Zerg fn_idx {int(action[0])}")
+
+    def test_with_flat_preserves_race(self):
+        """with_flat must carry _race and _race_fn_ids to the cloned model."""
+        from games.sc2.actions import fn_ids_for_race
+        model = SC2CNNModel(n_channels=2, obs_spec=SC2_MINIGAME_OBS_SPEC, seed=0, race="protoss")
+        flat  = model.to_flat()
+        clone = model.with_flat(flat)
+        self.assertEqual(clone._race, "protoss")  # noqa: SLF001
+        self.assertEqual(clone._race_fn_ids, fn_ids_for_race("protoss"))  # noqa: SLF001
+
+    def test_cnn_evolution_construct_or_resume_reads_agent_race(self):
+        from games.sc2.actions import fn_ids_for_race
+        policy = SC2CNNEvolutionPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/path.yaml",
+            policy_params={"_n_channels": 2, "_agent_race": "terran"},
+            re_initialize=True,
+        )
+        # Template model and all sampled individuals should carry Terran race.
+        self.assertEqual(policy._template._race, "terran")  # noqa: SLF001
+        individuals = policy.sample_population()
+        for ind in individuals:
+            self.assertEqual(ind._race, "terran")  # noqa: SLF001
+            self.assertEqual(ind._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
 
 
 if __name__ == "__main__":

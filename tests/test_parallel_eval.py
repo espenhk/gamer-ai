@@ -374,6 +374,7 @@ class TestMaybeBuildEvaluator:
 
         # Import SC2 policies so they register themselves.
         import games.sc2.sc2_policies  # noqa: F401
+        import games.sc2.cnn_policy  # noqa: F401
 
         # Look up the LOOP_TYPE from the registry — this is the source of truth
         # now that build_extras is removed (Phase D of #224).

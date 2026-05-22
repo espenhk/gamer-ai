@@ -178,6 +178,17 @@ class TestSC2CMAESPolicyMasking(unittest.TestCase):
                  info={"available_fn_ids": [0, 1]})
         self.assertEqual(p._available_fn_ids, {0, 1})
 
+    def test_update_without_available_fn_ids_clears_stale_mask(self):
+        p = SC2CMAESPolicy(
+            obs_spec=SC2_MINIGAME_OBS_SPEC, population_size=4,
+            initial_sigma=0.5, seed=0
+        )
+        _run_one_generation(p)
+        p._available_fn_ids = {0, 1}
+        obs = _rand_obs()
+        p.update(obs, np.zeros(4), 0.0, obs, False, info={})
+        self.assertIsNone(p._available_fn_ids)
+
     def test_no_masking_when_available_fn_ids_is_none(self):
         p = SC2CMAESPolicy(
             obs_spec=SC2_MINIGAME_OBS_SPEC, population_size=4,
@@ -252,6 +263,55 @@ class TestSC2CMAESPolicySerialisation(unittest.TestCase):
         p = _make_policy(pop=4)
         p.initialize_random()
         np.testing.assert_array_equal(p._mean, np.zeros(p._n))
+
+
+# ---------------------------------------------------------------------------
+# SC2CMAESPolicy — race forwarding via _construct_or_resume
+# ---------------------------------------------------------------------------
+
+class TestSC2CMAESPolicyRaceForwarding(unittest.TestCase):
+    """_construct_or_resume must read _agent_race from policy_params."""
+
+    def test_construct_or_resume_reads_terran_race(self):
+        from games.sc2.actions import fn_ids_for_race
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "terran")  # noqa: SLF001
+        self.assertEqual(policy._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
+
+    def test_construct_or_resume_defaults_to_random(self):
+        from games.sc2.actions import fn_ids_for_race
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "random")  # noqa: SLF001
+        self.assertEqual(policy._race_fn_ids, fn_ids_for_race("random"))  # noqa: SLF001
+
+    def test_terran_race_blocks_zerg_in_fn_mask(self):
+        """With race='terran', _build_fn_mask must return False for Zerg-only fn_ids."""
+        from games.sc2.actions import _ZERG_FN_IDS
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        mask = policy._build_fn_mask(None)  # noqa: SLF001
+        for i in _ZERG_FN_IDS:
+            self.assertFalse(mask[i], f"fn_idx={i} should be masked for terran")
 
 
 if __name__ == "__main__":

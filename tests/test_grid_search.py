@@ -508,3 +508,13 @@ class TestGridSearchCliFlags:
         )
         assert proc.returncode == 0
         assert "--live-gui" in proc.stdout
+
+
+class TestSc2NeuralNetTemplate:
+    def test_template_enables_early_random_action_reward(self):
+        path = "games/sc2/config/gs_sc2_neural_net_template.yaml"
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        reward = data.get("reward_params") or {}
+        assert reward.get("early_random_action_bonus") == 2.0
+        assert reward.get("early_random_action_window_steps") == 300

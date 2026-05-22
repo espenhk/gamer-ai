@@ -39,7 +39,7 @@ base_name: "v1"
 game: sc2
 
 training_params:
-  map_name: BuildMarines
+  map_name: Simple64
   obs_spec_preset: rich   # see state-space note above; ladder/rich runs are diagnostic
   enable_belief: true              # tabular state-space explosion; see comment above
   step_mul: 4
@@ -48,14 +48,18 @@ training_params:
   minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 2000
+  n_sims: 200
   policy_type: mcts
   mcts_c: 2.0
   alpha: 0.05
-  idle_bonus: -0.5
-  idle_penalty: 0.5
+  #economy_weight: [0.001, 0.001, 0.01, 0.1]
   move_exploration_bonus: 0.005
   damage_taken_penalty: [-0.1, -0.2]   # ablation for damage_taken_penalty
   policy_params:
     n_bins: 3
     gamma: 0.99
+
+reward_params:
+  score_weight: 1.0
+  idle_bonus: -0.5
+  idle_penalty: 0.5

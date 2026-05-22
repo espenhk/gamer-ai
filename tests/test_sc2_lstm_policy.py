@@ -201,6 +201,13 @@ class TestSC2LSTMPolicyMasking(unittest.TestCase):
                  info={"available_fn_ids": [0, 3]})
         self.assertEqual(p._available_fn_ids, {0, 3})
 
+    def test_update_without_available_fn_ids_clears_stale_mask(self):
+        p = _make_lstm()
+        p._available_fn_ids = {0, 3}
+        obs = _rand_obs()
+        p.update(obs, np.zeros(4), 0.0, obs, False, info={})
+        self.assertIsNone(p._available_fn_ids)
+
     def test_fallback_when_all_masked(self):
         p = _make_lstm(seed=0)
         p._available_fn_ids = set()  # nothing available

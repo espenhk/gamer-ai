@@ -237,5 +237,76 @@ class TestMaskedGradientStep(unittest.TestCase):
         self.assertEqual(policy.to_cfg()["policy_type"], "sc2_neural_dqn")
 
 
+# ---------------------------------------------------------------------------
+# Race mask tests
+# ---------------------------------------------------------------------------
+
+class TestSC2NeuralDQNPolicyRaceMask(unittest.TestCase):
+    """Permanent race filter integrated into the per-step available_actions_fn."""
+
+    def test_terran_race_blocks_zerg_in_cached_mask(self):
+        """on_episode_start with race=terran must block Zerg-only DISCRETE_ACTIONS rows."""
+        from games.sc2.actions import _ZERG_FN_IDS
+        policy = SC2NeuralDQNPolicy(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            hidden_sizes=[8],
+            race="terran",
+        )
+        # No per-step info → only race mask applies.
+        policy.on_episode_start(info={})
+        for i in range(len(DISCRETE_ACTIONS)):
+            fn_id = int(DISCRETE_ACTIONS[i, 0])
+            if fn_id in _ZERG_FN_IDS:
+                self.assertFalse(policy._cached_mask[i],
+                                 f"DISCRETE_ACTIONS[{i}] (fn_id={fn_id}) should be masked for terran")
+
+    def test_terran_race_allows_terran_actions_when_available(self):
+        """Terran actions in per-step info should remain enabled."""
+        from games.sc2.actions import _TERRAN_FN_IDS
+        policy = SC2NeuralDQNPolicy(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            hidden_sizes=[8],
+            race="terran",
+        )
+        # Allow a Terran fn_id (e.g. Train_Marine_quick = fn_idx 7).
+        policy.on_episode_start(info={"available_fn_ids": {7}})
+        # Find first DISCRETE_ACTIONS row with fn_id=7.
+        da_idx = next(i for i in range(len(DISCRETE_ACTIONS)) if int(DISCRETE_ACTIONS[i, 0]) == 7)
+        self.assertTrue(policy._cached_mask[da_idx])
+
+    def test_construct_or_resume_reads_agent_race(self):
+        from games.sc2.actions import _ZERG_FN_IDS
+        policy = SC2NeuralDQNPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/path.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        policy.on_episode_start(info={})
+        # Zerg-only actions must be blocked.
+        for i in range(len(DISCRETE_ACTIONS)):
+            fn_id = int(DISCRETE_ACTIONS[i, 0])
+            if fn_id in _ZERG_FN_IDS:
+                self.assertFalse(policy._cached_mask[i])
+
+    def test_from_cfg_restores_race_mask(self):
+        from games.sc2.actions import _ZERG_FN_IDS
+
+        p = SC2NeuralDQNPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, hidden_sizes=[8], race="terran")
+        cfg = p.to_cfg()
+        p2 = SC2NeuralDQNPolicy.from_cfg(cfg, SC2_MINIGAME_OBS_SPEC)
+
+        p2.on_episode_start(info={})
+        for i in range(len(DISCRETE_ACTIONS)):
+            fn_id = int(DISCRETE_ACTIONS[i, 0])
+            if fn_id in _ZERG_FN_IDS:
+                self.assertFalse(
+                    p2._cached_mask[i],
+                    f"DISCRETE_ACTIONS[{i}] (fn_id={fn_id}) should stay masked after from_cfg",
+                )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

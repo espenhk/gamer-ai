@@ -16,7 +16,9 @@ class TestGameAdapterRegistry:
     """The GAME_ADAPTERS dict has entries for all supported games."""
 
     def test_all_games_registered(self):
-        assert set(GAME_ADAPTERS.keys()) == {"tmnf", "torcs", "sc2", "beamng", "car_racing"}
+        assert set(GAME_ADAPTERS.keys()) == {
+            "tmnf", "torcs", "sc2", "beamng", "car_racing", "rocket_league", "iracing",
+        }
 
     @pytest.mark.parametrize("game", list(GAME_ADAPTERS.keys()))
     def test_adapter_can_be_instantiated(self, game):
@@ -159,6 +161,7 @@ class TestBeamNGAdapter:
         assert a.build_probe({}) is None
 
 
+
 class TestCarRacingAdapter:
     def _adapter(self):
         return GAME_ADAPTERS["car_racing"]()
@@ -172,3 +175,62 @@ class TestCarRacingAdapter:
     def test_build_probe_returns_none(self):
         a = self._adapter()
         assert a.build_probe({}) is None
+
+
+class TestRocketLeagueAdapter:
+    def _adapter(self):
+        return GAME_ADAPTERS["rocket_league"]()
+
+    def test_experiment_dir(self):
+        a = self._adapter()
+        d = a.experiment_dir("myrun", {"policy_type": "genetic"}, None)
+        assert "rocket_league" in d
+        assert "genetic" in d
+
+    def test_track_label_default(self):
+        a = self._adapter()
+        assert a.track_label({}, None) == "rocket_league"
+
+    def test_track_label_override(self):
+        a = self._adapter()
+        assert a.track_label({}, "custom_arena") == "custom_arena"
+
+    def test_build_probe_returns_none(self):
+        a = self._adapter()
+        assert a.build_probe({}) is None
+
+    def test_build_warmup_returns_none(self):
+        a = self._adapter()
+        assert a.build_warmup({}) is None
+
+    def test_experiment_dir_root(self):
+        a = self._adapter()
+        root = a.experiment_dir_root({"policy_type": "genetic"}, None)
+        assert "rocket_league" in root
+
+
+class TestIRacingAdapter:
+    def _adapter(self):
+        return GAME_ADAPTERS["iracing"]()
+
+    def test_experiment_dir(self):
+        a = self._adapter()
+        d = a.experiment_dir("myrun", {"policy_type": "genetic"}, None)
+        assert "iracing" in d
+        assert "genetic" in d
+
+    def test_track_label_default(self):
+        a = self._adapter()
+        assert a.track_label({}, None) == "laguna_seca"
+
+    def test_track_label_override(self):
+        a = self._adapter()
+        assert a.track_label({}, "spa") == "spa"
+
+    def test_build_probe_returns_none(self):
+        a = self._adapter()
+        assert a.build_probe({}) is None
+
+    def test_build_warmup_returns_none(self):
+        a = self._adapter()
+        assert a.build_warmup({}) is None

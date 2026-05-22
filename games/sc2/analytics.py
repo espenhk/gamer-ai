@@ -76,6 +76,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "click_attack_bonus": "click_attack_bonus",
     "attack_bonus": "attack_bonus",
     "attack_friendly_penalty": "attack_friendly_penalty",
+    "early_random_action": "early_random_action_bonus",
     "unit_loss": "unit_loss_penalty",
     "damage_taken": "damage_taken_penalty",
     "passive_under_fire": "passive_under_fire_penalty",

@@ -133,10 +133,11 @@ class TestSC2Actions(unittest.TestCase):
 
     def test_spatial_fn_ids_are_screen_or_minimap(self):
         """SPATIAL_FN_IDS contains exactly the fn_ids whose names end in
-        _screen or _minimap."""
+        _screen or _minimap, plus select_point and select_rect."""
         expected = frozenset(
             fn_idx for fn_idx, name in FUNCTION_IDS.items()
             if name.endswith("_screen") or name.endswith("_minimap")
+            or name in ("select_point", "select_rect")
         )
         self.assertEqual(SPATIAL_FN_IDS, expected)
 
@@ -234,15 +235,15 @@ class TestActionToFunctionCall(unittest.TestCase):
             call = action_to_function_call(action, screen_size=64)
         self.assertEqual(call.arguments, [[1]])
 
-    def test_select_point_screen_uses_screen_coords(self):
+    def test_select_point_uses_screen_coords(self):
         with patch.dict(sys.modules, _fake_pysc2_modules()):
-            action = np.array([6, 1.0, 0.0, 0.0], dtype=np.float32)  # select_point_screen
+            action = np.array([6, 1.0, 0.0, 0.0], dtype=np.float32)  # select_point
             call = action_to_function_call(action, screen_size=64)
         self.assertEqual(call.arguments, [[0], [63, 0]])
 
-    def test_select_rect_screen_uses_degenerate_rect(self):
+    def test_select_rect_uses_degenerate_rect(self):
         with patch.dict(sys.modules, _fake_pysc2_modules()):
-            action = np.array([17, 0.5, 0.5, 0.0], dtype=np.float32)  # select_rect_screen
+            action = np.array([17, 0.5, 0.5, 0.0], dtype=np.float32)  # select_rect
             call = action_to_function_call(action, screen_size=64)
         self.assertEqual(call.arguments, [[0], [31, 31], [31, 31]])
 

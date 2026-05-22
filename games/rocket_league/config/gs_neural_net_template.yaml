@@ -1,0 +1,26 @@
+# Grid search template: neural_net — Rocket League
+#
+# Usage:
+#   python grid_search.py games/rocket_league/config/gs_neural_net_template.yaml --game rocket_league
+#
+# Good first sweep: hidden_sizes × mutation_scale × vel_to_ball_weight.
+
+base_name: "gs_rl_neural_net_v1"
+game: rocket_league
+
+training_params:
+  in_game_episode_s: 300.0
+  tick_skip: 8
+  n_sims: 120
+  policy_type: neural_net
+  hidden_sizes: [[64, 64], [128, 128], [64, 128, 64]]
+  mutation_scale: [0.02, 0.05]
+  mutation_share: 1.0
+
+reward_params:
+  vel_to_ball_weight: [0.005, 0.01]
+  boost_weight: -0.002
+  touch_bonus: 1.0
+  goal_weight: 10.0
+  concede_penalty: 5.0
+  step_penalty: -0.001

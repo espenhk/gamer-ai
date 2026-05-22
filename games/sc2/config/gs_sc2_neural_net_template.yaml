@@ -11,11 +11,24 @@ game: sc2
 
 training_params:
   map_name: Simple64
-  in_game_episode_s: 120.0
+  in_game_episode_s: 600.0
   step_mul: 4
   obs_spec_preset: rich
+  enable_belief: true              # tabular state-space explosion; see comment above
   policy_type: sc2_neural_net
   n_sims: 2000                # many generations for high-dimensional search
+  max_apm: 300
+  agent_race: terran
+  economy_weight: [0.1, 0.5]
+  move_exploration_bonus: [0.01, 0.1]
+  damage_taken_penalty: [-0.1, -0.5]   # ablation for damage_taken_penalty
   hidden_sizes:
     - [1024, 2048, 2048, 1024]
     - [2048, 4096, 4096, 2048]
+
+reward_params:
+  score_weight: 1.0
+  idle_bonus: -0.5
+  idle_penalty: -0.5
+  early_random_action_bonus: 2.0
+  early_random_action_window_steps: 300

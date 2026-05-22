@@ -1,0 +1,17 @@
+# Rocket League training parameters.
+
+game: rocket_league
+in_game_episode_s: 300.0         # 5 minutes per episode (matches RL match length)
+n_sims: 100
+mutation_scale: 0.05
+mutation_share: 1.0
+adaptive_mutation: true
+patience: 0
+
+tick_skip: 8                     # RLGym physics frames per step (default 8 → ~15 Hz)
+
+policy_type: genetic
+
+policy_params:
+  population_size: 20
+  elite_k: 3

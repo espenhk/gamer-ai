@@ -630,13 +630,13 @@ class TestSC2MultiHeadLinearPolicyAvailableMask(unittest.TestCase):
         p.update(obs, obs, 0.0, obs, False, info={"available_fn_ids": {1, 2}})
         self.assertEqual(p._available_fn_ids, {1, 2})
 
-    def test_update_no_available_key_leaves_mask_unchanged(self):
-        """update() without available_fn_ids in info does not change the cache."""
+    def test_update_no_available_key_clears_mask(self):
+        """update() without available_fn_ids in info clears stale masks."""
         p = _make_policy()
         p._available_fn_ids = {0, 1}
         obs = np.zeros(SC2_MINIGAME_OBS_SPEC.dim, dtype=np.float32)
         p.update(obs, obs, 0.0, obs, False, info={})
-        self.assertEqual(p._available_fn_ids, {0, 1})
+        self.assertIsNone(p._available_fn_ids)
 
     def test_mask_applied_after_on_episode_start(self):
         """The mask set by on_episode_start is honoured by __call__."""
@@ -673,6 +673,51 @@ class TestSC2MultiHeadLinearPolicyAvailableMask(unittest.TestCase):
         p._available_fn_ids = set()
         act = p(obs)
         self.assertEqual(int(act[0]), 0)
+
+
+# ---------------------------------------------------------------------------
+# SC2GeneticPolicy — race forwarding via _construct_or_resume
+# ---------------------------------------------------------------------------
+
+class TestSC2GeneticPolicyRaceForwarding(unittest.TestCase):
+    """_construct_or_resume must read _agent_race from policy_params."""
+
+    def test_construct_or_resume_reads_terran_race(self):
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "terran")  # noqa: SLF001
+
+    def test_construct_or_resume_defaults_to_random_race(self):
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "random")  # noqa: SLF001
+
+    def test_make_member_propagates_race(self):
+        """_make_member must pass race to constructed SC2MultiHeadLinearPolicy."""
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "zerg"},
+            re_initialize=True,
+        )
+        # _population is filled by initialize_random(); each member must carry the race
+        for ind in policy._population:  # noqa: SLF001
+            self.assertEqual(ind._race, "zerg")  # noqa: SLF001
 
 
 if __name__ == "__main__":

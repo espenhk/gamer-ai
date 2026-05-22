@@ -19,6 +19,117 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 
 
+
+
+
+
+
+
+
+
+
+---
+
+## [0.2.13] - 2026-05-22
+
+---
+
+## [0.2.12] - 2026-05-22
+
+---
+
+## [0.2.11] - 2026-05-22
+
+---
+
+## [0.2.10] - 2026-05-21
+
+---
+
+## [0.2.9] - 2026-05-21
+
+---
+
+## [0.2.8] - 2026-05-21
+
+---
+
+## [0.2.7] - 2026-05-21
+
+---
+
+## [0.2.6] - 2026-05-21
+
+---
+
+## [0.2.5] - 2026-05-21
+
+---
+
+## [0.2.4] - 2026-05-21
+
+---
+
+## [0.2.3] - 2026-05-21
+
+### Added
+- **Rocket League integration** (`--game rocket_league`): single-agent RL via
+  [RLGym](https://rlgym.org/).  142-dim observation (car/ball + 2 teammate
+  cars + 3 opponent cars + relative features + boost pad availability),
+  8-dim continuous action space
+  (throttle/steer/pitch/yaw/roll/jump/boost/handbrake), and a dense+sparse
+  reward calculator (velocity-to-ball, ball touch, goal scored/conceded).
+  Requires Rocket League (commercial, Windows) + Bakkesmod + `pip install rlgym`.
+  See `games/rocket_league/README.md` for install instructions.
+  New reward config keys: `vel_to_ball_weight`, `boost_weight`, `touch_bonus`,
+  `goal_weight`, `concede_penalty`.  New training param: `tick_skip`.
+- **Rocket League grid-search templates**: added one tuned template per currently
+  supported policy type (`hill_climbing`, `neural_net`, `epsilon_greedy`,
+  `mcts`, `genetic`) under `games/rocket_league/config/`.
+
+### Fixed
+- **Rocket League tick-skip wiring**: `tick_skip` now propagates from
+  `training_params.yaml` through `RocketLeagueAdapter` into
+  `rlgym.make(tick_skip=...)`, so grid-search/template values affect simulator
+  stepping as intended.
+- **Rocket League reward scaling**: `vel_towards_ball` no longer re-scales
+  observation entries in `RocketLeagueEnv._compute_vel_towards_ball()`, avoiding
+  inflated dense reward from double-scaling.
+- **Rocket League team support**: env now uses `team_size=3` and observation
+  slots for 3 opponents + 2 friendlies, enabling 3v3-state training inputs.
+- **iRacing live action injection** (`games/iracing/controller.py`):
+  Phase 2 action injection via vJoy virtual joystick.  New
+  `action_mode` training param (`"telemetry_only"` default,
+  `"live"` for vJoy injection).  `VJoyController` maps
+  steer/throttle/brake to vJoy axes; `NullController` preserves
+  existing telemetry-only behaviour.  `pyvjoy` is an optional
+  dependency (only required for `action_mode: live`).
+
+---
+
+## [0.2.2] - 2026-05-21
+
+- **TMNF bug fix:** Finish-detection threshold raised from 0.95 → 0.98 so that
+  near-end track sections (e.g. the drop at the end of A03) no longer trigger a
+  false finish before the physical finish line is reached.
+
+---
+
+## [0.2.1] - 2026-05-21
+
+### Added
+- **iRacing telemetry integration** (`games/iracing/`): Phase 1 read-only
+  telemetry via `pyirsdk`.  21-dim observation (speed, RPM, gear, fuel,
+  tire loads/temps, brake bias, lap times, …), standard steer/accel/brake
+  action space, progress + centerline + off-track reward.  Registered as
+  `--game iracing` in `main.py` and `grid_search.py`.
+
+### Fixed
+- **SC2 action names**: Renamed `select_point_screen` → `select_point`
+  and `select_rect_screen` → `select_rect` in `FUNCTION_IDS` to match
+  actual PySC2 function names.  Fixes `KeyError` in integration tests
+  when epsilon-greedy or other policies select these actions.
+
 ---
 
 ## [0.2.0] - 2026-05-21

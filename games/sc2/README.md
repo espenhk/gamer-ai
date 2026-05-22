@@ -323,7 +323,7 @@ Tabular / discrete-output policies (`epsilon_greedy`, `mcts`, `neural_dqn`, `rei
 - Row 1: `select_army` (also the warmup action; auto-issued when a Move_screen is blocked, see below)
 - Rows 2…65: `Move_screen` to each cell centre of an 8×8 grid covering the screen at one-cell-per-8-pixels granularity
 
-When the policy emits a unit-targeted action (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) but no army is selected, `SC2Client._action_to_call` substitutes `select_army` instead of silently no-op'ing (issues #121, #124). The next step then has units selected and the move actually executes.
+When the policy emits any selection-required action (for example move/attack/build/train) while zero units are selected, `SC2Client._action_to_call` substitutes `select_army` instead of silently no-op'ing (issues #121, #124, #286). The next step then has units selected, so the requested command can execute on the following step.
 
 ---
 

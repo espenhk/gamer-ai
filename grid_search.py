@@ -36,6 +36,9 @@ import uuid as _uuid
 
 import yaml
 
+from framework.env_loader import load_dotenv
+load_dotenv()
+
 from distributed.protocol import ComboSpec
 from distributed.coordinator import Coordinator
 
@@ -145,7 +148,19 @@ _ABBREV = {
     "attack_bonus": "atb",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
+    "off_track_penalty": "otp",
+    "lap_time_improvement_bonus": "ltib",
     "lidar_wall_weight": "lww",
+    # rocket_league reward params
+    "vel_to_ball_weight": "vtb",
+    "boost_weight": "bw",
+    "touch_bonus": "tb",
+    "goal_weight": "gw",
+    "concede_penalty": "cp",
+    # rocket_league training params
+    "tick_skip": "ts",
+    # iracing params
+    "action_mode": "actm",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
     "curiosity_weight": "cwgt",
@@ -695,7 +710,7 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default=None,
-        choices=["tmnf", "beamng", "car_racing", "torcs", "sc2"],
+        choices=["tmnf", "beamng", "car_racing", "torcs", "sc2", "rocket_league", "iracing"],
         help="Override game (default: from YAML 'game:' field, or tmnf)",
     )
     parser.add_argument(

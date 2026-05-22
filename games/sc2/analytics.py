@@ -863,7 +863,7 @@ def _append_sc2_grid_summary_section(summary_dir: str) -> None:
     lines = ["\n## SC2-specific cross-run charts\n\n"]
     lines.extend(f"![{alt}]({filename})\n\n" for filename, alt in present)
     with open(summary_path, "a", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write("".join(lines).rstrip("\n") + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1087,7 +1087,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
 
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.writelines(sections)
+        f.write("".join(sections).rstrip("\n") + "\n")
 
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)

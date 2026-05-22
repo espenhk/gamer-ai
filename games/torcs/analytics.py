@@ -437,7 +437,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
 
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.writelines(sections)
+        f.write("".join(sections).rstrip("\n") + "\n")
 
     n = len(os.listdir(results_dir))
     logger.info("Saved %d file(s) to %s/ (report: results.md)", n, results_dir)

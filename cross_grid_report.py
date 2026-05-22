@@ -387,7 +387,7 @@ def write_cross_grid_summary(
 
     report_path = os.path.join(output_dir, "summary.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write("".join(lines).rstrip("\n") + "\n")
     logger.info("Saved cross-grid summary → %s", report_path)
     return report_path
 

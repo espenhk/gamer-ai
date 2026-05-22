@@ -541,7 +541,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
 
     report_path = os.path.join(results_dir, "results.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.writelines(sections)
+        f.write("".join(sections).rstrip("\n") + "\n")
 
     # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
     plt.close("all")

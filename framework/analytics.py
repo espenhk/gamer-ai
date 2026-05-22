@@ -1011,7 +1011,7 @@ def save_grid_summary(
 
     report_path = os.path.join(summary_dir, "summary.md")
     with open(report_path, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write("".join(lines).rstrip("\n") + "\n")
     # Eagerly close all figures to prevent tkinter GC crashes from daemon threads
     if _HAS_MPL:
         plt.close("all")

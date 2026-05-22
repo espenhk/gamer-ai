@@ -265,5 +265,54 @@ class TestSC2CMAESPolicySerialisation(unittest.TestCase):
         np.testing.assert_array_equal(p._mean, np.zeros(p._n))
 
 
+# ---------------------------------------------------------------------------
+# SC2CMAESPolicy — race forwarding via _construct_or_resume
+# ---------------------------------------------------------------------------
+
+class TestSC2CMAESPolicyRaceForwarding(unittest.TestCase):
+    """_construct_or_resume must read _agent_race from policy_params."""
+
+    def test_construct_or_resume_reads_terran_race(self):
+        from games.sc2.actions import fn_ids_for_race
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "terran")  # noqa: SLF001
+        self.assertEqual(policy._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
+
+    def test_construct_or_resume_defaults_to_random(self):
+        from games.sc2.actions import fn_ids_for_race
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "random")  # noqa: SLF001
+        self.assertEqual(policy._race_fn_ids, fn_ids_for_race("random"))  # noqa: SLF001
+
+    def test_terran_race_blocks_zerg_in_fn_mask(self):
+        """With race='terran', _build_fn_mask must return False for Zerg-only fn_ids."""
+        from games.sc2.actions import _ZERG_FN_IDS
+        policy = SC2CMAESPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        mask = policy._build_fn_mask(None)  # noqa: SLF001
+        for i in _ZERG_FN_IDS:
+            self.assertFalse(mask[i], f"fn_idx={i} should be masked for terran")
+
+
 if __name__ == "__main__":
     unittest.main()

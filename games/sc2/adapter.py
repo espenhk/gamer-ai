@@ -104,6 +104,16 @@ class SC2Adapter:
         # All other SC2 policies operate on flat np.ndarray observations; if
         # the user accidentally left non-empty screen_layers in their config
         # we silently ignore them to avoid crashing those policies.
+        # Inject private policy params (skipped by VALID_POLICY_PARAMS validation
+        # because keys that start with '_' are excluded from the check).
+        # _agent_race is shared by all SC2 policies so their permanent race mask
+        # is constructed correctly.  _n_channels is CNN-only.
+        pp = training_params.get("policy_params")
+        if not isinstance(pp, dict):
+            pp = {}
+            training_params["policy_params"] = pp
+        pp["_agent_race"] = training_params.get("agent_race", "random")
+
         if policy_type == "sc2_cnn":
             screen_layers  = training_params.get("screen_layers") or []
             minimap_layers = training_params.get("minimap_layers") or []
@@ -115,14 +125,6 @@ class SC2Adapter:
                     "sc2_cnn requires at least one spatial layer.  "
                     "Set screen_layers in training_params.yaml."
                 )
-            # The CNN policy needs the spatial channel count at construction
-            # time, but train_rl only forwards policy_params to the registry's
-            # make().  Inject it under a private key (ignored by param
-            # validation, which skips leading-underscore keys).
-            pp = training_params.get("policy_params")
-            if not isinstance(pp, dict):
-                pp = {}
-                training_params["policy_params"] = pp
             pp["_n_channels"] = n_channels
         else:
             screen_layers  = []

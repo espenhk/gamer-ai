@@ -81,5 +81,70 @@ class TestSC2NeuralNetPolicy(unittest.TestCase):
         self.assertIsNone(p._available_fn_ids)  # noqa: SLF001 - white-box test
 
 
+# ---------------------------------------------------------------------------
+# Race mask tests
+# ---------------------------------------------------------------------------
+
+class TestSC2NeuralNetPolicyRaceMask(unittest.TestCase):
+    """Permanent race mask — wrong-race actions must never be projected."""
+
+    def test_default_race_allows_all_fn_ids(self):
+        from games.sc2.actions import fn_ids_for_race
+        p = _make_policy()
+        self.assertEqual(p._race_fn_ids, fn_ids_for_race("random"))  # noqa: SLF001
+
+    def test_terran_race_fn_ids_excludes_zerg(self):
+        from games.sc2.actions import fn_ids_for_race
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        self.assertEqual(p._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
+        # Zerg-only fn_ids (82-117) must NOT appear in Terran race set.
+        for i in range(82, 118):
+            self.assertNotIn(i, p._race_fn_ids)  # noqa: SLF001
+
+    def test_project_fn_idx_terran_blocks_zerg(self):
+        """_project_fn_idx snaps to nearest Terran fn_idx when target is Zerg-only."""
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        # sigmoid(10.0) ≈ 1.0 → fn_raw ≈ 117 (Zerg-only range).
+        # The nearest allowed Terran fn_idx is 49 (highest in _TERRAN_FN_IDS).
+        fn_idx = p._project_fn_idx(10.0)  # noqa: SLF001 - white-box test
+        self.assertNotIn(fn_idx, range(82, 118))
+
+    def test_project_fn_idx_intersection_with_available(self):
+        """Race mask AND per-step mask are both applied."""
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        # Allow only fn_idx 0 (no_op) — which is in both Terran race and available.
+        p._available_fn_ids = {0}  # noqa: SLF001
+        fn_idx = p._project_fn_idx(10.0)
+        self.assertEqual(fn_idx, 0)
+
+    def test_to_cfg_includes_race(self):
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        self.assertEqual(p.to_cfg()["race"], "terran")
+
+    def test_from_cfg_restores_race(self):
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        p2 = SC2NeuralNetPolicy.from_cfg(p.to_cfg(), SC2_MINIGAME_OBS_SPEC)
+        self.assertEqual(p2._race, "terran")  # noqa: SLF001
+        self.assertEqual(p2._race_fn_ids, p._race_fn_ids)  # noqa: SLF001
+
+    def test_mutated_preserves_race(self):
+        p = SC2NeuralNetPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="protoss")
+        m = p.mutated(scale=0.1)
+        self.assertEqual(m._race, "protoss")  # noqa: SLF001
+        self.assertEqual(m._race_fn_ids, p._race_fn_ids)  # noqa: SLF001
+
+    def test_construct_or_resume_reads_agent_race(self):
+        p = SC2NeuralNetPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/path.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        self.assertEqual(p._race, "terran")  # noqa: SLF001
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -675,5 +675,50 @@ class TestSC2MultiHeadLinearPolicyAvailableMask(unittest.TestCase):
         self.assertEqual(int(act[0]), 0)
 
 
+# ---------------------------------------------------------------------------
+# SC2GeneticPolicy — race forwarding via _construct_or_resume
+# ---------------------------------------------------------------------------
+
+class TestSC2GeneticPolicyRaceForwarding(unittest.TestCase):
+    """_construct_or_resume must read _agent_race from policy_params."""
+
+    def test_construct_or_resume_reads_terran_race(self):
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "terran")  # noqa: SLF001
+
+    def test_construct_or_resume_defaults_to_random_race(self):
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={},
+            re_initialize=True,
+        )
+        self.assertEqual(policy._race, "random")  # noqa: SLF001
+
+    def test_make_member_propagates_race(self):
+        """_make_member must pass race to constructed SC2MultiHeadLinearPolicy."""
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+        policy = SC2GeneticPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/weights.yaml",
+            policy_params={"_agent_race": "zerg"},
+            re_initialize=True,
+        )
+        # _population is filled by initialize_random(); each member must carry the race
+        for ind in policy._population:  # noqa: SLF001
+            self.assertEqual(ind._race, "zerg")  # noqa: SLF001
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -484,5 +484,61 @@ class TestSC2REINFORCESerialization(unittest.TestCase):
             os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Race mask tests
+# ---------------------------------------------------------------------------
+
+class TestSC2REINFORCERaceMask(unittest.TestCase):
+    """Permanent race filter via overridden _build_fn_mask."""
+
+    def test_default_race_allows_all_fn_ids(self):
+        p = _make_policy()
+        mask = p._build_fn_mask(None)  # noqa: SLF001 - white-box test
+        # All function IDs should be unmasked for race="random".
+        self.assertTrue(mask.all())
+
+    def test_terran_race_blocks_zerg_fn_ids(self):
+        from games.sc2.actions import _ZERG_FN_IDS
+        p = SC2REINFORCEPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        mask = p._build_fn_mask(None)  # noqa: SLF001
+        for i in _ZERG_FN_IDS:
+            self.assertFalse(mask[i], f"fn_idx={i} should be masked for terran")
+
+    def test_terran_race_allows_terran_fn_ids(self):
+        from games.sc2.actions import _TERRAN_FN_IDS
+        p = SC2REINFORCEPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        mask = p._build_fn_mask(None)  # noqa: SLF001
+        for i in _TERRAN_FN_IDS:
+            self.assertTrue(mask[i], f"fn_idx={i} should be allowed for terran")
+
+    def test_race_and_available_combined(self):
+        """Race mask and per-step mask are both applied."""
+        p = SC2REINFORCEPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        # Only fn_idx=0 available per step; 0 is also in Terran race.
+        mask = p._build_fn_mask({0})  # noqa: SLF001
+        self.assertTrue(mask[0])
+        for i in range(1, N_FUNCTION_IDS):
+            self.assertFalse(mask[i])
+
+    def test_from_cfg_restores_race(self):
+        p = SC2REINFORCEPolicy(obs_spec=SC2_MINIGAME_OBS_SPEC, race="terran")
+        cfg = p.to_cfg()
+        p2 = SC2REINFORCEPolicy.from_cfg(cfg, SC2_MINIGAME_OBS_SPEC)
+        from games.sc2.actions import fn_ids_for_race
+        self.assertEqual(p2._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
+
+    def test_construct_or_resume_reads_agent_race(self):
+        p = SC2REINFORCEPolicy._construct_or_resume(
+            obs_spec=SC2_MINIGAME_OBS_SPEC,
+            head_names=["fn_idx", "x", "y", "queue"],
+            discrete_actions=None,
+            weights_file="/nonexistent/path.yaml",
+            policy_params={"_agent_race": "terran"},
+            re_initialize=True,
+        )
+        from games.sc2.actions import fn_ids_for_race
+        self.assertEqual(p._race_fn_ids, fn_ids_for_race("terran"))  # noqa: SLF001
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

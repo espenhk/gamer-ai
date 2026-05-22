@@ -35,7 +35,7 @@ import numpy as np
 
 from framework.obs_spec import ObsSpec
 from framework.policies import BasePolicy, register_policy, trainer_state_path
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS, fn_ids_for_race
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +140,14 @@ class SC2CNNModel:
         n_channels: int,
         obs_spec: ObsSpec,
         seed: int | None = None,
+        race: str = "random",
     ) -> None:
         self._n_channels = n_channels
         self._obs_spec   = obs_spec
         self._obs_dim    = obs_spec.dim
         self._scales     = obs_spec.scales
+        self._race: str = race
+        self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
 
         self._pool_flat = self._CONV2_OUT * self._POOL_H * self._POOL_W  # 1024
         fc_in           = self._pool_flat + self._obs_dim
@@ -204,6 +207,8 @@ class SC2CNNModel:
         obj._obs_dim    = self._obs_dim
         obj._scales     = self._scales
         obj._pool_flat  = self._pool_flat
+        obj._race       = self._race
+        obj._race_fn_ids = self._race_fn_ids
 
         C, k = self._n_channels, self._KERNEL
         fc_in = self._pool_flat + self._obs_dim
@@ -275,12 +280,14 @@ class SC2CNNModel:
                 "'flat' and 'spatial'.  Got: " + type(obs).__name__
             )
         fn_scores, sp_scores = self.forward(spatial, flat_obs)
-        if self._available_fn_ids is not None:
-            for i in range(_N_FUNCS):
-                if i not in self._available_fn_ids:
-                    fn_scores[i] = -np.inf
-            if not np.isfinite(fn_scores).any():
-                fn_scores[0] = 0.0
+        # Apply permanent race mask, then per-step availability mask.
+        for i in range(_N_FUNCS):
+            if i not in self._race_fn_ids:
+                fn_scores[i] = -np.inf
+            elif self._available_fn_ids is not None and i not in self._available_fn_ids:
+                fn_scores[i] = -np.inf
+        if not np.isfinite(fn_scores).any():
+            fn_scores[0] = 0.0
         fn_idx   = int(np.argmax(fn_scores))
         cell_idx = int(np.argmax(sp_scores))
         x, y     = _GRID_XY[cell_idx]
@@ -356,6 +363,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         initial_sigma: float = 0.01,
         eval_episodes: int = 1,
         seed: int | None = None,
+        race: str = "random",
     ) -> None:
         self._lam           = int(population_size)
         self._sigma         = float(initial_sigma)
@@ -363,7 +371,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         self._obs_spec      = obs_spec
         self._rng           = np.random.default_rng(seed)
 
-        self._template = SC2CNNModel(n_channels=n_channels, obs_spec=obs_spec, seed=seed)
+        self._template = SC2CNNModel(n_channels=n_channels, obs_spec=obs_spec, seed=seed, race=race)
         self._flat_dim = self._template.flat_dim
         self._mean     = self._template.to_flat().astype(np.float64)
 
@@ -560,6 +568,7 @@ class SC2CNNEvolutionPolicy(BasePolicy):
             population_size = policy_params.get("population_size", 20),
             initial_sigma   = policy_params.get("initial_sigma", 0.01),
             eval_episodes   = policy_params.get("eval_episodes", 1),
+            race            = policy_params.get("_agent_race", "random"),
         )
         champion_path = weights_file.replace(".yaml", ".npz")
         if os.path.exists(champion_path) and not re_initialize:

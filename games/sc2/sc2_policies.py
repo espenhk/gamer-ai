@@ -483,12 +483,13 @@ class SC2GeneticPolicy(GeneticPolicy):
             mutation_scale  = float(pp.get("mutation_scale", 0.1)),
             mutation_share  = float(pp.get("mutation_share", 0.3)),
             eval_episodes   = int(pp.get("eval_episodes",    2)),
+            race            = pp.get("_agent_race", "random"),
         )
         if os.path.exists(weights_file) and not re_initialize:
             policy.initialize_from_file(weights_file)
         else:
             policy.initialize_random()
-            logger.info("[SC2GeneticPolicy] random population of %d", policy._lam)
+            logger.info("[SC2GeneticPolicy] random population of %d", policy._pop_size)
         return policy
 
 
@@ -523,6 +524,7 @@ class SC2NeuralNetPolicy(BasePolicy):
         self,
         obs_spec: ObsSpec,
         hidden_sizes: list[int] | None = None,
+        race: str = "random",
     ) -> None:
         self._obs_spec = obs_spec
         self._action_dim = 4
@@ -539,6 +541,8 @@ class SC2NeuralNetPolicy(BasePolicy):
             self._weights.append(w)
             self._biases.append(b)
 
+        self._race: str = race
+        self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
         self._available_fn_ids: set[int] | None = None
 
     @classmethod
@@ -549,20 +553,24 @@ class SC2NeuralNetPolicy(BasePolicy):
         obj._hidden = cfg.get("hidden_sizes", [16, 16])
         obj._weights = [np.array(w, dtype=np.float32) for w in cfg["weights"]]
         obj._biases = [np.array(b, dtype=np.float32) for b in cfg["biases"]]
+        race = cfg.get("race", "random")
+        obj._race = race
+        obj._race_fn_ids = fn_ids_for_race(race)
         obj._available_fn_ids = None
         return obj
 
     def _project_fn_idx(self, fn_scalar: float) -> int:
         fn_raw = _sigmoid(fn_scalar) * (N_FUNCTION_IDS - 1)
         fn_idx = int(np.clip(fn_raw, 0.0, float(N_FUNCTION_IDS - 1)))
-        if self._available_fn_ids is None:
-            return fn_idx
-        available = sorted(i for i in self._available_fn_ids if 0 <= i < N_FUNCTION_IDS)
-        if not available:
+        # Intersect permanent race mask with per-step availability.
+        effective: frozenset[int] | set[int] = self._race_fn_ids
+        if self._available_fn_ids is not None:
+            effective = self._race_fn_ids & self._available_fn_ids
+        if not effective:
             return 0
-        if fn_idx in self._available_fn_ids:
+        if fn_idx in effective:
             return fn_idx
-        return min(available, key=lambda i: abs(i - fn_raw))
+        return min(effective, key=lambda i: (abs(i - fn_raw), i))
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
         x = (obs / self._obs_spec.scales).astype(np.float32)
@@ -583,6 +591,8 @@ class SC2NeuralNetPolicy(BasePolicy):
         obj._obs_spec = self._obs_spec
         obj._action_dim = self._action_dim
         obj._hidden = list(self._hidden)
+        obj._race = self._race
+        obj._race_fn_ids = self._race_fn_ids
         obj._weights = [
             w + rng.normal(0.0, scale, w.shape).astype(np.float32)
             for w in self._weights
@@ -601,6 +611,7 @@ class SC2NeuralNetPolicy(BasePolicy):
             "policy_type": "sc2_neural_net",
             "hidden_sizes": self._hidden,
             "action_dim": self._action_dim,
+            "race": self._race,
             "weights": [w.tolist() for w in self._weights],
             "biases": [b.tolist() for b in self._biases],
         }
@@ -634,6 +645,7 @@ class SC2NeuralNetPolicy(BasePolicy):
         return cls(
             obs_spec=obs_spec,
             hidden_sizes=policy_params.get("hidden_sizes", [16, 16]),
+            race=policy_params.get("_agent_race", "random"),
         )
 
 
@@ -654,6 +666,19 @@ def _sc2_available_actions_mask_for_n_actions(n_actions: int):
         if available is None:
             return np.ones(n_actions, dtype=bool)
         return build_available_actions_mask(set(available), n_actions)
+
+    return _mask_fn
+
+
+def _sc2_race_available_actions_mask_fn(race_fn_ids: frozenset, n_actions: int):
+    """Available-actions mask that combines permanent race filter with per-step info."""
+    def _mask_fn(info: dict) -> np.ndarray:
+        available = info.get("available_fn_ids")
+        if available is None:
+            effective: frozenset | set = race_fn_ids
+        else:
+            effective = race_fn_ids & set(available)
+        return build_available_actions_mask(effective, n_actions)
 
     return _mask_fn
 
@@ -691,11 +716,14 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
         epsilon_decay_steps: int = 20_000,
         gamma: float = 0.995,
         available_actions_fn=None,
+        race: str = "random",
         seed: int | None = None,
     ) -> None:
+        _da = DISCRETE_ACTIONS if discrete_actions is None else discrete_actions
+        _n_actions = len(_da)
         super().__init__(
             obs_spec=obs_spec,
-            discrete_actions=DISCRETE_ACTIONS if discrete_actions is None else discrete_actions,
+            discrete_actions=_da,
             hidden_sizes=hidden_sizes,
             replay_buffer_size=replay_buffer_size,
             batch_size=batch_size,
@@ -707,28 +735,34 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
             epsilon_decay_steps=epsilon_decay_steps,
             gamma=gamma,
             available_actions_fn=(
-                _sc2_available_actions_mask_for_n_actions(
-                    len(DISCRETE_ACTIONS if discrete_actions is None else discrete_actions)
-                )
+                _sc2_race_available_actions_mask_fn(fn_ids_for_race(race), _n_actions)
                 if available_actions_fn is None
                 else available_actions_fn
             ),
             seed=seed,
         )
+        self._race = race
 
     def to_cfg(self) -> dict:
         cfg = super().to_cfg()
         cfg["policy_type"] = "sc2_neural_dqn"
+        cfg["race"] = self._race
         return cfg
 
     @classmethod
     def from_cfg(cls, cfg: dict, obs_spec: ObsSpec) -> "SC2NeuralDQNPolicy":
-        return super().from_cfg(
+        race = cfg.get("race", "random")
+        policy = super().from_cfg(
             cfg,
             obs_spec=obs_spec,
             discrete_actions=DISCRETE_ACTIONS,
-            available_actions_fn=_sc2_available_actions_mask,
+            available_actions_fn=_sc2_race_available_actions_mask_fn(
+                fn_ids_for_race(race),
+                len(DISCRETE_ACTIONS),
+            ),
         )
+        policy._race = race
+        return policy
 
     def on_episode_start(self, **kwargs) -> None:
         info = kwargs.get("info") or {}
@@ -771,6 +805,7 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
             epsilon_end=pp.get("epsilon_end", 0.05),
             epsilon_decay_steps=pp.get("epsilon_decay_steps", 20_000),
             gamma=pp.get("gamma", 0.995),
+            race=pp.get("_agent_race", "random"),
         )
 
 
@@ -838,6 +873,7 @@ class SC2REINFORCEPolicy(_FrameworkTwoHeadREINFORCE):
         entropy_coeff: float = 0.05,
         baseline: str = "running_mean",
         seed: int | None = None,
+        race: str = "random",
     ) -> None:
         super().__init__(
             obs_spec             = obs_spec,
@@ -852,10 +888,26 @@ class SC2REINFORCEPolicy(_FrameworkTwoHeadREINFORCE):
             available_fn_ids_fn  = _sc2_available_fn_ids_fn,
             seed                 = seed,
         )
+        self._race = race
+        # Permanent race mask — applied on top of the per-step available_fn_ids.
+        self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
+
+    def _build_fn_mask(self, available_fn_ids: "set[int] | None") -> np.ndarray:
+        """Mask combining the permanent race filter and per-step availability."""
+        mask = np.ones(N_FUNCTION_IDS, dtype=bool)
+        for i in range(N_FUNCTION_IDS):
+            if i not in self._race_fn_ids:
+                mask[i] = False
+            elif available_fn_ids is not None and i not in available_fn_ids:
+                mask[i] = False
+        if not mask.any():
+            mask[0] = True
+        return mask
 
     def to_cfg(self) -> dict:
         cfg = super().to_cfg()
         cfg["policy_type"] = "sc2_reinforce"
+        cfg["race"] = self._race
         return cfg
 
     @classmethod
@@ -868,6 +920,7 @@ class SC2REINFORCEPolicy(_FrameworkTwoHeadREINFORCE):
             gamma         = cfg.get("gamma",         0.995),
             entropy_coeff = cfg.get("entropy_coeff", 0.05),
             baseline      = cfg.get("baseline",      "running_mean"),
+            race          = cfg.get("race",          "random"),
         )
         if "trunk_weights" in cfg:
             obj._trunk_w = [np.array(w, dtype=np.float32) for w in cfg["trunk_weights"]]
@@ -906,6 +959,7 @@ class SC2REINFORCEPolicy(_FrameworkTwoHeadREINFORCE):
             gamma         = pp.get("gamma",         0.995),
             entropy_coeff = pp.get("entropy_coeff", 0.05),
             baseline      = pp.get("baseline",      "running_mean"),
+            race          = pp.get("_agent_race",   "random"),
         )
 
 
@@ -1029,6 +1083,7 @@ class SC2CMAESPolicy(_FrameworkCMAES):
             population_size = pp.get("population_size", 30),
             initial_sigma   = pp.get("initial_sigma",   0.5),
             eval_episodes   = pp.get("eval_episodes",   2),
+            race            = pp.get("_agent_race",     "random"),
         )
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:
@@ -1400,6 +1455,7 @@ class SC2LSTMEvolutionPolicy(_FrameworkLSTMEvo):
             population_size  = pp.get("population_size",  20),
             initial_sigma    = pp.get("initial_sigma",    0.03),
             reset_on_episode = pp.get("reset_on_episode", True),
+            race             = pp.get("_agent_race",      "random"),
         )
         if os.path.exists(weights_file) and not re_initialize:
             with open(weights_file) as _f:

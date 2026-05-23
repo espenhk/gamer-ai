@@ -1,0 +1,9 @@
+track: a03_centerline
+speed: 10.0
+n_sims: 20
+in_game_episode_s: 90.0
+probe_s: 8.0
+n_lidar_rays: 8
+policy_type: cmaes
+population_size: 40
+initial_sigma: 0.1

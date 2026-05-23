@@ -1,0 +1,21 @@
+map_name: BuildMarines
+obs_spec_preset: rich
+enable_belief: true
+step_mul: 4
+in_game_episode_s: 600.0
+screen_size: 64
+minimap_size: 64
+max_apm: 300
+agent_race: terran
+n_sims: 2000
+policy_type: mcts
+mcts_c: 2.0
+alpha: 0.05
+idle_bonus: -0.5
+idle_penalty: 0.5
+move_exploration_bonus: 0.005
+damage_taken_penalty: -0.1
+policy_params:
+  n_bins: 3
+  gamma: 0.99
+live_gui: true

@@ -31,7 +31,8 @@ training_params:
   policy_type: neural_dqn
 
   # --- Search axes ---
-  learning_rate: [0.0005, 0.001, 0.01, 0.1]
+  #learning_rate: [0.01, 0.1, 0.001]
+  learning_rate: [0.01, 0.1]
   batch_size: 64
   target_update_freq: [100, 200]
   epsilon_decay_steps: [2000, 5000]

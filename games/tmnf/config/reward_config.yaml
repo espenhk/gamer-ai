@@ -53,10 +53,10 @@ centerline_path: tracks/a03_centerline.npy
 #   rnd  — Random Network Distillation (Burda et al. 2018)
 #          predictor vs frozen-random target error; cheaper, no action input.
 # Set curiosity_type to "none" (or curiosity_weight to 0) to disable.
-curiosity_type: none           # "none" | "icm" | "rnd"
-curiosity_weight: 0.0          # scale of the intrinsic reward
+curiosity_type: icm           # "none" | "icm" | "rnd"
+curiosity_weight: 0.01          # scale of the intrinsic reward
 curiosity_feature_dim: 8       # internal feature embedding dimension
 curiosity_hidden_size: 32      # hidden layer width for ICM/RND nets
 curiosity_lr: 0.001            # online SGD step size for the curiosity nets
 curiosity_beta: 0.2            # ICM only: forward vs inverse loss weighting
-curiosity_seed: 0              # RNG seed for the random init
+curiosity_seed: 42              # RNG seed for the random init

@@ -47,7 +47,7 @@ training_params:
   enable_belief: true      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: [0.0005, 0.001, 0.01]
   epsilon_decay_steps: [3000, 8000]
-  hidden_sizes: [[64, 64], [16, 256, 256, 256, 16], [16, 1024, 1024, 1024, 1024, 16]]
+  hidden_sizes: [64, 64]
   policy_params:
     replay_buffer_size: 15000
     batch_size: 64

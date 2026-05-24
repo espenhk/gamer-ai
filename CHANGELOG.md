@@ -17,7 +17,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Documentation
 
+- Add `docs/research/competing-projects.md` — a verified survey of competing
+  open-source RL-for-games projects, prioritising TMNF (`tmrl`, Linesight,
+  `TrackMania_AI`, TMAI, ShubhamGajjar's IQN agent, MOSEAC, TMInterface, …)
+  and SC2
+  (AlphaStar, PySC2/SC2LE, `reaver`, `pysc2-examples`), plus a lighter pass
+  over general libraries (Stable-Baselines3, CleanRL, RLlib, Gymnasium, ALE,
+  MineRL/BASALT, RLGym). Includes a master comparison table and a "takeaways
+  for gamer-ai" section cross-referenced to #327/#328 (#329).
 
 
 

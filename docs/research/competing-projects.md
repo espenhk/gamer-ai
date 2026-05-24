@@ -285,28 +285,62 @@ StarCraft II using multi-agent reinforcement learning").
 ### PySC2 / SC2LE (DeepMind) — the environment we build on
 `google-deepmind/pysc2` (**Apache-2.0**, ~8.3k★) is DeepMind's Python wrapper
 around Blizzard's SC2 ML API — the foundation of our SC2 integration. It
-defines the **feature-layer observation API**, the **function-id + args action
-API**, ships the **7 minigames** and scripted baseline agents, and accompanies
-the SC2LE paper ("StarCraft II: A New Challenge for RL", arXiv 1708.04782). The
-published **DeepMind baseline minigame scores** are the natural benchmark for
-our SC2 minigame runs (see table below). v4.0 (2022) added the C++ converters
-used by AlphaStar; actively maintained.
+defines the **feature-layer observation API** (minimap + screen, used at 64×64),
+the **function-id + args action API**, ships the **7 minigames** and scripted
+baseline agents, and accompanies the SC2LE paper ("StarCraft II: A New Challenge
+for RL", arXiv:1708.04782). v4.0 (2022) added the C++ converters used by
+AlphaStar; actively maintained.
 
-**Published minigame baselines** (from the SC2LE paper, as reproduced in the
-reaver README):
+Design details confirmed from the SC2LE paper, several of which our SC2
+integration mirrors:
+- **Action space** is an atomic *compound function* `(function-id, args)` — e.g.
+  `move_screen(queued, screen)`, `select_rect(...)` — over ~300 function ids
+  with up to 13 argument types; **available-action masking** filters illegal
+  actions each step. Policies factor **auto-regressively**
+  (π(a|s) = ∏ π(aˡ|a^<l, s)); the baselines simplify to independent heads. This
+  is the lineage of both AlphaStar's action head and our `[fn_idx, x, y, queue]`.
+- **Two reward structures**: ternary win/0/loss, and the denser player-centric
+  **"Blizzard score"** (running sum of resources + upgrades + live/built units) —
+  what our `score_weight` tracks.
+- **Baselines**: trained with **A3C**, 64 async threads, 100 hyperparameter runs
+  each, **600M steps**, acting every 8 game frames (≈180 APM). Three
+  architectures — **Atari-net**, **FullyConv** (resolution-preserving conv for
+  spatial actions), **FullyConv-LSTM** — plus random-policy / random-search.
+- **Full 1v1 game** (Abyssal Reef LE, TvT, 30-min cap): **no agent won a single
+  game against the easiest built-in AI**, under either reward — Blizzard-score
+  agents collapsed to trivial "keep mining" behaviour. The full game is
+  intractable for off-the-shelf RL without extra signal (human replays).
+- **A `raw` API** (full list of visible units with attributes, no camera) also
+  exists; the paper flags it as **"cheating"** versus humans and does not use it
+  for the baseline agents. (AlphaStar later used the raw interface.)
 
-| Minigame | DeepMind SC2LE | reaver (A2C) | Human expert |
-|---|---|---|---|
-| MoveToBeacon | 26 | 26.3 | 28 |
-| CollectMineralShards | 103 | 102.8 | 177 |
-| DefeatRoaches | 100 | 72.5 | 215 |
+The **published baseline minigame scores** are the natural benchmark for our SC2
+minigame runs. Reproduced from SC2LE Table 1 (per-episode score; human/random
+rows are MEAN, agent columns are **best mean** across 100 hyperparameter runs):
+
+| Minigame | Random | Rand-search | DeepMind human | GrandMaster | Atari-net | FullyConv | FullyConv-LSTM |
+|---|---|---|---|---|---|---|---|
+| MoveToBeacon | 1 | 25 | 26 | 28 | 25 | 26 | 26 |
+| CollectMineralShards | 17 | 32 | 133 | 177 | 96 | 103 | 104 |
+| FindAndDefeatZerglings | 4 | 21 | 46 | 61 | 49 | 45 | 44 |
+| DefeatRoaches | 1 | 51 | 41 | 215 | 101 | 100 | 98 |
+| DefeatZerglingsAndBanelings | 23 | 55 | 729 | 727 | 81 | 62 | 96 |
+| CollectMineralsAndGas | 12 | 2318 | 6880 | 7566 | 3356 | 3978 | 3351 |
+| BuildMarines | <1 | 8 | 138 | 133 | <1 | 3 | 6 |
+
+> Reward shapes worth noting for our own configs: DefeatRoaches gives **+10 per
+> roach killed, −1 per marine lost**; DefeatZerglingsAndBanelings **+5 per kill**.
+> Agents reach near-human play on MoveToBeacon/CollectMineralShards but lag the
+> GrandMaster badly on combat and economy micro — a realistic bar for our runs.
 
 ### reaver (inoryy)
 `inoryy/reaver` is a modular deep-RL framework focused on SC2 minigames,
 implementing **A2C and PPO** (with GAE, reward/grad clipping, advantage
 normalisation) over PySC2's obs/action specs, with multi-env parallelism.
 **License: MIT**, ~561★, but **explicitly unmaintained** (last release Nov
-2018). Its README is a handy source of **reproduced minigame baselines** (above).
+2018). Its README independently **reproduces three of the SC2LE baselines**
+(MoveToBeacon 26.3, CollectMineralShards 102.8, DefeatRoaches 72.5 with A2C) —
+a useful sanity check that the table above is reproducible.
 
 ### chris-chris/pysc2-examples
 `chris-chris/pysc2-examples` (**Apache-2.0**, ~757★) is an early tutorial-grade

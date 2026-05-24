@@ -4,7 +4,7 @@ A game-agnostic reinforcement-learning framework: a shared training loop and pol
 
 > **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the shared [issue template](.github/ISSUE_TEMPLATE/issue_template.md). New contributor? Start with <a href="https://github.com/espenhk/gamer-ai/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22">the good-first-issue board</a>.
 
---- [gamer-ai — multi-game RL agent framework](#gamer-ai--multi-game-rl-agent-framework)
+- [gamer-ai — multi-game RL agent framework](#gamer-ai--multi-game-rl-agent-framework)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Automated (recommended)](#automated-recommended)

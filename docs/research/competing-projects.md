@@ -84,6 +84,7 @@ observation design; "Act" = action space. URLs are in [Sources](#sources).
 | **tmrl** | TM2020 (TMNF legacy) | SAC, REDQ-SAC | 19-beam LIDAR *or* full screenshots (CNN); +speed/gear/rpm; frame-stack | continuous gas/brake/steer (vgamepad) | progress along recorded trajectory | MIT | active (v0.7.1, May 2025) |
 | **Linesight** | TMNF | value-based, discrete-action (DQN-family) | CNN on 160×120 greyscale frames | discrete | distance along reference line over ~7 s | none found `(unverified)` | active (v3.0.0, Jun 2024) |
 | **MOSEAC** (Wang & Beltrame) | Trackmania (on tmrl) | SAC + **elastic time steps** (off-policy AC) | 4× stacked 64×64 RGB → CNN (128-d) + speed/gear/RPM/step/prev-actions (143-d) | continuous gas/brake/steer **+ control rate 5–30 Hz** | tmrl-style path-progress × time term | MIT (code) | paper Aug 2024; code low |
+| **GT Sophy** (Sony AI) | Gran Turismo Sport | **QR-SAC** (distributional SAC) | state vector: kinematics + per-tyre + 3×60 course-ahead points (~6 s) + opponent points | continuous throttle/brake + steer (10 Hz) | progress (off-course-masked) + off-course/wall/tyre/collision + passing + unsporting penalties | not public (paper) | *Nature* 2022 |
 | **AndrejGobeX/TrackMania_AI** | TM | SAC, PPO, TD3; (old branch) NEAT + supervised | 13 wall-distances + velocity + wall-contact + 2 prev actions; frame-stack | continuous steer + throttle/brake | adapted Gran-Turismo-Sport reward (Fuchs et al.) | GPL-3.0 | active |
 | **LouisDeOliveira/TMAI** | TMNF | targets DQN/DDPG/PPO | MSS+OpenCV edge → raycast LIDAR + TMInterface telemetry | discrete keys + continuous gamepad | telemetry-based | none found `(unverified)` | low |
 | **Anca-Mt/TrackmaniaRL-AI** | TM (on tmrl) | DDPG, PPO, SAC (single+dual critic) | pixel-CNN *and* LIDAR variants | continuous (via tmrl) | custom per-track | none found `(unverified)` | coursework, inactive |
@@ -107,7 +108,7 @@ observation design; "Act" = action space. URLs are in [Sources](#sources).
 
 ---
 
-## TMNF / Trackmania (highest priority)
+## Trackmania (TMNF) & sim-racing (highest priority)
 
 ### tmrl — the closest comparable
 `trackmania-rl/tmrl` is a real-time distributed RL framework whose flagship
@@ -245,6 +246,55 @@ inputs, car-state telemetry, screenshots, savestates). The **core tool is
 closed-source freeware**; the public repo (C++, ~25★) ships only non-sensitive
 resources and **carries no visible license**. Listed because it is the
 de-facto integration layer for the whole TMNF-RL ecosystem, ours included.
+
+### Gran Turismo (GT Sophy, Sony AI) — the sim-racing reference point
+A different game (**Gran Turismo Sport** on PS4), but the **academic state of the
+art for racing RL** and the reward-design lineage some Trackmania projects borrow
+(AndrejGobeX adapts the related Fuchs et al. work, a co-author here). Wurman et
+al., *Nature* 2022, "Outracing champion Gran Turismo drivers with deep
+reinforcement learning": **GT Sophy beat top human GT drivers**, winning a
+4-vs-4 event **104–52** (Oct 2021) and time-trials against world champions across
+three car/track combinations. Figures below are from the paper.
+- **Algorithm: QR-SAC** — a **distributional (quantile-regression) Soft
+  Actor-Critic**: off-policy continuous control with **7-step returns**, clipped
+  double-Q, and 32 quantiles; 4×2048 ReLU MLPs. This is exactly the **SAC ×
+  distributional-RL intersection** our #328 candidates point at; an ablation
+  shows plain SAC is markedly worse (≈117.1 s vs 114.5 s on Maggiore).
+- **Observation — engineered state vector, not pixels:** car kinematics (3D
+  velocity / angular velocity / acceleration), per-tyre load & slip, course
+  progress, surface incline, heading vs the centre line, **3 × 60 "course-ahead"
+  points (left/centre/right edges) spanning ~6 s of travel**, contact/off-course
+  flags, and last steering/throttle/brake. Opponents are encoded as
+  relative position/velocity points (separate front & behind lists) plus a
+  slipstream flag. Notably, an **ablation found these course-ahead points beat a
+  wall-LIDAR + curvature encoding**.
+- **Action — continuous, 10 Hz:** combined throttle/brake ∈ [−1,1] and steering
+  ∈ [−1,1] (squashed-normal); they found **no gain from acting faster than
+  10 Hz** despite the 60 Hz sim.
+- **Reward — hand-tuned multi-term:** course-progress (primary, **masked when
+  off-course** so corner-cutting isn't rewarded), off-course / wall / tyre-slip
+  penalties, a symmetric **passing bonus** (within 20 m behind / 40 m ahead), and
+  collision penalties (any-collision, a squared-speed rear-end term, and an
+  "unsporting-collision" term on Sarthe). Racing **etiquette is hard-coded as
+  collision penalties** — fault-attribution rewards were tried and abandoned for
+  producing "much too aggressive" agents.
+- **Infra — real-time, distributed:** an actor-learner setup over **10–21 PS4s**
+  (each PS4 hosting up to 20 cars), Reverb replay with **multi-table stratified
+  sampling**; ~8 days (time-trial) to 7–12 days (racing); **>45,000 driving
+  hours** of experience for one track. Crucially, **pure self-play was
+  inadequate** — racing has an "exposure problem" (some skills need cooperative
+  opponents) and an asymmetric-penalty structure absent from zero-sum games — so
+  training used **mixed-population opponents** (past checkpoints + built-in AI +
+  scripted PID controllers).
+- **Caveats:** **one policy per car/track** (not a single generalist); **weak
+  strategy** (passes too early, over-aggressive near penalties); opponents seen
+  only as points; and a heavy **human-in-the-loop policy-selection** pipeline. No
+  weights/code released (pseudocode only; game API access is restricted).
+
+> The highest-value reference for our racing games: it says **distributional SAC +
+> a lookahead track-geometry observation + a masked-progress reward** is the
+> winning recipe — reinforcing #328 (SAC *and* distributional RL) and suggesting a
+> "course-ahead points" observation worth trying beside our `n_lidar_rays`.
 
 ---
 
@@ -431,9 +481,10 @@ noted above — these are *ideas to try*, not code to copy.
 
 1. **SAC is the field's default for continuous-control racing → prioritise it
    in #328.** tmrl (SAC + **REDQ**), Anca-Mt (SAC variants), AndrejGobeX
-   (SAC/TD3), and MOSEAC (SAC + elastic time steps) all use off-policy
-   actor-critics on the exact `Box` steer/accel/brake shape our racing games
-   expose. **REDQ-SAC** specifically
+   (SAC/TD3), MOSEAC (SAC + elastic time steps), and — most tellingly — **GT
+   Sophy (QR-SAC), which beat champion human Gran Turismo drivers** all use
+   off-policy actor-critics on the exact `Box` steer/accel/brake shape our
+   racing games expose. **REDQ-SAC** specifically
    targets sample efficiency — attractive because, unlike sped-up TMNF, several
    of our racing targets (BeamNG/Assetto/Rocket League) are effectively
    real-time. *Action:* land SAC (and consider REDQ) for the continuous racing
@@ -447,11 +498,16 @@ noted above — these are *ideas to try*, not code to copy.
    the orphaned SB3 PPO in `rl/train.py` into a registered `ppo` policy is the
    highest-value first step.
 
-3. **Distributional value methods are proven on TMNF → a concrete target beyond
-   vanilla DQN (#328's "Rainbow line").** Both Linesight (value-based,
-   DQN-family) and ShubhamGajjar (**IQN**) succeed on TMNF. IQN/QR-DQN is a
-   well-scoped upgrade to `framework/dqn.py`; SB3-Contrib's **QR-DQN** is a
-   ready reference.
+3. **Distributional value methods are proven racing winners → a concrete target
+   beyond vanilla DQN (#328's "Rainbow line").** Linesight (value-based,
+   DQN-family), ShubhamGajjar (**IQN**), and above all **GT Sophy's QR-SAC** —
+   the champion-beating Gran Turismo agent fuses *distributional* value
+   estimation with SAC — show this is the racing SOTA, not a niche. IQN/QR-DQN is
+   a well-scoped upgrade to `framework/dqn.py` (SB3-Contrib's **QR-DQN** is a
+   ready reference), and GT Sophy is the proof that **combining #328's SAC and
+   distributional candidates (i.e. QR-SAC) is itself worth scoping**. GT Sophy
+   also found **multi-step (7-step) returns** a large, cheap win over 1-step — an
+   easy lever for any of our value-based/actor-critic additions.
 
 4. **NEAT is validated on Trackmania → de-risks the NEAT candidate (#328).**
    AndrejGobeX's neuroevolution branch shows topology-evolving ES works on this
@@ -462,17 +518,27 @@ noted above — these are *ideas to try*, not code to copy.
    LIDAR from edge images) validate our `n_lidar_rays` design and the
    MSS+OpenCV pipeline in `lidar.py`. **However**, the single best result in the
    field — Linesight beating world records — uses a **CNN on a 160×120 greyscale
-   frame**, as do tmrl's full mode and DriveForever. *Takeaway for #327/#328:*
-   document the **pixels-vs-telemetry tradeoff** explicitly, and consider a
-   pixel-CNN racing policy as a stretch goal if telemetry plateaus.
+   frame**, as do tmrl's full mode and DriveForever. **But GT Sophy, the
+   champion-beating agent, deliberately uses a telemetry/feature vector and an
+   ablation found its `3×60 course-ahead points` beat a wall-LIDAR encoding** —
+   so engineered features are not a dead end. *Takeaway for #327/#328:* document
+   the **pixels-vs-telemetry tradeoff** explicitly; consider adding **lookahead
+   "track-ahead" geometry points** beside our `n_lidar_rays`, and a pixel-CNN
+   racing policy as a stretch goal if features plateau.
 
-6. **Reference-trajectory / virtual-checkpoint progress rewards are the norm →
-   compare against our `progress_weight`.** tmrl rewards **distance advanced
-   along a recorded demo trajectory**; Linesight rewards **distance along a
-   reference line over the next ~7 s**; ShubhamGajjar uses **~10 m virtual
-   checkpoints**. Our centreline-fraction `track_progress` is the same idea; a
-   **lookahead** ("progress over the next N seconds/metres") variant is worth
-   prototyping as it gave Linesight a denser, smoother signal.
+6. **Progress-based rewards are the norm → compare against our `progress_weight`;
+   borrow GT Sophy's refinements.** tmrl rewards **distance advanced along a
+   recorded demo trajectory**; Linesight rewards **distance along a reference
+   line over the next ~7 s**; ShubhamGajjar uses **~10 m virtual checkpoints**;
+   GT Sophy uses **centre-line arc-length progress, masked to zero when
+   off-course** so corner-cutting earns nothing. Our centreline-fraction
+   `track_progress` is the same idea, but our reward lacks GT Sophy's
+   **off-course mask** and its companion penalty palette (wall ∝ speed², tyre
+   slip, and — for any multi-car racing like Rocket League — a symmetric passing
+   bonus plus collision/"unsporting" penalties, since fault-attribution rewards
+   made agents too aggressive). A **lookahead** ("progress over the next N
+   seconds/metres") variant is also worth prototyping — it gave Linesight a
+   denser, smoother signal.
 
 7. **For SC2 ambitions beyond minigames, AlphaStar is the blueprint.** If we
    ever pursue 1v1 ladder play seriously, the proven recipe is **imitation
@@ -535,6 +601,8 @@ All links verified to resolve, May 2026.
 - MOSEAC — "RL with Elastic Time Steps" (arXiv) — https://arxiv.org/abs/2402.14961
 - MOSEAC — workshop version (arXiv) — https://arxiv.org/abs/2406.01521
 - MOSEAC code — https://github.com/alpaficia/MOSEAC
+- GT Sophy — Wurman et al., *Nature* 2022 — https://www.nature.com/articles/s41586-021-04357-7
+- GT Sophy — race videos — https://sonyai.github.io/gt_sophy_public
 - The History of Machine Learning in Trackmania — https://hallofdreams.org/posts/trackmania-1/
 
 **StarCraft II**

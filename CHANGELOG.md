@@ -17,8 +17,29 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
+### Documentation
+- Top-level docs reframed from "TMNF-only" to the multi-game framework they
+  describe, and the game roster corrected from six to **eight** (#323):
+  - `README.md` retitled to *gamer-ai — multi-game RL agent framework*; intro
+    now lists all eight games and states per-game platform support; the false
+    "this project only runs on Windows" prerequisite is scoped to TMNF; the
+    `--game` quick-start examples gain `sc2`, `rocket_league`, and `iracing`.
+  - `CLAUDE.md` "six games" → "eight games", with `rocket_league` and
+    `iracing` added to the runtime table, the repository-structure tree, and
+    the grid-search `--game` choices.
+  - `CONTRIBUTING.md` roster and project-layout tree updated to all eight
+    games.
+  - New `test_game_adapter.py` check asserts every `GAME_ADAPTERS` key (plus
+    the special-cased `assetto` choice) appears in `CLAUDE.md`, so the roster
+    can't silently drift again.
+- Removed stale/duplicate docs (#324): deleted the obsolete `CLAUDE.original.md`
+  and the empty `scratch.txt`; replaced the duplicate `docs/README_TORCS.md`
+  and `docs/README_ASSETTO.md` with one-line pointers to the canonical
+  `games/<name>/README.md`. `CONTRIBUTING.md` now states the convention
+  explicitly: per-game docs live in `games/<name>/README.md`; `docs/framework/`
+  holds cross-game protocol docs.
+- `CLAUDE.md` and `CONTRIBUTING.md` now record a hard labelling rule:
+  `documentation` issues must never carry the `good first issue` label.
 
 
 

@@ -228,6 +228,7 @@ worker mechanics are unit-tested with a dummy env.
 - BeamNG: experiment_dir / build_probe = None
 - AssettoCorsa: experiment_dir / build_probe = None
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
+- docs roster sync (issue #323): every `GAME_ADAPTERS` key plus the special-cased `assetto` choice appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)

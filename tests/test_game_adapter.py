@@ -9,9 +9,18 @@ Verifies that each registered adapter:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from framework.game_adapter import GAME_ADAPTERS
+
+# `assetto` is special-cased in main.py (own entry point) and is not a
+# GAME_ADAPTERS key, but it is a user-facing `--game` choice, so the docs
+# must mention it too.
+_EXTRA_GAME_CHOICES = {"assetto"}
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestGameAdapterRegistry:
@@ -27,6 +36,16 @@ class TestGameAdapterRegistry:
             "rocket_league",
             "iracing",
         }
+
+
+class TestDocsRosterStaysInSync:
+    """Top-level docs must mention every runnable game so the roster
+    can't silently drift away from the registry (issue #323)."""
+
+    @pytest.mark.parametrize("game", sorted(set(GAME_ADAPTERS) | _EXTRA_GAME_CHOICES))
+    def test_game_appears_in_claude_md(self, game):
+        text = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        assert game in text, f"{game!r} is registered/runnable but missing from CLAUDE.md"
 
     @pytest.mark.parametrize("game", list(GAME_ADAPTERS.keys()))
     def test_adapter_can_be_instantiated(self, game):

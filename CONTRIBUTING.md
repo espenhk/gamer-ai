@@ -2,9 +2,9 @@
 
 Thanks for thinking about contributing! `gamer-ai` started as a Trackmania
 Nations Forever experiment and has grown into a small multi-game RL
-framework — TMNF, TORCS, StarCraft 2, BeamNG, Assetto Corsa, and
-Gymnasium's CarRacing all share the same training loop today, and the
-explicit goal is to keep adding games.
+framework — TMNF, TORCS, StarCraft 2, BeamNG, Assetto Corsa, Gymnasium's
+CarRacing, Rocket League, and iRacing (eight games) all share the same
+training loop today, and the explicit goal is to keep adding games.
 
 This document covers:
 
@@ -141,7 +141,9 @@ gamer-ai/
 │   ├── sc2/                # StarCraft 2 (PySC2)
 │   ├── beamng/             # BeamNG.drive
 │   ├── assetto_corsa/      # Assetto Corsa
-│   └── car_racing/         # Gymnasium CarRacing-v2 (no binary)
+│   ├── car_racing/         # Gymnasium CarRacing-v2 (no binary)
+│   ├── rocket_league/      # Rocket League (RLGym + Bakkesmod)
+│   └── iracing/            # iRacing (pyirsdk telemetry)
 ├── distributed/            # HTTP coordinator + worker for multi-machine grid search
 ├── infrastructure/         # Terraform stack for Azure worker VMs
 ├── config/                 # Master training_params.yaml / reward_config.yaml templates
@@ -306,6 +308,13 @@ means the CI pre-commit job will pass too.
 
 ## Documentation conventions
 
+**Where docs live.** Per-game documentation lives in
+`games/<name>/README.md` — that is the canonical, authoritative copy for
+a game's install, config, observation/action/reward spaces, and supported
+policies. Cross-game framework protocol docs (one page per seam a
+contributor implements) live under `docs/framework/`. Do not add per-game
+docs under `docs/`; there is no `docs/README_<GAME>.md` convention.
+
 When you change code, ask which of these need to follow:
 
 | Change | Update |
@@ -406,6 +415,13 @@ Issues are triaged with a small canonical label set:
 | `game-support` | New `games/<name>/` proposals and game-integration requests |
 | `framework` / `analytics` / `infrastructure` / `tooling` | Area ownership |
 | `triage` | Default label for newly opened issues; remove once assessed |
+
+**`documentation` issues are never `good first issue`.** Keep the two
+labels mutually exclusive: docs are the project's authoritative
+description of itself, so doc work needs more project context than a
+first contribution should carry. When triaging, never add
+`good first issue` to a `documentation` issue, and drop it from any issue
+that already has both.
 
 If you're new here, start with issues labeled `good first issue`.
 

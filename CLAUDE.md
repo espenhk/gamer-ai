@@ -5,7 +5,7 @@ set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous
 agents via hill-climbing / evolutionary / CMA-ES / Q-learning /
 policy-gradient methods. The project began as a Trackmania Nations Forever
-(TMNF) agent and now spans six games.
+(TMNF) agent and now spans eight games.
 
 **Runtime per game** (select with `--game`; default `tmnf`):
 - TMNF: Windows-only (`pywin32`, `mss` window grab, `tminterface` bind to live game process).
@@ -14,6 +14,8 @@ policy-gradient methods. The project began as a Trackmania Nations Forever
 - CarRacing: cross-platform; Gymnasium `CarRacing-v2`, pure-Python (needs `gymnasium[box2d]`, no separate game binary).
 - BeamNG: BeamNG.drive (commercial) via the `beamng_gym` TCP API.
 - Assetto Corsa: Assetto Corsa (commercial) via the `assetto-corsa-rl` shared-memory wrapper; launched through its own entry point (`--game assetto`).
+- Rocket League: Rocket League (commercial, Windows) via the `rlgym` API + Bakkesmod (`--game rocket_league`).
+- iRacing: iRacing (commercial, Windows) telemetry via `pyirsdk`, with optional vJoy live action injection (`--game iracing`).
 
 Each game ships a `games/<game>/README.md` documenting its install,
 config, observation/action space, reward, and supported policies. This file
@@ -56,7 +58,9 @@ gamer-ai/
 │   ├── sc2/                # StarCraft 2 integration via PySC2 (Linux-friendly, headless)
 │   ├── car_racing/         # Gymnasium CarRacing-v2 (pure-Python, no game binary)
 │   ├── beamng/             # BeamNG.drive via beamng_gym TCP API
-│   └── assetto_corsa/      # Assetto Corsa via assetto-corsa-rl shared memory
+│   ├── assetto_corsa/      # Assetto Corsa via assetto-corsa-rl shared memory
+│   ├── rocket_league/      # Rocket League via rlgym + Bakkesmod
+│   └── iracing/            # iRacing telemetry via pyirsdk (+ optional vJoy injection)
 ├── clients/                # Backward-compat shim → games/tmnf/clients
 ├── rl/                     # Backward-compat shim + PPO/pretrain experiments
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
@@ -144,6 +148,22 @@ the change and delete the rest.
 - Record validation commands and complete the template's checklist —
   including the `CHANGELOG.md`, `README.md`, `CLAUDE.md`, and
   `tests/README.md` items where they apply.
+
+---
+
+## Issue labels
+
+The canonical label set is documented in `CONTRIBUTING.md`. One hard
+rule on top of it:
+
+- **Documentation issues must never carry the `good first issue` label.**
+  A `documentation` issue is not a `good first issue` — onboarding
+  newcomers via docs work means trusting them to set the project's
+  authoritative description of itself, which demands more context than a
+  first contribution should. Keep the two labels mutually exclusive: if
+  an issue is labelled `documentation`, do not add `good first issue`,
+  and when triaging an existing issue that has both, drop
+  `good first issue`.
 
 ---
 
@@ -436,7 +456,8 @@ python grid_search.py games/<game>/config/my_grid.yaml
 Ready-made templates ship per game (e.g.
 `games/sc2/config/grid_search_template.yaml`,
 `games/torcs/config/gs_genetic.yaml`). Pick the target game with `--game`
-(choices: `tmnf`, `beamng`, `car_racing`, `torcs`, `sc2`).
+(choices: `tmnf`, `beamng`, `car_racing`, `torcs`, `sc2`, `rocket_league`,
+`iracing`).
 
 Set any param to list to sweep it:
 

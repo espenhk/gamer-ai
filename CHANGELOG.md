@@ -23,7 +23,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
   open-source RL-for-games projects, prioritising racing (Trackmania: `tmrl`,
   Linesight, `TrackMania_AI`, TMAI, ShubhamGajjar's IQN agent, MOSEAC,
   TMInterface; Gran Turismo: GT Sophy) and SC2 (AlphaStar, PySC2/SC2LE,
-  `reaver`, `pysc2-examples`), plus a lighter pass over general libraries
+  `reaver`, `pysc2-examples`, plus an OpenAI Five / Dota 2 contrast), plus a
+  lighter pass over general libraries
   (Stable-Baselines3, CleanRL, RLlib, Gymnasium, ALE, MineRL/BASALT, RLGym).
   Includes a master comparison table and a "takeaways for gamer-ai" section
   cross-referenced to #327/#328 (#329).

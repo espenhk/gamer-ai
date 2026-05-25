@@ -95,6 +95,7 @@ observation design; "Act" = action space. URLs are in [Sources](#sources).
 | **terafear/trackmania_rl_public** | TMNF | (n/s; earlier public "Linesight") | (n/s) | discrete keyboard | (n/s) | none found `(unverified)` | superseded by Linesight-RL |
 | **TMInterface** (donadigo) | TMNF | n/a — *tooling* (TAS / programmatic control) | n/a | n/a | n/a | closed freeware; public repo unlicensed | maintained |
 | **AlphaStar** (DeepMind) | SC2 (full game) | supervised init + multi-agent RL (PFSP league) | raw entity/unit list + spatial + scalars | autoregressive function+args, APM-limited | win/loss + pseudo-rewards | Apache-2.0 (offline-RL code only) | archived |
+| **OpenAI Five** (OpenAI) | Dota 2 (5v5) | **PPO** + 4096-LSTM, **pure self-play** | ~16k curated API features/hero (not pixels) | factored discrete (~8k–80k/step) | hand-shaped (gold/XP/kills/towers) + team spirit | not public (paper) | beat world champs 2019 |
 | **PySC2 / SC2LE** (DeepMind) | SC2 | env + scripted baselines | feature layers | function-id + args | game score / minigame-specific | Apache-2.0 | active (v4.0, 2022) |
 | **reaver** (inoryy) | SC2 minigames | A2C, PPO | feature layers | PySC2 action spec | minigame score | MIT | unmaintained (2018) |
 | **chris-chris/pysc2-examples** | SC2 minigames | DQN (+PER/dueling), A2C/A3C | feature layers | PySC2 action spec | minigame score | Apache-2.0 | dated |
@@ -365,18 +366,61 @@ the paper.
   Supervised** (imitation only, no RL) already reached **3,699 MMR / top 16%**;
   AlphaStar Mid (27 days of league) ≈ top 0.5%. Uses **no tree search / MCTS**
   (a deliberate contrast to AlphaGo/AlphaZero).
-- **Open source:** `google-deepmind/alphastar` (**Apache-2.0**, ~567★, archived)
-  releases the **AlphaStar Unplugged** offline-RL benchmark, data readers,
-  evaluation, and **general network architectures** — with **behaviour cloning**
-  as the worked example. The **full online league-training system was *not*
-  released**; the repo cites the AlphaStar Unplugged paper (OpenReview), not the
-  Nature one.
+- **Open source = AlphaStar Unplugged, not the Nature system.** The repo
+  `google-deepmind/alphastar` (**Apache-2.0**, ~567★, archived) implements the
+  **AlphaStar Unplugged** *offline-RL* benchmark (Mathieu et al., 2023,
+  arXiv:2308.03526): a fixed ~**1.4M-game** human-replay dataset (MMR > 3500,
+  all 3 races + 10 maps, **no environment interaction during training**) with six
+  reference agents — behaviour cloning, fine-tuned BC, offline actor-critic
+  (OAC), emphatic OAC, and MuZero-Supervised ± inference-time MCTS. The released
+  artefact is the **BC backbone**; the **online league-training system was *not*
+  released**. Result: the best offline agent (MZS-MCTS) wins **~90% vs the
+  all-races BC baseline** but sits at **Elo 1578 vs online AlphaStar Final's
+  2968** — offline RL narrows the gap but stays far below online play. The
+  winning recipe was **one-step offline RL** (improve off a *fixed* behaviour
+  value); bootstrapping a target-policy value diverged, and DQN/CRR/BCQ/AWR/
+  PPO/RCBC all failed to beat plain BC.
 
 > Out of our league computationally, but it is the canonical design for **any
 > future SC2 self-play / 1v1 ladder ambition**: imitation bootstrap → PFSP
 > league self-play, entity-transformer obs, autoregressive actions. Our
 > `max_apm` already echoes its action-rate cap; everything else (transformer
 > encoder, league, V-trace/UPGO) is far beyond our current numpy/ES stack.
+
+### OpenAI Five (OpenAI) — the large-scale-self-play contrast (Dota 2)
+A different game (**Dota 2**, a 5v5 MOBA), included as the natural **contrast to
+AlphaStar**: both are landmark large-scale RL agents for real-time team games
+that made opposite bets. Berner et al., 2019 (arXiv:1912.06680): OpenAI Five
+**beat the human world champions (Team OG) 2-0 in April 2019** — the first AI to
+win an esports world title — then went **99.4% across 7,257 public games**.
+- **Algorithm:** **PPO** (actor-critic + GAE) with a single **4096-unit LSTM**
+  core (~159M params, 84% in the LSTM) and **pure self-play, no imitation** (the
+  lone use of human data is item-build randomisation) — the sharp opposite of
+  AlphaStar's replay bootstrap.
+- **Self-play:** 80% vs the latest policy, 20% vs past versions sampled by a
+  quality score — **no league/exploiter structure**. A **"team spirit"** scalar
+  (annealed 0→1) interpolates each hero's reward between selfish and team-shared.
+- **Observation:** **not pixels** — ~16,000 curated API features/hero, unit-
+  centric over 189 units; **five identical-parameter networks** (one per hero),
+  each with its own LSTM state + a hero-id embedding.
+- **Action:** factored discrete (primary × delay × unit-selection × offset),
+  ~8k–80k effective choices/step; acts every 4th frame (7.5 Hz, ~217 ms).
+- **Reward:** hand-shaped (gold, XP, kills, towers, win +5, …) with zero-sum
+  symmetrisation and time-decay; a win/loss-only ablation still learned, slower.
+- **Scale (the headline):** ~770 PFlops/s-day, **~180 training-days over 10
+  calendar months**, batch up to ~3M timesteps, **tens of thousands of CPU cores
+  + ~512–1,536 GPUs**; the **"surgery"** technique let one parameter set survive
+  ~20 env/architecture changes without a restart.
+- **Restrictions:** **17 of 117 heroes**; some multi-unit-control items banned;
+  item-buying / ability-builds / courier scripted.
+
+> The **AlphaStar vs OpenAI Five split** is the key lesson for us: **imitation +
+> structured league** (AlphaStar) vs **pure self-play + shaped reward at brute
+> scale** (OpenAI Five). Both reached superhuman team play, but OpenAI Five's
+> route cost months on tens of thousands of cores — underlining that the
+> self-play-at-scale regime is far outside our budget, and that any SC2 ambition
+> of ours should lean on AlphaStar-style **imitation**, not OpenAI-Five-style
+> **scale**.
 
 ### PySC2 / SC2LE (DeepMind) — the environment we build on
 `google-deepmind/pysc2` (**Apache-2.0**, ~8.3k★) is DeepMind's Python wrapper
@@ -559,7 +603,11 @@ noted above — these are *ideas to try*, not code to copy.
    **entity-transformer + deep-LSTM** obs encoder and an **autoregressive
    function+args** action head. Our current evolutionary/tabular SC2 policies
    won't reach that ceiling; this is a multi-issue research arc, not a quick
-   win. The **APM-limiting** idea is already reflected in our `max_apm`.
+   win. The **APM-limiting** idea is already reflected in our `max_apm`. The
+   *alternative* — OpenAI Five's **pure self-play at brute scale** (no
+   imitation, but months on tens of thousands of cores) — is even further out of
+   reach, which is exactly why the **imitation-bootstrap path is the tractable
+   one for us** (see #8), not raw self-play scale.
 
 8. **Imitation / offline RL is a gap we have no answer for — and it pays off
    hugely.** AlphaStar (replays), AlphaStar Unplugged (offline RL / behaviour
@@ -639,10 +687,12 @@ All links verified to resolve, May 2026.
 - AlphaStar (open source) — https://github.com/google-deepmind/alphastar
 - AlphaStar blog — https://deepmind.google/blog/alphastar-grandmaster-level-in-starcraft-ii-using-multi-agent-reinforcement-learning/
 - AlphaStar (Nature 2019) — https://www.nature.com/articles/s41586-019-1724-z
+- AlphaStar Unplugged (offline RL) — https://arxiv.org/abs/2308.03526
 - PySC2 — https://github.com/google-deepmind/pysc2
 - SC2LE paper — https://arxiv.org/abs/1708.04782
 - reaver — https://github.com/inoryy/reaver
 - chris-chris/pysc2-examples — https://github.com/chris-chris/pysc2-examples
+- OpenAI Five — "Dota 2 with Large Scale Deep RL" — https://arxiv.org/abs/1912.06680
 
 **General / other-game libraries**
 - Stable-Baselines3 — https://github.com/DLR-RM/stable-baselines3

@@ -548,12 +548,12 @@ noted above — these are *ideas to try*, not code to copy.
    games in #328, alongside the already-flagged PPO.
 
 2. **PPO really is the universal baseline → land it first (as #328 already
-   suggests).** Every general library (SB3/CleanRL/RLlib) and both maintained
-   SC2 minigame agents (reaver, pysc2-examples via A2C/PPO/DQN) lead with it,
-   and AndrejGobeX uses it for racing. This survey corroborates #328's claim
-   that PPO is "the most-cited baseline competing projects report"; promoting
-   the orphaned SB3 PPO in `rl/train.py` into a registered `ppo` policy is the
-   highest-value first step.
+   suggests).** Every general library (SB3/CleanRL/RLlib) leads with PPO, the SC2
+   minigame agent `reaver` uses A2C/PPO, and AndrejGobeX uses PPO for racing
+   (`pysc2-examples` covers the A2C/DQN side). This survey corroborates #328's
+   claim that PPO is "the most-cited baseline competing projects report";
+   promoting the orphaned SB3 PPO in `rl/train.py` into a registered `ppo`
+   policy is the highest-value first step.
 
 3. **Distributional value methods are proven racing winners → a concrete target
    beyond vanilla DQN (#328's "Rainbow line").** Linesight (value-based,

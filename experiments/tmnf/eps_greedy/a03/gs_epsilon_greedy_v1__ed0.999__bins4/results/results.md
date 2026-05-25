@@ -278,4 +278,3 @@ Best reward: **+6781.3**
 ![Reward trajectory](reward_trajectory.png)
 
 ![Policy weight heatmap](policy_weights_heatmap.png)
-

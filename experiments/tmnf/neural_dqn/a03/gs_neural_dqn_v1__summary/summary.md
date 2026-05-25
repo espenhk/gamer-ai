@@ -89,4 +89,3 @@ Ranked by Best Track Progress, then by best reward.
 ![Reward trajectory](../gs_neural_dqn_v1__lr0.001__tuf200__eds2000/results/reward_trajectory.png)
 
 ![Task metrics](../gs_neural_dqn_v1__lr0.001__tuf200__eds2000/results/task_metrics.png)
-

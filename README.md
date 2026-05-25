@@ -1,10 +1,10 @@
-# TMNF — Trackmania Nations Forever RL
+# gamer-ai — multi-game RL agent framework
 
-A reinforcement-learning agent that drives Trackmania Nations Forever autonomously. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES — all trained live against TMInterface against the reference track A03. See [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
+A game-agnostic reinforcement-learning framework: a shared training loop and policy set drive per-game integrations through a common adapter interface. It began as a Trackmania Nations Forever (TMNF) agent — still the flagship and default game — and now spans **eight** games: TMNF, TORCS, StarCraft 2, CarRacing, BeamNG, Assetto Corsa, Rocket League, and iRacing. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES. Platform support is per game: TMNF, BeamNG, Assetto Corsa, Rocket League, and iRacing need Windows, while StarCraft 2 (headless on Linux), TORCS (cross-platform), and CarRacing (pure-Python, cross-platform) also run on Linux/macOS. This README covers the flagship TMNF setup in detail; see each game's `games/<name>/README.md` for its specifics and [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
 
 > **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the shared [issue template](.github/ISSUE_TEMPLATE/issue_template.md). New contributor? Start with <a href="https://github.com/espenhk/gamer-ai/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22">the good-first-issue board</a>.
 
---- [TMNF — Trackmania Nations Forever RL](#tmnf--trackmania-nations-forever-rl)
+- [gamer-ai — multi-game RL agent framework](#gamer-ai--multi-game-rl-agent-framework)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Automated (recommended)](#automated-recommended)
@@ -42,7 +42,7 @@ A reinforcement-learning agent that drives Trackmania Nations Forever autonomous
 
 ## Prerequisites
 
-The training loop drives the live TMNF game via TMInterface, so this project only runs on Windows.
+The default game, TMNF, drives the live game via TMInterface, so **TMNF training only runs on Windows**. This is not true of the framework as a whole — StarCraft 2 runs headless on Linux, CarRacing is pure-Python and cross-platform, and TORCS runs on Linux/macOS/Windows. See the runtime table in [`CLAUDE.md`](CLAUDE.md) and each `games/<name>/README.md` for per-game platform requirements. The prerequisites below are for the flagship TMNF setup.
 
 - **Windows 10/11.** `pywin32`, the `mss` window-capture backend, and the `tminterface` Python bindings all attach to the running game process.
 - **Trackmania Nations Forever** installed (free from Ubisoft / Nadeo).
@@ -87,11 +87,14 @@ If you'd rather install the prerequisites yourself:
 python main.py <experiment_name> [--no-interrupt] [--re-initialize] [--live-gui]
 
 # Select a different simulator with --game
-python main.py my_experiment --game tmnf        # Trackmania Nations Forever (default)
-python main.py my_experiment --game torcs       # TORCS (requires gym_torcs)
-python main.py my_experiment --game beamng      # BeamNG.drive (requires beamng-gym)
-python main.py my_experiment --game assetto     # Assetto Corsa (requires assettocorsa)
-python main.py my_experiment --game car_racing  # gymnasium CarRacing-v2 (requires gymnasium[box2d])
+python main.py my_experiment --game tmnf           # Trackmania Nations Forever (default)
+python main.py my_experiment --game torcs          # TORCS (requires gym_torcs)
+python main.py my_experiment --game sc2            # StarCraft 2 (requires pysc2 + SC2 binary)
+python main.py my_experiment --game beamng         # BeamNG.drive (requires beamng-gym)
+python main.py my_experiment --game assetto        # Assetto Corsa (requires assetto-corsa-rl)
+python main.py my_experiment --game car_racing     # gymnasium CarRacing-v2 (requires gymnasium[box2d])
+python main.py my_experiment --game rocket_league  # Rocket League (requires rlgym + Bakkesmod)
+python main.py my_experiment --game iracing        # iRacing (requires pyirsdk)
 
 # Show all available options
 python main.py --help

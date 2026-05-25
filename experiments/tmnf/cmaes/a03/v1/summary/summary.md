@@ -158,4 +158,3 @@
 ![Weight evolution](../gs_cmaes_v1__pop20__sigma0.3/results/greedy_weight_evolution.png)
 
 ![Reward trajectory](../gs_cmaes_v1__pop20__sigma0.3/results/reward_trajectory.png)
-

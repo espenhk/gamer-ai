@@ -158,4 +158,3 @@
 ![Weight evolution](../gs_epsilon_greedy_v1__ed0.995__bins3/results/greedy_weight_evolution.png)
 
 ![Reward trajectory](../gs_epsilon_greedy_v1__ed0.995__bins3/results/reward_trajectory.png)
-

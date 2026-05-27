@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.2.19] - 2026-05-27
+
 ### Changed (framework genericity — issue #325)
 
 - **`framework/policies.py`**: Replaced the hardcoded `SC2_GAME_NAME = "sc2"` gate in `WeightedLinearPolicy`, `NeuralNetPolicy`, and `GeneticPolicy` with a capability registry (`register_continuous_action_incompatible`) that any game adapter can call at import time to declare itself incompatible with steer/accel/brake policies. `_sc2_incompatible()` removed; new public helpers `register_continuous_action_incompatible()` and `check_continuous_action_compatible()` added.

@@ -180,9 +180,7 @@ def register_continuous_action_incompatible(
     _CONTINUOUS_ACTION_INCOMPATIBLE_GAMES[game_name] = alternatives or {}
 
 
-def _incompatible_continuous_action(
-    game_name: str, alternative: str | None
-) -> tuple[bool, str]:
+def _incompatible_continuous_action(game_name: str, alternative: str | None) -> tuple[bool, str]:
     """Return the ``(False, hint)`` pair for a continuous-action policy incompatibility."""
     msg = (
         "This policy uses the continuous steer/accel/brake action encoding "
@@ -194,9 +192,7 @@ def _incompatible_continuous_action(
     return False, msg
 
 
-def check_continuous_action_compatible(
-    game_name: str, policy_type: str
-) -> tuple[bool, str | None]:
+def check_continuous_action_compatible(game_name: str, policy_type: str) -> tuple[bool, str | None]:
     """Return ``(True, None)`` unless *game_name* has registered itself as
     incompatible with continuous steer/accel/brake policies.
 

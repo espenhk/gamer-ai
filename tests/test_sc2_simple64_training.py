@@ -17,6 +17,7 @@ from framework.policies import (
     MCTSPolicy,
 )
 from framework.training import (
+    GreedyLoopResult,
     _greedy_loop_cmaes,
     _greedy_loop_genetic,
     _greedy_loop_q_learning,
@@ -36,17 +37,6 @@ from games.sc2.sc2_policies import (
     SC2NeuralDQNPolicy,
     SC2REINFORCEPolicy,
 )
-from framework.policies import (
-    EpsilonGreedyPolicy,
-    MCTSPolicy,
-)
-from framework.training import (
-    _greedy_loop_genetic,
-    _greedy_loop_cmaes,
-    _greedy_loop_q_learning,
-    GreedyLoopResult,
-)
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
 
 _OBS_SPEC = SC2_LADDER_OBS_SPEC
 _HEAD_NAMES = ["fn_idx", "x", "y", "queue"]
@@ -470,7 +460,10 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         wf = self._tmpfile()
         try:
             loop: GreedyLoopResult = _greedy_loop_genetic(
-                env=env, policy=policy, n_generations=2, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_generations=2,
+                weights_file=wf,
             )
             self.assertIsNotNone(loop.policy)
             self.assertIsInstance(loop.best_reward, float)
@@ -491,7 +484,10 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         wf = self._tmpfile()
         try:
             loop: GreedyLoopResult = _greedy_loop_cmaes(
-                env=env, policy=policy, n_generations=2, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_generations=2,
+                weights_file=wf,
             )
             self.assertIsNotNone(loop.policy)
             self.assertIsInstance(loop.best_reward, float)
@@ -512,7 +508,10 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         wf = self._tmpfile()
         try:
             loop: GreedyLoopResult = _greedy_loop_q_learning(
-                env=env, policy=policy, n_episodes=2, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_episodes=2,
+                weights_file=wf,
             )
             self.assertIsNotNone(loop.policy)
             self.assertIsInstance(loop.best_reward, float)
@@ -531,7 +530,10 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         wf = self._tmpfile()
         try:
             loop: GreedyLoopResult = _greedy_loop_q_learning(
-                env=env, policy=policy, n_episodes=2, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_episodes=2,
+                weights_file=wf,
             )
             self.assertIsNotNone(loop.policy)
             self.assertIsInstance(loop.best_reward, float)
@@ -550,7 +552,10 @@ class TestSimple64TrainingLoopSmoke(unittest.TestCase):
         wf = self._tmpfile()
         try:
             loop: GreedyLoopResult = _greedy_loop_cmaes(
-                env=env, policy=policy, n_generations=2, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_generations=2,
+                weights_file=wf,
             )
             self.assertIsNotNone(loop.policy)
             self.assertIsInstance(loop.best_reward, float)

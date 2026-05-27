@@ -154,9 +154,9 @@ def test_make_policy_unknown_type_raises(tmp_path):
 )
 def test_sc2_rejects_incompatible_framework_policy(tmp_path, bad_type, expected_hint):
     """Continuous-action framework policies must fail fast against an SC2 game."""
-    import games.sc2.adapter  # noqa: F401 — registers "sc2" action-encoding incompatibility
     import numpy as np
 
+    import games.sc2.adapter  # noqa: F401 — registers "sc2" action-encoding incompatibility
     from framework.obs_spec import ObsDim, ObsSpec
     from framework.training import _make_policy
 

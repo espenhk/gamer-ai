@@ -11,7 +11,6 @@ import numpy as np
 
 from framework.run_config import ProbeAction
 
-
 # ---------------------------------------------------------------------------
 # Discrete action set for Q-table policies (EpsilonGreedy, MCTS)
 # ---------------------------------------------------------------------------
@@ -38,12 +37,12 @@ DISCRETE_ACTIONS = np.array(
 # ---------------------------------------------------------------------------
 
 PROBE_ACTIONS: list[ProbeAction] = [
-    ProbeAction(np.array([-1., 0., 1.], dtype=np.float32), "brake left"),
-    ProbeAction(np.array([ 0., 0., 1.], dtype=np.float32), "brake"),
-    ProbeAction(np.array([ 1., 0., 1.], dtype=np.float32), "brake right"),
-    ProbeAction(np.array([-1., 1., 0.], dtype=np.float32), "accel left"),
-    ProbeAction(np.array([ 0., 1., 0.], dtype=np.float32), "accel"),
-    ProbeAction(np.array([ 1., 1., 0.], dtype=np.float32), "accel right"),
+    ProbeAction(np.array([-1.0, 0.0, 1.0], dtype=np.float32), "brake left"),
+    ProbeAction(np.array([0.0, 0.0, 1.0], dtype=np.float32), "brake"),
+    ProbeAction(np.array([1.0, 0.0, 1.0], dtype=np.float32), "brake right"),
+    ProbeAction(np.array([-1.0, 1.0, 0.0], dtype=np.float32), "accel left"),
+    ProbeAction(np.array([0.0, 1.0, 0.0], dtype=np.float32), "accel"),
+    ProbeAction(np.array([1.0, 1.0, 0.0], dtype=np.float32), "accel right"),
 ]
 
 # Forced action used during episode warmup: full throttle, straight.

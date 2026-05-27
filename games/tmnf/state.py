@@ -109,10 +109,7 @@ class StateData:
             self.vertical_offset = proj.vertical_offset
             self.track_forward = proj.forward
             self._centerline_idx = proj.nearest_idx
-            self.lookahead = [
-                centerline.project_ahead(self.position, self._centerline_idx, s)
-                for s in LOOKAHEAD_STEPS
-            ]
+            self.lookahead = [centerline.project_ahead(self.position, self._centerline_idx, s) for s in LOOKAHEAD_STEPS]
 
     def __str__(self) -> str:
         contact_str = " ".join(str(int(w.contact)) for w in self.wheels)

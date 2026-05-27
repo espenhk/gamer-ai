@@ -17,11 +17,11 @@ _DEFAULT_UP: np.ndarray = np.array([0.0, 1.0, 0.0])
 class CenterlineProjection:
     """Result of projecting a position onto the centerline."""
 
-    progress: float          # fraction of total track length completed, in [0, 1]
-    lateral_offset: float    # metres to the right of the centreline (negative = left)
-    vertical_offset: float   # metres above the centreline (negative = below)
-    forward: np.ndarray      # unit forward direction of the track at the nearest point
-    nearest_idx: int         # index of the nearest centerline point (for hint-based search)
+    progress: float  # fraction of total track length completed, in [0, 1]
+    lateral_offset: float  # metres to the right of the centreline (negative = left)
+    vertical_offset: float  # metres above the centreline (negative = below)
+    forward: np.ndarray  # unit forward direction of the track at the nearest point
+    nearest_idx: int  # index of the nearest centerline point (for hint-based search)
 
 
 class Centerline:
@@ -44,9 +44,7 @@ class Centerline:
         # KDTree for O(log N) nearest-point queries used in the default path.
         self._kdtree = KDTree(self._points)
 
-    def project_with_forward(
-        self, pos: Vec3, hint_idx: int | None = None, window: int = 50
-    ) -> CenterlineProjection:
+    def project_with_forward(self, pos: Vec3, hint_idx: int | None = None, window: int = 50) -> CenterlineProjection:
         """Return all centerline quantities for *pos* in one pass.
 
         Returns:

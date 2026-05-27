@@ -398,10 +398,19 @@ class TestDoubleDQN(unittest.TestCase):
         state = np.zeros(_N, dtype=np.float32)
         BEST = 22
         policy = DQNPolicy(
-            _OBS_SPEC, DISCRETE_ACTIONS, double_dqn=True, hidden_sizes=[32, 32],
-            replay_buffer_size=5000, batch_size=32, min_replay_size=128,
-            target_update_freq=25, learning_rate=0.005, epsilon_start=1.0,
-            epsilon_end=1.0, epsilon_decay_steps=1, gamma=0.0,
+            _OBS_SPEC,
+            DISCRETE_ACTIONS,
+            double_dqn=True,
+            hidden_sizes=[32, 32],
+            replay_buffer_size=5000,
+            batch_size=32,
+            min_replay_size=128,
+            target_update_freq=25,
+            learning_rate=0.005,
+            epsilon_start=1.0,
+            epsilon_end=1.0,
+            epsilon_decay_steps=1,
+            gamma=0.0,
         )
         for step in range(12500):
             a = step % 25
@@ -459,10 +468,19 @@ class TestDuelingDQN(unittest.TestCase):
         state = np.zeros(_N, dtype=np.float32)
         BEST = 22
         policy = DQNPolicy(
-            _OBS_SPEC, DISCRETE_ACTIONS, dueling=True, hidden_sizes=[32, 32],
-            replay_buffer_size=5000, batch_size=32, min_replay_size=128,
-            target_update_freq=25, learning_rate=0.005, epsilon_start=1.0,
-            epsilon_end=1.0, epsilon_decay_steps=1, gamma=0.0,
+            _OBS_SPEC,
+            DISCRETE_ACTIONS,
+            dueling=True,
+            hidden_sizes=[32, 32],
+            replay_buffer_size=5000,
+            batch_size=32,
+            min_replay_size=128,
+            target_update_freq=25,
+            learning_rate=0.005,
+            epsilon_start=1.0,
+            epsilon_end=1.0,
+            epsilon_decay_steps=1,
+            gamma=0.0,
         )
         for step in range(12500):
             a = step % 25

@@ -325,10 +325,10 @@ class DQNPolicy(BasePolicy):
         if self._dueling:
             n = self._n_actions
             sum_go = grad_out.sum(axis=1, keepdims=True)  # (B, 1)
-            grad_adv = grad_out - sum_go / n              # dLoss/dA
-            grad_value = sum_go                           # dLoss/dV
-            dvalue_w = grad_value.T @ layer_inputs[-1]    # (1, last_dim)
-            dvalue_b = grad_value.sum(axis=0)             # (1,)
+            grad_adv = grad_out - sum_go / n  # dLoss/dA
+            grad_value = sum_go  # dLoss/dV
+            dvalue_w = grad_value.T @ layer_inputs[-1]  # (1, last_dim)
+            dvalue_b = grad_value.sum(axis=0)  # (1,)
             g = grad_adv
             n_layers = len(self._online["weights"])
             for i in range(n_layers - 1, -1, -1):
@@ -369,10 +369,14 @@ class DQNPolicy(BasePolicy):
         if self._dueling:
             self._m_vw = b1 * self._m_vw + (1.0 - b1) * dvalue_w
             self._v_vw = b2 * self._v_vw + (1.0 - b2) * dvalue_w**2
-            self._online["value_w"] -= self._lr * (self._m_vw / (1.0 - b1**t)) / (np.sqrt(self._v_vw / (1.0 - b2**t)) + eps_a)
+            self._online["value_w"] -= (
+                self._lr * (self._m_vw / (1.0 - b1**t)) / (np.sqrt(self._v_vw / (1.0 - b2**t)) + eps_a)
+            )
             self._m_vb = b1 * self._m_vb + (1.0 - b1) * dvalue_b
             self._v_vb = b2 * self._v_vb + (1.0 - b2) * dvalue_b**2
-            self._online["value_b"] -= self._lr * (self._m_vb / (1.0 - b1**t)) / (np.sqrt(self._v_vb / (1.0 - b2**t)) + eps_a)
+            self._online["value_b"] -= (
+                self._lr * (self._m_vb / (1.0 - b1**t)) / (np.sqrt(self._v_vb / (1.0 - b2**t)) + eps_a)
+            )
 
         self._grad_steps += 1
         if self._grad_steps % self._target_freq == 0:

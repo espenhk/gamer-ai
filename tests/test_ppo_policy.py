@@ -54,9 +54,12 @@ class TestPPORegistration(unittest.TestCase):
         self.assertIs(POLICY_REGISTRY["ppo"], PPOPolicy)
 
     def test_sc2_incompatible(self):
+        import games.sc2.adapter  # noqa: F401 — registers "sc2" action-encoding incompatibility
+
         ok, hint = PPOPolicy.compatible_with("sc2")
         self.assertFalse(ok)
         self.assertIsInstance(hint, str)
+        self.assertIn("sc2_reinforce", hint)
 
     def test_compatible_with_racing(self):
         ok, hint = PPOPolicy.compatible_with("car_racing")
@@ -181,9 +184,21 @@ class TestPPOCfgRoundtrip(unittest.TestCase):
     def test_to_cfg_keys(self):
         cfg = _make(hidden_sizes=[16, 8]).to_cfg()
         for key in (
-            "policy_type", "hidden_sizes", "learning_rate", "gamma", "gae_lambda",
-            "clip_range", "n_epochs", "entropy_coeff", "value_coeff", "minibatch_size",
-            "output_dim", "actor_weights", "actor_biases", "critic_weights", "critic_biases",
+            "policy_type",
+            "hidden_sizes",
+            "learning_rate",
+            "gamma",
+            "gae_lambda",
+            "clip_range",
+            "n_epochs",
+            "entropy_coeff",
+            "value_coeff",
+            "minibatch_size",
+            "output_dim",
+            "actor_weights",
+            "actor_biases",
+            "critic_weights",
+            "critic_biases",
         ):
             self.assertIn(key, cfg)
         self.assertEqual(cfg["policy_type"], "ppo")

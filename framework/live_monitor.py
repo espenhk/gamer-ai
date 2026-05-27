@@ -19,35 +19,10 @@ logger = logging.getLogger(__name__)
 _IDX_RE = re.compile(r"^(?P<base>.+)_(?P<idx>\d+)$")
 _MID_IDX_RE = re.compile(r"^(?P<prefix>.+)_(?P<idx>\d+)_(?P<suffix>.+)$")
 
-# Logical display order for well-known reward-component keys. Keys not in this
-# list are appended alphabetically after those that are.
+# Logical display order for reward-component keys. Keys not in this list are
+# sorted alphabetically after "total_reward". New games need not edit this file.
 _REWARD_ORDER = [
     "total_reward",
-    "progress_weight",
-    "speed_weight",
-    "centerline_weight",
-    "finish_bonus",
-    "finish_time_weight",
-    "accel_bonus",
-    "airborne_penalty",
-    "lidar_wall_weight",
-    "step_penalty",
-    "crash_threshold_m",
-    # SC2
-    "score_weight",
-    "win_bonus",
-    "loss_penalty",
-    "economy_weight",
-    "idle_penalty",
-    "idle_bonus",
-    "attack_bonus",
-    "click_attack_bonus",
-    "move_exploration_bonus",
-    "move_repeat_penalty",
-    "move_self_penalty",
-    "unit_loss_penalty",
-    "damage_taken_penalty",
-    "passive_under_fire_penalty",
 ]
 _REWARD_ORDER_INDEX = {name: idx for idx, name in enumerate(_REWARD_ORDER)}
 

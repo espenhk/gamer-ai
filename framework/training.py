@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import re
 import time
 from collections import deque
 from collections.abc import Callable
@@ -42,14 +43,12 @@ from framework.policies import (
 from framework.policies import (
     trainer_state_path as _trainer_state_path_canonical,
 )
-from framework.obs_spec import ObsSpec
-from framework.run_config import GameSpec, RunConfig, ProbeSpec, WarmupSpec, ProbeAction
+from framework.run_config import GameSpec, ProbeAction, ProbeSpec, RunConfig, WarmupSpec
 from framework.version import code_version
 
 logger = logging.getLogger(__name__)
 
 _TRACE_SAMPLE_EVERY = 2  # record position every N steps
-_SC2_REMOVED_BARE_POLICY_TYPES = frozenset({"cmaes", "reinforce", "lstm", "neural_dqn"})
 
 
 def _trainer_state_path(weights_file: str) -> str:
@@ -116,17 +115,6 @@ def _make_policy(
     game_name: str = "",
 ) -> BasePolicy:
     """Construct a policy via POLICY_REGISTRY, after a game-compatibility check."""
-    if game_name == "sc2" and policy_type in _SC2_REMOVED_BARE_POLICY_TYPES:
-        sc2_compatible = sorted(
-            name
-            for name, cls in POLICY_REGISTRY.items()
-            if name not in _SC2_REMOVED_BARE_POLICY_TYPES and cls.compatible_with("sc2")[0]
-        )
-        raise ValueError(
-            f"policy_type {policy_type!r} is not valid for game 'sc2'. "
-            f"Use the sc2_-prefixed equivalent (e.g. 'sc2_{policy_type}'). "
-            f"SC2-compatible types: {sc2_compatible}"
-        )
     cls = _resolve_policy_class(policy_type)
     _assert_policy_compatible(cls, policy_type, game_name)
     return cls.make(
@@ -150,18 +138,18 @@ from dataclasses import dataclass as _dataclass
 class EpisodeResult:
     """Result of a single training episode returned by ``_run_episode``."""
 
-    reward: float              # total accumulated reward for the episode
-    info: dict                 # final step info dict from env
-    throttle_counts: list      # [brake_steps, coast_steps, accel_steps]
-    total_steps: int           # number of env steps taken
-    trace: RunTrace            # sampled trajectory
+    reward: float  # total accumulated reward for the episode
+    info: dict  # final step info dict from env
+    throttle_counts: list  # [brake_steps, coast_steps, accel_steps]
+    total_steps: int  # number of env steps taken
+    trace: RunTrace  # sampled trajectory
 
 
 @_dataclass
 class ProbePhaseResult:
     """Result of the cold-start probe phase returned by ``_run_probes``."""
 
-    best_reward: float          # reward of the best probe action
+    best_reward: float  # reward of the best probe action
     probe_results: list[ProbeResult]  # per-action probe results
 
 
@@ -169,8 +157,8 @@ class ProbePhaseResult:
 class ColdStartPhaseResult:
     """Result of the cold-start search returned by ``_cold_start_search``."""
 
-    policy: WeightedLinearPolicy          # best policy found
-    best_reward: float                    # reward achieved by best policy
+    policy: WeightedLinearPolicy  # best policy found
+    best_reward: float  # reward achieved by best policy
     restart_results: list[ColdStartRestartResult]  # per-restart detail
 
 
@@ -178,21 +166,21 @@ class ColdStartPhaseResult:
 class EvaluatorBatch:
     """Per-generation scores returned by ``_evaluate_with_evaluator``."""
 
-    rewards: list[float]    # per-individual mean reward (submission order)
-    total_steps: int        # summed step count across all individuals
-    info: dict              # info dict from the best-scoring individual
-    trace: Any              # RunTrace | None from the best-scoring individual
+    rewards: list[float]  # per-individual mean reward (submission order)
+    total_steps: int  # summed step count across all individuals
+    info: dict  # info dict from the best-scoring individual
+    trace: Any  # RunTrace | None from the best-scoring individual
 
 
 @_dataclass
 class GreedyLoopResult:
     """Combined output of any greedy / ES / CMA-ES / genetic training loop."""
 
-    policy: Any                          # trained policy (concrete type varies)
-    best_reward: float                   # best reward seen during training
-    greedy_sims: list[GreedySimResult]   # per-sim telemetry
-    early_stopped: bool                  # True if patience triggered early stop
-    early_stop_sim: int | None           # sim/gen index where early stop fired
+    policy: Any  # trained policy (concrete type varies)
+    best_reward: float  # best reward seen during training
+    greedy_sims: list[GreedySimResult]  # per-sim telemetry
+    early_stopped: bool  # True if patience triggered early stop
+    early_stop_sim: int | None  # sim/gen index where early stop fired
 
 
 def _run_episode(
@@ -300,8 +288,7 @@ def _run_episode(
                 _print_action_stats(throttle_counts, turning_steps, steps)
             break
 
-    trace = RunTrace(pos_x=pos_x, pos_z=pos_z,
-                     throttle_state=throttle_state, total_reward=total_reward)
+    trace = RunTrace(pos_x=pos_x, pos_z=pos_z, throttle_state=throttle_state, total_reward=total_reward)
     return EpisodeResult(
         reward=total_reward,
         info=info,
@@ -316,27 +303,27 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float, truncate
     outcome = "truncated" if truncated else ("finished" if finished else "terminated")
     skipped_frames = _episode_skipped_frames(info)
     skipped_suffix = f"  skipped_frames={skipped_frames}" if skipped_frames is not None else ""
-    sc2_outcome = info.get("player_outcome")
-    sc2_raw_reward = info.get("raw_reward")
-    if sc2_outcome is not None or sc2_raw_reward is not None:
-        if sc2_outcome is not None:
-            sc2_outcome_v = float(sc2_outcome)
-            if sc2_outcome_v > 0:
-                sc2_outcome_s = "win"
-            elif sc2_outcome_v < 0:
-                sc2_outcome_s = "loss"
+    player_outcome = info.get("player_outcome")
+    raw_reward = info.get("raw_reward")
+    if player_outcome is not None or raw_reward is not None:
+        if player_outcome is not None:
+            outcome_v = float(player_outcome)
+            if outcome_v > 0:
+                outcome_s = "win"
+            elif outcome_v < 0:
+                outcome_s = "loss"
             else:
-                sc2_outcome_s = "draw"
+                outcome_s = "draw"
         else:
-            sc2_outcome_s = str(info.get("termination_reason", outcome))
-        reward_v = float(sc2_raw_reward if sc2_raw_reward is not None else 0.0)
+            outcome_s = str(info.get("termination_reason", outcome))
+        reward_v = float(raw_reward if raw_reward is not None else 0.0)
         score = float(info.get("score", 0.0))
         logger.info(
             "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f%s",
             outcome,
             total_reward,
             steps,
-            sc2_outcome_s,
+            outcome_s,
             reward_v,
             score,
             skipped_suffix,
@@ -365,9 +352,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
 
     1. Reward-component breakdown (``episode_reward_components``)
     2. Action-frequency breakdown (``episode_action_counts``)
-    3. TMNF task metrics: track progress, mean lateral offset, finish time
-    4. SC2 kill stats: enemy units/structures destroyed
-    5. SC2 game-state averages: army size, enemy screen presence
+    3. Task metrics: track progress, mean lateral offset, finish time (info-key based)
+    4. Kill stats: enemy units/structures destroyed (info-key based)
+    5. Per-game state averages: any keys present in ``episode_obs_averages``
     """
     prev: dict = prev_best_info or {}
 
@@ -396,21 +383,14 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             logger.info("    win_bonus=%+.1f", win_bonus)
             logger.info("    loss_penalty=%+.1f", loss_penalty)
 
-    # 2. Action-frequency breakdown (SC2Env only) ----------------------------
+    # 2. Action-frequency breakdown (any game may populate episode_action_counts)
     ac = info.get("episode_action_counts")
     if ac:
         total = sum(ac.values())
         if total > 0:
             prev_ac: dict = prev.get("episode_action_counts") or {}
             prev_total = sum(prev_ac.values()) if prev_ac else 0
-            try:
-                from games.sc2.actions import FUNCTION_IDS as _FNIDS  # noqa: PLC0415
-            except ImportError:
-                # SC2 extras not installed; fall back to numeric fn{idx} names.
-                logger.debug("games.sc2.actions unavailable; action names shown as fn{idx}")
-                _FNIDS: dict = {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
-                name = _FNIDS.get(int(fn_idx), f"fn{fn_idx}")
                 pct = 100.0 * count / total
                 if prev_total > 0:
                     # Keys are ints from env.step(); str fallback handles any
@@ -419,28 +399,21 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:
                     cmp_s = ""
-                logger.info("    %s=%.1f%%%s", name, pct, cmp_s)
+                logger.info("    %s=%.1f%%%s", fn_idx, pct, cmp_s)
 
-    # 3. TMNF task metrics ---------------------------------------------------
-    progress = info.get("track_progress")
-    if progress is not None:
-        prev_progress = prev.get("track_progress")
-        cmp_s = f" (prev {100.0 * prev_progress:.1f}%)" if prev_progress is not None else ""
-        lat = info.get("mean_abs_lateral_offset")
-        lat_s = ""
-        if lat is not None:
-            prev_lat = prev.get("mean_abs_lateral_offset")
-            lat_cmp = f" (prev {prev_lat:.2f}m)" if prev_lat is not None else ""
-            lat_s = f"  mean_lateral={lat:.2f}m{lat_cmp}"
-        finish_t = info.get("elapsed_s") if info.get("finished") else None
-        t_s = ""
-        if finish_t is not None:
-            prev_ft = prev.get("elapsed_s") if prev.get("finished") else None
-            ft_cmp = f" (prev {prev_ft:.1f}s)" if prev_ft is not None else ""
-            t_s = f"  finish_time={finish_t:.1f}s{ft_cmp}"
-        logger.info("    progress=%.1f%%%s%s%s", 100.0 * progress, cmp_s, lat_s, t_s)
+    # 3. Task metrics — adapters populate info["episode_task_metrics"] as a
+    #    dict of {label: formatted_string} so framework stays game-agnostic.
+    task_metrics: dict[str, str] = info.get("episode_task_metrics") or {}
+    if task_metrics:
+        prev_task: dict[str, str] = prev.get("episode_task_metrics") or {}
+        parts = []
+        for k, v in task_metrics.items():
+            prev_v = prev_task.get(k)
+            cmp_s = f" (prev {prev_v})" if prev_v is not None else ""
+            parts.append(f"{k}={v}{cmp_s}")
+        logger.info("    %s", "  ".join(parts))
 
-    # 4. SC2 kill stats — suppress when no kills occurred --------------------
+    # 4. Kill stats — suppressed when no kills occurred ----------------------
     kills = info.get("episode_killed_value_units")
     if kills is not None:
         struct_kills = info.get("episode_killed_value_structures", 0.0)
@@ -451,11 +424,11 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
             logger.info("    kills: units=%d%s  structures=%d%s", int(kills), cmp_s, int(struct_kills), struct_cmp_s)
 
-    # 5. SC2 game-state averages ---------------------------------------------
+    # 5. Per-game state averages (any key in episode_obs_averages) ---------------
     obs_avgs = info.get("episode_obs_averages")
     if obs_avgs:
         prev_avgs: dict = prev.get("episode_obs_averages") or {}
-        for k in ("army_count", "food_used", "screen_enemy_count"):
+        for k in sorted(obs_avgs):
             v = obs_avgs.get(k)
             if v is not None and abs(v) > 0.001:
                 pv = prev_avgs.get(k)
@@ -491,14 +464,9 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
     if ac:
         total = sum(ac.values())
         if total > 0:
-            try:
-                from games.sc2.actions import FUNCTION_IDS as _FNIDS  # noqa: PLC0415
-            except ImportError:
-                _FNIDS: dict = {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
-                name = _FNIDS.get(int(fn_idx), f"fn{fn_idx}")
                 pct = 100.0 * count / total
-                logger.info("    %s=%.1f%%", name, pct)
+                logger.info("    %s=%.1f%%", fn_idx, pct)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:
@@ -558,15 +526,17 @@ def _run_probes(
             logger.info("Probe %d/%d: %s", i + 1, len(probe_actions), probe_action.name)
             obs, reset_info = env.reset()
             ep: EpisodeResult = _run_episode(
-                env, _ConstantPolicy(probe_action.action), obs,
-                warmup_action=warmup_action, warmup_steps=warmup_steps,
+                env,
+                _ConstantPolicy(probe_action.action),
+                obs,
+                warmup_action=warmup_action,
+                warmup_steps=warmup_steps,
                 reset_info=reset_info,
                 live_monitor=live_monitor,
             )
             results[i] = ep.reward
             probe_results.append(
-                ProbeResult(action_idx=i, action_name=probe_action.name,
-                            reward=ep.reward, trace=ep.trace)
+                ProbeResult(action_idx=i, action_name=probe_action.name, reward=ep.reward, trace=ep.trace)
             )
     finally:
         if saved_limit is not None:
@@ -576,8 +546,7 @@ def _run_probes(
     logger.info("Probe results:")
     for i, r in results.items():
         marker = " <-- best" if i == best_idx else ""
-        logger.info("  action %d (%-15s)  reward=%+.1f%s",
-                    i, probe_actions[i].name, r, marker)
+        logger.info("  action %d (%-15s)  reward=%+.1f%s", i, probe_actions[i].name, r, marker)
     logger.info("Probe best: %+.1f", results[best_idx])
     time.sleep(1)
     return ProbePhaseResult(best_reward=results[best_idx], probe_results=probe_results)
@@ -627,17 +596,24 @@ def _cold_start_search(
             candidate = local_best_policy.mutated(scale=mutation_scale, share=mutation_share)
             obs, reset_info = env.reset()
             ep: EpisodeResult = _run_episode(
-                env, candidate, obs,
-                warmup_action=warmup_action, warmup_steps=warmup_steps,
+                env,
+                candidate,
+                obs,
+                warmup_action=warmup_action,
+                warmup_steps=warmup_steps,
                 reset_info=reset_info,
                 live_monitor=live_monitor,
             )
-            sim_results.append(ColdStartSimResult(
-                sim=sim, reward=ep.reward,
-                throttle_counts=list(ep.throttle_counts), total_steps=ep.total_steps,
-                trace=ep.trace,
-                termination_reason=ep.info.get("termination_reason"),
-            ))
+            sim_results.append(
+                ColdStartSimResult(
+                    sim=sim,
+                    reward=ep.reward,
+                    throttle_counts=list(ep.throttle_counts),
+                    total_steps=ep.total_steps,
+                    trace=ep.trace,
+                    termination_reason=ep.info.get("termination_reason"),
+                )
+            )
             if ep.reward > local_best_reward:
                 local_best_reward = ep.reward
                 local_best_policy = candidate
@@ -671,8 +647,7 @@ def _cold_start_search(
         overall_best_policy = WeightedLinearPolicy(obs_spec, head_names, weights_file)
         overall_best_policy.save(weights_file)
 
-    logger.info("Cold-start complete — best: %+.1f  → %s",
-                overall_best_reward, weights_file)
+    logger.info("Cold-start complete — best: %+.1f  → %s", overall_best_reward, weights_file)
     return ColdStartPhaseResult(
         policy=overall_best_policy,
         best_reward=overall_best_reward,
@@ -681,7 +656,7 @@ def _cold_start_search(
 
 
 # ---------------------------------------------------------------------------
-# Replay saving (SC2 only — no-op for all other games)
+# Replay saving (no-op for games that do not implement save_replay)
 # ---------------------------------------------------------------------------
 
 
@@ -694,7 +669,9 @@ def _next_best_prefix(weights_file: str, replay_dir: str) -> str:
     experiment_name = os.path.basename(os.path.dirname(os.path.abspath(weights_file)))
     n = 0
     if os.path.isdir(replay_dir):
-        n = sum(1 for f in os.listdir(replay_dir) if f.endswith(".SC2Replay") and not f.startswith("_"))
+        pat = re.compile(rf"^{re.escape(experiment_name)}_best-(\d+)")
+        nums = [int(m.group(1)) for f in os.listdir(replay_dir) if (m := pat.match(f))]
+        n = max(nums, default=0)
     return f"{experiment_name}_best-{n + 1:02d}"
 
 
@@ -750,7 +727,8 @@ def _finalize_candidate_replay(candidate_path: str | None, weights_file: str) ->
         logger.debug("  [replay] candidate file missing — skipping finalize.")
         return
     rdir = os.path.dirname(candidate_path)
-    dest = os.path.join(rdir, _next_best_prefix(weights_file, rdir) + ".SC2Replay")
+    ext = os.path.splitext(candidate_path)[1]
+    dest = os.path.join(rdir, _next_best_prefix(weights_file, rdir) + ext)
     try:
         os.rename(candidate_path, dest)
         logger.info("  [replay] saved → %s", dest)
@@ -816,14 +794,17 @@ def _greedy_loop(
                     env.set_episode_time_limit(_scaled_episode_time(sim, n_sims, full_episode_time_s))
                 obs, reset_info = env.reset()
                 ep: EpisodeResult = _run_episode(
-                    env, candidate, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    env,
+                    candidate,
+                    obs,
+                    warmup_action=warmup_action,
+                    warmup_steps=warmup_steps,
                     reset_info=reset_info,
                     live_monitor=live_monitor,
                 )
                 improved = ep.reward > best_reward
                 if improved:
-                    prev_best   = best_reward
+                    prev_best = best_reward
                     best_reward = ep.reward
                     best_policy = candidate
                     best_policy.save(weights_file)
@@ -853,27 +834,32 @@ def _greedy_loop(
                 )
                 if _set:
                     current_scale = _set[0]
-                greedy_sims.append(GreedySimResult(
-                    sim=sim, reward=ep.reward, improved=improved,
-                    throttle_counts=list(ep.throttle_counts), total_steps=ep.total_steps,
-                    trace=ep.trace,
-                    weights=candidate.to_cfg(),
-                    final_track_progress=ep.info.get("track_progress", 0.0),
-                    laps_completed=ep.info.get("laps_completed", 0),
-                    mutation_scale=current_scale,
-                    termination_reason=ep.info.get("termination_reason"),
-                    finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
-                    mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
-                    reward_components=ep.info.get("episode_reward_components"),
-                    action_counts=ep.info.get("episode_action_counts"),
-                    obs_averages=ep.info.get("episode_obs_averages"),
-                    xy_hist=ep.info.get("episode_xy_hist"),
-                    skipped_frames=_episode_skipped_frames(ep.info),
-                    supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
-                    build_order=ep.info.get("episode_build_order"),
-                    army_count_series=ep.info.get("episode_army_series"),
-                    resource_series=ep.info.get("episode_resource_series"),
-                ))
+                greedy_sims.append(
+                    GreedySimResult(
+                        sim=sim,
+                        reward=ep.reward,
+                        improved=improved,
+                        throttle_counts=list(ep.throttle_counts),
+                        total_steps=ep.total_steps,
+                        trace=ep.trace,
+                        weights=candidate.to_cfg(),
+                        final_track_progress=ep.info.get("track_progress", 0.0),
+                        laps_completed=ep.info.get("laps_completed", 0),
+                        mutation_scale=current_scale,
+                        termination_reason=ep.info.get("termination_reason"),
+                        finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
+                        mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
+                        reward_components=ep.info.get("episode_reward_components"),
+                        action_counts=ep.info.get("episode_action_counts"),
+                        obs_averages=ep.info.get("episode_obs_averages"),
+                        xy_hist=ep.info.get("episode_xy_hist"),
+                        skipped_frames=_episode_skipped_frames(ep.info),
+                        supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
+                        build_order=ep.info.get("episode_build_order"),
+                        army_count_series=ep.info.get("episode_army_series"),
+                        resource_series=ep.info.get("episode_resource_series"),
+                    )
+                )
                 no_improve_streak = 0 if improved else no_improve_streak + 1
                 if patience > 0 and no_improve_streak >= patience:
                     logger.info(
@@ -889,8 +875,10 @@ def _greedy_loop(
         except KeyboardInterrupt:
             logger.warning("Training interrupted.")
         return GreedyLoopResult(
-            policy=best_policy, best_reward=best_reward,
-            greedy_sims=greedy_sims, early_stopped=early_stopped,
+            policy=best_policy,
+            best_reward=best_reward,
+            greedy_sims=greedy_sims,
+            early_stopped=early_stopped,
             early_stop_sim=early_stop_sim,
         )
 
@@ -918,21 +906,24 @@ def _greedy_loop(
 
             obs, reset_info = env.reset()
             ep_plus: EpisodeResult = _run_episode(
-                env, policy_plus, obs,
-                warmup_action=warmup_action, warmup_steps=warmup_steps,
+                env,
+                policy_plus,
+                obs,
+                warmup_action=warmup_action,
+                warmup_steps=warmup_steps,
                 reset_info=reset_info,
                 live_monitor=live_monitor,
             )
             # Capture the plus replay before env.reset() starts the minus episode
             # and overwrites it in the SC2 process.
-            _plus_candidate = (
-                _save_candidate_replay(env, weights_file)
-                if ep_plus.reward > best_reward else None
-            )
+            _plus_candidate = _save_candidate_replay(env, weights_file) if ep_plus.reward > best_reward else None
             obs, reset_info = env.reset()
             ep_minus: EpisodeResult = _run_episode(
-                env, policy_minus, obs,
-                warmup_action=warmup_action, warmup_steps=warmup_steps,
+                env,
+                policy_minus,
+                obs,
+                warmup_action=warmup_action,
+                warmup_steps=warmup_steps,
                 reset_info=reset_info,
                 live_monitor=live_monitor,
             )
@@ -948,29 +939,29 @@ def _greedy_loop(
                 best_ep, best_cand = ep_minus, policy_minus
                 # Minus won and its replay is still current — save it now.
                 _discard_candidate_replay(_plus_candidate)
-                _winner_candidate = (
-                    _save_candidate_replay(env, weights_file)
-                    if ep_minus.reward > best_reward else None
-                )
+                _winner_candidate = _save_candidate_replay(env, weights_file) if ep_minus.reward > best_reward else None
 
             improved = False
             if best_ep.reward > best_reward:
-                prev_best   = best_reward
+                prev_best = best_reward
                 best_reward = best_ep.reward
                 best_policy = best_cand
                 best_policy.save(weights_file)
                 best_policy.save_trainer_state(_trainer_state_path(weights_file))
                 _finalize_candidate_replay(_winner_candidate, weights_file)
-                improved    = True
-                verdict = (f"NEW BEST  {best_ep.reward:+.1f}  (was {prev_best:+.1f})"
-                           f"  gradient={ep_plus.reward - ep_minus.reward:+.1f}")
+                improved = True
+                verdict = (
+                    f"NEW BEST  {best_ep.reward:+.1f}  (was {prev_best:+.1f})"
+                    f"  gradient={ep_plus.reward - ep_minus.reward:+.1f}"
+                )
                 logger.info("  >> %s", verdict)
                 _log_new_best_details(best_ep.info, best_info_logged)
                 best_info_logged = best_ep.info
             else:
                 _discard_candidate_replay(_winner_candidate)
-                verdict = (f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}"
-                           f"  best={best_reward:+.1f}")
+                verdict = (
+                    f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
+                )
                 logger.info("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                     _log_periodic_stats(best_ep.info, sim)
@@ -984,29 +975,34 @@ def _greedy_loop(
                 elif p < 1 / 5:
                     current_scale = max(current_scale * ADAPT_DOWN, SCALE_MIN)
                 if current_scale != prev_scale:
-                    logger.info("  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)",
-                                prev_scale, current_scale, p)
+                    logger.info("  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)", prev_scale, current_scale, p)
 
-            greedy_sims.append(GreedySimResult(
-                sim=sim, reward=best_ep.reward, improved=improved,
-                throttle_counts=list(best_ep.throttle_counts), total_steps=best_ep.total_steps,
-                trace=best_ep.trace, weights=best_cand.to_cfg(),
-                final_track_progress=best_ep.info.get("track_progress", 0.0),
-                laps_completed=best_ep.info.get("laps_completed", 0),
-                mutation_scale=current_scale,
-                termination_reason=best_ep.info.get("termination_reason"),
-                finish_time_s=best_ep.info.get("elapsed_s") if best_ep.info.get("finished") else None,
-                mean_abs_lateral_offset=best_ep.info.get("mean_abs_lateral_offset"),
-                reward_components=best_ep.info.get("episode_reward_components"),
-                action_counts=best_ep.info.get("episode_action_counts"),
-                obs_averages=best_ep.info.get("episode_obs_averages"),
-                xy_hist=best_ep.info.get("episode_xy_hist"),
-                skipped_frames=_episode_skipped_frames(best_ep.info),
-                supply_capped_fraction=best_ep.info.get("episode_supply_capped_fraction"),
-                build_order=best_ep.info.get("episode_build_order"),
-                army_count_series=best_ep.info.get("episode_army_series"),
-                resource_series=best_ep.info.get("episode_resource_series"),
-            ))
+            greedy_sims.append(
+                GreedySimResult(
+                    sim=sim,
+                    reward=best_ep.reward,
+                    improved=improved,
+                    throttle_counts=list(best_ep.throttle_counts),
+                    total_steps=best_ep.total_steps,
+                    trace=best_ep.trace,
+                    weights=best_cand.to_cfg(),
+                    final_track_progress=best_ep.info.get("track_progress", 0.0),
+                    laps_completed=best_ep.info.get("laps_completed", 0),
+                    mutation_scale=current_scale,
+                    termination_reason=best_ep.info.get("termination_reason"),
+                    finish_time_s=best_ep.info.get("elapsed_s") if best_ep.info.get("finished") else None,
+                    mean_abs_lateral_offset=best_ep.info.get("mean_abs_lateral_offset"),
+                    reward_components=best_ep.info.get("episode_reward_components"),
+                    action_counts=best_ep.info.get("episode_action_counts"),
+                    obs_averages=best_ep.info.get("episode_obs_averages"),
+                    xy_hist=best_ep.info.get("episode_xy_hist"),
+                    skipped_frames=_episode_skipped_frames(best_ep.info),
+                    supply_capped_fraction=best_ep.info.get("episode_supply_capped_fraction"),
+                    build_order=best_ep.info.get("episode_build_order"),
+                    army_count_series=best_ep.info.get("episode_army_series"),
+                    resource_series=best_ep.info.get("episode_resource_series"),
+                )
+            )
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
                 logger.info(
@@ -1023,8 +1019,10 @@ def _greedy_loop(
         logger.warning("Training interrupted.")
 
     return GreedyLoopResult(
-        policy=best_policy, best_reward=best_reward,
-        greedy_sims=greedy_sims, early_stopped=early_stopped,
+        policy=best_policy,
+        best_reward=best_reward,
+        greedy_sims=greedy_sims,
+        early_stopped=early_stopped,
         early_stop_sim=early_stop_sim,
     )
 
@@ -1078,7 +1076,7 @@ def _evaluate_with_evaluator(
     )
     rewards = [r.reward for r in results]
     total_steps = sum(r.total_steps for r in results)
-    best_i      = int(np.argmax(rewards))
+    best_i = int(np.argmax(rewards))
     return EvaluatorBatch(
         rewards=rewards,
         total_steps=total_steps,
@@ -1137,14 +1135,12 @@ def _greedy_loop_cmaes(
             )
             if scaled_t is not None:
                 env.set_episode_time_limit(scaled_t)
-            offspring    = policy.sample_population()
-            info: dict   = {}
-            trace        = None
+            offspring = policy.sample_population()
             ep_last: EpisodeResult | None = None
             last_info: dict = {}
             last_trace: RunTrace | None = None
             # Track the replay for the best individual seen this generation.
-            # Each candidate save overwrites _candidate.SC2Replay; we save
+            # Each candidate save overwrites the candidate file; we save
             # before the next env.reset() discards the current episode's replay.
             _gen_candidate: str | None = None
             _gen_candidate_reward: float = policy.champion_reward
@@ -1156,15 +1152,16 @@ def _greedy_loop_cmaes(
                 # parallel path; champion replays from the (separate) eval
                 # run are still available via `python main.py --eval`.
                 eval_batch: EvaluatorBatch = _evaluate_with_evaluator(
-                    evaluator, offspring, eval_episodes,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    evaluator,
+                    offspring,
+                    eval_episodes,
+                    warmup_action=warmup_action,
+                    warmup_steps=warmup_steps,
                     episode_time_limit_s=scaled_t,
                 )
-                rewards     = eval_batch.rewards
+                rewards = eval_batch.rewards
                 total_steps = eval_batch.total_steps
-                info        = eval_batch.info
-                trace       = eval_batch.trace
-                last_info   = eval_batch.info
+                last_info = eval_batch.info
                 last_trace = eval_batch.trace
             else:
                 rewards = []
@@ -1174,8 +1171,11 @@ def _greedy_loop_cmaes(
                     for _ in range(eval_episodes):
                         obs, reset_info = env.reset()
                         ep: EpisodeResult = _run_episode(
-                            env, individual, obs,
-                            warmup_action=warmup_action, warmup_steps=warmup_steps,
+                            env,
+                            individual,
+                            obs,
+                            warmup_action=warmup_action,
+                            warmup_steps=warmup_steps,
                             reset_info=reset_info,
                             live_monitor=live_monitor,
                         )
@@ -1218,25 +1218,31 @@ def _greedy_loop_cmaes(
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 
-            greedy_sims.append(GreedySimResult(
-                sim=gen, reward=gen_best, improved=improved,
-                throttle_counts=[0, 0, 0], total_steps=total_steps, trace=last_trace,
-                weights=policy.to_cfg(),
-                final_track_progress=last_info.get("track_progress", 0.0),
-                laps_completed=last_info.get("laps_completed", 0),
-                termination_reason=last_info.get("termination_reason"),
-                finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
-                mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
-                reward_components=last_info.get("episode_reward_components"),
-                action_counts=last_info.get("episode_action_counts"),
-                obs_averages=last_info.get("episode_obs_averages"),
-                xy_hist=last_info.get("episode_xy_hist"),
-                skipped_frames=_episode_skipped_frames(last_info),
-                supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
-                build_order=last_info.get("episode_build_order"),
-                army_count_series=last_info.get("episode_army_series"),
-                resource_series=last_info.get("episode_resource_series"),
-            ))
+            greedy_sims.append(
+                GreedySimResult(
+                    sim=gen,
+                    reward=gen_best,
+                    improved=improved,
+                    throttle_counts=[0, 0, 0],
+                    total_steps=total_steps,
+                    trace=last_trace,
+                    weights=policy.to_cfg(),
+                    final_track_progress=last_info.get("track_progress", 0.0),
+                    laps_completed=last_info.get("laps_completed", 0),
+                    termination_reason=last_info.get("termination_reason"),
+                    finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
+                    mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
+                    reward_components=last_info.get("episode_reward_components"),
+                    action_counts=last_info.get("episode_action_counts"),
+                    obs_averages=last_info.get("episode_obs_averages"),
+                    xy_hist=last_info.get("episode_xy_hist"),
+                    skipped_frames=_episode_skipped_frames(last_info),
+                    supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
+                    build_order=last_info.get("episode_build_order"),
+                    army_count_series=last_info.get("episode_army_series"),
+                    resource_series=last_info.get("episode_resource_series"),
+                )
+            )
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
                 logger.info(
@@ -1253,8 +1259,10 @@ def _greedy_loop_cmaes(
         logger.warning("Training interrupted.")
 
     return GreedyLoopResult(
-        policy=policy, best_reward=best_reward,
-        greedy_sims=greedy_sims, early_stopped=early_stopped,
+        policy=policy,
+        best_reward=best_reward,
+        greedy_sims=greedy_sims,
+        early_stopped=early_stopped,
         early_stop_sim=early_stop_sim,
     )
 
@@ -1291,8 +1299,11 @@ def _greedy_loop_q_learning(
                 )
             obs, reset_info = env.reset()
             ep: EpisodeResult = _run_episode(
-                env, policy, obs,
-                warmup_action=warmup_action, warmup_steps=warmup_steps,
+                env,
+                policy,
+                obs,
+                warmup_action=warmup_action,
+                warmup_steps=warmup_steps,
                 reset_info=reset_info,
                 live_monitor=live_monitor,
             )
@@ -1300,7 +1311,7 @@ def _greedy_loop_q_learning(
 
             improved = ep.reward > best_reward
             if improved:
-                prev_best   = best_reward
+                prev_best = best_reward
                 best_reward = ep.reward
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
@@ -1316,26 +1327,31 @@ def _greedy_loop_q_learning(
             elif log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
                 _log_periodic_stats(ep.info, episode)
 
-            greedy_sims.append(GreedySimResult(
-                sim=episode, reward=ep.reward, improved=improved,
-                throttle_counts=list(ep.throttle_counts), total_steps=ep.total_steps,
-                trace=ep.trace,
-                weights=cfg,
-                final_track_progress=ep.info.get("track_progress", 0.0),
-                laps_completed=ep.info.get("laps_completed", 0),
-                termination_reason=ep.info.get("termination_reason"),
-                finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
-                mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
-                reward_components=ep.info.get("episode_reward_components"),
-                action_counts=ep.info.get("episode_action_counts"),
-                obs_averages=ep.info.get("episode_obs_averages"),
-                xy_hist=ep.info.get("episode_xy_hist"),
-                skipped_frames=_episode_skipped_frames(ep.info),
-                supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
-                build_order=ep.info.get("episode_build_order"),
-                army_count_series=ep.info.get("episode_army_series"),
-                resource_series=ep.info.get("episode_resource_series"),
-            ))
+            greedy_sims.append(
+                GreedySimResult(
+                    sim=episode,
+                    reward=ep.reward,
+                    improved=improved,
+                    throttle_counts=list(ep.throttle_counts),
+                    total_steps=ep.total_steps,
+                    trace=ep.trace,
+                    weights=cfg,
+                    final_track_progress=ep.info.get("track_progress", 0.0),
+                    laps_completed=ep.info.get("laps_completed", 0),
+                    termination_reason=ep.info.get("termination_reason"),
+                    finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
+                    mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
+                    reward_components=ep.info.get("episode_reward_components"),
+                    action_counts=ep.info.get("episode_action_counts"),
+                    obs_averages=ep.info.get("episode_obs_averages"),
+                    xy_hist=ep.info.get("episode_xy_hist"),
+                    skipped_frames=_episode_skipped_frames(ep.info),
+                    supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
+                    build_order=ep.info.get("episode_build_order"),
+                    army_count_series=ep.info.get("episode_army_series"),
+                    resource_series=ep.info.get("episode_resource_series"),
+                )
+            )
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
                 logger.info(
@@ -1352,8 +1368,10 @@ def _greedy_loop_q_learning(
         logger.warning("Training interrupted.")
 
     return GreedyLoopResult(
-        policy=policy, best_reward=best_reward,
-        greedy_sims=greedy_sims, early_stopped=early_stopped,
+        policy=policy,
+        best_reward=best_reward,
+        greedy_sims=greedy_sims,
+        early_stopped=early_stopped,
         early_stop_sim=early_stop_sim,
     )
 
@@ -1421,8 +1439,6 @@ def _greedy_loop_genetic(
             )
             if scaled_t is not None:
                 env.set_episode_time_limit(scaled_t)
-            trace        = None
-            info: dict   = {}
             ep_last: EpisodeResult | None = None
             last_info: dict = {}
             last_trace: RunTrace | None = None
@@ -1434,15 +1450,16 @@ def _greedy_loop_genetic(
                 # See parallel-path note in _greedy_loop_cmaes — replay saving
                 # is bypassed when episodes run in worker SC2 binaries.
                 eval_batch: EvaluatorBatch = _evaluate_with_evaluator(
-                    evaluator, policy.population, eval_episodes,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    evaluator,
+                    policy.population,
+                    eval_episodes,
+                    warmup_action=warmup_action,
+                    warmup_steps=warmup_steps,
                     episode_time_limit_s=scaled_t,
                 )
-                rewards     = eval_batch.rewards
+                rewards = eval_batch.rewards
                 total_steps = eval_batch.total_steps
-                info        = eval_batch.info
-                trace       = eval_batch.trace
-                last_info   = eval_batch.info
+                last_info = eval_batch.info
                 last_trace = eval_batch.trace
             else:
                 rewards = []
@@ -1452,8 +1469,11 @@ def _greedy_loop_genetic(
                     for _ in range(eval_episodes):
                         obs, reset_info = env.reset()
                         ep: EpisodeResult = _run_episode(
-                            env, individual, obs,
-                            warmup_action=warmup_action, warmup_steps=warmup_steps,
+                            env,
+                            individual,
+                            obs,
+                            warmup_action=warmup_action,
+                            warmup_steps=warmup_steps,
                             reset_info=reset_info,
                             live_monitor=live_monitor,
                         )
@@ -1512,26 +1532,32 @@ def _greedy_loop_genetic(
                     )
                     policy.mutation_scale = new_scale
 
-            greedy_sims.append(GreedySimResult(
-                sim=gen, reward=gen_best, improved=improved,
-                throttle_counts=[0, 0, 0], total_steps=total_steps, trace=last_trace,
-                weights=policy.to_cfg(),
-                mutation_scale=policy.mutation_scale,
-                final_track_progress=last_info.get("track_progress", 0.0),
-                laps_completed=last_info.get("laps_completed", 0),
-                termination_reason=last_info.get("termination_reason"),
-                finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
-                mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
-                reward_components=last_info.get("episode_reward_components"),
-                action_counts=last_info.get("episode_action_counts"),
-                obs_averages=last_info.get("episode_obs_averages"),
-                xy_hist=last_info.get("episode_xy_hist"),
-                skipped_frames=_episode_skipped_frames(last_info),
-                supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
-                build_order=last_info.get("episode_build_order"),
-                army_count_series=last_info.get("episode_army_series"),
-                resource_series=last_info.get("episode_resource_series"),
-            ))
+            greedy_sims.append(
+                GreedySimResult(
+                    sim=gen,
+                    reward=gen_best,
+                    improved=improved,
+                    throttle_counts=[0, 0, 0],
+                    total_steps=total_steps,
+                    trace=last_trace,
+                    weights=policy.to_cfg(),
+                    mutation_scale=policy.mutation_scale,
+                    final_track_progress=last_info.get("track_progress", 0.0),
+                    laps_completed=last_info.get("laps_completed", 0),
+                    termination_reason=last_info.get("termination_reason"),
+                    finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
+                    mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
+                    reward_components=last_info.get("episode_reward_components"),
+                    action_counts=last_info.get("episode_action_counts"),
+                    obs_averages=last_info.get("episode_obs_averages"),
+                    xy_hist=last_info.get("episode_xy_hist"),
+                    skipped_frames=_episode_skipped_frames(last_info),
+                    supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
+                    build_order=last_info.get("episode_build_order"),
+                    army_count_series=last_info.get("episode_army_series"),
+                    resource_series=last_info.get("episode_resource_series"),
+                )
+            )
             no_improve_streak = 0 if improved else no_improve_streak + 1
             if patience > 0 and no_improve_streak >= patience:
                 logger.info(
@@ -1548,8 +1574,10 @@ def _greedy_loop_genetic(
         logger.warning("Training interrupted.")
 
     return GreedyLoopResult(
-        policy=policy, best_reward=best_reward,
-        greedy_sims=greedy_sims, early_stopped=early_stopped,
+        policy=policy,
+        best_reward=best_reward,
+        greedy_sims=greedy_sims,
+        early_stopped=early_stopped,
         early_stop_sim=early_stop_sim,
     )
 
@@ -1759,11 +1787,15 @@ def train_rl(
 
     if cold_start and not pretrained:
         probe_phase: ProbePhaseResult = _run_probes(
-            env, probe_actions, probe_in_game_s, speed,
-            warmup_action=warmup_action, warmup_steps=warmup_steps,
+            env,
+            probe_actions,
+            probe_in_game_s,
+            speed,
+            warmup_action=warmup_action,
+            warmup_steps=warmup_steps,
             live_monitor=live_monitor,
         )
-        probe_best    = probe_phase.best_reward
+        probe_best = probe_phase.best_reward
         probe_results = probe_phase.probe_results
         t_after_probe = datetime.datetime.now()
 
@@ -1771,14 +1803,21 @@ def train_rl(
             input("\n  [COLD-START SEARCH]  Press Enter to start random-restart search...")
         time.sleep(1)
         cold: ColdStartPhaseResult = _cold_start_search(
-            env, obs_spec, head_names, probe_best, weights_file,
-            mutation_scale, mutation_share=mutation_share,
-            n_restarts=cold_start_restarts, sims_per_restart=cold_start_sims,
-            warmup_action=warmup_action, warmup_steps=warmup_steps,
+            env,
+            obs_spec,
+            head_names,
+            probe_best,
+            weights_file,
+            mutation_scale,
+            mutation_share=mutation_share,
+            n_restarts=cold_start_restarts,
+            sims_per_restart=cold_start_sims,
+            warmup_action=warmup_action,
+            warmup_steps=warmup_steps,
             live_monitor=live_monitor,
         )
-        best_policy    = cold.policy
-        best_reward    = cold.best_reward
+        best_policy = cold.policy
+        best_reward = cold.best_reward
         cold_start_data = cold.restart_results
         t_after_cold = datetime.datetime.now()
     else:
@@ -1830,31 +1869,47 @@ def train_rl(
     try:
         if loop_type == "hill_climbing":
             loop: GreedyLoopResult = _greedy_loop(
-                env=env, policy=best_policy, n_sims=n_sims,
-                mutation_scale=mutation_scale, mutation_share=mutation_share,
-                best_reward=best_reward, weights_file=weights_file,
-                adaptive_mutation=adaptive_mutation, patience=patience,
-                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
+                env=env,
+                policy=best_policy,
+                n_sims=n_sims,
+                mutation_scale=mutation_scale,
+                mutation_share=mutation_share,
+                best_reward=best_reward,
+                weights_file=weights_file,
+                adaptive_mutation=adaptive_mutation,
+                patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims,
+                **kw,
             )
         elif loop_type == "q_learning":
             loop = _greedy_loop_q_learning(
-                env=env, policy=best_policy, n_episodes=n_sims,
-                weights_file=weights_file, patience=patience,
-                log_stats_every_n_sims=log_stats_every_n_sims, **kw,
+                env=env,
+                policy=best_policy,
+                n_episodes=n_sims,
+                weights_file=weights_file,
+                patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims,
+                **kw,
             )
         elif loop_type == "cmaes":
             loop = _greedy_loop_cmaes(
-                env=env, policy=best_policy,
-                n_generations=n_sims, weights_file=weights_file, patience=patience,
+                env=env,
+                policy=best_policy,
+                n_generations=n_sims,
+                weights_file=weights_file,
+                patience=patience,
                 evaluator=evaluator,
                 log_stats_every_n_sims=log_stats_every_n_sims,
                 **kw,
             )
         elif loop_type == "genetic":
             loop = _greedy_loop_genetic(
-                env=env, policy=best_policy,  # type: ignore[arg-type]
-                n_generations=n_sims, weights_file=weights_file,
-                patience=patience, adaptive_mutation=adaptive_mutation,
+                env=env,
+                policy=best_policy,  # type: ignore[arg-type]
+                n_generations=n_sims,
+                weights_file=weights_file,
+                patience=patience,
+                adaptive_mutation=adaptive_mutation,
                 evaluator=evaluator,
                 log_stats_every_n_sims=log_stats_every_n_sims,
                 **kw,  # type: ignore[arg-type]
@@ -1883,19 +1938,19 @@ def train_rl(
     }
 
     data = ExperimentData(
-        experiment_name    = experiment_name,
-        probe_results      = probe_results,
-        cold_start_restarts = cold_start_data,
-        greedy_sims        = loop.greedy_sims,
-        probe_floor        = probe_best,
-        weights_file       = weights_file,
-        reward_config_file = reward_config_file,
-        training_params    = training_params or {},
-        timings            = timings,
-        track              = track,
-        early_stopped      = loop.early_stopped,
-        early_stop_sim     = loop.early_stop_sim,
-        code_version       = code_version(),
+        experiment_name=experiment_name,
+        probe_results=probe_results,
+        cold_start_restarts=cold_start_data,
+        greedy_sims=loop.greedy_sims,
+        probe_floor=probe_best,
+        weights_file=weights_file,
+        reward_config_file=reward_config_file,
+        training_params=training_params or {},
+        timings=timings,
+        track=track,
+        early_stopped=loop.early_stopped,
+        early_stop_sim=loop.early_stop_sim,
+        code_version=code_version(),
     )
 
     if save_results_fn is not None:

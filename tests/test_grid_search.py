@@ -524,5 +524,5 @@ class TestSc2NeuralNetTemplate:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         reward = data.get("reward_params") or {}
-        assert reward.get("early_random_action_bonus") == 2.0
+        assert reward.get("early_random_action_bonus") == 10.0
         assert reward.get("early_random_action_window_steps") == 300

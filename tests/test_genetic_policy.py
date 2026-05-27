@@ -7,8 +7,9 @@ from unittest.mock import patch
 
 import numpy as np
 from helpers import make_wlp
+
+from framework.training import GreedyLoopResult, _greedy_loop_genetic
 from games.tmnf.policies import GeneticPolicy, WeightedLinearPolicy
-from framework.training import _greedy_loop_genetic, GreedyLoopResult
 
 
 def _make_genetic(pop=6, elite=2, eval_episodes=1) -> GeneticPolicy:
@@ -297,7 +298,10 @@ class TestGeneticAdaptiveMutation(unittest.TestCase):
             wf = f.name
         try:
             loop: GreedyLoopResult = _greedy_loop_genetic(
-                env=env, policy=gp, n_generations=3, weights_file=wf,
+                env=env,
+                policy=gp,
+                n_generations=3,
+                weights_file=wf,
                 adaptive_mutation=False,
             )
         finally:

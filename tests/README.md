@@ -169,7 +169,7 @@ worker mechanics are unit-tested with a dummy env.
 - summary string: empty / contains finish rate / best finish time / no time when none / lateral offset
 - summary table: progress / finish-time / dash-on-no-finish / lateral-offset columns
 - `plot_gs_reward_trajectories`: chart written by `save_grid_summary` / referenced in summary.md / no crash with empty sims
-- `save_grid_summary` task-metric plugin: default uses track progress with `.4f` format; custom fn replaces label+value; custom fn drives ranking; explicit `task_metric_fmt` overrides format independently of fn
+- `save_grid_summary` task-metric plugin: default label is "Best Task Metric" with `.4f` format; custom fn replaces label+value; custom fn drives ranking; explicit `task_metric_fmt` overrides format independently of fn
 - `plot_reward_component_breakdown`: renders to file / skips when no component data / skips when no sims / skips when all-zero / positive-only / negative-only / partial-None sims use zero for missing keys
 
 ### test_belief.py — fog-of-war belief encoder
@@ -265,7 +265,7 @@ worker mechanics are unit-tested with a dummy env.
 - reward-component extraction prefers per-step components and falls back to differencing cumulative episode totals
 - rolling-average values are computed from the latest 5 steps
 - observation grouping detects x/y pairs, indexed vectors (including mid-index names like `wheel_0_contact`), quadrant grids, and scalar fallbacks
-- reward ordering keeps known keys in fixed logical order and appends unknown keys alphabetically
+- reward ordering puts `total_reward` first; all other keys (including former TMNF/SC2-specific names) are sorted alphabetically
 - layout helpers split rows into display columns while preserving order and switch observation panel column count from 3 to 4 on wide canvases
 - action formatting renders 3-value TMNF controls with steer direction/percent, treats tiny pedal values (`<= 0.01`) as effectively zero when choosing accel-only vs brake-only display, and still truncates long vectors after six entries
 
@@ -300,11 +300,11 @@ worker mechanics are unit-tested with a dummy env.
 - SC2 summary formatting: scalar `outcome` (`win`/`loss`/`draw`) plus scalar `reward=` and `score=` values
 - `_log_new_best_details` — empty info emits nothing
 - reward components: logs all non-zero components, always includes `score` (even when 0), and explicitly logs `win_bonus`/`loss_penalty` split from terminal reward with previous-best comparison
-- action frequency: one log line per action with SC2 function names; prev comparison shown
-- TMNF metrics: progress; lateral offset; finish time only when `finished=True`; prev comparison for progress + offset (all on one combined line)
+- action frequency: one log line per action logged by raw key (no game-specific name lookup); prev comparison shown
+- task metrics: generic `episode_task_metrics` dict (pre-formatted strings); progress, lateral offset, finish time only when present; prev comparison for each key (all on one combined line); adapters are responsible for populating and formatting values
 - SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
 - SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison
-- all five groups together emit nine lines (2 components + win/loss + 2 actions + 1 progress + 1 kills + 1 game-state)
+- all five groups together emit nine lines (2 components + win/loss + 2 actions + 1 task metric + 1 kills + 1 game-state)
 
 ### test_utils.py — math/state-extraction utils
 - vector magnitude: zero / unit / 3D / compute_speed alias
@@ -333,14 +333,14 @@ worker mechanics are unit-tested with a dummy env.
 - `_validate_params` accepts all valid keys without raising
 - `_make_policy("hill_climbing", ...)` returns a `WeightedLinearPolicy` via the registry path
 - `_make_policy` raises on an unknown `policy_type`
-- compatibility hook (Phase D): `hill_climbing`/`genetic`/`neural_net` rejected on the `sc2` game via `_make_policy(game_name="sc2")` with a ValueError naming the bad type, the `sc2_`-prefixed migration hint, and CLAUDE.md; the same policies are accepted on non-SC2 games; `BasePolicy.compatible_with` defaults to allow-all
+- compatibility hook: `hill_climbing`/`genetic`/`neural_net` rejected on the `sc2` game via `_make_policy(game_name="sc2")` with a ValueError naming the bad type and the `sc2_`-prefixed migration hint; the same policies are accepted on non-SC2 games; `BasePolicy.compatible_with` defaults to allow-all; SC2 adapter registers the game via `register_continuous_action_incompatible("sc2", ...)`
 - SC2-native registry policies (`sc2_genetic`/`sc2_neural_net`/`sc2_neural_dqn`/`sc2_cnn`) require `game_name=="sc2"` and reject non-SC2 game names with an explicit hint
 - every registered policy with a non-empty `VALID_POLICY_PARAMS` rejects a bogus key
 - SC2 policies (after importing every game's policy module): the three Phase-D-migrated types (`sc2_cnn`, `sc2_neural_net`, `sc2_neural_dqn`) are registered with the expected `LOOP_TYPE`; per-type `VALID_POLICY_PARAMS` rejects unknown keys (sc2_genetic/sc2_neural_net/sc2_cmaes/sc2_lstm/sc2_reinforce/sc2_neural_dqn/cmaes) and accepts valid + empty params — replaces the SC2 `build_extras` validation cases removed from test_game_adapter.py
 
 ### test_sc2_legacy_names_rejected.py — SC2 bare legacy policy names rejected
-- `_make_policy(..., game_name=\"sc2\")` rejects SC2 bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with the generic unknown-policy error
-- Error message includes registered `sc2_*` alternatives (including each expected replacement)
+- `_make_policy(..., game_name="sc2")` rejects TMNF bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with a "not compatible" ValueError
+- Error message includes the expected `sc2_`-prefixed alternative for each rejected type
 
 ## TMNF policies
 
@@ -615,9 +615,9 @@ handful of iterations only).
 ### test_sc2_replay.py — SC2 replay saving on new-best events (issue #210)
 - `SC2Client.save_replay`: returns None when SC2 env not running; delegates to pysc2 save_replay with correct dir and prefix keyword; `os.makedirs` inside try block so directory creation failures are swallowed; swallows SC2 exceptions and returns None
 - `SC2Env.save_replay`: thin delegation to client
-- `_try_save_replay` (single-episode loops): no-op for envs without save_replay (non-SC2 games); first new-best → `_best-01` prefix; second new-best → `_best-02` when one confirmed .SC2Replay exists; candidate (`_`-prefixed) files excluded from sequential count; replay_dir always `<experiment_dir>/replays/`; only `.SC2Replay` files counted; exception swallowed
-- `_save_candidate_replay`: no-op for non-SC2; calls save_replay with `_candidate` prefix; exception swallowed, returns None
-- `_finalize_candidate_replay`: no-op when path is None or file missing; renames to next sequential `_best-N.SC2Replay`; candidate files excluded from confirmed-best count; two confirmed → `_best-02`
+- `_try_save_replay` (single-episode loops): no-op for envs without save_replay; first new-best → `_best-01` prefix; second new-best → `_best-02` when one confirmed best exists; candidate (`_`-prefixed) files excluded from sequential count; replay_dir always `<experiment_dir>/replays/`; files not matching `{experiment}_best-\d+` regex pattern ignored for numbering (including same-prefix non-numeric files like `{exp}_best-notes.txt`); exception swallowed
+- `_save_candidate_replay`: no-op for envs without save_replay; calls save_replay with `_candidate` prefix; exception swallowed, returns None
+- `_finalize_candidate_replay`: no-op when path is None or file missing; renames to next sequential `_best-N{ext}` preserving the candidate's extension; candidate files excluded from confirmed-best count; two confirmed → `_best-02`
 - `_discard_candidate_replay`: no-op on None or missing path; deletes existing file
 
 ### test_sc2_apm_limiter.py — token-bucket APM limiter + SC2Env integration

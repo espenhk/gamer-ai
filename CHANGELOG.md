@@ -40,6 +40,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.2.19] - 2026-05-27
+
+### Changed (framework genericity — issue #325)
+
+- **`framework/policies.py`**: Replaced the hardcoded `SC2_GAME_NAME = "sc2"` gate in `WeightedLinearPolicy`, `NeuralNetPolicy`, and `GeneticPolicy` with a capability registry (`register_continuous_action_incompatible`) that any game adapter can call at import time to declare itself incompatible with steer/accel/brake policies. `_sc2_incompatible()` removed; new public helpers `register_continuous_action_incompatible()` and `check_continuous_action_compatible()` added.
+- **`games/sc2/adapter.py`**: Registers `"sc2"` via `register_continuous_action_incompatible` at module level, providing per-policy-type replacement hints (`cmaes`→`sc2_cmaes`, etc.).
+- **`games/tmnf/policies.py`**: Added `compatible_with()` to `NeuralDQNPolicy`, `CMAESPolicy`, `REINFORCEPolicy`, and `LSTMEvolutionPolicy` (the four TMNF-specific policy wrappers) using the same registry, so they are rejected on SC2 via `_assert_policy_compatible` without the old `_SC2_REMOVED_BARE_POLICY_TYPES` gate.
+- **`framework/training.py`**: Removed `_SC2_REMOVED_BARE_POLICY_TYPES` constant and the `if game_name == "sc2"` gate in `_make_policy`. Replay numbering now counts files matching `{experiment}_best-*` (any extension) instead of `*.SC2Replay`; `_finalize_candidate_replay` derives the extension from the candidate file path. Removed direct `from games.sc2.actions import FUNCTION_IDS` import; action counts are now logged by raw key. Updated section comments to be game-agnostic. `_log_new_best_details` section 5 now iterates all keys in `episode_obs_averages` instead of a hardcoded SC2 list.
+- **`framework/obs_spec.py`**: Added generic `ObsSpec.with_extra_dims(dims)` extension method. `with_lidar()` now delegates to `with_extra_dims()` (kept for backward compatibility).
+- **`framework/live_monitor.py`**: `_REWARD_ORDER` reduced to `["total_reward"]`; all other reward keys are now sorted alphabetically. New games no longer need to edit this file to get sensible live-monitor display ordering.
+- **`framework/analytics.py`**: `save_grid_summary` default `task_metric_label` changed from `"Best Track Progress"` to `"Best Task Metric"`. Callers that want TMNF-style labelling should pass `task_metric_label="Best Track Progress"` explicitly.
+
+---
+
 ## [0.2.18] - 2026-05-26
 
 ---

@@ -66,16 +66,26 @@ class ObsSpec:
     # Helpers
     # ------------------------------------------------------------------
 
-    def with_lidar(self, n_rays: int) -> "ObsSpec":
-        """Return a new ObsSpec extended with *n_rays* LIDAR dimensions.
+    def with_extra_dims(self, dims: list["ObsDim"]) -> "ObsSpec":
+        """Return a new ObsSpec extended with *dims* appended.
 
-        LIDAR values are already in ~[0, 1] so their scale is 1.0.
-        Returns self unchanged when n_rays == 0.
+        Returns self unchanged when *dims* is empty.
+        """
+        if not dims:
+            return self
+        return ObsSpec(self._dims + list(dims))
+
+    def with_lidar(self, n_rays: int) -> "ObsSpec":
+        """Return a new ObsSpec extended with *n_rays* LIDAR ray dimensions.
+
+        Convenience wrapper around :meth:`with_extra_dims` for games that use a
+        LIDAR sensor.  LIDAR values are already normalised to ~[0, 1].
+        Returns self unchanged when ``n_rays == 0``.
         """
         if n_rays == 0:
             return self
         lidar_dims = [ObsDim(f"lidar_{i}", 1.0, "LIDAR ray wall-distance [0, 1]") for i in range(n_rays)]
-        return ObsSpec(self._dims + lidar_dims)
+        return self.with_extra_dims(lidar_dims)
 
     def __repr__(self) -> str:
         return f"ObsSpec(dim={self.dim}, names={self.names[:3]}...)"

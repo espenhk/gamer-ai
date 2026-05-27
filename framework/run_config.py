@@ -75,12 +75,13 @@ class RunConfig:
 # Probe action
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ProbeAction:
     """A single fixed-action probe episode: action vector + human-readable name."""
 
-    action: Any     # np.ndarray — action to hold constant for the whole episode
-    name: str       # short description, e.g. "accel" or "brake left"
+    action: Any  # np.ndarray — action to hold constant for the whole episode
+    name: str  # short description, e.g. "accel" or "brake left"
 
 
 # ---------------------------------------------------------------------------

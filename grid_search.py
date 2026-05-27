@@ -87,6 +87,7 @@ _ABBREV = {
     "obs_spec_preset": "osp",
     "enable_belief": "eb",
     "max_apm": "apm",
+    "apm_burst_s": "apmb",
     "log_stats_every_n_sims": "lsens",
     # neural_net policy params
     "hidden_sizes": "hs",

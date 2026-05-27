@@ -336,8 +336,11 @@ def _worker_main(
             for _ in range(candidate.eval_episodes):
                 obs, reset_info = env.reset()
                 ep = _run_episode(
-                    env, individual, obs,
-                    warmup_action=warmup_action, warmup_steps=warmup_steps,
+                    env,
+                    individual,
+                    obs,
+                    warmup_action=warmup_action,
+                    warmup_steps=warmup_steps,
                     reset_info=reset_info,
                 )
                 ep_rewards.append(ep.reward)

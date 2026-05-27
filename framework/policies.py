@@ -160,21 +160,49 @@ def trainer_state_path(weights_file: str) -> str:
 # Game/policy compatibility
 # ---------------------------------------------------------------------------
 
-#: Game name used by the SC2 adapter (framework keeps the literal so the
-#: continuous-action policies below can declare themselves incompatible
-#: without importing from games/).
-SC2_GAME_NAME = "sc2"
+# Maps game_name → {policy_type: suggested_alternative} for games whose action
+# encoding is incompatible with the continuous steer/accel/brake policies.
+# Populated at adapter import time via register_continuous_action_incompatible().
+_CONTINUOUS_ACTION_INCOMPATIBLE_GAMES: dict[str, dict[str, str]] = {}
 
 
-def _sc2_incompatible(alternative: str) -> tuple[bool, str]:
-    """Build the ``(False, hint)`` result for a continuous-action policy on SC2."""
-    return False, (
-        f"This framework policy uses the continuous steer/accel/brake action "
-        f"encoding (first head clipped to [-1, 1], the rest thresholded to "
-        f"binary), which is wrong for SC2 (fn_idx ∈ [0, 5], x/y ∈ [0, 1] "
-        f"continuous).  Use {alternative!r} instead — see CLAUDE.md "
-        f"'Supported policies' under 'StarCraft 2'."
+def register_continuous_action_incompatible(
+    game_name: str,
+    alternatives: dict[str, str] | None = None,
+) -> None:
+    """Register a game incompatible with continuous steer/accel/brake policies.
+
+    Call this once at adapter module level (it runs on first import, before
+    any compatibility checks run).  ``alternatives`` maps policy_type strings
+    to their game-specific replacement so the error hint can name the right
+    alternative (e.g. ``{"hill_climbing": "sc2_genetic"}``).
+    """
+    _CONTINUOUS_ACTION_INCOMPATIBLE_GAMES[game_name] = alternatives or {}
+
+
+def _incompatible_continuous_action(game_name: str, alternative: str | None) -> tuple[bool, str]:
+    """Return the ``(False, hint)`` pair for a continuous-action policy incompatibility."""
+    msg = (
+        "This policy uses the continuous steer/accel/brake action encoding "
+        "(first head clipped to [-1, 1], the rest thresholded to binary), "
+        f"which does not match game {game_name!r}'s action space."
     )
+    if alternative:
+        msg += f"  Use {alternative!r} instead."
+    return False, msg
+
+
+def check_continuous_action_compatible(game_name: str, policy_type: str) -> tuple[bool, str | None]:
+    """Return ``(True, None)`` unless *game_name* has registered itself as
+    incompatible with continuous steer/accel/brake policies.
+
+    Called by both framework policies and game-specific policy thin-wrappers
+    so they all share a single incompatibility registry.
+    """
+    alts = _CONTINUOUS_ACTION_INCOMPATIBLE_GAMES.get(game_name)
+    if alts is not None:
+        return _incompatible_continuous_action(game_name, alts.get(policy_type))
+    return True, None
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +233,7 @@ class WeightedLinearPolicy(BasePolicy):
 
     @classmethod
     def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-        if game_name == SC2_GAME_NAME:
-            return _sc2_incompatible("sc2_genetic")
-        return True, None
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     def __init__(
         self,
@@ -392,9 +418,7 @@ class NeuralNetPolicy(BasePolicy):
 
     @classmethod
     def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-        if game_name == SC2_GAME_NAME:
-            return _sc2_incompatible("sc2_neural_net")
-        return True, None
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     def __init__(
         self,
@@ -776,9 +800,7 @@ class GeneticPolicy(BasePolicy):
 
     @classmethod
     def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-        if game_name == SC2_GAME_NAME:
-            return _sc2_incompatible("sc2_genetic")
-        return True, None
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     def __init__(
         self,

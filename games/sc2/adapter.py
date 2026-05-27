@@ -4,9 +4,27 @@ from __future__ import annotations
 
 import logging
 
+from framework.policies import register_continuous_action_incompatible
 from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
 
 logger = logging.getLogger(__name__)
+
+# SC2 uses a multi-head [fn_idx, x, y, queue] action encoding — not the
+# continuous steer/accel/brake convention used by the framework's linear and
+# genetic policies.  Register so compatible_with() can reject mismatches.
+register_continuous_action_incompatible(
+    "sc2",
+    {
+        "hill_climbing": "sc2_genetic",
+        "genetic": "sc2_genetic",
+        "neural_net": "sc2_neural_net",
+        "cmaes": "sc2_cmaes",
+        "reinforce": "sc2_reinforce",
+        "lstm": "sc2_lstm",
+        "neural_dqn": "sc2_neural_dqn",
+        "ppo": "sc2_reinforce",
+    },
+)
 
 
 # ---------------------------------------------------------------------------

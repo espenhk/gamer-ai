@@ -30,10 +30,9 @@ import yaml
 from framework.obs_spec import ObsSpec
 from framework.policies import (
     BasePolicy,
-    _sc2_incompatible,
+    check_continuous_action_compatible,
     register_policy,
     trainer_state_path,
-    SC2_GAME_NAME,
 )
 
 logger = logging.getLogger(__name__)
@@ -410,9 +409,7 @@ class PPOPolicy(BasePolicy):
 
     @classmethod
     def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-        if game_name == SC2_GAME_NAME:
-            return _sc2_incompatible("sc2_reinforce")
-        return True, None
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     # ------------------------------------------------------------------
     # Serialisation

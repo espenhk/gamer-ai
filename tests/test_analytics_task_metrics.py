@@ -301,7 +301,7 @@ class TestSaveGridSummaryTaskMetric(unittest.TestCase):
             runs.append((name, exp))
         return runs
 
-    def test_default_uses_track_progress_with_4f_format(self):
+    def test_default_uses_best_task_metric_with_4f_format(self):
         import os
         import tempfile
 
@@ -311,7 +311,7 @@ class TestSaveGridSummaryTaskMetric(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             save_grid_summary(runs, [], d, "gs")
             md = open(os.path.join(d, "summary.md"), encoding="utf-8").read()
-        self.assertIn("Best Track Progress", md)
+        self.assertIn("Best Task Metric", md)
         self.assertIn("0.7000", md)
         self.assertNotIn("70.0%", md)
 
@@ -335,7 +335,7 @@ class TestSaveGridSummaryTaskMetric(unittest.TestCase):
             md = open(os.path.join(d, "summary.md"), encoding="utf-8").read()
         self.assertIn("Win Rate", md)
         self.assertIn("80.0%", md)
-        self.assertNotIn("Best Track Progress", md)
+        self.assertNotIn("Best Task Metric", md)
 
     def test_custom_metric_drives_ranking(self):
         import os

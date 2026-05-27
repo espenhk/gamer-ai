@@ -342,6 +342,13 @@ class TMNFEnv(BaseGameEnv):
         obs = curr_obs
         self._prev_obs = obs
         mean_lat = self._ep_lateral_sum / self._ep_lateral_count if self._ep_lateral_count > 0 else None
+        task_metrics: dict[str, str] = {
+            "progress": f"{100.0 * (data.track_progress or 0.0):.1f}%",
+        }
+        if mean_lat is not None:
+            task_metrics["mean_lateral"] = f"{mean_lat:.2f}m"
+        if finished:
+            task_metrics["finish_time"] = f"{self._elapsed_s:.1f}s"
         info = {
             "track_progress": data.track_progress or 0.0,
             "lateral_offset": data.lateral_offset or 0.0,
@@ -363,6 +370,8 @@ class TMNFEnv(BaseGameEnv):
             "mean_abs_lateral_offset": mean_lat,
             # Per-component reward totals for this episode (Option C).
             "episode_reward_components": dict(self._ep_reward_components),
+            # Generic task-metric display dict consumed by framework logging.
+            "episode_task_metrics": task_metrics,
         }
 
         return obs, reward, terminated, truncated, info

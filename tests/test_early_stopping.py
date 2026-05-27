@@ -14,12 +14,13 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 # framework.training has no top-level shim; import directly.
-from framework.training import _greedy_loop, _greedy_loop_q_learning, GreedyLoopResult
 from framework.obs_spec import ObsDim, ObsSpec
+
 # framework.policies.WeightedLinearPolicy is used directly because the TMNF shim
 # in policies.py bakes in TMNF's obs_spec and a different from_cfg signature;
 # these tests exercise framework internals with a custom 3-dim obs_spec.
 from framework.policies import WeightedLinearPolicy
+from framework.training import GreedyLoopResult, _greedy_loop, _greedy_loop_q_learning
 
 # ---------------------------------------------------------------------------
 # Minimal stub env that returns a fixed reward each episode
@@ -146,8 +147,11 @@ class TestPatienceEarlyStopping(unittest.TestCase):
             patience = 5
 
             loop: GreedyLoopResult = _greedy_loop(
-                env=env, policy=policy, n_sims=n_sims,
-                mutation_scale=0.01, weights_file=wf,
+                env=env,
+                policy=policy,
+                n_sims=n_sims,
+                mutation_scale=0.01,
+                weights_file=wf,
                 best_reward=100.0,  # higher than any candidate reward → never improves
                 patience=patience,
                 adaptive_mutation=False,
@@ -169,9 +173,13 @@ class TestPatienceEarlyStopping(unittest.TestCase):
             n_sims = 10
 
             loop: GreedyLoopResult = _greedy_loop(
-                env=env, policy=policy, n_sims=n_sims,
-                mutation_scale=0.01, weights_file=wf,
-                patience=0, adaptive_mutation=False,
+                env=env,
+                policy=policy,
+                n_sims=n_sims,
+                mutation_scale=0.01,
+                weights_file=wf,
+                patience=0,
+                adaptive_mutation=False,
             )
 
             self.assertFalse(loop.early_stopped)
@@ -191,9 +199,13 @@ class TestPatienceEarlyStopping(unittest.TestCase):
             patience = 5
 
             loop: GreedyLoopResult = _greedy_loop(
-                env=env, policy=policy, n_sims=n_sims,
-                mutation_scale=0.01, weights_file=wf,
-                patience=patience, adaptive_mutation=False,
+                env=env,
+                policy=policy,
+                n_sims=n_sims,
+                mutation_scale=0.01,
+                weights_file=wf,
+                patience=patience,
+                adaptive_mutation=False,
             )
 
             self.assertFalse(loop.early_stopped)
@@ -212,9 +224,13 @@ class TestPatienceEarlyStopping(unittest.TestCase):
             patience = 3
 
             loop: GreedyLoopResult = _greedy_loop(
-                env=env, policy=policy, n_sims=50,
-                mutation_scale=0.01, weights_file=wf,
-                patience=patience, adaptive_mutation=False,
+                env=env,
+                policy=policy,
+                n_sims=50,
+                mutation_scale=0.01,
+                weights_file=wf,
+                patience=patience,
+                adaptive_mutation=False,
             )
 
             self.assertTrue(loop.early_stopped)
@@ -241,8 +257,11 @@ class TestPatienceEarlyStoppingQLoop(unittest.TestCase):
 
             # Seed best_reward above the fixed reward so nothing ever improves.
             loop: GreedyLoopResult = _greedy_loop_q_learning(
-                env=env, policy=policy, n_episodes=100,
-                weights_file=wf, patience=patience,
+                env=env,
+                policy=policy,
+                n_episodes=100,
+                weights_file=wf,
+                patience=patience,
             )
 
             # The stub always returns reward=5.0; first episode sets best from -inf,
@@ -263,8 +282,11 @@ class TestPatienceEarlyStoppingQLoop(unittest.TestCase):
             n_eps = 8
 
             loop: GreedyLoopResult = _greedy_loop_q_learning(
-                env=env, policy=policy, n_episodes=n_eps,
-                weights_file=wf, patience=0,
+                env=env,
+                policy=policy,
+                n_episodes=n_eps,
+                weights_file=wf,
+                patience=0,
             )
 
             self.assertFalse(loop.early_stopped)

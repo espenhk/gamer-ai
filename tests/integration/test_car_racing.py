@@ -226,11 +226,10 @@ class TestCarRacingTrainingLoop(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 weights_file = os.path.join(tmpdir, "policy_weights.yaml")
-                policy = WeightedLinearPolicy(
-                    CAR_RACING_OBS_SPEC, ["steer", "accel", "brake"], weights_file
-                )
+                policy = WeightedLinearPolicy(CAR_RACING_OBS_SPEC, ["steer", "accel", "brake"], weights_file)
                 loop = _greedy_loop(
-                    env, policy,
+                    env,
+                    policy,
                     n_sims=1,
                     mutation_scale=0.1,
                     weights_file=weights_file,
@@ -261,7 +260,8 @@ class TestCarRacingTrainingLoop(unittest.TestCase):
                 )
                 policy.initialize_random()
                 loop = _greedy_loop_genetic(
-                    env, policy,
+                    env,
+                    policy,
                     n_generations=1,
                     weights_file=weights_file,
                 )
@@ -289,7 +289,8 @@ class TestCarRacingTrainingLoop(unittest.TestCase):
                     epsilon=1.0,
                 )
                 loop = _greedy_loop_q_learning(
-                    env, policy,
+                    env,
+                    policy,
                     n_episodes=1,
                     weights_file=weights_file,
                 )

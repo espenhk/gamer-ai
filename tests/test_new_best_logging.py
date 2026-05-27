@@ -149,7 +149,8 @@ class TestLogNewBestDetails(unittest.TestCase):
         # one log line per action (sorted by descending count: fn2, fn0, fn1)
         self.assertEqual(len(lines), 3)
         all_text = "\n".join(lines)
-        self.assertIn("Move_screen=60.0%", all_text)
+        # Actions are logged by their raw key (int) — no game-specific name lookup.
+        self.assertIn("2=60.0%", all_text)
 
     def test_action_counts_prev_comparison(self):
         info = {"episode_action_counts": {0: 10, 2: 90}}
@@ -160,31 +161,32 @@ class TestLogNewBestDetails(unittest.TestCase):
         self.assertIn("prev", all_text)
 
     def test_tmnf_progress_logged(self):
-        info = {"track_progress": 0.75}
+        info = {"episode_task_metrics": {"progress": "75.0%"}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         self.assertEqual(len(lines), 1)
         self.assertIn("progress=75.0%", lines[0])
 
     def test_tmnf_lateral_offset_logged(self):
-        info = {"track_progress": 0.5, "mean_abs_lateral_offset": 1.23}
+        info = {"episode_task_metrics": {"progress": "50.0%", "mean_lateral": "1.23m"}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         self.assertEqual(len(lines), 1)
         self.assertIn("mean_lateral=1.23m", lines[0])
 
     def test_tmnf_finish_time_logged_when_finished(self):
-        info = {"track_progress": 1.0, "finished": True, "elapsed_s": 42.5}
+        info = {"episode_task_metrics": {"progress": "100.0%", "finish_time": "42.5s"}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         self.assertEqual(len(lines), 1)
         self.assertIn("finish_time=42.5s", lines[0])
 
     def test_tmnf_finish_time_not_logged_when_not_finished(self):
-        info = {"track_progress": 0.8, "finished": False, "elapsed_s": 30.0}
+        # TMNF only includes "finish_time" when finished; test that absence is honoured.
+        info = {"episode_task_metrics": {"progress": "80.0%"}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         self.assertNotIn("finish_time", lines[0])
 
     def test_tmnf_prev_comparison(self):
-        info = {"track_progress": 0.9, "mean_abs_lateral_offset": 0.5}
-        prev = {"track_progress": 0.7, "mean_abs_lateral_offset": 0.8}
+        info = {"episode_task_metrics": {"progress": "90.0%", "mean_lateral": "0.50m"}}
+        prev = {"episode_task_metrics": {"progress": "70.0%", "mean_lateral": "0.80m"}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
         self.assertEqual(len(lines), 1)
         self.assertIn("(prev 70.0%)", lines[0])
@@ -248,13 +250,13 @@ class TestLogNewBestDetails(unittest.TestCase):
         info = {
             "episode_reward_components": {"score": 5.0, "idle_bonus": 1.0},
             "episode_action_counts": {0: 20, 2: 80},
-            "track_progress": 0.6,
+            "episode_task_metrics": {"progress": "60.0%"},
             "episode_killed_value_units": 100.0,
             "episode_killed_value_structures": 0.0,
             "episode_obs_averages": {"army_count": 3.0},
         }
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        # 2 reward components + explicit win/loss + 2 actions + 1 progress + 1 kills + 1 game-state = 9
+        # 2 reward components + explicit win/loss + 2 actions + 1 task metric + 1 kills + 1 game-state = 9
         self.assertEqual(len(lines), 9)
 
 

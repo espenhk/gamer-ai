@@ -70,12 +70,12 @@ DISCRETE_ACTIONS = np.array(
 # ---------------------------------------------------------------------------
 
 PROBE_ACTIONS: list[ProbeAction] = [
-    ProbeAction(np.array([-1., 0., 0., 0., 0., 0., 0., 0.], dtype=np.float32), "reverse"),
-    ProbeAction(np.array([ 0., 0., 0., 0., 0., 0., 0., 0.], dtype=np.float32), "coast"),
-    ProbeAction(np.array([ 1., 0., 0., 0., 0., 0., 0., 0.], dtype=np.float32), "throttle"),
-    ProbeAction(np.array([ 1., -1., 0., 0., 0., 0., 0., 0.], dtype=np.float32), "throttle left"),
-    ProbeAction(np.array([ 1., 1., 0., 0., 0., 0., 0., 0.], dtype=np.float32), "throttle right"),
-    ProbeAction(np.array([ 1., 0., 0., 0., 0., 0., 1., 0.], dtype=np.float32), "boost straight"),
+    ProbeAction(np.array([-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32), "reverse"),
+    ProbeAction(np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32), "coast"),
+    ProbeAction(np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32), "throttle"),
+    ProbeAction(np.array([1.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32), "throttle left"),
+    ProbeAction(np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32), "throttle right"),
+    ProbeAction(np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], dtype=np.float32), "boost straight"),
 ]
 
 # Warmup action: full throttle straight, no boost/jump.

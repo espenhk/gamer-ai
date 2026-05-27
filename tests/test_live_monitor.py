@@ -83,11 +83,11 @@ class TestLayoutHelpers(unittest.TestCase):
 
 
 class TestDisplayHelpers(unittest.TestCase):
-    def test_reward_sort_key_keeps_known_order_and_sorts_unknowns_alphabetically(self):
+    def test_reward_sort_key_sorts_unknowns_alphabetically_after_total_reward(self):
         names = ["z_bonus", "step_penalty", "a_bonus", "progress_weight"]
         self.assertEqual(
             sorted(names, key=_reward_sort_key),
-            ["progress_weight", "step_penalty", "a_bonus", "z_bonus"],
+            ["a_bonus", "progress_weight", "step_penalty", "z_bonus"],
         )
 
     def test_fmt_action_truncates_long_vectors_after_six_values(self):

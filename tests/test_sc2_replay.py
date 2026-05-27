@@ -166,7 +166,7 @@ class TestTrySaveReplay(unittest.TestCase):
             env.save_replay.assert_called_once_with(replay_dir, prefix=f"{experiment_name}_best-02")
 
     def test_candidate_files_excluded_from_count(self):
-        """_candidate.SC2Replay must not be counted as a confirmed best."""
+        """Candidate files (starting with _) must not be counted as confirmed bests."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as experiment_dir:
@@ -209,7 +209,8 @@ class TestTrySaveReplay(unittest.TestCase):
             replay_dir_used = env.save_replay.call_args[0][0]
             self.assertEqual(replay_dir_used, os.path.join(experiment_dir, "replays"))
 
-    def test_only_sc2replay_files_counted_for_numbering(self):
+    def test_non_replay_files_not_counted_for_numbering(self):
+        """Files that don't match the {experiment}_best-N naming pattern are ignored."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as experiment_dir:
@@ -227,6 +228,28 @@ class TestTrySaveReplay(unittest.TestCase):
             _try_save_replay(env, weights_file)
 
             env.save_replay.assert_called_once_with(replay_dir, prefix=f"{experiment_name}_best-01")
+
+    def test_prefix_sharing_non_numeric_files_not_counted(self):
+        """Files sharing the {experiment}_best- prefix but without a digit suffix are ignored."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as experiment_dir:
+            weights_file = os.path.join(experiment_dir, "policy_weights.yaml")
+            experiment_name = os.path.basename(experiment_dir)
+
+            replay_dir = os.path.join(experiment_dir, "replays")
+            os.makedirs(replay_dir)
+            # These share the prefix but are not numbered replays.
+            open(os.path.join(replay_dir, f"{experiment_name}_best-notes.txt"), "w").close()
+            open(os.path.join(replay_dir, f"{experiment_name}_best-01.SC2Replay"), "w").close()
+
+            env = MagicMock()
+            env.save_replay.return_value = None
+
+            _try_save_replay(env, weights_file)
+
+            # Only the numbered best-01 counts; notes.txt must not inflate the count.
+            env.save_replay.assert_called_once_with(replay_dir, prefix=f"{experiment_name}_best-02")
 
 
 # ---------------------------------------------------------------------------

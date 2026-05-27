@@ -37,6 +37,7 @@ from framework.policies import (
 )
 from framework.policies import (
     _discretize_obs,  # noqa: F401 — re-exported for test helpers
+    check_continuous_action_compatible,
     register_policy,
     trainer_state_path,
 )
@@ -357,6 +358,10 @@ class NeuralDQNPolicy(_FrameworkDQN):
         }
     )
 
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
+
     def to_cfg(self) -> dict:
         cfg = super().to_cfg()
         cfg["policy_type"] = "neural_dqn"
@@ -416,6 +421,10 @@ class CMAESPolicy(_FrameworkCMAES):
     POLICY_TYPE = "cmaes"
     LOOP_TYPE = "cmaes"
     VALID_POLICY_PARAMS = frozenset({"population_size", "initial_sigma", "eval_episodes"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     def __init__(
         self,
@@ -505,6 +514,10 @@ class REINFORCEPolicy(_FrameworkREINFORCE):
     )
 
     @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
+
+    @classmethod
     def _construct_or_resume(
         cls, *, obs_spec, head_names, discrete_actions, weights_file, policy_params, re_initialize
     ):
@@ -551,6 +564,10 @@ class LSTMEvolutionPolicy(_FrameworkLSTMEvo):
     POLICY_TYPE = "lstm"
     LOOP_TYPE = "cmaes"
     VALID_POLICY_PARAMS = frozenset({"hidden_size", "population_size", "initial_sigma"})
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
     @classmethod
     def _construct_or_resume(

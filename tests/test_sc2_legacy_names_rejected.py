@@ -11,6 +11,7 @@ from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
 
 def _import_policy_modules() -> None:
+    import games.sc2.adapter  # noqa: F401 — registers "sc2" action-encoding incompatibility
     import games.sc2.cnn_policy  # noqa: F401
     import games.sc2.sc2_policies  # noqa: F401
     import games.tmnf.policies  # noqa: F401
@@ -26,9 +27,9 @@ def _import_policy_modules() -> None:
     ],
 )
 def test_sc2_bare_name_rejected(tmp_path, legacy_name: str, expected_sc2_name: str):
-    """SC2 bare-name legacy policy_type values should fail with not valid for game 'sc2'."""
+    """TMNF bare-name policy types should fail with an incompatibility error for SC2."""
     _import_policy_modules()
-    with pytest.raises(ValueError, match=rf"policy_type '{legacy_name}' is not valid for game 'sc2'") as exc:
+    with pytest.raises(ValueError) as exc:
         _make_policy(
             legacy_name,
             obs_spec=SC2_MINIGAME_OBS_SPEC,
@@ -39,4 +40,6 @@ def test_sc2_bare_name_rejected(tmp_path, legacy_name: str, expected_sc2_name: s
             re_initialize=True,
             game_name="sc2",
         )
-    assert expected_sc2_name in str(exc.value)
+    msg = str(exc.value)
+    assert "not compatible with game" in msg
+    assert expected_sc2_name in msg

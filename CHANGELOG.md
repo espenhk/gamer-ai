@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.0] - 2026-05-27
+
 ### Added
 - New `ppo` policy: a pure-numpy on-policy actor-critic (`framework/ppo.py`,
   `PPOPolicy`) with a clipped surrogate objective, Generalised Advantage

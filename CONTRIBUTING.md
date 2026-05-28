@@ -198,8 +198,11 @@ add `<name>` to the `--game` choices in `main.py`.
    [issue template](.github/ISSUE_TEMPLATE/issue_template.md), so we can agree on scope
    before code lands. Keep the "New game proposal details" section and
    remove the rest.
-2. **Copy `games/car_racing/` to `games/<name>/`** and rename the
-   `CarRacingAdapter` class. Strip out anything that doesn't apply.
+2. **Copy the template** — `cp -r games/_template games/<name>` — and
+   rename the placeholder classes.  The template has every required file
+   with `NotImplementedError` stubs and fill-in-the-blanks comments.
+   (You can also start from `games/car_racing/` if you prefer a working
+   reference implementation.)
 3. **Stand up `env.py`** so `env.reset()` / `env.step(action)` work
    against the real game. Keep imports of the game's SDK *inside*
    functions / methods, not at module top — Linux CI imports the

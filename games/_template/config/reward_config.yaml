@@ -1,0 +1,5 @@
+# <GAME_TITLE> reward configuration.
+# Copy to games/<name>/config/reward_config.yaml and fill in.
+# Each key must match a field in your RewardConfig dataclass.
+
+step_penalty: -0.1

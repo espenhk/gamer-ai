@@ -1155,11 +1155,8 @@ Game- and tooling-specific deps live in Poetry groups:
 | `torcs` | *(empty group)* | TORCS — `gym_torcs` installed from source (not on PyPI) |
 | `sc2` *(optional)* | `pysc2`, `protobuf` | StarCraft 2 — `poetry install --with sc2` |
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
-<<<<<<< HEAD
 | `atari` *(optional)* | `ale-py` (MIT-licensed Atari 2600 ROMs bundled) | Atari — `poetry install --with atari` |
-=======
 | `deep_rl` *(optional)* | `stable-baselines3`, `sb3-contrib` (pulls `torch`) | Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`) — `poetry install --with deep_rl`. Cross-platform. |
->>>>>>> origin/main
 
 CarRacing needs `gymnasium[box2d]` (install separately, e.g.
 `poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install

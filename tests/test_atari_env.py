@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 from gymnasium import spaces
@@ -125,7 +125,7 @@ class TestAtariEnvBasics(unittest.TestCase):
 
 
 class TestAtariEnvActionMapping(unittest.TestCase):
-    def test_continuous_minus_one_maps_to_first_action(self):
+    def test_continuous_near_minus_one_maps_to_first_action(self):
         fake = _FakeGymEnv(n_actions=6)
         with _patched_env_module(fake):
             from games.atari.env import AtariEnv  # noqa: PLC0415
@@ -135,17 +135,31 @@ class TestAtariEnvActionMapping(unittest.TestCase):
             env.step(np.array([-1.0], dtype=np.float32))
             self.assertEqual(fake.last_action, 0)
 
-    def test_continuous_plus_one_maps_to_last_legal_action(self):
+    def test_continuous_near_plus_one_maps_to_last_legal_action(self):
         fake = _FakeGymEnv(n_actions=6)
         with _patched_env_module(fake):
             from games.atari.env import AtariEnv  # noqa: PLC0415
 
             env = AtariEnv(map_name="Pong-v5")
             env.reset(seed=0)
-            env.step(np.array([1.0], dtype=np.float32))
+            # Use 0.999 — unambiguously continuous (not integer-like)
+            env.step(np.array([0.999], dtype=np.float32))
             self.assertEqual(fake.last_action, 5)
 
-    def test_continuous_zero_maps_to_middle_action(self):
+    def test_continuous_near_zero_maps_to_middle_action(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            from games.atari.env import AtariEnv  # noqa: PLC0415
+
+            env = AtariEnv(map_name="Pong-v5")
+            env.reset(seed=0)
+            # Use 0.001 — unambiguously continuous (not integer-like)
+            env.step(np.array([0.001], dtype=np.float32))
+            # 0.001 in [-1, 1] → (0.001+1)/2 * (6-1) ≈ 2.5 → round → 3
+            self.assertIn(fake.last_action, (2, 3))
+
+    def test_discrete_index_zero_passes_through(self):
+        """Discrete index 0 (integer-like) must not be remapped by the continuous path."""
         fake = _FakeGymEnv(n_actions=6)
         with _patched_env_module(fake):
             from games.atari.env import AtariEnv  # noqa: PLC0415
@@ -153,8 +167,18 @@ class TestAtariEnvActionMapping(unittest.TestCase):
             env = AtariEnv(map_name="Pong-v5")
             env.reset(seed=0)
             env.step(np.array([0.0], dtype=np.float32))
-            # 0.0 in [-1, 1] → (0+1)/2 * (6-1) = 2.5 → round → 2 or 3.
-            self.assertIn(fake.last_action, (2, 3))
+            self.assertEqual(fake.last_action, 0)
+
+    def test_discrete_index_one_passes_through(self):
+        """Discrete index 1 (integer-like) must not be remapped by the continuous path."""
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            from games.atari.env import AtariEnv  # noqa: PLC0415
+
+            env = AtariEnv(map_name="Pong-v5")
+            env.reset(seed=0)
+            env.step(np.array([1.0], dtype=np.float32))
+            self.assertEqual(fake.last_action, 1)
 
     def test_out_of_range_discrete_index_clamps_to_noop(self):
         """Tabular policies on games with smaller legal sets may emit

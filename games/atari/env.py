@@ -24,7 +24,6 @@ keeps ill-trained policies from crashing the env.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +42,6 @@ from framework.base_env import BaseGameEnv
 from games.atari.actions import N_ACTIONS_FULL
 from games.atari.obs_spec import BASE_OBS_DIM, RAM_SIZE
 from games.atari.reward import AtariRewardCalculator, AtariRewardConfig
-
-logger = logging.getLogger(__name__)
 
 
 _DEFAULT_MAP_NAME = "Pong-v5"
@@ -220,6 +217,15 @@ class AtariEnv(BaseGameEnv):
 
     def set_episode_time_limit(self, seconds: float) -> None:
         self._max_episode_steps = max(1, int(seconds * 60))
+        # Propagate to the Gymnasium TimeLimit wrapper so the underlying env
+        # honours the updated cap — gym.make creates a TimeLimit wrapper whose
+        # own counter is independent of our field.
+        inner = self._env
+        while inner is not None:
+            if hasattr(inner, "_max_episode_steps"):
+                inner._max_episode_steps = self._max_episode_steps
+                break
+            inner = getattr(inner, "env", None)
 
     # ------------------------------------------------------------------
     # Action conversion
@@ -232,8 +238,14 @@ class AtariEnv(BaseGameEnv):
             return 0  # NOOP
         val = float(arr[0])
 
-        # Continuous head ([-1, 1]) → linearly map to [0, n_legal − 1].
-        if -1.0 <= val <= 1.0 and self._n_legal_actions > 1:
+        # Discrete/tabular policies emit integer-valued indices in [0, N_ACTIONS_FULL).
+        # Detect these first so that discrete indices 0 and 1 are not misread as
+        # continuous [-1, 1] values.
+        _EPS = 1e-4
+        if abs(val - round(val)) < _EPS and val >= 0.0:
+            idx = int(round(val))
+        elif -1.0 <= val <= 1.0 and self._n_legal_actions > 1:
+            # Continuous head ([-1, 1]) → linearly map to [0, n_legal − 1].
             idx = int(round((val + 1.0) * 0.5 * (self._n_legal_actions - 1)))
         else:
             idx = int(round(val))

@@ -92,5 +92,5 @@ python grid_search.py my_grid.yaml --game <name>
 
 ## Supported policies
 
-All policies in the framework work with this game. Set `policy_type` in
+List only policies you have verified for this game. Set `policy_type` in
 `games/<name>/config/training_params.yaml`.

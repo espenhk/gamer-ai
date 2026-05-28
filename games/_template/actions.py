@@ -1,7 +1,7 @@
 """<GAME_TITLE> action definitions.
 
 ``DISCRETE_ACTIONS`` lists every discrete action a tabular policy can pick.
-The TMNF convention uses 9 actions (3 × 3 grid: {left, straight, right} ×
+The simple CarRacing convention uses 9 actions (3 × 3 grid: {left, straight, right} ×
 {brake, coast, accel}):
 
     DISCRETE_ACTIONS = np.array([

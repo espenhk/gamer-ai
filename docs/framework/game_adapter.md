@@ -33,7 +33,6 @@ def build_game_spec(self, experiment_name, experiment_dir,
                     training_params, track_override) -> GameSpec
 def build_probe(self, training_params) -> ProbeSpec | None
 def build_warmup(self, training_params) -> WarmupSpec | None
-def build_extras(self, weights_file, training_params, re_initialize) -> PolicyExtras | None
 ```
 
 | Method | Returns | Notes |
@@ -45,7 +44,6 @@ def build_extras(self, weights_file, training_params, re_initialize) -> PolicyEx
 | `build_game_spec` | `GameSpec` | The core wiring — see [`run_config.md`](run_config.md). |
 | `build_probe` | `ProbeSpec` or `None` | Return `None` to skip the probe + cold-start phases (only TMNF uses them today). |
 | `build_warmup` | `WarmupSpec` or `None` | Return `None` to skip forced-action warmup. |
-| `build_extras` | `PolicyExtras` or `None` | Return `None` unless the game adds its own `policy_type` strings (e.g. SC2's `sc2_genetic`). |
 
 ### `experiment_dir` naming convention
 
@@ -95,7 +93,7 @@ same reason.
 whole file:
 
 ```python
-from framework.run_config import GameSpec, ProbeSpec, WarmupSpec, PolicyExtras
+from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
 
 
 class CarRacingAdapter:
@@ -150,10 +148,6 @@ class CarRacingAdapter:
 
     def build_warmup(self, training_params):
         return None   # no forced warmup
-
-    def build_extras(self, weights_file, training_params, re_initialize):
-        return None   # no game-specific policy types
-
 
 def make_adapter() -> CarRacingAdapter:
     return CarRacingAdapter()

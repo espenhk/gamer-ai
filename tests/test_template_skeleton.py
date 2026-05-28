@@ -73,21 +73,15 @@ class TestTemplateAdapterProtocol:
         assert hasattr(adapter, "config_dir")
 
     def test_adapter_has_required_methods(self) -> None:
+        from framework.game_adapter import GameAdapter
         from games._template.adapter import make_adapter
 
         adapter = make_adapter()
-        for method_name in (
-            "experiment_dir",
-            "experiment_dir_root",
-            "track_label",
-            "decorate_reward_cfg",
-            "build_game_spec",
-            "build_probe",
-            "build_warmup",
-        ):
-            assert callable(getattr(adapter, method_name, None)), (
-                f"Adapter missing method: {method_name}"
-            )
+        required_methods = tuple(
+            name for name, value in GameAdapter.__dict__.items() if callable(value) and not name.startswith("_")
+        )
+        for method_name in required_methods:
+            assert callable(getattr(adapter, method_name, None)), f"Adapter missing method: {method_name}"
 
     def test_build_probe_returns_none(self) -> None:
         from games._template.adapter import make_adapter

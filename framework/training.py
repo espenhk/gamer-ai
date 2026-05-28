@@ -765,6 +765,7 @@ def _greedy_loop(
     live_monitor: Any = None,
     patience: int = 0,
     log_stats_every_n_sims: int = 0,
+    self_play_manager: Any = None,
 ) -> GreedyLoopResult:
     """ES gradient-estimation loop for WeightedLinearPolicy / NeuralNetPolicy."""
     ADAPT_WINDOW = 20
@@ -819,6 +820,10 @@ def _greedy_loop(
                     logger.info("  >> %s", verdict)
                     if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                         _log_periodic_stats(ep.info, sim)
+                if self_play_manager is not None:
+                    _new_opp = self_play_manager.step(best_policy, improved)
+                    if _new_opp is not None:
+                        env.set_opponent_policy(_new_opp)
                 improvement_history.append(improved)
                 _maybe_adapt_scale(
                     improvement_history,
@@ -1096,6 +1101,7 @@ def _greedy_loop_cmaes(
     patience: int = 0,
     evaluator: Any = None,
     log_stats_every_n_sims: int = 0,
+    self_play_manager: Any = None,
 ) -> GreedyLoopResult:
     """CMA-ES loop: sample λ offspring, evaluate each for eval_episodes episodes, update distribution.
 
@@ -1218,6 +1224,11 @@ def _greedy_loop_cmaes(
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 
+            if self_play_manager is not None:
+                _new_opp = self_play_manager.step(policy, improved)
+                if _new_opp is not None:
+                    env.set_opponent_policy(_new_opp)
+
             greedy_sims.append(
                 GreedySimResult(
                     sim=gen,
@@ -1277,6 +1288,7 @@ def _greedy_loop_q_learning(
     live_monitor: Any = None,
     patience: int = 0,
     log_stats_every_n_sims: int = 0,
+    self_play_manager: Any = None,
 ) -> GreedyLoopResult:
     """Q-learning greedy loop for epsilon_greedy and ucb_q policy types."""
     best_reward = float("-inf")
@@ -1326,6 +1338,11 @@ def _greedy_loop_q_learning(
                 best_info_logged = ep.info
             elif log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
                 _log_periodic_stats(ep.info, episode)
+
+            if self_play_manager is not None:
+                _new_opp = self_play_manager.step(policy, improved)
+                if _new_opp is not None:
+                    env.set_opponent_policy(_new_opp)
 
             greedy_sims.append(
                 GreedySimResult(
@@ -1388,6 +1405,7 @@ def _greedy_loop_genetic(
     adaptive_mutation: bool = True,
     evaluator: Any = None,
     log_stats_every_n_sims: int = 0,
+    self_play_manager: Any = None,
 ) -> GreedyLoopResult:
     """Genetic algorithm loop: N_pop episodes per generation.
 
@@ -1511,6 +1529,11 @@ def _greedy_loop_genetic(
                 logger.info("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
+
+            if self_play_manager is not None:
+                _new_opp = self_play_manager.step(policy, improved)
+                if _new_opp is not None:
+                    env.set_opponent_policy(_new_opp)
 
             # --- adaptive mutation (1/5 success rule over recent window) ---
             improvement_history.append(improved)
@@ -1856,15 +1879,27 @@ def train_rl(
     loop_type = best_policy.LOOP_TYPE
 
     # ── self-play opponent wiring ─────────────────────────────────────────────
-    # When the env supports self-play (e.g. SC2 with self_play=True), inject a
-    # copy of the current policy as the opponent.  The opponent's weights are
-    # snapshotted once here; individual training loops may refresh it.
+    # When the env supports self-play (e.g. SC2 with self_play=True), build a
+    # SelfPlayManager for the requested mode and inject the initial opponent.
+    # The greedy loops refresh the opponent at the end of each generation.
+    _self_play_manager: Any = None
     if hasattr(env, "set_opponent_policy") and training_params.get("self_play"):
-        import copy as _copy
+        from framework.self_play import SelfPlayManager
 
-        _opponent = _copy.deepcopy(best_policy)
-        env.set_opponent_policy(_opponent)
-        logger.info("Self-play enabled: opponent initialised from current policy weights.")
+        _sp_mode = str(training_params.get("self_play_mode", "exact"))
+        _sp_mutation_scale = float(training_params.get("self_play_mutation_scale", mutation_scale))
+        _sp_top_n = int(training_params.get("self_play_top_n", 5))
+        _self_play_manager = SelfPlayManager(
+            mode=_sp_mode,
+            mutation_scale=_sp_mutation_scale,
+            top_n=_sp_top_n,
+        )
+        _initial_opponent = _self_play_manager.build_initial_opponent(best_policy)
+        env.set_opponent_policy(_initial_opponent)
+        logger.info(
+            "Self-play enabled: mode=%r, opponent initialised from current policy weights.",
+            _sp_mode,
+        )
 
     # ── intra-run parallel evaluation (issue #229) ────────────────────────────
     evaluator = _maybe_build_evaluator(
@@ -1890,6 +1925,7 @@ def train_rl(
                 adaptive_mutation=adaptive_mutation,
                 patience=patience,
                 log_stats_every_n_sims=log_stats_every_n_sims,
+                self_play_manager=_self_play_manager,
                 **kw,
             )
         elif loop_type == "q_learning":
@@ -1900,6 +1936,7 @@ def train_rl(
                 weights_file=weights_file,
                 patience=patience,
                 log_stats_every_n_sims=log_stats_every_n_sims,
+                self_play_manager=_self_play_manager,
                 **kw,
             )
         elif loop_type == "cmaes":
@@ -1911,6 +1948,7 @@ def train_rl(
                 patience=patience,
                 evaluator=evaluator,
                 log_stats_every_n_sims=log_stats_every_n_sims,
+                self_play_manager=_self_play_manager,
                 **kw,
             )
         elif loop_type == "genetic":
@@ -1923,6 +1961,7 @@ def train_rl(
                 adaptive_mutation=adaptive_mutation,
                 evaluator=evaluator,
                 log_stats_every_n_sims=log_stats_every_n_sims,
+                self_play_manager=_self_play_manager,
                 **kw,  # type: ignore[arg-type]
             )
         elif loop_type == "sb3":

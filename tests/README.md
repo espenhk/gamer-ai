@@ -70,6 +70,7 @@
   - [test\_sc2\_eval.py — `--eval` evaluation mode](#test_sc2_evalpy----eval-evaluation-mode)
   - [test\_sc2\_play.py — `play_sc2.py` script](#test_sc2_playpy--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py — Simple64 ladder integration](#test_sc2_simple64_trainingpy--simple64-ladder-integration)
+  - [test\_sc2\_self\_play.py — `SelfPlayManager` (three self-play opponent modes)](#test_sc2_self_playpy--selfplaymanager-three-self-play-opponent-modes)
   - [test\_sc2\_analytics.py — SC2-specific analytics plots and flags](#test_sc2_analyticspy--sc2-specific-analytics-plots-and-flags)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
@@ -582,7 +583,9 @@ training-loop iteration against a mocked env, plus trainer-state save/load
 round-trips for cmaes and neural_dqn; and the SC2-specific analytics module
 (`SUPPORTS_THROTTLE`/`SUPPORTS_PATH` flags, action-frequency breakdown, obs
 feature averages, spatial heatmap, outcome breakdown, and the full
-`save_experiment_results` integration including that no racing plots appear).
+`save_experiment_results` integration including that no racing plots appear);
+and `SelfPlayManager` — all three opponent modes (`exact`, `mutated`, `top_n`),
+pool growth/eviction semantics, and wiring through `train_rl`.
 
 **Not tested.** PySC2 against the actual Blizzard SC2 binary; real
 1v1 games against the built-in bot; minimap rendering; the deferred
@@ -759,6 +762,12 @@ handful of iterations only).
 - Per-policy on Simple64: epsilon_greedy / ucb_q / sc2_neural_dqn shape+update / sc2_cmaes sample+update / sc2_reinforce shape+episode / sc2_lstm shape / sc2_lstm-evolution sample+update
 - Training loops (mocked env): sc2_genetic / sc2_cmaes / sc2_neural_dqn / sc2_reinforce / sc2_lstm
 - Trainer state roundtrips: sc2_cmaes / sc2_neural_dqn
+
+### test_sc2_self_play.py — `SelfPlayManager` (three self-play opponent modes)
+- `TestSelfPlayManagerExactMode`: invalid mode raises / `build_initial_opponent` returns a callable / `step` returns a fresh callable every generation regardless of `improved`
+- `TestSelfPlayManagerMutatedMode`: `step` calls `mutated()` on the champion when available / falls back to deepcopy when policy has no `mutated` method
+- `TestSelfPlayManagerTopNMode`: pool grows on improvement / capped at `top_n` / weakest entry replaced by a stronger champion / no pool update when not improved and pool is non-empty / callable returned from pool / weak champion does not displace a stronger pool entry
+- `TestTrainRLSelfPlayModes`: verifies that all three modes (`exact`, `mutated`, `top_n`) wire a `SelfPlayManager` through `train_rl` and that the genetic greedy loop receives the correct `self_play_manager` kwarg
 
 ### test_sc2_analytics.py — SC2-specific analytics plots and flags
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags

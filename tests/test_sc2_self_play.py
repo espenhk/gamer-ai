@@ -449,5 +449,261 @@ class TestTrainRLSelfPlayWiring(unittest.TestCase):
         self.assertIsNotNone(opp_arg)
 
 
+# ---------------------------------------------------------------------------
+# SelfPlayManager unit tests
+# ---------------------------------------------------------------------------
+
+
+class _CallablePolicy:
+    """Minimal stand-in for a policy with champion_reward and mutated()."""
+
+    def __init__(self, reward: float = 0.0):
+        self.champion_reward = reward
+        self._champion = self  # policy is its own champion for simplicity
+        self.mutated_called = False
+
+    def __call__(self, obs):
+        return np.zeros(4, dtype=np.float32)
+
+    def mutated(self, scale: float = 0.1, share: float = 1.0) -> "_CallablePolicy":
+        self.mutated_called = True
+        child = _CallablePolicy(self.champion_reward)
+        return child
+
+
+class TestSelfPlayManagerExactMode(unittest.TestCase):
+    """SelfPlayManager in 'exact' mode always returns a snapshot of champion."""
+
+    def test_invalid_mode_raises(self):
+        from framework.self_play import SelfPlayManager
+
+        with self.assertRaises(ValueError):
+            SelfPlayManager(mode="unknown")
+
+    def test_build_initial_opponent_returns_callable(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="exact")
+        policy = _CallablePolicy(reward=10.0)
+        opp = manager.build_initial_opponent(policy)
+        self.assertIsNotNone(opp)
+        self.assertTrue(callable(opp))
+
+    def test_step_always_returns_new_snapshot(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="exact")
+        policy = _CallablePolicy(reward=5.0)
+        opp1 = manager.step(policy, improved=False)
+        opp2 = manager.step(policy, improved=True)
+        # Both should be callable; they are independent copies, not the same object.
+        self.assertIsNotNone(opp1)
+        self.assertIsNotNone(opp2)
+        self.assertIsNot(opp1, opp2)
+
+    def test_step_no_improvement_still_refreshes(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="exact")
+        policy = _CallablePolicy(reward=3.0)
+        opp = manager.step(policy, improved=False)
+        self.assertIsNotNone(opp)
+
+
+class TestSelfPlayManagerMutatedMode(unittest.TestCase):
+    """SelfPlayManager in 'mutated' mode calls champion.mutated()."""
+
+    def test_mutated_mode_calls_mutated(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="mutated", mutation_scale=0.1)
+        policy = _CallablePolicy(reward=1.0)
+        opp = manager.step(policy, improved=True)
+        # _CallablePolicy.mutated() sets mutated_called on the champion.
+        self.assertTrue(policy._champion.mutated_called)
+        self.assertIsNotNone(opp)
+
+    def test_mutated_fallback_when_no_mutated_method(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="mutated", mutation_scale=0.1)
+
+        class _NoMutated:
+            champion_reward = 2.0
+
+            def __call__(self, obs):
+                return np.zeros(4)
+
+        policy = _NoMutated()
+        # Should not raise; falls back to deepcopy.
+        opp = manager.step(policy, improved=True)
+        self.assertIsNotNone(opp)
+
+
+class TestSelfPlayManagerTopNMode(unittest.TestCase):
+    """SelfPlayManager in 'top_n' mode maintains a pool of top champions."""
+
+    def test_pool_grows_on_each_improvement(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=3, seed=0)
+        policy = _CallablePolicy(reward=1.0)
+        manager.build_initial_opponent(policy)
+        self.assertEqual(len(manager._pool), 1)
+
+        policy.champion_reward = 2.0
+        manager.step(policy, improved=True)
+        self.assertEqual(len(manager._pool), 2)
+
+        policy.champion_reward = 3.0
+        manager.step(policy, improved=True)
+        self.assertEqual(len(manager._pool), 3)
+
+    def test_pool_capped_at_top_n(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=2, seed=0)
+        policy = _CallablePolicy(reward=1.0)
+        manager.build_initial_opponent(policy)
+        policy.champion_reward = 2.0
+        manager.step(policy, improved=True)
+        # Pool at capacity now.
+        policy.champion_reward = 3.0
+        manager.step(policy, improved=True)
+        self.assertEqual(len(manager._pool), 2)
+
+    def test_weakest_replaced_on_new_champion(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=2, seed=0)
+        policy = _CallablePolicy(reward=1.0)
+        manager.build_initial_opponent(policy)  # pool: [(1.0, …)]
+        policy.champion_reward = 2.0
+        manager.step(policy, improved=True)  # pool: [(1.0, …), (2.0, …)]
+        # Now a stronger champion arrives.
+        policy.champion_reward = 5.0
+        manager.step(policy, improved=True)
+        # The weakest (score=1.0) should have been evicted.
+        scores = [score for score, _ in manager._pool]
+        self.assertNotIn(1.0, scores)
+        self.assertIn(5.0, scores)
+
+    def test_no_update_when_not_improved_and_pool_full(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=2, seed=0)
+        policy = _CallablePolicy(reward=1.0)
+        manager.build_initial_opponent(policy)
+        policy.champion_reward = 2.0
+        manager.step(policy, improved=True)  # pool full
+        # No improvement; pool should stay the same.
+        initial_scores = [s for s, _ in manager._pool]
+        policy.champion_reward = 2.0
+        manager.step(policy, improved=False)
+        final_scores = [s for s, _ in manager._pool]
+        self.assertEqual(initial_scores, final_scores)
+
+    def test_step_returns_callable_from_pool(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=3, seed=42)
+        policy = _CallablePolicy(reward=1.0)
+        manager.build_initial_opponent(policy)
+        opp = manager.step(policy, improved=False)
+        self.assertIsNotNone(opp)
+        self.assertTrue(callable(opp))
+
+    def test_weak_champion_does_not_replace_stronger_pool_entry(self):
+        from framework.self_play import SelfPlayManager
+
+        manager = SelfPlayManager(mode="top_n", top_n=2, seed=0)
+        policy = _CallablePolicy(reward=10.0)
+        manager.build_initial_opponent(policy)
+        policy.champion_reward = 9.0
+        manager.step(policy, improved=True)  # pool: [(10, …), (9, …)]
+        # A weaker "improved" champion (e.g. score=1.0) should NOT evict
+        # any existing entry since it is not stronger than any pool member.
+        policy.champion_reward = 1.0
+        manager.step(policy, improved=True)
+        scores = [s for s, _ in manager._pool]
+        self.assertNotIn(1.0, scores)
+
+
+class TestTrainRLSelfPlayModes(unittest.TestCase):
+    """train_rl passes SelfPlayManager to the genetic loop when self_play is set."""
+
+    @patch("framework.training._greedy_loop_genetic")
+    @patch("framework.training._maybe_build_evaluator", return_value=None)
+    @patch("framework.training.make_live_monitor", return_value=None)
+    def _run_with_mode(self, mode, _mock_lm, _mock_eval, mock_loop):
+        from framework.run_config import GameSpec, RunConfig
+        from framework.training import GreedyLoopResult, train_rl
+        from games.sc2.actions import DISCRETE_ACTIONS
+        from games.sc2.obs_spec import get_spec
+
+        obs_spec = get_spec("Simple64")
+        mock_env = MagicMock()
+        mock_loop.return_value = GreedyLoopResult(
+            policy=MagicMock(),
+            best_reward=0.0,
+            greedy_sims=[],
+            early_stopped=False,
+            early_stop_sim=None,
+        )
+        training_params = {
+            "policy_type": "sc2_genetic",
+            "n_sims": 1,
+            "speed": 1.0,
+            "in_game_episode_s": 10.0,
+            "mutation_scale": 0.05,
+            "mutation_share": 1.0,
+            "adaptive_mutation": False,
+            "patience": 0,
+            "log_stats_every_n_sims": 0,
+            "self_play": True,
+            "self_play_mode": mode,
+            "policy_params": {
+                "population_size": 2,
+                "elite_k": 1,
+                "eval_episodes": 1,
+                "mutation_scale": 0.1,
+                "mutation_share": 0.3,
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            game = GameSpec(
+                experiment_name="test_mode",
+                track="sc2_Simple64",
+                make_env_fn=lambda: mock_env,
+                obs_spec=obs_spec,
+                head_names=["fn_idx", "x", "y", "queue"],
+                discrete_actions=DISCRETE_ACTIONS,
+                weights_file=os.path.join(tmpdir, "w.yaml"),
+                reward_config_file="",
+                save_results_fn=lambda *a, **kw: None,
+                game_name="sc2",
+            )
+            config = RunConfig.from_training_params(training_params)
+            train_rl(game, config, no_interrupt=True)
+
+        # set_opponent_policy called for initial opponent.
+        mock_env.set_opponent_policy.assert_called()
+        # The genetic loop received a self_play_manager kwarg.
+        call_kwargs = mock_loop.call_args[1]
+        self.assertIn("self_play_manager", call_kwargs)
+        manager = call_kwargs["self_play_manager"]
+        self.assertIsNotNone(manager)
+        self.assertEqual(manager.mode, mode)
+
+    def test_exact_mode_wired(self):
+        self._run_with_mode("exact")
+
+    def test_mutated_mode_wired(self):
+        self._run_with_mode("mutated")
+
+    def test_top_n_mode_wired(self):
+        self._run_with_mode("top_n")
+
+
 if __name__ == "__main__":
     unittest.main()

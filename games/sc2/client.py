@@ -257,6 +257,15 @@ class SC2Client:
     play_mode :
         If True, set up a Human + Agent session instead of Agent (+ Bot).
         The human plays via the standard SC2 UI; the agent acts via PySC2.
+    self_play :
+        If True, set up two Agent players for self-play.  An
+        ``opponent_policy`` must be provided to control the second agent.
+        The primary agent's observation and reward are returned from
+        ``reset()`` / ``step()``; the opponent acts from its own
+        observation each step, mirroring AlphaGo-style self-play.
+    opponent_policy :
+        Callable ``(obs) -> action`` used to control the second agent when
+        *self_play* is True.  Ignored when *self_play* is False.
     extreme_random_run_count :
         Number of episodes at the start of *this client's* lifetime during
         which every ``step()`` call replaces the incoming policy action with a
@@ -285,6 +294,8 @@ class SC2Client:
         obs_spec_preset: str | None = None,
         store_minimap_vis: bool = False,
         extreme_random_run_count: int = 0,
+        self_play: bool = False,
+        opponent_policy: Any = None,
     ) -> None:
         self._map_name = map_name
         self._step_mul = step_mul
@@ -295,6 +306,9 @@ class SC2Client:
         self._visualize = visualize
         self._realtime = realtime
         self._play_mode = play_mode
+        self._self_play = self_play
+        self._opponent_policy = opponent_policy
+        self._opponent_obs: np.ndarray | None = None
         self._store_minimap_vis = store_minimap_vis
         self._extreme_random_run_count = max(0, int(extreme_random_run_count))
         self._episodes_started = 0
@@ -359,6 +373,8 @@ class SC2Client:
         self._selected_count = 0.0
         self._last_fn_idx = 0
         self._blocked_unit_targeted_steps = 0
+        if self._self_play and len(timesteps) > 1:
+            self._opponent_obs, _ = self._timestep_to_obs_info(timesteps[1])
         return self._timestep_to_obs_info(timesteps[0])
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict]:
@@ -409,7 +425,17 @@ class SC2Client:
                 )
 
         fn_call = self._action_to_call(action)
-        timesteps = self._sc2_env.step([fn_call])
+        if self._self_play and self._opponent_policy is not None:
+            # Self-play: opponent acts from its own observation.
+            opp_obs = self._opponent_obs if self._opponent_obs is not None else np.zeros(len(self._obs_names), dtype=np.float32)
+            opp_action = self._opponent_policy(opp_obs)
+            opp_fn_call = self._action_to_call(np.asarray(opp_action, dtype=np.float32))
+            timesteps = self._sc2_env.step([fn_call, opp_fn_call])
+            # Update cached opponent observation for the next step.
+            if len(timesteps) > 1:
+                self._opponent_obs, _ = self._timestep_to_obs_info(timesteps[1])
+        else:
+            timesteps = self._sc2_env.step([fn_call])
         timestep = timesteps[0]
         obs, info = self._timestep_to_obs_info(timestep)
         done = bool(timestep.last())
@@ -536,6 +562,13 @@ class SC2Client:
             agents = [
                 sc2_env.Human(self._race(sc2_env)),
                 sc2_env.Agent(self._race(sc2_env), "ai_agent"),
+            ]
+        elif self._self_play:
+            # Two AI agents for self-play.  Both are Agent slots so PySC2
+            # expects one action list entry per agent.
+            agents = [
+                sc2_env.Agent(self._race(sc2_env), "rl_agent"),
+                sc2_env.Agent(self._race(sc2_env), "opponent_agent"),
             ]
         else:
             agents = [sc2_env.Agent(self._race(sc2_env), "rl_agent")]

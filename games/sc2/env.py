@@ -138,6 +138,8 @@ class SC2Env(BaseGameEnv):
         apm_burst_s: float = 2.0,
         extreme_random_run_count: int = 0,
         realtime: bool = False,
+        self_play: bool = False,
+        opponent_policy: Any = None,
     ) -> None:
         super().__init__()
 
@@ -217,6 +219,8 @@ class SC2Env(BaseGameEnv):
             obs_spec_preset=obs_spec_preset,
             store_minimap_vis=enable_belief,
             extreme_random_run_count=extreme_random_run_count,
+            self_play=self_play,
+            opponent_policy=opponent_policy,
         )
 
         # APM limiter — None when no limit is requested.
@@ -582,6 +586,15 @@ class SC2Env(BaseGameEnv):
     def set_episode_time_limit(self, seconds: float) -> None:
         self._max_episode_time_s = seconds
 
+    def set_opponent_policy(self, policy: Any) -> None:
+        """Set (or replace) the opponent policy for self-play.
+
+        The opponent acts from its own observation every step, mirroring
+        AlphaGo-style self-play.  Only effective when the env was created
+        with ``self_play=True``.
+        """
+        self._client._opponent_policy = policy
+
 
 def make_env(
     experiment_dir: str | Path,
@@ -600,6 +613,8 @@ def make_env(
     max_apm: int | None = None,
     apm_burst_s: float = 2.0,
     extreme_random_run_count: int = 0,
+    self_play: bool = False,
+    opponent_policy: Any = None,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -628,4 +643,6 @@ def make_env(
         max_apm=max_apm,
         apm_burst_s=apm_burst_s,
         extreme_random_run_count=extreme_random_run_count,
+        self_play=self_play,
+        opponent_policy=opponent_policy,
     )

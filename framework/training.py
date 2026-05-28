@@ -1855,6 +1855,17 @@ def train_rl(
 
     loop_type = best_policy.LOOP_TYPE
 
+    # ── self-play opponent wiring ─────────────────────────────────────────────
+    # When the env supports self-play (e.g. SC2 with self_play=True), inject a
+    # copy of the current policy as the opponent.  The opponent's weights are
+    # snapshotted once here; individual training loops may refresh it.
+    if hasattr(env, "set_opponent_policy") and training_params.get("self_play"):
+        import copy as _copy
+
+        _opponent = _copy.deepcopy(best_policy)
+        env.set_opponent_policy(_opponent)
+        logger.info("Self-play enabled: opponent initialised from current policy weights.")
+
     # ── intra-run parallel evaluation (issue #229) ────────────────────────────
     evaluator = _maybe_build_evaluator(
         n_workers=int(training_params.get("n_workers", 1) or 1),

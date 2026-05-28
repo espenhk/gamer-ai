@@ -86,6 +86,7 @@ _ABBREV = {
     "minimap_layers": "mml",
     "obs_spec_preset": "osp",
     "enable_belief": "eb",
+    "self_play": "slp",
     "max_apm": "apm",
     "apm_burst_s": "apmb",
     "log_stats_every_n_sims": "lsens",

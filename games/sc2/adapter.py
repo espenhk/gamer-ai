@@ -184,6 +184,7 @@ class SC2Adapter:
             enable_belief=enable_belief,
             max_apm=training_params.get("max_apm", None),
             apm_burst_s=training_params.get("apm_burst_s", 2.0),
+            self_play=training_params.get("self_play", False),
             # NOTE: extreme_random_run_count is a *per-client* (per-worker /
             # per-candidate) episode budget, not a global total.  Parallel
             # evaluation spawns one SC2Client per worker, so the aggregate

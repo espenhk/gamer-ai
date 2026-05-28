@@ -68,6 +68,12 @@ minimap_layers: []                          # optional minimap channels (sc2_cnn
 # obs_spec_preset: minigame
 enable_belief: false   # set true to activate fog-of-war belief obs + scouting reward
 
+# Self-play — when true, the agent plays against a clone of itself instead
+# of the built-in bot.  The opponent's weights are copied from the primary
+# policy at the start of each episode, mimicking AlphaGo-style self-play.
+# Only meaningful on ladder maps (1v1); ignored on minigames.
+self_play: false
+
 # APM limiting — constrains the agent to at most max_apm real actions per
 # minute, using a rolling token-bucket so the budget is spread across time
 # rather than all spent in the first second.  No-op actions (fn_idx=0) are

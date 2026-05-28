@@ -257,6 +257,16 @@ class SC2Client:
     play_mode :
         If True, set up a Human + Agent session instead of Agent (+ Bot).
         The human plays via the standard SC2 UI; the agent acts via PySC2.
+    extreme_random_run_count :
+        Number of episodes at the start of *this client's* lifetime during
+        which every ``step()`` call replaces the incoming policy action with a
+        random valid action.  The counter ``_episodes_started`` is
+        per-instance, so the budget is **per-worker** (parallel evaluation
+        spawns one client per worker) and **per-candidate** (population-based
+        training such as CMA-ES / genetic creates a fresh client per
+        candidate).  When derived from ``n_sims * fraction`` in the adapter
+        the effective total across all workers/candidates scales accordingly —
+        document or account for this when choosing the fraction.
     """
 
     def __init__(

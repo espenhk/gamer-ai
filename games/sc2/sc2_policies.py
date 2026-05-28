@@ -701,6 +701,9 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
             "gamma",
             "double_dqn",
             "dueling",
+            "huber_loss",
+            "huber_kappa",
+            "max_grad_norm",
         }
     )
 
@@ -724,8 +727,11 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
         epsilon_end: float = 0.05,
         epsilon_decay_steps: int = 20_000,
         gamma: float = 0.995,
-        double_dqn: bool = False,
+        double_dqn: bool = True,
         dueling: bool = False,
+        huber_loss: bool = True,
+        huber_kappa: float = 1.0,
+        max_grad_norm: float | None = 10.0,
         available_actions_fn=None,
         race: str = "random",
         seed: int | None = None,
@@ -747,6 +753,9 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
             gamma=gamma,
             double_dqn=double_dqn,
             dueling=dueling,
+            huber_loss=huber_loss,
+            huber_kappa=huber_kappa,
+            max_grad_norm=max_grad_norm,
             available_actions_fn=(
                 _sc2_race_available_actions_mask_fn(fn_ids_for_race(race), _n_actions)
                 if available_actions_fn is None
@@ -818,8 +827,11 @@ class SC2NeuralDQNPolicy(_FrameworkDQN):
             epsilon_end=pp.get("epsilon_end", 0.05),
             epsilon_decay_steps=pp.get("epsilon_decay_steps", 20_000),
             gamma=pp.get("gamma", 0.995),
-            double_dqn=pp.get("double_dqn", False),
+            double_dqn=pp.get("double_dqn", True),
             dueling=pp.get("dueling", False),
+            huber_loss=pp.get("huber_loss", True),
+            huber_kappa=pp.get("huber_kappa", 1.0),
+            max_grad_norm=pp.get("max_grad_norm", 10.0),
             race=pp.get("_agent_race", "random"),
         )
 

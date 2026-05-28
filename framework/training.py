@@ -1278,7 +1278,7 @@ def _greedy_loop_q_learning(
     patience: int = 0,
     log_stats_every_n_sims: int = 0,
 ) -> GreedyLoopResult:
-    """Q-learning greedy loop for epsilon_greedy and mcts policy types."""
+    """Q-learning greedy loop for epsilon_greedy and ucb_q policy types."""
     best_reward = float("-inf")
     greedy_sims: list[GreedySimResult] = []
     full_episode_time_s = env.get_episode_time_limit()
@@ -1913,6 +1913,32 @@ def train_rl(
                 evaluator=evaluator,
                 log_stats_every_n_sims=log_stats_every_n_sims,
                 **kw,  # type: ignore[arg-type]
+            )
+        elif loop_type == "sb3":
+            from framework.sb3_support import run_sb3_loop
+
+            loop = run_sb3_loop(
+                env=env,
+                policy=best_policy,
+                n_sims=n_sims,
+                weights_file=weights_file,
+                training_params=training_params,
+                patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims,
+                **kw,
+            )
+        elif loop_type == "alphazero":
+            from framework.alphazero import run_alphazero_loop
+
+            loop = run_alphazero_loop(
+                env=env,
+                policy=best_policy,
+                n_sims=n_sims,
+                weights_file=weights_file,
+                training_params=training_params,
+                patience=patience,
+                log_stats_every_n_sims=log_stats_every_n_sims,
+                **kw,
             )
         else:
             raise ValueError(f"Unknown LOOP_TYPE on {type(best_policy).__name__}: {loop_type!r}")

@@ -8,7 +8,7 @@ WeightedLinearPolicy — trainable linear policy; weights stored in YAML
 NeuralNetPolicy      — small MLP policy; trained via hill-climbing
 QTablePolicy         — shared base for tabular Q-learning policies
 EpsilonGreedyPolicy  — Q-table with epsilon-greedy exploration
-MCTSPolicy           — Q-table with UCB1 (UCT-style) action selection
+UCBQPolicy           — Q-table with UCB1 action selection (formerly "mcts")
 GeneticPolicy        — population of WeightedLinearPolicy, evolutionary training
 """
 
@@ -524,7 +524,7 @@ def _discretize_obs(obs: np.ndarray, scales: np.ndarray, n_bins: int) -> tuple[i
 
 class QTablePolicy(BasePolicy):
     """
-    Shared base for tabular Q-learning policies (EpsilonGreedy and MCTS).
+    Shared base for tabular Q-learning policies (EpsilonGreedy and UCBQ).
 
     Manages the Q-table, visit counts, discretization, and Bellman updates.
     Subclasses override _select_action() to implement their exploration strategy.
@@ -703,23 +703,26 @@ class EpsilonGreedyPolicy(QTablePolicy):
 
 
 # ---------------------------------------------------------------------------
-# MCTSPolicy  (UCT-style online learner)
+# UCBQPolicy  (UCB1 online Q-learner; formerly mis-named "mcts")
 # ---------------------------------------------------------------------------
 
 
 @register_policy
-class MCTSPolicy(QTablePolicy):
+class UCBQPolicy(QTablePolicy):
     """
-    UCT-inspired online Q-learner.
+    UCB1 online Q-learner (tabular).
 
     Action selection uses the UCB1 formula:
         score(s, a) = Q(s, a) + c * sqrt(ln(N(s) + 1) / (N(s, a) + 1e-8))
 
-    NOTE: True MCTS requires env cloning.  This is a UCT-style approximation
-    that builds value/count tables incrementally over real episodes.
+    NOTE: this is NOT Monte-Carlo Tree Search.  It does no env cloning, builds
+    no search tree, and runs no rollouts — it incrementally learns Q/count
+    tables over real episodes, selecting actions by UCB1.  For model-based tree
+    search see the ``alphazero_mcts`` policy.  (Renamed from ``mcts`` to stop
+    the name implying AlphaGo/MuZero-style search.)
     """
 
-    POLICY_TYPE = "mcts"
+    POLICY_TYPE = "ucb_q"
     LOOP_TYPE = "q_learning"
     VALID_POLICY_PARAMS: ClassVar[frozenset] = frozenset({"c", "alpha", "gamma", "n_bins"})
 
@@ -747,7 +750,7 @@ class MCTSPolicy(QTablePolicy):
 
     def to_cfg(self) -> dict:
         return {
-            "policy_type": "mcts",
+            "policy_type": "ucb_q",
             "c": float(self._c),
             "alpha": float(self._alpha),
             "gamma": float(self._gamma),
@@ -758,7 +761,7 @@ class MCTSPolicy(QTablePolicy):
     @classmethod
     def _construct_or_resume(
         cls, *, obs_spec, head_names, discrete_actions, weights_file, policy_params, re_initialize
-    ) -> "MCTSPolicy":
+    ) -> "UCBQPolicy":
         policy = cls(
             obs_spec=obs_spec,
             discrete_actions=discrete_actions,
@@ -955,10 +958,11 @@ class GeneticPolicy(BasePolicy):
         return policy
 
 
+# Register the Stable-Baselines3-backed gradient deep-RL policies (ppo, a2c,
+# sac, td3, qr_dqn, recurrent_ppo).  Imported at the bottom of this module so
+# the side-effect registration runs at framework load, while the heavy
+# SB3 / torch stack stays lazily imported inside the policy methods.
 # ---------------------------------------------------------------------------
-# Framework gradient policies registered as always-available policy types.
-# Deferred to the bottom of the module so the imported modules can safely
-# `from framework.policies import BasePolicy, register_policy` without a cycle.
-# ---------------------------------------------------------------------------
-
-from framework import ppo as _ppo  # noqa: E402,F401  — registers the "ppo" policy_type
+# Register the pure-numpy AlphaZero-style MCTS policy (alphazero_mcts).
+from framework import alphazero as _alphazero  # noqa: E402,F401
+from framework import sb3_policies as _sb3_policies  # noqa: E402,F401

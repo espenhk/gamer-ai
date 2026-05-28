@@ -269,8 +269,14 @@ directly (not parameterised on game-specific hooks):
 | `hill_climbing` | `WeightedLinearPolicy` | Mutate-and-keep linear heads |
 | `neural_net` | `NeuralNetPolicy` | MLP, mutate-and-keep |
 | `epsilon_greedy` | `EpsilonGreedyPolicy` | Tabular Q-learning, ε-greedy |
-| `mcts` | `MCTSPolicy` | UCT-style online Q-learning |
+| `ucb_q` | `UCBQPolicy` | Tabular UCB1 online Q-learning (renamed from `mcts`) |
 | `genetic` | `GeneticPolicy` | Population + crossover + mutation |
+
+Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`,
+`recurrent_ppo`) are Stable-Baselines3-backed and registered in
+`framework/sb3_policies.py` (`LOOP_TYPE = "sb3"`, install with
+`poetry install --with deep_rl`); `alphazero_mcts` (`framework/alphazero.py`)
+is a real model-based MCTS that needs a cloneable simulator.
 
 These use the TMNF continuous steer/accel/brake action encoding and are
 **incompatible with SC2** (which needs `fn_idx ∈ [0, 5]` plus spatial

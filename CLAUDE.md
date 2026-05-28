@@ -234,32 +234,193 @@ Framework policies live in `framework/policies.py`, with additional game-specifi
 | `hill_climbing` | `WeightedLinearPolicy` | Mutate-and-keep. Includes probe + cold-start phases. |
 | `neural_net` | `NeuralNetPolicy` | MLP (pure numpy). Mutate-and-keep on network weights. |
 | `epsilon_greedy` | `EpsilonGreedyPolicy` | Tabular Q-learning, ε-greedy exploration, ε decays per episode. |
-| `mcts` | `MCTSPolicy` | UCT-style online Q-learner (UCB1). No env cloning — builds value table over real episodes. |
+| `ucb_q` | `UCBQPolicy` | Tabular UCB1 online Q-learner (renamed from `mcts`; **not** tree search — no env cloning, builds Q/count tables over real episodes). |
 | `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
 | `cmaes` | `CMAESPolicy` | `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over flat `WeightedLinearPolicy` weights. Automatic step-size + covariance adaptation. |
-| `neural_dqn` | `NeuralDQNPolicy` | Deep Q-learning with replay buffer + target network (optional Double / Dueling). |
+| `neural_dqn` | `NeuralDQNPolicy` | Deep Q-learning with replay buffer + target network. Double-DQN target, Huber loss, and gradient clipping on by default; optional Dueling architecture (see DQN knobs below). |
 | `reinforce` | `REINFORCEPolicy` | Monte Carlo policy gradient (optional running-mean baseline). |
 | `lstm` | `LSTMEvolutionPolicy` | Recurrent (LSTM) policy, trained by evolutionary search over network weights. |
-| `ppo` | `PPOPolicy` | On-policy actor-critic, clipped surrogate + GAE (pure numpy). Registered framework-wide; not for SC2. |
+| `alphazero_mcts` | `AlphaZeroMCTSPolicy` | **Real** model-based MCTS (pure numpy): PUCT tree search expanded by cloning + stepping the env, guided by a policy/value net trained from self-play. Needs a cloneable simulator — see below. |
+
+**Gradient deep-RL policies (Stable-Baselines3-backed).** These wrap SB3 /
+SB3-Contrib algorithms behind `BasePolicy` and share `LOOP_TYPE = "sb3"` (SB3
+owns its own training loop, driven by `framework/sb3_support.py`).  They live in
+`framework/sb3_policies.py`, register at framework load, and import the heavy
+SB3 / torch stack lazily.  Install with `poetry install --with deep_rl`.
+
+| `policy_type` | Class | Algorithm |
+|---|---|---|
+| `ppo` | `PPOPolicy` | Proximal Policy Optimization (on-policy, clipped surrogate + GAE). |
+| `a2c` | `A2CPolicy` | Advantage Actor-Critic (synchronous on-policy). |
+| `sac` | `SACPolicy` | Soft Actor-Critic (off-policy, max-entropy; **continuous action only**). |
+| `td3` | `TD3Policy` | Twin Delayed DDPG (off-policy deterministic; **continuous action only**). |
+| `qr_dqn` | `QRDQNPolicy` | Quantile-Regression DQN (distributional value; SB3-Contrib). Wraps the env's `Box` into a `Discrete` index over `discrete_actions`. |
+| `recurrent_ppo` | `RecurrentPPOPolicy` | PPO with an LSTM policy (gradient-trained recurrence; SB3-Contrib). The gradient counterpart to the ES-trained `lstm`. |
+
+SB3 policy budget is governed by `policy_params.total_timesteps` (default
+`n_sims × steps_per_sim`, `steps_per_sim` default `1000`); one
+`GreedySimResult` is recorded per completed episode, and the trained model is
+saved next to `policy_weights.yaml` as `*_sb3_model.zip`.  All SB3 policies are
+gated off SC2 (its multi-head `[fn_idx, x, y, queue]` action encoding is not a
+plain `Box`/`Discrete`) — use the `sc2_`-prefixed policies there.
+
+`alphazero_mcts` is gated off every current game (`compatible_with` returns
+`False` for TMNF/SC2/TORCS/CarRacing/BeamNG/Assetto/Rocket League/iRacing)
+because their envs bind to live processes/sockets and cannot be cloned for tree
+expansion.  To enable it on a game, give that game's env a `clone()` method (or
+make it `copy.deepcopy`-able) and drop it from
+`framework.alphazero._NON_CLONEABLE_GAMES`.
 
 `SimplePolicy` = non-trainable hand-coded PD baseline (see `steering.py`).
 
+### Choosing a policy
+
+| Situation | Start with | Why / constraints |
+|---|---|---|
+| Fastest sanity check on a continuous `[steer, accel, brake]` game | `hill_climbing` | No `policy_params`, tiny weight files, and one real episode per greedy sim. Great for validating observations and rewards before spending more compute. |
+| Linear control underfits but you still want a cheap evolutionary baseline | `neural_net` | Same mutate-and-keep loop as `hill_climbing`, but with a small MLP for non-linear feature interactions. |
+| Cheap simulator and noisy / non-smooth rewards | `genetic` or `cmaes` | Population methods parallelise well and tolerate noisy returns, but budget scales with `population_size` (and `eval_episodes` when present). |
+| Best sample-efficiency on a discrete action library | `neural_dqn` or `qr_dqn` | Replay + target networks reuse data far better than evolutionary search; size these runs in env steps, not just episodes. |
+| Simple episodic policy-gradient baseline on a discrete action set | `reinforce` | Fewer moving parts than DQN; useful when you want a small, easy-to-reason-about gradient baseline. |
+| Partial observability / memory matters | `lstm` or `recurrent_ppo` | `lstm` if simulations are cheap and ES search is acceptable; `recurrent_ppo` if sample efficiency matters more. |
+| Native continuous `Box` control with gradient RL | `sac` or `td3` | SB3-backed continuous-control baselines; `sac` is usually the safer first try, `td3` the deterministic alternative. |
+| Discrete control with a mature on-policy SB3 baseline | `ppo` | Strong first choice when you want a standard library implementation instead of the pure-numpy policies. |
+| Tiny discrete state space after coarse binning | `epsilon_greedy` or `ucb_q` | Tabular methods are only practical when `n_bins` stays small enough that the table is still visitable. |
+| Cloneable deterministic simulator and you explicitly want planning | `alphazero_mcts` | Only appropriate when the env can be cloned cheaply; all currently supported games are gated off today. |
+| Any SC2 run | `sc2_genetic`, `sc2_cmaes`, `sc2_reinforce`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, or `sc2_neural_net` | The generic continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`, `cmaes`, `neural_dqn`, `reinforce`, `lstm`) and all SB3 policies are structurally incompatible with SC2's `[fn_idx, x, y, queue]` action encoding. Only the SC2-native wrappers (plus tabular `epsilon_greedy` / `ucb_q`) should be considered there. |
+
+### Sizing a run
+
+- **Mutate-and-keep (`hill_climbing`, `neural_net`)**: greedy cost is `n_sims`
+  full episodes. A fresh run can additionally spend up to
+  `6 + cold_restarts × cold_sims` episodes in probe + cold-start.
+- **Tabular + episodic gradient (`epsilon_greedy`, `ucb_q`, `reinforce`)**:
+  roughly `n_sims` full episodes. The tuning knobs change how much signal you
+  extract from each episode, not the raw episode count.
+- **Population methods (`genetic`, `cmaes`)**:
+  `total_episodes = n_sims × population_size × eval_episodes`.
+- **LSTM evolution (`lstm`)**:
+  `total_episodes = n_sims × population_size`.
+- **DQN-family (`neural_dqn`, `qr_dqn`)**: real episode count is still about
+  `n_sims`, but the important budget is **environment steps**. Keep
+  `epsilon_decay_steps`, `min_replay_size`, and `target_update_freq` in the same
+  ballpark as `total_env_steps ≈ n_sims × average_episode_steps`.
+- **SB3 policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`)**:
+  training budget is `total_timesteps` if set, else
+  `n_sims × steps_per_sim` (`steps_per_sim` defaults to `1000`).
+- **AlphaZero MCTS**: you play `n_sims` real self-play games, but each action
+  also runs `n_simulations` clone-and-search rollouts, so wall-clock cost scales
+  much more like `episode_steps × n_simulations`.
+
 ### WeightedLinearPolicy
 
-Three independent linear heads (steer, accel, brake), each `dot(weights, normalised_obs)`. Weights stored in YAML. `mutated(scale, share)` adds Gaussian noise to random `share` fraction of weights; features pre-normalised so all contribute equally per mutation step. Auto-migrates existing weight files when new observation features added.
+Three independent linear heads (steer, accel, brake), each
+`dot(weights, normalised_obs)`. Weights stored in YAML. `mutated(scale, share)`
+adds Gaussian noise to random `share` fraction of weights; features are
+pre-normalised so all contribute equally per mutation step. Auto-migrates
+existing weight files when new observation features are added.
+
+**Hyperparams** (in `policy_params`): none.
+
+**Reasonable choices / tune first**: the useful knobs live in
+`training_params.yaml`, not `policy_params`. Start with `mutation_scale` around
+`0.02–0.1`, `mutation_share` around `0.3–1.0`, and `n_sims` around `50–200`.
+If this cannot beat a hand-coded baseline, fix the reward or observation design
+before moving to a larger policy.
+
+### NeuralNetPolicy
+
+Small MLP policy trained via the same mutate-and-keep loop as
+`WeightedLinearPolicy`.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `hidden_sizes` | `[16, 16]` | Hidden layer widths of the policy MLP |
+
+**Reasonable choices / tune first**: start with `[16, 16]`, move to `[32, 32]`
+or `[64, 64]` when the linear policy is clearly underfitting, and avoid going
+much larger unless you also raise the episode budget. This is still a
+one-episode-per-mutation policy.
+
+### EpsilonGreedyPolicy
+
+Tabular Q-learning with ε-greedy exploration over the game's discrete action
+set. Exploration decays **per episode**.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `epsilon` | `1.0` | Initial exploration rate |
+| `n_bins` | `3` | Observation bins per dimension for state discretisation |
+| `epsilon_decay` | `0.995` | Multiplicative ε decay applied at episode end |
+| `epsilon_min` | `0.05` | Floor on ε after decay |
+| `alpha` | `0.1` | Q-learning step size |
+| `gamma` | `0.99` | Discount factor |
+
+**Reasonable choices / tune first**: tune `n_bins` first because it controls
+whether the table is even usable; `3–7` is the practical range before the state
+space explodes. Then tune exploration: `epsilon: 0.8–1.0`,
+`epsilon_decay: 0.99–0.999`, `epsilon_min: 0.02–0.1`. Keep `alpha` in
+`0.05–0.2` and `gamma` in `0.95–0.995`.
+
+### UCBQPolicy
+
+Tabular online Q-learning with UCB1 action selection instead of ε-greedy.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `c` | `1.41` | UCB1 exploration constant |
+| `alpha` | `0.1` | Q-learning step size |
+| `gamma` | `0.99` | Discount factor |
+| `n_bins` | `3` | Observation bins per dimension for state discretisation |
+
+**Reasonable choices / tune first**: again, make sure `n_bins` (`3–7`) keeps
+the table size manageable. Then tune `c`: `0.5–2.0` is the useful range, with
+smaller values exploiting earlier and larger values forcing more coverage.
+`alpha` and `gamma` usually stay in the same `0.05–0.2` / `0.95–0.995` ranges
+as `epsilon_greedy`.
 
 ### GeneticPolicy
 
-Maintains population of `WeightedLinearPolicy` instances. Each generation: evaluate all individuals (`eval_episodes` episodes each, averaged), keep top `elite_k` unchanged, breed rest via uniform crossover between two random elites + mutation. Best individual ever seen = champion, saved to YAML for inference.
+Maintains a population of `WeightedLinearPolicy` instances. Each generation:
+evaluate all individuals (`eval_episodes` episodes each, averaged), keep top
+`elite_k` unchanged, breed the rest via uniform crossover between two random
+elites + mutation. Best individual ever seen = champion, saved to YAML for
+inference.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `population_size` | `10` | Individuals evaluated per generation |
+| `elite_k` | `3` | Top individuals copied unchanged into the next generation |
+| `mutation_scale` | `0.1` | Std-dev of Gaussian mutation noise |
+| `mutation_share` | `1.0` | Fraction of weights perturbed per child |
+| `eval_episodes` | `1` | Episodes per individual per generation (averaged for fitness) |
+
+**Reasonable choices / tune first**: tune `population_size` and
+`mutation_scale` first. `population_size: 10–40` is typical; raise it when the
+reward is noisy or crossover quality matters more than wall clock. Keep
+`elite_k` small — about `10–20%` of the population, and always less than
+`population_size` — so you preserve good individuals without collapsing
+diversity. `mutation_scale: 0.02–0.15`, `mutation_share: 0.25–1.0`, and
+`eval_episodes: 1–3` cover most use cases.
 
 ### CMAESPolicy
 
-Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | accel | brake]` weight vector of `WeightedLinearPolicy` (~63 dimensions for base observation space).
+Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over the concatenated
+`[steer | accel | brake]` weight vector of `WeightedLinearPolicy`
+(~63 dimensions for the base observation space).
 
 **Training loop** (called from `_greedy_loop_cmaes`):
-1. `sample_population()` — draws λ offspring from `N(mean, σ²·C)` using cached eigen-factorization `C = B D² Bᵀ`
+1. `sample_population()` — draw λ offspring from `N(mean, σ²·C)` using cached eigen-factorization `C = B D² Bᵀ`
 2. Evaluate each offspring for `eval_episodes` episodes → average reward → reward vector
-3. `update_distribution(rewards)` — weighted mean recombination (top μ = λ//2 elites), cumulative step-size adaptation (CSA) for σ, rank-1 + rank-μ covariance update
+3. `update_distribution(rewards)` — weighted mean recombination (top μ = λ//2 elites), cumulative step-size adaptation (CSA) for σ, and rank-1 + rank-μ covariance updates
 
 **Key properties**: `population_size` (λ), `sigma` (current σ), `champion_reward`.
 
@@ -271,15 +432,26 @@ Implements `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over concatenated `[steer | acce
 | `initial_sigma` | `0.3` | Starting step size (adapts via CSA each generation) |
 | `eval_episodes` | `1` | Episodes per individual per generation (averaged for fitness) |
 
-`n_sims` controls generations; total episodes = `n_sims × population_size × eval_episodes`. No `mutation_scale` tuning needed — σ adapts automatically.
+`n_sims` controls generations; total episodes = `n_sims × population_size × eval_episodes`. No `mutation_scale` tuning is needed — σ adapts automatically.
 
-> **Budget note**: `eval_episodes > 1` multiplies total episode count by that factor. For `GeneticPolicy` the same formula applies: `n_sims × population_size × eval_episodes`. Keep `eval_episodes: 1` in grid-search templates to preserve comparability with existing runs unless you are explicitly studying variance reduction vs episode budget.
+> **Budget note**: `eval_episodes > 1` multiplies total episode count by that factor. For `GeneticPolicy` the same formula applies: `n_sims × population_size × eval_episodes`. Keep `eval_episodes: 1` in grid-search templates unless you are explicitly studying variance reduction vs. episode budget.
 
-`save()` writes champion in `WeightedLinearPolicy` YAML format so analytics, weight heatmaps, inference work unchanged.
+`save()` writes the champion in `WeightedLinearPolicy` YAML format so analytics,
+weight heatmaps, and inference work unchanged.
+
+**Reasonable choices / tune first**: `initial_sigma` is the first knob to move.
+Use `0.1–0.2` when resuming from a decent champion or when rewards are already
+smooth, and `0.3–0.5` when you need broader early exploration. Keep
+`population_size` around `12–40`; larger populations help on noisy tasks but
+scale cost linearly. Prefer `eval_episodes: 1` unless one lucky episode often
+mis-ranks offspring.
 
 ### NeuralDQNPolicy
 
-MLP Q-network (pure numpy) with experience replay and a periodically-synced target network. Action space is the 9-element discrete set (`DISCRETE_ACTIONS`). ε-greedy exploration decays linearly from `epsilon_start` to `epsilon_end` over `epsilon_decay_steps` environment steps.
+MLP Q-network (pure numpy) with experience replay and a periodically-synced
+target network. Action space is the 9-element discrete set
+(`DISCRETE_ACTIONS`). ε-greedy exploration decays linearly from
+`epsilon_start` to `epsilon_end` over `epsilon_decay_steps` environment steps.
 
 **Hyperparams** (in `policy_params`):
 
@@ -295,16 +467,32 @@ MLP Q-network (pure numpy) with experience replay and a periodically-synced targ
 | `epsilon_end` | `0.05` | Final exploration rate |
 | `epsilon_decay_steps` | `5000` | Steps over which ε decays linearly |
 | `gamma` | `0.99` | Discount factor |
-| `double_dqn` | `false` | Double DQN: select the next action with the online net, evaluate it with the target net (reduces Q-value overestimation). |
-| `dueling` | `false` | Dueling architecture: split the head into a value stream + advantage stream, aggregated as `Q = V + (A − mean A)`. |
+| `double_dqn` | `true` | Use a Double-DQN target (online net selects the bootstrap action, target net evaluates it). `false` = vanilla `max_a Q_target`. |
+| `dueling` | `false` | Dueling architecture: split the head into a value stream + advantage stream, aggregated as `Q = V + (A − mean A)`. Opt-in (changes the weight-file shape). |
+| `huber_loss` | `true` | Huber (smooth-L1) loss: clamp the TD residual to ±`huber_kappa` for a bounded gradient. `false` = MSE. |
+| `huber_kappa` | `1.0` | Huber band half-width. |
+| `max_grad_norm` | `10.0` | Global-norm gradient clip applied before the Adam step. `null` disables clipping. |
 
-Both upgrades are opt-in and independent (either, both, or neither). Defaults
-off, so existing `neural_dqn` runs and weight files are unchanged; pre-existing
-weight files load with the flags defaulting to `false`.
+> `double_dqn`, `huber_loss`, and `max_grad_norm` default to the upgraded
+> (SB3-aligned) behaviour; `dueling` stays opt-in. Set `double_dqn: false`,
+> `huber_loss: false`, `max_grad_norm: null` to recover the old vanilla DQN.
+> All apply to `neural_dqn` (TMNF) and `sc2_neural_dqn` too.
+
+**Reasonable choices / tune first**: size this run in **env steps**, not just
+episodes. A good first pass is to keep `epsilon_decay_steps` at roughly
+`25–75%` of the total env-step budget, `min_replay_size` at about `1–10%` of
+`replay_buffer_size`, and `target_update_freq` in the same order of magnitude
+as one to a few episode lengths (`200–2000` steps for short racing episodes).
+Start with `hidden_sizes` around `[64, 64]` or `[128, 128]`,
+`batch_size: 32–128`, `replay_buffer_size: 10_000–100_000`,
+`learning_rate: 1e-4–3e-3`, and `epsilon_end: 0.02–0.1`. Only enable
+`dueling` after the vanilla upgraded defaults are stable.
 
 ### REINFORCEPolicy
 
-Monte Carlo policy-gradient over the 9-element discrete action set. Collects full episodes, computes discounted returns, optionally subtracts a running-mean baseline, then updates the softmax policy network via gradient ascent.
+Monte Carlo policy-gradient over the discrete action set. Collect full
+episodes, compute discounted returns, optionally subtract a running-mean
+baseline, then update the softmax policy network via gradient ascent.
 
 **Hyperparams** (in `policy_params`):
 
@@ -316,9 +504,18 @@ Monte Carlo policy-gradient over the 9-element discrete action set. Collects ful
 | `entropy_coeff` | `0.01` | Entropy regularisation weight (encourages exploration) |
 | `baseline` | `"running_mean"` | Return baseline: `"running_mean"` or `"none"` |
 
+**Reasonable choices / tune first**: tune `learning_rate` first
+(`3e-4–3e-3`), then `entropy_coeff` (`0.0–0.05`) to keep exploration alive
+without washing out the reward signal. `[64, 64]` is a good default hidden
+stack; go to `[128, 128]` only when you have enough episodes to support it.
+`baseline: "running_mean"` is the sensible default unless you are debugging the
+raw Monte-Carlo estimator.
+
 ### LSTMEvolutionPolicy
 
-LSTM recurrent policy trained by CMA-ES-style evolutionary search over flattened network weights. The hidden state is reset each episode; at each step the LSTM receives the current observation and emits logits over the 9-element discrete action set.
+LSTM recurrent policy trained by evolutionary search over flattened network
+weights. The hidden state resets each episode; at each step the LSTM receives
+the current observation and emits logits over the discrete action set.
 
 **Hyperparams** (in `policy_params`):
 
@@ -328,33 +525,219 @@ LSTM recurrent policy trained by CMA-ES-style evolutionary search over flattened
 | `population_size` | `20` | λ — offspring evaluated per generation |
 | `initial_sigma` | `0.05` | Starting perturbation scale (smaller than CMAESPolicy because the LSTM weight space is larger) |
 
-### PPOPolicy
+**Reasonable choices / tune first**: only pay for this policy when memory is
+actually useful. `hidden_size: 16–64` covers most cases; larger hidden states
+make the search space much bigger. Keep `population_size` around `10–30` and
+`initial_sigma` around `0.02–0.1`; if the search explodes, lower
+`initial_sigma` before shrinking the hidden state.
 
-On-policy actor-critic (pure numpy) with a clipped surrogate objective and
-Generalised Advantage Estimation. A softmax actor over the discrete action set
-plus a scalar-value critic, both trained with Adam. One episode is collected per
-greedy iteration (it reuses the `q_learning` loop: transitions are buffered in
-`update`, and the multi-epoch minibatch PPO update fires in `on_episode_end`).
-`PPOPolicy` is registered framework-wide, so it is available on every game that
-exposes a discrete action set (TMNF, CarRacing, TORCS, BeamNG, …). It is **not**
-compatible with SC2 — the discrete steer/accel/brake encoding does not fit SC2's
-`[fn_idx, x, y, queue]` action space (use `sc2_reinforce` there).
+### AlphaZeroMCTSPolicy
+
+AlphaZero-style policy/value MCTS over a **cloneable** simulator. Every action
+selection expands a PUCT tree using cloned env states, then trains a shared
+policy/value network from self-play targets.
 
 **Hyperparams** (in `policy_params`):
 
 | Param | Default | Description |
 |---|---|---|
-| `hidden_sizes` | `[64, 64]` | Hidden layer widths of the actor and critic MLPs |
-| `learning_rate` | `0.0003` | Adam step size (shared by actor + critic) |
-| `gamma` | `0.99` | Discount factor |
-| `gae_lambda` | `0.95` | GAE smoothing (1.0 = Monte-Carlo, 0.0 = one-step TD) |
-| `clip_range` | `0.2` | PPO probability-ratio clipping epsilon |
-| `n_epochs` | `4` | Optimisation passes over each collected episode |
-| `entropy_coeff` | `0.0` | Entropy-bonus weight (encourages exploration) |
-| `value_coeff` | `0.5` | Weight on the critic (value) loss |
-| `minibatch_size` | `64` | Transitions per gradient step within an epoch |
+| `n_simulations` | `32` | Tree-search expansions per real env decision |
+| `c_puct` | `1.5` | PUCT exploration constant |
+| `gamma` | `0.99` | Discount factor used for value targets |
+| `hidden_sizes` | `[64, 64]` | Hidden layer widths of the shared policy/value MLP |
+| `learning_rate` | `0.001` | Gradient step size for the policy/value net |
+| `temperature` | `1.0` | Visit-count temperature when sampling self-play actions |
+| `dirichlet_alpha` | `0.3` | Dirichlet prior concentration for root exploration noise |
+| `dirichlet_frac` | `0.25` | Fraction of root prior replaced by Dirichlet noise |
+| `value_loss_coef` | `1.0` | Weight on the value-loss term during training |
+| `train_batch_size` | `32` | Minibatch size for self-play updates |
+| `seed` | `null` | RNG seed for reproducibility |
 
-`n_sims` controls generations; total episodes = `n_sims × population_size`. Saved champion weights are incompatible across different `hidden_size` or `n_lidar_rays` values — changing either requires `--re-initialize`.
+**Reasonable choices / tune first**: tune `n_simulations` first because it is
+the dominant wall-clock multiplier; `16–128` is the practical range. Then tune
+`c_puct` (`1.0–2.5`) and `temperature` (`0.3–1.0`) depending on how sharp you
+want self-play exploration to be. Keep the net modest (`[64, 64]` or
+`[128, 128]`) unless the cloneable simulator is cheap enough to feed it.
+
+### PPOPolicy
+
+Stable-Baselines3-backed PPO. The framework now hands training over to SB3's
+own loop (`LOOP_TYPE = "sb3"`), so the budget is **env steps**, not one PPO
+update per episode. Works on the framework's non-SC2 games with native
+SB3-compatible action spaces (for example, TMNF's `Box` action space).
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `n_steps` | `SB3 default` | Rollout length per update |
+| `batch_size` | `SB3 default` | Minibatch size |
+| `n_epochs` | `SB3 default` | Optimisation passes per rollout |
+| `gae_lambda` | `SB3 default` | GAE smoothing |
+| `clip_range` | `SB3 default` | PPO clipping epsilon |
+| `ent_coef` | `SB3 default` | Entropy-bonus coefficient |
+| `vf_coef` | `SB3 default` | Critic-loss coefficient |
+
+**Reasonable choices / tune first**: `ppo` is the safest first SB3 baseline.
+Tune `total_timesteps` first, then `n_steps` and
+`batch_size`. Useful override ranges are `n_steps: 256–2048`,
+`batch_size: 64–256`, `n_epochs: 4–10`, `gae_lambda: 0.95–0.99`, and
+`clip_range: 0.1–0.3`. Leave `learning_rate` on the SB3 default unless you have
+a reason to try `1e-4–3e-4`.
+
+### A2CPolicy
+
+Stable-Baselines3 A2C. Lighter-weight than PPO, but usually a weaker default.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `n_steps` | `SB3 default` | Rollout length before each synchronous update |
+| `gae_lambda` | `SB3 default` | GAE smoothing |
+| `ent_coef` | `SB3 default` | Entropy-bonus coefficient |
+| `vf_coef` | `SB3 default` | Critic-loss coefficient |
+
+**Reasonable choices / tune first**: prefer `ppo` unless you want a smaller,
+faster on-policy baseline. Keep `n_steps` fairly short (`5–32`) and use
+`gae_lambda: 0.9–0.99`, `ent_coef: 0.0–0.01`, and `vf_coef: 0.5–1.0`. If A2C is
+unstable, increasing the total step budget usually helps more than widening the
+network.
+
+### SACPolicy
+
+Stable-Baselines3 Soft Actor-Critic for native continuous `Box` action spaces.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `buffer_size` | `SB3 default` | Replay-buffer capacity |
+| `batch_size` | `SB3 default` | Minibatch size |
+| `tau` | `SB3 default` | Target-network Polyak averaging factor |
+| `train_freq` | `SB3 default` | Environment steps between optimisation phases |
+| `learning_starts` | `SB3 default` | Warmup steps before updates start |
+| `ent_coef` | `SB3 default` | Entropy coefficient (`"auto"` in SB3 by default) |
+
+**Reasonable choices / tune first**: `sac` is the first gradient-RL policy to
+try on continuous control. Spend your budget on `total_timesteps` and
+`buffer_size` before changing architecture. Good override ranges are
+`buffer_size: 50_000–1_000_000`, `batch_size: 128–512`, `tau: 0.005–0.02`,
+`train_freq: 1–16`, and `learning_starts: 1_000–10_000`. Leave `ent_coef` on
+SB3's automatic default unless you have a strong reason not to.
+
+### TD3Policy
+
+Stable-Baselines3 Twin Delayed DDPG for native continuous `Box` action spaces.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `buffer_size` | `SB3 default` | Replay-buffer capacity |
+| `batch_size` | `SB3 default` | Minibatch size |
+| `tau` | `SB3 default` | Target-network Polyak averaging factor |
+| `train_freq` | `SB3 default` | Environment steps between optimisation phases |
+| `learning_starts` | `SB3 default` | Warmup steps before updates start |
+| `policy_delay` | `SB3 default` | Critic updates per actor update |
+
+**Reasonable choices / tune first**: choose `td3` when you want a deterministic
+continuous-control baseline after trying `sac`. The same `buffer_size`,
+`batch_size`, `tau`, and `learning_starts` ranges apply; `policy_delay: 2–4` is
+the main extra knob. If TD3 is brittle, increase total steps before increasing
+network size.
+
+### QRDQNPolicy
+
+SB3-Contrib QR-DQN. The framework wraps the env's continuous action `Box` into a
+discrete index over `discrete_actions`, then learns a distributional value
+function over that discrete set.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `buffer_size` | `SB3 default` | Replay-buffer capacity |
+| `batch_size` | `SB3 default` | Minibatch size |
+| `learning_starts` | `SB3 default` | Warmup steps before updates start |
+| `target_update_interval` | `SB3 default` | Steps between target-network syncs |
+| `train_freq` | `SB3 default` | Environment steps between optimisation phases |
+| `exploration_fraction` | `SB3 default` | Fraction of total training spent decaying ε |
+| `exploration_final_eps` | `SB3 default` | Final ε after decay |
+| `n_quantiles` | `SB3 default` | Number of value-distribution quantiles |
+
+**Reasonable choices / tune first**: use `qr_dqn` when you want an SB3-managed
+value learner over a discrete action library. The most important knobs are
+`total_timesteps`, `exploration_fraction`, and `target_update_interval`.
+Reasonable override ranges are `buffer_size: 50_000–500_000`,
+`batch_size: 32–256`, `learning_starts: 1_000–10_000`,
+`target_update_interval: 500–5_000`, `exploration_fraction: 0.1–0.5`,
+`exploration_final_eps: 0.01–0.1`, and `n_quantiles: 25–200`.
+
+### RecurrentPPOPolicy
+
+SB3-Contrib Recurrent PPO with an LSTM policy network. This is the
+gradient-trained counterpart to the ES-trained `lstm`.
+
+**Hyperparams** (in `policy_params`):
+
+| Param | Default | Description |
+|---|---|---|
+| `total_timesteps` | `n_sims × steps_per_sim` | Total SB3 env-step budget; overrides `steps_per_sim` when set explicitly |
+| `steps_per_sim` | `1000` | Fallback env-step budget per `n_sims` unit |
+| `learning_rate` | `SB3 default` | Passed through to SB3 only when set |
+| `gamma` | `SB3 default` | Discount factor override |
+| `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
+| `seed` | `null` | RNG seed override |
+| `verbose` | `0` | SB3 logging verbosity |
+| `n_steps` | `SB3 default` | Rollout length per update |
+| `batch_size` | `SB3 default` | Minibatch size |
+| `n_epochs` | `SB3 default` | Optimisation passes per rollout |
+| `gae_lambda` | `SB3 default` | GAE smoothing |
+| `clip_range` | `SB3 default` | PPO clipping epsilon |
+| `ent_coef` | `SB3 default` | Entropy-bonus coefficient |
+
+**Reasonable choices / tune first**: pick this when partial observability
+matters and you still want gradient training. Start with the same PPO-style
+budget logic, but keep `n_steps` a bit shorter (`128–1024`) so the recurrent
+state updates more often. `batch_size: 64–256`, `n_epochs: 4–10`,
+`gae_lambda: 0.95–0.99`, and `clip_range: 0.1–0.3` are sensible override
+ranges.
 
 ---
 
@@ -657,7 +1040,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `sc2_cnn` | CNN (two conv layers + FC) + isotropic ES; spatial pixel obs | `games/sc2/cnn_policy.py`; requires non-empty `screen_layers` |
 | `sc2_neural_net` | TMNF-style MLP (pure numpy) with SC2-native multi-head action encoding; mutate-and-keep evolutionary search | `games/sc2/sc2_policies.py`; hyperparam `hidden_sizes` |
 | `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
-| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
+| `ucb_q` | UCB1 online Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy (renamed from `mcts`) |
 
 > **Breaking change vs. earlier versions:** The bare-name `cmaes`, `reinforce`, `lstm`, and `neural_dqn` policy_types are no longer valid for SC2. Migrate configs to `sc2_cmaes`, `sc2_reinforce`, `sc2_lstm`, and `sc2_neural_dqn` respectively.
 
@@ -751,7 +1134,7 @@ length per generation.  Budget your `n_workers` accordingly.
 
 **Scope.**  Only the four population-based SC2 policies are eligible.
 Setting `n_workers > 1` for tabular / gradient-based policies
-(`epsilon_greedy`, `mcts`, `sc2_reinforce`, `neural_dqn`, `reinforce`)
+(`epsilon_greedy`, `ucb_q`, `sc2_reinforce`, `neural_dqn`, `reinforce`)
 fails fast in `train_rl` before any binary spawns.  This is intra-run
 parallelism; for inter-run parallelism (one experiment per worker)
 keep using `python grid_search.py --local-workers N` (PR #244).
@@ -772,7 +1155,11 @@ Game- and tooling-specific deps live in Poetry groups:
 | `torcs` | *(empty group)* | TORCS — `gym_torcs` installed from source (not on PyPI) |
 | `sc2` *(optional)* | `pysc2`, `protobuf` | StarCraft 2 — `poetry install --with sc2` |
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
+<<<<<<< HEAD
 | `atari` *(optional)* | `ale-py` (MIT-licensed Atari 2600 ROMs bundled) | Atari — `poetry install --with atari` |
+=======
+| `deep_rl` *(optional)* | `stable-baselines3`, `sb3-contrib` (pulls `torch`) | Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`) — `poetry install --with deep_rl`. Cross-platform. |
+>>>>>>> origin/main
 
 CarRacing needs `gymnasium[box2d]` (install separately, e.g.
 `poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install

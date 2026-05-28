@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "espenhk/tmnf-ai"
-version = "0.3.0"
+version = "0.3.4"
 description = "Trackmania AI hobby project"
 authors = []
 package-mode = false
@@ -50,6 +50,7 @@ pyyaml = ">=6.0"
 pysc2 = ">=4.0"
 protobuf = ">=3.20,<4.0"
 
+<<<<<<< HEAD
 [tool.poetry.group.atari]
 optional = true
 
@@ -58,6 +59,17 @@ optional = true
 # ``ALE/<game>-v5`` gymnasium envs.  Keep it optional so non-Atari setups
 # don't pull in the C++ ALE wheel.
 ale-py = ">=0.10"
+=======
+[tool.poetry.group.deep_rl]
+# Optional, cross-platform. Stable-Baselines3 + SB3-Contrib back the gradient
+# deep-RL policies (ppo, sac, td3, a2c, qr_dqn, recurrent_ppo). SB3 pulls in
+# torch transitively. Install with: poetry install --with deep_rl
+optional = true
+
+[tool.poetry.group.deep_rl.dependencies]
+stable-baselines3 = ">=2.0"
+sb3-contrib = ">=2.0"
+>>>>>>> origin/main
 
 [build-system]
 requires = ["poetry-core"]

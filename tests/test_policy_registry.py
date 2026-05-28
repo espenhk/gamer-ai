@@ -7,14 +7,14 @@ from framework.policies import (
     BasePolicy,
     EpsilonGreedyPolicy,
     GeneticPolicy,
-    MCTSPolicy,
     NeuralNetPolicy,
+    UCBQPolicy,
     WeightedLinearPolicy,
     register_policy,
 )
 
-_VALID_LOOP_TYPES = {"hill_climbing", "q_learning", "cmaes", "genetic"}
-_EXPECTED_BUILT_INS = {"hill_climbing", "neural_net", "epsilon_greedy", "mcts", "genetic"}
+_VALID_LOOP_TYPES = {"hill_climbing", "q_learning", "cmaes", "genetic", "sb3", "alphazero"}
+_EXPECTED_BUILT_INS = {"hill_climbing", "neural_net", "epsilon_greedy", "ucb_q", "genetic"}
 
 
 def test_all_five_built_ins_registered():
@@ -30,7 +30,7 @@ def test_built_in_policy_types():
     assert POLICY_REGISTRY["hill_climbing"] is WeightedLinearPolicy
     assert POLICY_REGISTRY["neural_net"] is NeuralNetPolicy
     assert POLICY_REGISTRY["epsilon_greedy"] is EpsilonGreedyPolicy
-    assert POLICY_REGISTRY["mcts"] is MCTSPolicy
+    assert POLICY_REGISTRY["ucb_q"] is UCBQPolicy
     assert POLICY_REGISTRY["genetic"] is GeneticPolicy
 
 

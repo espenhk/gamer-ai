@@ -1060,6 +1060,39 @@ class TestSC2ClientProactiveSelection(unittest.TestCase):
         self.client.step(action)
         self.assertEqual(int(self._captured_action[0]), 1)  # select_army
 
+    def test_extreme_random_phase_samples_only_available_fn_ids(self):
+        import games.sc2.client as sc2_client_mod
+
+        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+        try:
+            sc2_client_mod._pysc2_id_to_fn_idx = {331: 2}
+            self.client._available_actions = {_FakeFunctions.Move_screen.id}
+            self.client._selected_count = 1.0
+            self.client._extreme_random_run_count = 2
+            self.client._episodes_started = 1
+
+            action = np.array([0, 0.0, 0.0, 0], dtype=np.float32)
+            self.client.step(action)
+
+            self.assertEqual(int(self._captured_action[0]), 2)
+            self.assertGreaterEqual(float(self._captured_action[1]), 0.0)
+            self.assertLessEqual(float(self._captured_action[1]), 1.0)
+            self.assertGreaterEqual(float(self._captured_action[2]), 0.0)
+            self.assertLessEqual(float(self._captured_action[2]), 1.0)
+        finally:
+            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+
+    def test_extreme_random_phase_disabled_after_threshold(self):
+        self.client._selected_count = 1.0
+        self.client._extreme_random_run_count = 1
+        self.client._episodes_started = 2
+
+        action = np.array([0, 0.25, 0.75, 0], dtype=np.float32)
+        self.client.step(action)
+        self.assertEqual(int(self._captured_action[0]), 0)
+        self.assertAlmostEqual(float(self._captured_action[1]), 0.25)
+        self.assertAlmostEqual(float(self._captured_action[2]), 0.75)
+
 
 class TestSC2ClientAvailableFnIds(unittest.TestCase):
     """Tests for the info["available_fn_ids"] field added by _timestep_to_obs_info."""

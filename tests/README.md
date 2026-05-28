@@ -28,6 +28,9 @@
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
   - [test\_policy\_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery](#test_policy_registrypy--policy_registry--basepolicy-registry-machinery)
+  - [test\_dqn\_upgrades.py — Double-DQN / Huber / gradient clipping](#test_dqn_upgradespy--double-dqn--huber--gradient-clipping)
+  - [test\_sb3\_policies.py — Stable-Baselines3-backed deep-RL policies](#test_sb3_policiespy--stable-baselines3-backed-deep-rl-policies)
+  - [test\_alphazero\_mcts.py — AlphaZero-style model-based MCTS](#test_alphazero_mctspy--alphazero-style-model-based-mcts)
   - [test\_sc2\_legacy\_names\_rejected.py — SC2 bare legacy policy names rejected](#test_sc2_legacy_names_rejectedpy--sc2-bare-legacy-policy-names-rejected)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
@@ -35,9 +38,8 @@
   - [test\_genetic\_policy.py — population evolutionary loop](#test_genetic_policypy--population-evolutionary-loop)
   - [test\_cmaes\_policy.py — `CMAESPolicy` (framework) via TMNF factory](#test_cmaes_policypy--cmaespolicy-framework-via-tmnf-factory)
   - [test\_epsilon\_greedy\_policy.py — tabular Q-learning](#test_epsilon_greedy_policypy--tabular-q-learning)
-  - [test\_mcts\_policy.py — UCT-style online Q](#test_mcts_policypy--uct-style-online-q)
+  - [test\_ucb\_q\_policy.py — UCB1 online Q (formerly mcts)](#test_ucb_q_policypy--ucb1-online-q-formerly-mcts)
   - [test\_neural\_dqn\_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`](#test_neural_dqn_policypy--dqnpolicy-framework--replaybuffer)
-  - [test\_ppo\_policy.py — `PPOPolicy` (framework) clipped actor-critic + GAE](#test_ppo_policypy--ppopolicy-framework-clipped-actor-critic--gae)
   - [test\_reinforce\_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG](#test_reinforce_policypy--reinforcepolicy-framework-monte-carlo-pg)
   - [test\_lstm\_policy.py — `LSTMCore` + `LSTMEvolutionPolicy` (framework)](#test_lstm_policypy--lstmcore--lstmevolutionpolicy-framework)
 - [TMNF I/O](#tmnf-io)
@@ -351,9 +353,9 @@ worker mechanics are unit-tested with a dummy env.
 ### test_policy_registry.py — `POLICY_REGISTRY` + `BasePolicy` registry machinery
 - `register_policy` raises on duplicate `POLICY_TYPE`
 - `register_policy` raises when `POLICY_TYPE == ""`
-- All five built-ins (`hill_climbing`, `neural_net`, `epsilon_greedy`, `mcts`, `genetic`) are registered after importing `framework.policies`
+- All five built-ins (`hill_climbing`, `neural_net`, `epsilon_greedy`, `ucb_q`, `genetic`) are registered after importing `framework.policies`
 - Each registered class maps to the correct concrete class
-- Each registered class has `LOOP_TYPE` in `{"hill_climbing", "q_learning", "cmaes", "genetic"}`
+- Each registered class has `LOOP_TYPE` in `{"hill_climbing", "q_learning", "cmaes", "genetic", "sb3", "alphazero"}`
 - `_validate_params` raises on unknown keys when `VALID_POLICY_PARAMS` is non-empty
 - `_validate_params` is a no-op when `VALID_POLICY_PARAMS` is empty
 - `_validate_params` accepts all valid keys without raising
@@ -368,6 +370,23 @@ worker mechanics are unit-tested with a dummy env.
 - `_make_policy(..., game_name="sc2")` rejects TMNF bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with a "not compatible" ValueError
 - Error message includes the expected `sc2_`-prefixed alternative for each rejected type
 
+### test_dqn_upgrades.py — Double-DQN / Huber / gradient clipping
+- `DQNPolicy` defaults are upgraded (`double_dqn`/`huber_loss` on, `max_grad_norm=10.0`)
+- `to_cfg`/`from_cfg` round-trip the new knobs; a legacy cfg without them loads the upgraded defaults
+- `_loss_grad` clamps the residual to ±`huber_kappa` under Huber and is `2·residual` under MSE
+- gradient clipping keeps weights finite under extreme TD error; Double-DQN path runs and stays finite
+
+### test_sb3_policies.py — Stable-Baselines3-backed deep-RL policies
+- Skipped unless `stable-baselines3` / `sb3-contrib` are installed (`poetry install --with deep_rl`)
+- `ppo`/`a2c`/`sac`/`td3`/`qr_dqn`/`recurrent_ppo` are registered with `LOOP_TYPE == "sb3"`; all gated off SC2, allowed on racing games
+- unknown `policy_params` rejected; `total_timesteps` resolution (explicit vs `n_sims × steps_per_sim`)
+- end-to-end training on a dummy Gym env (continuous `a2c`/`ppo` and discrete `qr_dqn`): episodes recorded, `*_sb3_model.zip` saved, resume + predict
+
+### test_alphazero_mcts.py — AlphaZero-style model-based MCTS
+- `alphazero_mcts` registered with `LOOP_TYPE == "alphazero"`; gated off non-cloneable games, allowed on a cloneable game name
+- `__call__` returns a valid action from the policy head; the loop raises on a non-cloneable env
+- end-to-end self-play on a toy cloneable corridor MDP reaches the goal (positive best reward), saves weights, and resumes
+
 ## TMNF policies
 
 Trackmania-Nations-Forever-specific code under `games/tmnf/`. Policies live
@@ -375,17 +394,15 @@ in `games/tmnf/policies.py`; the bridge to the live game is in
 `games/tmnf/clients/`.
 
 **Tested.** Every policy listed in CLAUDE.md (`WeightedLinearPolicy`,
-`NeuralNetPolicy`, `EpsilonGreedyPolicy`, `MCTSPolicy`, `GeneticPolicy`,
-`CMAESPolicy`, `NeuralDQNPolicy` incl. Double/Dueling, `REINFORCEPolicy`,
-`LSTMEvolutionPolicy`, `PPOPolicy`) is exercised in isolation: action shape
-and range, deterministic forward pass, mutation produces different weights,
-save/load YAML round-trips losslessly (including replay buffer + Adam moments
-for DQN, actor+critic weights + Adam moments for PPO, σ + covariance for
-CMA-ES, hidden-state reset for LSTM), `from_cfg` rejects shape mismatches, and
-the optimisation loop converges (or, for PPO, the clipped objective raises the
-rewarded action's probability) on a tiny stand-in problem (2-arm bandit,
-quadratic max). `PPOPolicy` itself lives in `framework/ppo.py` and is registered
-framework-wide, but its unit test sits with the other framework-policy tests. `RLClient`'s threading model — the
+`NeuralNetPolicy`, `EpsilonGreedyPolicy`, `UCBQPolicy`, `GeneticPolicy`,
+`CMAESPolicy`, `NeuralDQNPolicy` (incl. Double / Dueling / Huber),
+`REINFORCEPolicy`, `LSTMEvolutionPolicy`)
+is exercised in isolation: action shape and range, deterministic forward
+pass, mutation produces different weights, save/load YAML round-trips
+losslessly (including replay buffer + Adam moments for DQN, σ + covariance
+for CMA-ES, hidden-state reset for LSTM), `from_cfg` rejects shape
+mismatches, and the optimisation loop converges on a tiny stand-in
+problem (2-arm bandit, quadratic max). `RLClient`'s threading model — the
 tick-window state machine, decision_idx clamping, and the finish/respawn /
 hard-crash forced-commit paths — is fully covered against a `MagicMock`
 TMInterface.
@@ -432,7 +449,7 @@ real driving on the `a03_centerline` track.
 ### test_epsilon_greedy_policy.py — tabular Q-learning
 - action in range; greedy picks best; update +/- reward; Bellman backup; ε decays per episode; ε floored
 
-### test_mcts_policy.py — UCT-style online Q
+### test_ucb_q_policy.py — UCB1 online Q (formerly mcts)
 - action in range; unseen state random; visit count increments; Q changes; exploitation prefers high Q; visits accumulate
 
 ### test_neural_dqn_policy.py — `DQNPolicy` (framework) + `ReplayBuffer`
@@ -442,15 +459,6 @@ real driving on the `a03_centerline` track.
 - Bandit convergence; save/load replay buffer + Adam moments; wrong obs_dim raises
 - Double DQN: flags default off / `_next_state_q` = target-Q at online-argmax / `<=` vanilla max & differs when nets disagree / cfg roundtrip preserves `double_dqn` / bandit convergence
 - Dueling: value head built (`value_w`/`value_b`) / `Q == V + (A − mean A)` / gradient step updates value head / cfg roundtrip preserves `dueling` + value-head weights / bandit convergence
-
-### test_ppo_policy.py — `PPOPolicy` (framework) clipped actor-critic + GAE
-- Registration: `"ppo"` in `POLICY_REGISTRY` from a bare `framework.policies` import; SC2 incompatible / racing compatible
-- Structure: action shape / action from DISCRETE_ACTIONS / buffers fill on call+update and clear on episode end / empty episode-end no-op / actor+critic weight shapes
-- GAE: matches hand-computed advantages+returns / λ=1 reduces to Monte-Carlo returns
-- Clipping: inert on a single epoch (ratio == 1) / a tiny `clip_range` throttles multi-epoch weight drift
-- Learning: raises probability of the consistently-rewarded action (forced-action episodes)
-- Cfg: required keys / `policy_type="ppo"` / from_cfg restores actor+critic weights & hyperparams / save+reload yaml / obs_dim mismatch raises
-- Trainer state: Adam-moment `.npz` roundtrip / wrong obs_dim raises
 
 ### test_reinforce_policy.py — `REINFORCEPolicy` (framework) Monte-Carlo PG
 - action shape; steer range; accel/brake discrete; action from DISCRETE_ACTIONS
@@ -736,7 +744,7 @@ handful of iterations only).
 - Outcomes: win+bonus / loss+penalty; economy reward flows through
 - Action: fn_idx valid / xy continuous / queue binary / shape
 - Pop usage: sc2_genetic uses SC2Linear / cmaes offspring use SC2Linear; SC2Linear and sc2_genetic action shape
-- Per-policy on Simple64: epsilon_greedy / mcts / sc2_neural_dqn shape+update / sc2_cmaes sample+update / sc2_reinforce shape+episode / sc2_lstm shape / sc2_lstm-evolution sample+update
+- Per-policy on Simple64: epsilon_greedy / ucb_q / sc2_neural_dqn shape+update / sc2_cmaes sample+update / sc2_reinforce shape+episode / sc2_lstm shape / sc2_lstm-evolution sample+update
 - Training loops (mocked env): sc2_genetic / sc2_cmaes / sc2_neural_dqn / sc2_reinforce / sc2_lstm
 - Trainer state roundtrips: sc2_cmaes / sc2_neural_dqn
 

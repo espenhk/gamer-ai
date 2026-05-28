@@ -13,6 +13,7 @@ Supports multiple games via the ``--game`` flag:
     python main.py <experiment> --game sc2
     python main.py <experiment> --game rocket_league
     python main.py <experiment> --game iracing
+    python main.py <experiment> --game atari
 
 All algorithm logic lives in framework/training.py.
 Game-specific logic lives in games/<name>/.
@@ -54,12 +55,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--game",
         default="tmnf",
-        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing"],
+        choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing", "atari"],
         help=(
             "Select which simulator to use. "
             "Choices: tmnf (default), beamng, assetto, car_racing, torcs, sc2, "
-            "rocket_league, iracing. "
-            "beamng, assetto, rocket_league and iracing require optional simulator dependencies."
+            "rocket_league, iracing, atari. "
+            "beamng, assetto, rocket_league and iracing require optional simulator "
+            "dependencies; atari requires ale-py."
         ),
     )
     parser.add_argument(

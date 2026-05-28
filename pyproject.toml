@@ -50,6 +50,15 @@ pyyaml = ">=6.0"
 pysc2 = ">=4.0"
 protobuf = ">=3.20,<4.0"
 
+[tool.poetry.group.atari]
+optional = true
+
+[tool.poetry.group.atari.dependencies]
+# ale-py ships the MIT-licensed Atari 2600 ROMs and registers the
+# ``ALE/<game>-v5`` gymnasium envs.  Keep it optional so non-Atari setups
+# don't pull in the C++ ALE wheel.
+ale-py = ">=0.10"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

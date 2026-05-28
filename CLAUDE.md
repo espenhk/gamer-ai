@@ -5,7 +5,7 @@ set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous
 agents via hill-climbing / evolutionary / CMA-ES / Q-learning /
 policy-gradient methods. The project began as a Trackmania Nations Forever
-(TMNF) agent and now spans eight games.
+(TMNF) agent and now spans nine games.
 
 **Runtime per game** (select with `--game`; default `tmnf`):
 - TMNF: Windows-only (`pywin32`, `mss` window grab, `tminterface` bind to live game process).
@@ -16,6 +16,7 @@ policy-gradient methods. The project began as a Trackmania Nations Forever
 - Assetto Corsa: Assetto Corsa (commercial) via the `assetto-corsa-rl` shared-memory wrapper; launched through its own entry point (`--game assetto`).
 - Rocket League: Rocket League (commercial, Windows) via the `rlgym` API + Bakkesmod (`--game rocket_league`).
 - iRacing: iRacing (commercial, Windows) telemetry via `pyirsdk`, with optional vJoy live action injection (`--game iracing`).
+- Atari: cross-platform, headless; Atari 2600 via `ale-py` (MIT-licensed ROMs bundled). 128-byte RAM observation, `Discrete(N)` action space. `poetry install --with atari` (`--game atari`).
 
 Each game ships a `games/<game>/README.md` documenting its install,
 config, observation/action space, reward, and supported policies. This file
@@ -60,7 +61,8 @@ gamer-ai/
 │   ├── beamng/             # BeamNG.drive via beamng_gym TCP API
 │   ├── assetto_corsa/      # Assetto Corsa via assetto-corsa-rl shared memory
 │   ├── rocket_league/      # Rocket League via rlgym + Bakkesmod
-│   └── iracing/            # iRacing telemetry via pyirsdk (+ optional vJoy injection)
+│   ├── iracing/            # iRacing telemetry via pyirsdk (+ optional vJoy injection)
+│   └── atari/              # Atari 2600 via ale-py (RAM observation, Discrete actions)
 ├── clients/                # Backward-compat shim → games/tmnf/clients
 ├── rl/                     # Backward-compat shim + pretrain (behaviour-cloning) experiments
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
@@ -770,6 +772,7 @@ Game- and tooling-specific deps live in Poetry groups:
 | `torcs` | *(empty group)* | TORCS — `gym_torcs` installed from source (not on PyPI) |
 | `sc2` *(optional)* | `pysc2`, `protobuf` | StarCraft 2 — `poetry install --with sc2` |
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
+| `atari` *(optional)* | `ale-py` (MIT-licensed Atari 2600 ROMs bundled) | Atari — `poetry install --with atari` |
 
 CarRacing needs `gymnasium[box2d]` (install separately, e.g.
 `poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install
@@ -777,6 +780,6 @@ beamng-gym`). Both are pulled in outside the Poetry groups — see the
 respective `games/<game>/README.md`.
 
 `tminterface`, `pygbx`, and `gym_torcs` are not on PyPI — install from
-source before `poetry install`. Optional groups (`sc2`, `assetto_corsa`)
-are skipped by default so a Windows-only TMNF setup doesn't pull in their
-stacks.
+source before `poetry install`. Optional groups (`sc2`, `assetto_corsa`,
+`atari`) are skipped by default so a Windows-only TMNF setup doesn't pull
+in their stacks.

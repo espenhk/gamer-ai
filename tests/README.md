@@ -221,7 +221,7 @@ worker mechanics are unit-tested with a dummy env.
 ### test_env_termination.py — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
 
-### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing adapter abstractions
+### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing/Atari adapter abstractions
 - registry: all games registered; adapter instantiable
 - TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
 - TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
@@ -230,6 +230,32 @@ worker mechanics are unit-tested with a dummy env.
 - AssettoCorsa: experiment_dir / build_probe = None
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
 - docs roster sync (issue #323): every `GAME_ADAPTERS` key plus the special-cased `assetto` choice appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
+
+### test_atari_obs_spec.py — Atari RAM observation spec
+- 128-dim flat float32 spec; one feature per RAM byte
+- names are unique, ordered as `ram_000`..`ram_127`, each scaled by 255.0
+- every `ObsDim` carries a description
+
+### test_atari_env.py — `AtariEnv` wrapper (mocked gymnasium / ale-py)
+- reset returns a 128-dim float32 RAM vector plus an info dict
+- step returns the 5-tuple shape and seeds `info["native_reward"]` / `info["action_index"]`
+- episode terminates when the underlying fake env signals `terminated`
+- `n_legal_actions` mirrors the underlying env's `Discrete(N).n`
+- action mapping: continuous `[-1, +1]` → linear scale over `[0, N_legal-1]`; discrete index passthrough in range; out-of-range discrete index clamps to NOOP
+- env-id resolution: bare `Pong-v5` gets the `ALE/` prefix; already-qualified ids pass through
+
+### test_atari_reward.py — Atari reward calculator
+- defaults: `native_reward_scale=1.0`, `clip_sign=False`, `step_penalty=0.0`
+- `from_yaml` loads known fields and ignores unknown ones
+- `compute` passes the native reward through, applies scale and step penalty, and (with `clip_sign`) clips to `{-1, 0, 1}` (zero stays zero)
+- missing `native_reward` in `info` defaults to `0.0`
+
+### test_atari_adapter.py — Atari game adapter
+- adapter registered under the `atari` key with the expected `name` / `config_dir`
+- `experiment_dir` embeds game / policy / map / experiment name; `--track` override replaces `map_name`
+- `track_label` defaults to `Pong-v5`, sanitises slashes (e.g. `ALE/Pong-v5` → `ALE_Pong-v5`)
+- `build_probe` / `build_warmup` / `decorate_reward_cfg` are no-ops
+- `build_game_spec` wires in the 128-dim obs spec, the 18-row `DISCRETE_ACTIONS`, and a callable `make_env_fn` / `save_results_fn`
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)

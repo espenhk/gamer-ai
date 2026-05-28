@@ -89,4 +89,5 @@ GAME_ADAPTERS: dict[str, Callable[[], GameAdapter]] = {
     "car_racing": lambda: __import__("games.car_racing.adapter", fromlist=["make_adapter"]).make_adapter(),
     "rocket_league": lambda: __import__("games.rocket_league.adapter", fromlist=["make_adapter"]).make_adapter(),
     "iracing": lambda: __import__("games.iracing.adapter", fromlist=["make_adapter"]).make_adapter(),
+    "atari": lambda: __import__("games.atari.adapter", fromlist=["make_adapter"]).make_adapter(),
 }

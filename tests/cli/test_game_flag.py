@@ -26,7 +26,17 @@ class TestGameFlagChoices(unittest.TestCase):
         parser.add_argument(
             "--game",
             default="tmnf",
-            choices=["tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing"],
+            choices=[
+                "tmnf",
+                "beamng",
+                "assetto",
+                "car_racing",
+                "torcs",
+                "sc2",
+                "rocket_league",
+                "iracing",
+                "atari",
+            ],
         )
         parser.add_argument("--track", default=None)
         parser.add_argument("--no-interrupt", action="store_true")
@@ -42,7 +52,17 @@ class TestGameFlagChoices(unittest.TestCase):
 
     def test_all_valid_choices_accepted(self):
         parser = self._build_parser()
-        for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing"):
+        for game in (
+            "tmnf",
+            "beamng",
+            "assetto",
+            "car_racing",
+            "torcs",
+            "sc2",
+            "rocket_league",
+            "iracing",
+            "atari",
+        ):
             with self.subTest(game=game):
                 args = parser.parse_args(["my_exp", "--game", game])
                 self.assertEqual(args.game, game)
@@ -86,7 +106,17 @@ class TestMainGameFlagChoices(unittest.TestCase):
 
         original_argv = sys.argv[:]
         try:
-            for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing"):
+            for game in (
+                "tmnf",
+                "beamng",
+                "assetto",
+                "car_racing",
+                "torcs",
+                "sc2",
+                "rocket_league",
+                "iracing",
+                "atari",
+            ):
                 sys.argv = ["main.py", "test_exp", "--game", game]
                 # Patch the runners so we don't actually run training.
                 with patch.object(main, "_run_one", MagicMock()):
@@ -162,6 +192,11 @@ class TestGameRouting(unittest.TestCase):
         mock_run_one.assert_called_once()
         mock_assetto.assert_not_called()
 
+    def test_game_atari_calls_run_one(self):
+        mock_run_one, mock_assetto = self._run_main_with_game("atari")
+        mock_run_one.assert_called_once()
+        mock_assetto.assert_not_called()
+
 
 class TestImportErrorConversion(unittest.TestCase):
     """Missing optional deps should raise ValueError, not ImportError."""
@@ -197,6 +232,7 @@ class TestExperimentDirectoryNaming(unittest.TestCase):
             "car_racing": ("myrun", {}, "car_racing"),
             "rocket_league": ("myrun", {}, "rocket_league"),
             "iracing": ("myrun", {}, "iracing"),
+            "atari": ("myrun", {"map_name": "Pong-v5"}, "atari"),
         }
 
         for game_name, (exp_name, tp, expected_substr) in test_cases.items():

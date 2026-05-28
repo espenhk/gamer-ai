@@ -162,6 +162,8 @@ _ABBREV = {
     "tick_skip": "ts",
     # iracing params
     "action_mode": "actm",
+    # atari params
+    "clip_sign": "csign",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
     "curiosity_weight": "cwgt",

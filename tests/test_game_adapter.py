@@ -35,6 +35,7 @@ class TestGameAdapterRegistry:
             "car_racing",
             "rocket_league",
             "iracing",
+            "atari",
         }
 
 

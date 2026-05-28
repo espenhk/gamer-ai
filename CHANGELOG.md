@@ -17,6 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Atari 2600 integration via `ale-py` + Gymnasium (`--game atari`,
+  issue #217). New `games/atari/` package with adapter, env, obs spec,
+  reward, and analytics; 128-byte RAM observation that is compatible with
+  every flat-observation framework policy. Configurable `map_name` (any
+  ALE-registered title; default `Pong-v5`), `clip_sign` DQN-style reward
+  clipping, and a `--track` override. New optional Poetry group
+  `atari` (`poetry install --with atari`).
 
 ---
 

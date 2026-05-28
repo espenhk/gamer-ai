@@ -1,4 +1,4 @@
-# Grid search template: neural_dqn — MoveToBeacon
+# Grid search template: sc2_neural_dqn — Simple64
 #
 # Usage:
 #   python grid_search.py games/sc2/config/gs_neural_dqn_template.yaml --game sc2
@@ -29,8 +29,23 @@
 # the task reward dominates.  Consider adding 5 000 to epsilon_decay_steps
 # when enable_belief=true so exploitation starts after the scout bonus has
 # faded to near-zero.
+#
+# DQN upgrades (v0.3.1)
+# ---------------------
+# double_dqn  (default true):  online-net selects action, target-net evaluates
+#   it — curbs Q-value overestimation.
+# dueling     (default false): splits into value + advantage streams; changes
+#   weight-file shape so mixing with non-dueling saves requires --re-initialize.
+# huber_loss  (default true):  smooth-L1 loss instead of MSE — clips gradient
+#   for large TD errors, improving stability on sparse SC2 rewards.
+# huber_kappa (default 1.0):   transition point between quadratic and linear
+#   Huber regions; lower → more clipping, higher → closer to MSE.
+# max_grad_norm (default 10.0): global-norm gradient clipping; null disables.
+#
+# Good ablation axes: double_dqn × dueling (2×2 = 4 combos) to isolate each
+# upgrade's contribution, or huber_kappa × max_grad_norm for loss/clip tuning.
 
-base_name: "gs_sc2_dqn_v1"
+base_name: "gs_sc2_dqn_v2"
 game: sc2
 
 training_params:
@@ -56,3 +71,8 @@ training_params:
     epsilon_start: 1.0
     epsilon_end: 0.05
     gamma: 0.99
+    double_dqn: true         # online-net selects, target-net evaluates (default on)
+    dueling: false            # value + advantage decomposition (opt-in; changes weight shape)
+    huber_loss: true          # smooth-L1 loss for TD-error stability (default on)
+    huber_kappa: 1.0          # Huber threshold; lower → more gradient clipping
+    max_grad_norm: 10.0       # global-norm clipping; null to disable

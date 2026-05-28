@@ -99,6 +99,12 @@ _ABBREV = {
     "batch_size": "bs",
     "target_update_freq": "tuf",
     "epsilon_decay_steps": "eds",
+    # neural_dqn upgrade params (v0.3.1)
+    "double_dqn": "ddqn",
+    "dueling": "duel",
+    "huber_loss": "hub",
+    "huber_kappa": "hkap",
+    "max_grad_norm": "mgn",
     # genetic policy params
     "population_size": "pop",
     "elite_k": "ek",
@@ -184,6 +190,11 @@ _POLICY_PARAM_MAP = {
     "batch_size": "batch_size",  # neural_dqn
     "target_update_freq": "target_update_freq",  # neural_dqn
     "epsilon_decay_steps": "epsilon_decay_steps",  # neural_dqn
+    "double_dqn": "double_dqn",  # neural_dqn (v0.3.1)
+    "dueling": "dueling",  # neural_dqn (v0.3.1)
+    "huber_loss": "huber_loss",  # neural_dqn (v0.3.1)
+    "huber_kappa": "huber_kappa",  # neural_dqn (v0.3.1)
+    "max_grad_norm": "max_grad_norm",  # neural_dqn (v0.3.1)
     "epsilon": "epsilon",  # epsilon_greedy
     "epsilon_decay": "epsilon_decay",  # epsilon_greedy
     "epsilon_min": "epsilon_min",  # epsilon_greedy
@@ -224,6 +235,11 @@ _EXPECTED_POLICY_PARAM_MAP = {
     "mutation_share": "mutation_share",
     "initial_sigma": "initial_sigma",
     "eval_episodes": "eval_episodes",
+    "double_dqn": "double_dqn",
+    "dueling": "dueling",
+    "huber_loss": "huber_loss",
+    "huber_kappa": "huber_kappa",
+    "max_grad_norm": "max_grad_norm",
 }
 
 

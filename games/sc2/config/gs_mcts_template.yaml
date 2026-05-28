@@ -1,9 +1,10 @@
-# Grid search template: mcts — MoveToBeacon
+# Grid search template: ucb_q — Simple64
 #
 # Usage:
 #   python grid_search.py games/sc2/config/gs_mcts_template.yaml --game sc2
 #
-# UCT-style online Q-learner.  Action selection uses UCB1:
+# UCB1 online Q-learner (formerly named "mcts"; renamed in v0.3.1 to clarify
+# it is NOT tree search).  Action selection uses UCB1:
 #   score(s, a) = Q(s,a) + c × sqrt(ln(N(s)+1) / (N(s,a)+ε))
 # No env cloning — value tables are built incrementally over real episodes.
 #
@@ -35,7 +36,7 @@
 # obs dims gives 3^235–3^287 ≈ 10^112–10^137 possible states — no state
 # would ever be revisited.  Use neural_dqn for belief + Q-learning.
 
-base_name: "gs_sc2_mcts_v3"
+base_name: "gs_sc2_ucb_q_v1"
 game: sc2
 
 training_params:
@@ -48,8 +49,8 @@ training_params:
   minimap_size: 64
   max_apm: 300
   agent_race: [terran, zerg, protoss, random]
-  n_sims: 300                 # 300 episodes; UCT needs a dense Q-table before exploitation is reliable
-  policy_type: mcts
+  n_sims: 300                 # 300 episodes; UCB1 needs a dense Q-table before exploitation is reliable
+  policy_type: ucb_q
   mcts_c: [1.0, 1.41, 2.0]
   alpha: [0.05, 0.1, 0.2]
   policy_params:

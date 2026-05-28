@@ -88,13 +88,11 @@ class TestMainGameFlagChoices(unittest.TestCase):
         try:
             for game in ("tmnf", "beamng", "assetto", "car_racing", "torcs", "sc2", "rocket_league", "iracing"):
                 sys.argv = ["main.py", "test_exp", "--game", game]
-                # Patch the runners so we don't actually run training.
                 with patch.object(main, "_run_one", MagicMock()):
-                    with patch.object(main, "_run_assetto", MagicMock()):
-                        try:
-                            main.main()
-                        except (SystemExit, Exception):
-                            pass
+                    try:
+                        main.main()
+                    except (SystemExit, Exception):
+                        pass
         finally:
             sys.argv = original_argv
 
@@ -105,8 +103,7 @@ class TestMainGameFlagChoices(unittest.TestCase):
         try:
             sys.argv = ["main.py", "test_exp", "--live-gui"]
             with patch.object(main, "_run_one", MagicMock()):
-                with patch.object(main, "_run_assetto", MagicMock()):
-                    main.main()
+                main.main()
         finally:
             sys.argv = original_argv
 
@@ -119,67 +116,50 @@ class TestGameRouting(unittest.TestCase):
         import main  # noqa: PLC0415
 
         mock_run_one = MagicMock()
-        mock_run_assetto = MagicMock()
 
         original_argv = sys.argv[:]
         sys.argv = ["main.py", "test_exp", "--game", game]
         try:
             with patch.object(main, "_run_one", mock_run_one):
-                with patch.object(main, "_run_assetto", mock_run_assetto):
-                    main.main()
+                main.main()
         finally:
             sys.argv = original_argv
 
-        return mock_run_one, mock_run_assetto
+        return mock_run_one
 
     def test_game_tmnf_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("tmnf")
+        mock_run_one = self._run_main_with_game("tmnf")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
     def test_game_beamng_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("beamng")
+        mock_run_one = self._run_main_with_game("beamng")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
-    def test_game_assetto_calls_run_assetto(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("assetto")
-        mock_assetto.assert_called_once()
-        mock_run_one.assert_not_called()
+    def test_game_assetto_calls_run_one(self):
+        mock_run_one = self._run_main_with_game("assetto")
+        mock_run_one.assert_called_once()
 
     def test_game_car_racing_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("car_racing")
+        mock_run_one = self._run_main_with_game("car_racing")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
     def test_game_torcs_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("torcs")
+        mock_run_one = self._run_main_with_game("torcs")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
     def test_game_sc2_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("sc2")
+        mock_run_one = self._run_main_with_game("sc2")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
 
 class TestImportErrorConversion(unittest.TestCase):
-    """Missing optional deps should raise ValueError, not ImportError."""
+    """Missing optional deps are handled gracefully via the adapter."""
 
-    def test_assetto_missing_dep_raises_value_error(self):
-        """_run_assetto should raise ValueError when assetto_corsa entry is not importable."""
-        import main  # noqa: PLC0415
+    def test_assetto_adapter_registered(self):
+        """Assetto is now in GAME_ADAPTERS like every other game."""
+        from framework.game_adapter import GAME_ADAPTERS
 
-        args = argparse.Namespace(
-            experiment="test",
-            game="assetto",
-            no_interrupt=True,
-            re_initialize=False,
-            log_level="INFO",
-        )
-        with patch.dict(sys.modules, {"games.assetto_corsa.entry": None}):
-            with self.assertRaises((ValueError, ImportError)):
-                main._run_assetto(args)
+        self.assertIn("assetto", GAME_ADAPTERS)
 
 
 class TestExperimentDirectoryNaming(unittest.TestCase):
@@ -195,6 +175,7 @@ class TestExperimentDirectoryNaming(unittest.TestCase):
             "sc2": ("myrun", {"map_name": "MoveToBeacon"}, "sc2"),
             "beamng": ("myrun", {}, "beamng"),
             "car_racing": ("myrun", {}, "car_racing"),
+            "assetto": ("myrun", {}, "assetto_corsa"),
             "rocket_league": ("myrun", {}, "rocket_league"),
             "iracing": ("myrun", {}, "iracing"),
         }

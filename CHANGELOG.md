@@ -17,6 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
+- Assetto Corsa now conforms to the `GameAdapter` protocol and is registered
+  in `GAME_ADAPTERS` like the other seven games (#326). The bespoke
+  `_run_assetto()` entry point in `main.py` and the old `games/assetto_corsa/entry.py`
+  runner are removed; `--game assetto` now flows through the same unified
+  `_run_one()` path as every other game. The experiment directory layout
+  changes from `experiments/assetto_corsa/<track>/<name>/` to
+  `experiments/assetto_corsa/<policy>/<track>/<name>/` (matching the
+  convention used by all other games).
 
 ---
 

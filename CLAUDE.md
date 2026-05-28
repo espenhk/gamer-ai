@@ -561,7 +561,8 @@ want self-play exploration to be. Keep the net modest (`[64, 64]` or
 
 Stable-Baselines3-backed PPO. The framework now hands training over to SB3's
 own loop (`LOOP_TYPE = "sb3"`), so the budget is **env steps**, not one PPO
-update per episode. Works on the framework's non-SC2 discrete-action games.
+update per episode. Works on the framework's non-SC2 games with native
+SB3-compatible action spaces (for example, TMNF's `Box` action space).
 
 **Hyperparams** (in `policy_params`):
 
@@ -582,8 +583,8 @@ update per episode. Works on the framework's non-SC2 discrete-action games.
 | `ent_coef` | `SB3 default` | Entropy-bonus coefficient |
 | `vf_coef` | `SB3 default` | Critic-loss coefficient |
 
-**Reasonable choices / tune first**: `ppo` is the safest first SB3 baseline for
-discrete control. Tune `total_timesteps` first, then `n_steps` and
+**Reasonable choices / tune first**: `ppo` is the safest first SB3 baseline.
+Tune `total_timesteps` first, then `n_steps` and
 `batch_size`. Useful override ranges are `n_steps: 256–2048`,
 `batch_size: 64–256`, `n_epochs: 4–10`, `gae_lambda: 0.95–0.99`, and
 `clip_range: 0.1–0.3`. Leave `learning_rate` on the SB3 default unless you have

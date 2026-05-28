@@ -3,14 +3,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import framework.alphazero  # noqa: F401
+import framework.sb3_policies  # noqa: F401
 import games.tmnf.policies  # noqa: F401
-
 from framework.policies import POLICY_REGISTRY
 
 _CLAUDE_MD = Path(__file__).resolve().parents[1] / "CLAUDE.md"
-_POLICY_BLOCK = (
-    _CLAUDE_MD.read_text(encoding="utf-8").split("## Policies", 1)[1].split("## Training Phases", 1)[0]
-)
+_POLICY_BLOCK = _CLAUDE_MD.read_text(encoding="utf-8").split("## Policies", 1)[1].split("## Training Phases", 1)[0]
 
 _HEADING_TO_POLICY_TYPE = {
     "WeightedLinearPolicy": "hill_climbing",

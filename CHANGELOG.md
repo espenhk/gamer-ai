@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.1] - 2026-05-28
+
 ### Added
 
 - **Gradient deep-RL policies (Stable-Baselines3-backed):** `a2c`, `sac`, `td3`,

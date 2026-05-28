@@ -223,13 +223,13 @@ worker mechanics are unit-tested with a dummy env.
 ### test_env_termination.py — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
 
-### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/AssettCorsa/iRacing adapter abstractions
+### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/AssettoCorsa/iRacing adapter abstractions
 - registry: all games registered (including assetto); adapter instantiable
 - TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
 - TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
 - SC2: experiment_dir includes game/policy/map hierarchy, track override, track_label, build_probe/warmup = None
 - BeamNG: experiment_dir / build_probe = None
-- AssettCorsa: experiment_dir/root includes game/policy/track hierarchy; track_label default+override+from-params; build_probe returns ProbeSpec; build_warmup returns WarmupSpec(steps=5); decorate_reward_cfg is a no-op; name="assetto"
+- AssettoCorsa: experiment_dir/root includes game/policy/track hierarchy; track_label default+override+from-params; build_probe returns ProbeSpec; build_warmup returns WarmupSpec(steps=5); decorate_reward_cfg is a no-op; name="assetto"
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
 - docs roster sync (issue #323): every `GAME_ADAPTERS` key appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
 

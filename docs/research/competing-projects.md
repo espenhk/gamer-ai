@@ -74,6 +74,47 @@ The single biggest structural difference from the field below: **we lean
 evolutionary + sped-up/headless**, whereas the strongest comparable racing
 projects lean **gradient deep-RL (SAC / value-based) and frequently real-time.**
 
+### Implementation fidelity: are our shared algorithms built like the field's?
+
+The comparison tables below contrast *algorithm choice*. A separate question
+is, for the algorithms we **do** share a name with the field, whether our
+pure-numpy implementations are faithful to the canonical / reference versions
+(Hansen's CMA-ES, the CleanRL / SB3 DQN, textbook REINFORCE). Reading the
+implementations gives a mixed verdict: the core maths is correct where we share
+a name, but in almost every case the field runs a **more advanced member of the
+same family**, and our flagship gradient-deep-RL slots (SAC / PPO /
+distributional) are empty.
+
+| Our policy | How we implement it | Field / canonical reference | Verdict |
+|---|---|---|---|
+| `cmaes` (`framework/cmaes.py`) | (μ/μ_w, λ)-CMA-ES: log-weight recombination, μ_eff, CSA step-size, rank-1 + rank-μ covariance update, lazy eigen-decomposition on the standard `λ/(10n)` cadence | Hansen 2016 reference / `pycma` | **Faithful.** Our most canonical implementation; matches the reference pseudocode (sign-flipped to maximise reward). |
+| `dqn` (`framework/dqn.py`) | Replay buffer + hard target sync + linear-ε + Adam; MSE target `r + γ·maxₐ Q_target` | CleanRL `dqn.py` (plain), SB3 `DQN` | **Vanilla / faithful-but-dated.** Matches CleanRL's *plain* DQN. Lacks SB3's Huber loss + gradient clipping, has no Double-DQN, and — most importantly — no distributional head, leaving it a generation behind the prominent TMNF value-based agents (Linesight, ShubhamGajjar/IQN), which are distributional. Cf. #328's distributional line. |
+| `reinforce` (`framework/reinforce.py`) | Monte-Carlo policy gradient: discounted returns, return-whitening, entropy bonus, `∇log π = onehot − π` | Sutton & Barto REINFORCE | **Faithful, with a quirk.** Correct textbook PG. The `running_mean` baseline is *computed but bypassed* whenever returns have non-zero variance (the whitening branch dominates), so that config knob is largely inert. Plain REINFORCE is the *ancestor* of the A2C/PPO the field actually uses (`reaver` = A2C/PPO). |
+| `lstm` (`framework/lstm.py`) | Standard LSTM cell trained by an **isotropic Gaussian ES** outer loop (1/5 success-rule step-size, weighted-recombination mean) | OpenAI Five (4096-LSTM under **PPO**), AlphaStar (deep-LSTM under **V-trace**) | **Same architecture, different optimiser class.** The field gradient-trains its recurrent cores; we evolve ours. Sound for our ES stack, but not how the prominent projects train an LSTM. |
+| `mcts` (`framework/policies.py`) | UCB1-scored tabular Q-learner over discretised states; **no env cloning, no tree, no rollouts** | AlphaGo / MuZero MCTS (model-based tree search) | **Name collision.** Not tree search at all (the docstring says so). Unrelated to the MCTS the name evokes. |
+| `epsilon_greedy` (`framework/policies.py`) | Textbook tabular Q-learning, per-episode ε-decay | Sutton & Barto tabular Q | **Faithful, but off-menu.** The field doesn't use tabular methods on these state spaces; this is a teaching/baseline policy. |
+| `sc2_cnn` (`games/sc2/cnn_policy.py`) | Conv-on-feature-layers trained by isotropic ES | PySC2 FullyConv / Atari-net under **A2C/PPO/DQN** (reaver, pysc2-examples) | **Architecture echoes the field; optimiser doesn't.** We borrow the spatial-conv obs path but evolve the weights instead of gradient-training them. |
+
+**Net:** where we and the field share a name, our maths is sound (CMA-ES
+especially), but the field consistently runs a stronger family member —
+Double/distributional DQN over our vanilla DQN, PPO/A2C over our REINFORCE,
+gradient-trained LSTMs over our ES-trained one — and the headline gradient
+deep-RL algorithms (SAC, PPO, distributional value) are absent entirely (the
+lone PPO is the unregistered Stable-Baselines3 script at `rl/train.py`).
+Closing both gaps — adding the missing algorithms, and deciding whether to keep
+or rename the divergent same-name policies — is the work tracked under
+#327 / #328.
+
+> **Update (now implemented).** Both gaps are now closed in-tree: the headline
+> gradient deep-RL algorithms ship as Stable-Baselines3-backed policies
+> (`ppo`, `a2c`, `sac`, `td3`, the distributional `qr_dqn`, and the
+> gradient-trained-LSTM `recurrent_ppo`; `poetry install --with deep_rl`); the
+> vanilla `dqn` was upgraded in place to Double-DQN + Huber + gradient clipping;
+> the mis-named `mcts` was renamed to `ucb_q`; and a *real* model-based MCTS
+> (`alphazero_mcts`, PUCT + self-play-trained policy/value net) was added for
+> cloneable simulators. See `CLAUDE.md` → Policies and the `CHANGELOG.md`
+> Unreleased section.
+
 ---
 
 ## Master comparison table

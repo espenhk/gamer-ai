@@ -24,13 +24,13 @@ from framework.policies import (
     GeneticPolicy as _FrameworkGP,
 )
 from framework.policies import (
-    MCTSPolicy as _FrameworkMCTSP,
-)
-from framework.policies import (
     NeuralNetPolicy as _FrameworkNNP,
 )
 from framework.policies import (
     QTablePolicy as _FrameworkQTP,
+)
+from framework.policies import (
+    UCBQPolicy as _FrameworkUCBQ,
 )
 from framework.policies import (
     WeightedLinearPolicy as _FrameworkWLP,
@@ -245,12 +245,12 @@ class EpsilonGreedyPolicy(_FrameworkEGP):
 
 
 # ---------------------------------------------------------------------------
-# MCTSPolicy — TMNF variant
+# UCBQPolicy — TMNF variant (formerly MCTSPolicy)
 # ---------------------------------------------------------------------------
 
 
-class MCTSPolicy(_FrameworkMCTSP):
-    """TMNF MCTSPolicy — DISCRETE_ACTIONS and obs_spec baked in."""
+class UCBQPolicy(_FrameworkUCBQ):
+    """TMNF UCBQPolicy — DISCRETE_ACTIONS and obs_spec baked in."""
 
     N_ACTIONS = len(_DISCRETE_ACTIONS)
 
@@ -272,7 +272,7 @@ class MCTSPolicy(_FrameworkMCTSP):
         )
 
     @classmethod
-    def from_cfg(cls, cfg: dict, n_lidar_rays: int = 0) -> "MCTSPolicy":
+    def from_cfg(cls, cfg: dict, n_lidar_rays: int = 0) -> "UCBQPolicy":
         return cls(
             c=cfg.get("c", 1.41),
             alpha=cfg.get("alpha", 0.1),
@@ -355,6 +355,9 @@ class NeuralDQNPolicy(_FrameworkDQN):
             "gamma",
             "double_dqn",
             "dueling",
+            "huber_loss",
+            "huber_kappa",
+            "max_grad_norm",
         }
     )
 
@@ -400,8 +403,11 @@ class NeuralDQNPolicy(_FrameworkDQN):
             epsilon_end=pp.get("epsilon_end", 0.05),
             epsilon_decay_steps=pp.get("epsilon_decay_steps", 5_000),
             gamma=pp.get("gamma", 0.99),
-            double_dqn=pp.get("double_dqn", False),
+            double_dqn=pp.get("double_dqn", True),
             dueling=pp.get("dueling", False),
+            huber_loss=pp.get("huber_loss", True),
+            huber_kappa=pp.get("huber_kappa", 1.0),
+            max_grad_norm=pp.get("max_grad_norm", 10.0),
         )
 
 

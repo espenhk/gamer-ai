@@ -232,13 +232,42 @@ Framework policies live in `framework/policies.py`, with additional game-specifi
 | `hill_climbing` | `WeightedLinearPolicy` | Mutate-and-keep. Includes probe + cold-start phases. |
 | `neural_net` | `NeuralNetPolicy` | MLP (pure numpy). Mutate-and-keep on network weights. |
 | `epsilon_greedy` | `EpsilonGreedyPolicy` | Tabular Q-learning, ε-greedy exploration, ε decays per episode. |
-| `mcts` | `MCTSPolicy` | UCT-style online Q-learner (UCB1). No env cloning — builds value table over real episodes. |
+| `ucb_q` | `UCBQPolicy` | Tabular UCB1 online Q-learner (renamed from `mcts`; **not** tree search — no env cloning, builds Q/count tables over real episodes). |
 | `genetic` | `GeneticPolicy` | Population of `WeightedLinearPolicy` instances. Evolutionary selection + crossover + mutation. |
 | `cmaes` | `CMAESPolicy` | `(μ/μ_w, λ)-CMA-ES` (Hansen 2016) over flat `WeightedLinearPolicy` weights. Automatic step-size + covariance adaptation. |
-| `neural_dqn` | `NeuralDQNPolicy` | Deep Q-learning with replay buffer + target network (optional Double / Dueling). |
+| `neural_dqn` | `NeuralDQNPolicy` | Deep Q-learning with replay buffer + target network. Double-DQN target, Huber loss, and gradient clipping on by default; optional Dueling architecture (see DQN knobs below). |
 | `reinforce` | `REINFORCEPolicy` | Monte Carlo policy gradient (optional running-mean baseline). |
 | `lstm` | `LSTMEvolutionPolicy` | Recurrent (LSTM) policy, trained by evolutionary search over network weights. |
-| `ppo` | `PPOPolicy` | On-policy actor-critic, clipped surrogate + GAE (pure numpy). Registered framework-wide; not for SC2. |
+| `alphazero_mcts` | `AlphaZeroMCTSPolicy` | **Real** model-based MCTS (pure numpy): PUCT tree search expanded by cloning + stepping the env, guided by a policy/value net trained from self-play. Needs a cloneable simulator — see below. |
+
+**Gradient deep-RL policies (Stable-Baselines3-backed).** These wrap SB3 /
+SB3-Contrib algorithms behind `BasePolicy` and share `LOOP_TYPE = "sb3"` (SB3
+owns its own training loop, driven by `framework/sb3_support.py`).  They live in
+`framework/sb3_policies.py`, register at framework load, and import the heavy
+SB3 / torch stack lazily.  Install with `poetry install --with deep_rl`.
+
+| `policy_type` | Class | Algorithm |
+|---|---|---|
+| `ppo` | `PPOPolicy` | Proximal Policy Optimization (on-policy, clipped surrogate + GAE). |
+| `a2c` | `A2CPolicy` | Advantage Actor-Critic (synchronous on-policy). |
+| `sac` | `SACPolicy` | Soft Actor-Critic (off-policy, max-entropy; **continuous action only**). |
+| `td3` | `TD3Policy` | Twin Delayed DDPG (off-policy deterministic; **continuous action only**). |
+| `qr_dqn` | `QRDQNPolicy` | Quantile-Regression DQN (distributional value; SB3-Contrib). Wraps the env's `Box` into a `Discrete` index over `discrete_actions`. |
+| `recurrent_ppo` | `RecurrentPPOPolicy` | PPO with an LSTM policy (gradient-trained recurrence; SB3-Contrib). The gradient counterpart to the ES-trained `lstm`. |
+
+SB3 policy budget is governed by `policy_params.total_timesteps` (default
+`n_sims × steps_per_sim`, `steps_per_sim` default `1000`); one
+`GreedySimResult` is recorded per completed episode, and the trained model is
+saved next to `policy_weights.yaml` as `*_sb3_model.zip`.  All SB3 policies are
+gated off SC2 (its multi-head `[fn_idx, x, y, queue]` action encoding is not a
+plain `Box`/`Discrete`) — use the `sc2_`-prefixed policies there.
+
+`alphazero_mcts` is gated off every current game (`compatible_with` returns
+`False` for TMNF/SC2/TORCS/CarRacing/BeamNG/Assetto/Rocket League/iRacing)
+because their envs bind to live processes/sockets and cannot be cloned for tree
+expansion.  To enable it on a game, give that game's env a `clone()` method (or
+make it `copy.deepcopy`-able) and drop it from
+`framework.alphazero._NON_CLONEABLE_GAMES`.
 
 `SimplePolicy` = non-trainable hand-coded PD baseline (see `steering.py`).
 
@@ -293,12 +322,16 @@ MLP Q-network (pure numpy) with experience replay and a periodically-synced targ
 | `epsilon_end` | `0.05` | Final exploration rate |
 | `epsilon_decay_steps` | `5000` | Steps over which ε decays linearly |
 | `gamma` | `0.99` | Discount factor |
-| `double_dqn` | `false` | Double DQN: select the next action with the online net, evaluate it with the target net (reduces Q-value overestimation). |
-| `dueling` | `false` | Dueling architecture: split the head into a value stream + advantage stream, aggregated as `Q = V + (A − mean A)`. |
+| `double_dqn` | `true` | Use a Double-DQN target (online net selects the bootstrap action, target net evaluates it). `false` = vanilla `max_a Q_target`. |
+| `dueling` | `false` | Dueling architecture: split the head into a value stream + advantage stream, aggregated as `Q = V + (A − mean A)`. Opt-in (changes the weight-file shape). |
+| `huber_loss` | `true` | Huber (smooth-L1) loss: clamp the TD residual to ±`huber_kappa` for a bounded gradient. `false` = MSE. |
+| `huber_kappa` | `1.0` | Huber band half-width. |
+| `max_grad_norm` | `10.0` | Global-norm gradient clip applied before the Adam step. `null` disables clipping. |
 
-Both upgrades are opt-in and independent (either, both, or neither). Defaults
-off, so existing `neural_dqn` runs and weight files are unchanged; pre-existing
-weight files load with the flags defaulting to `false`.
+> `double_dqn`, `huber_loss`, and `max_grad_norm` default to the upgraded
+> (SB3-aligned) behaviour; `dueling` stays opt-in. Set `double_dqn: false`,
+> `huber_loss: false`, `max_grad_norm: null` to recover the old vanilla DQN.
+> All apply to `neural_dqn` (TMNF) and `sc2_neural_dqn` too.
 
 ### REINFORCEPolicy
 
@@ -655,7 +688,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `sc2_cnn` | CNN (two conv layers + FC) + isotropic ES; spatial pixel obs | `games/sc2/cnn_policy.py`; requires non-empty `screen_layers` |
 | `sc2_neural_net` | TMNF-style MLP (pure numpy) with SC2-native multi-head action encoding; mutate-and-keep evolutionary search | `games/sc2/sc2_policies.py`; hyperparam `hidden_sizes` |
 | `epsilon_greedy` | Tabular Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
-| `mcts` | UCT-style Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy |
+| `ucb_q` | UCB1 online Q-learning over `DISCRETE_ACTIONS` | Framework tabular policy (renamed from `mcts`) |
 
 > **Breaking change vs. earlier versions:** The bare-name `cmaes`, `reinforce`, `lstm`, and `neural_dqn` policy_types are no longer valid for SC2. Migrate configs to `sc2_cmaes`, `sc2_reinforce`, `sc2_lstm`, and `sc2_neural_dqn` respectively.
 
@@ -749,7 +782,7 @@ length per generation.  Budget your `n_workers` accordingly.
 
 **Scope.**  Only the four population-based SC2 policies are eligible.
 Setting `n_workers > 1` for tabular / gradient-based policies
-(`epsilon_greedy`, `mcts`, `sc2_reinforce`, `neural_dqn`, `reinforce`)
+(`epsilon_greedy`, `ucb_q`, `sc2_reinforce`, `neural_dqn`, `reinforce`)
 fails fast in `train_rl` before any binary spawns.  This is intra-run
 parallelism; for inter-run parallelism (one experiment per worker)
 keep using `python grid_search.py --local-workers N` (PR #244).
@@ -770,6 +803,7 @@ Game- and tooling-specific deps live in Poetry groups:
 | `torcs` | *(empty group)* | TORCS — `gym_torcs` installed from source (not on PyPI) |
 | `sc2` *(optional)* | `pysc2`, `protobuf` | StarCraft 2 — `poetry install --with sc2` |
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
+| `deep_rl` *(optional)* | `stable-baselines3`, `sb3-contrib` (pulls `torch`) | Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`) — `poetry install --with deep_rl`. Cross-platform. |
 
 CarRacing needs `gymnasium[box2d]` (install separately, e.g.
 `poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install

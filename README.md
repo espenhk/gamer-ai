@@ -1,6 +1,6 @@
 # gamer-ai — multi-game RL agent framework
 
-A game-agnostic reinforcement-learning framework: a shared training loop and policy set drive per-game integrations through a common adapter interface. It began as a Trackmania Nations Forever (TMNF) agent — still the flagship and default game — and now spans **eight** games: TMNF, TORCS, StarCraft 2, CarRacing, BeamNG, Assetto Corsa, Rocket League, and iRacing. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, MCTS, a genetic algorithm, and CMA-ES. Platform support is per game: TMNF, BeamNG, Assetto Corsa, Rocket League, and iRacing need Windows, while StarCraft 2 (headless on Linux), TORCS (cross-platform), and CarRacing (pure-Python, cross-platform) also run on Linux/macOS. This README covers the flagship TMNF setup in detail; see each game's `games/<name>/README.md` for its specifics and [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
+A game-agnostic reinforcement-learning framework: a shared training loop and policy set drive per-game integrations through a common adapter interface. It began as a Trackmania Nations Forever (TMNF) agent — still the flagship and default game — and now spans **eight** games: TMNF, TORCS, StarCraft 2, CarRacing, BeamNG, Assetto Corsa, Rocket League, and iRacing. It offers a menu of training algorithms — hill-climbing, neural-net mutate-and-keep, tabular Q-learning, UCB1 Q-learning, a genetic algorithm, CMA-ES, gradient deep-RL via Stable-Baselines3 (PPO, A2C, SAC, TD3, distributional QR-DQN, recurrent PPO), and AlphaZero-style model-based MCTS. Platform support is per game: TMNF, BeamNG, Assetto Corsa, Rocket League, and iRacing need Windows, while StarCraft 2 (headless on Linux), TORCS (cross-platform), and CarRacing (pure-Python, cross-platform) also run on Linux/macOS. This README covers the flagship TMNF setup in detail; see each game's `games/<name>/README.md` for its specifics and [`CLAUDE.md`](CLAUDE.md) for the full architecture documentation.
 
 > **Contributing?** Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers setup, the test contract, the walkthrough for adding a new game, and the PR review flow. New game proposals go through the shared [issue template](.github/ISSUE_TEMPLATE/issue_template.md). New contributor? Start with <a href="https://github.com/espenhk/gamer-ai/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22">the good-first-issue board</a>.
 
@@ -144,9 +144,11 @@ Set `policy_type` in `training_params.yaml`. Each type uses the same `n_sims` bu
 | `hill_climbing` | Mutate-and-keep `WeightedLinearPolicy` | Default. Includes probe + cold-start phases. |
 | `neural_net` | Mutate-and-keep `NeuralNetPolicy` (MLP) | Pure numpy, no framework needed. Configure `hidden_sizes`. |
 | `epsilon_greedy` | Tabular Q-learning, ε-greedy exploration | ε decays per episode. Q-table is in-memory only. |
-| `mcts` | UCT-style online Q-learner (UCB1) | Approximation — no env cloning, builds value table over real episodes. |
+| `ucb_q` | Tabular UCB1 online Q-learner | Renamed from `mcts`; **not** tree search — no env cloning, builds Q/count tables over real episodes. |
 | `genetic` | Population of `WeightedLinearPolicy`, evolutionary | `n_sims` = number of generations; total episodes = `n_sims × population_size`. |
 | `cmaes` | CMA-ES over flat `WeightedLinearPolicy` weights (Hansen 2016) | Adapts full covariance matrix; automatic step-size control via CSA. |
+| `ppo` / `a2c` / `sac` / `td3` / `qr_dqn` / `recurrent_ppo` | Gradient deep-RL via Stable-Baselines3 / SB3-Contrib | Install `poetry install --with deep_rl`. `sac`/`td3` are continuous-only; `qr_dqn` is distributional. Budget via `policy_params.total_timesteps`. |
+| `alphazero_mcts` | Real model-based MCTS (PUCT + policy/value net, self-play) | Needs a cloneable simulator; gated off the current games (live-process envs). |
 
 ### Policy-specific params
 
@@ -164,12 +166,19 @@ policy_params:
   alpha: 0.1
   gamma: 0.99
 
-# mcts
+# ucb_q  (formerly "mcts")
 policy_params:
   n_bins: 3
   c: 1.41        # UCB1 exploration constant
   alpha: 0.1
   gamma: 0.99
+
+# ppo / sac / td3 / a2c / qr_dqn / recurrent_ppo  (poetry install --with deep_rl)
+policy_params:
+  total_timesteps: 100000   # SB3 step budget (default: n_sims × steps_per_sim)
+  learning_rate: 0.0003
+  gamma: 0.99
+  # hidden_sizes: [64, 64]
 
 # genetic
 policy_params:

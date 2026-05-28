@@ -347,10 +347,13 @@ class TestDoubleDQN(unittest.TestCase):
         defaults.update(kw)
         return DQNPolicy(_OBS_SPEC, DISCRETE_ACTIONS, **defaults)
 
-    def test_flags_default_off(self):
+    def test_flag_defaults(self):
+        # double_dqn + Huber + grad-clip default on (SB3-aligned); dueling opt-in.
         p = self._make()
-        self.assertFalse(p._double)
+        self.assertTrue(p._double)
         self.assertFalse(p._dueling)
+        self.assertTrue(p._huber)
+        self.assertEqual(p._max_grad_norm, 10.0)
 
     def test_double_target_uses_online_argmax_target_value(self):
         """Double DQN bootstrap = Q_target(next)[argmax_a Q_online(next)]."""

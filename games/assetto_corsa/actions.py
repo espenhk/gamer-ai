@@ -10,7 +10,7 @@ supported continuous-action policy types for Assetto (`hill_climbing` and
 
 The same 9-action discrete grid as TMNF is used for the supported framework
 `policy_type` values: `hill_climbing`, `neural_net`, `epsilon_greedy`,
-`mcts`, and `genetic`.
+`ucb_q`, and `genetic`.
 """
 
 from __future__ import annotations

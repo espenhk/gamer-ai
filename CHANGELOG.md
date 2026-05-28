@@ -17,6 +17,50 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+
+- **Gradient deep-RL policies (Stable-Baselines3-backed):** `a2c`, `sac`, `td3`,
+  `qr_dqn` (distributional value, SB3-Contrib), and `recurrent_ppo`
+  (gradient-trained LSTM, SB3-Contrib), plus an SB3-backed `ppo` that **replaces
+  the pure-numpy `ppo` introduced in 0.3.0** (same `policy_type`, now backed by
+  SB3). They share a new `LOOP_TYPE = "sb3"` driven by `framework/sb3_support.py`
+  (SB3 owns its own training loop); budget is set via
+  `policy_params.total_timesteps` (default `n_sims × steps_per_sim`). Models are
+  saved next to `policy_weights.yaml` as `*_sb3_model.zip`. `sac`/`td3` are
+  continuous-only; `qr_dqn` wraps the env's `Box` into a `Discrete` index over
+  `discrete_actions`. All are gated off SC2's multi-head action encoding.
+- **New optional Poetry group `deep_rl`** (`stable-baselines3`, `sb3-contrib`;
+  pulls `torch`): `poetry install --with deep_rl`. Cross-platform.
+- **`alphazero_mcts`** — a *real* model-based Monte-Carlo Tree Search policy
+  (pure numpy): PUCT search expanded by cloning + stepping the env, guided by a
+  policy/value network trained from self-play (`LOOP_TYPE = "alphazero"`,
+  `framework/alphazero.py`). Requires a deterministic cloneable simulator, so
+  it is gated off all current games (their envs bind to live processes) until a
+  game's env gains a `clone()` / `deepcopy` capability.
+
+### Changed
+
+- **`neural_dqn` / `sc2_neural_dqn` DQN upgrades extended.** On top of 0.3.0's
+  `double_dqn` + `dueling` options, added Huber (smooth-L1) loss and global-norm
+  gradient clipping. The SB3-aligned knobs are now **on by default**: new
+  `policy_params` `huber_loss` (`true`), `huber_kappa` (`1.0`),
+  `max_grad_norm` (`10.0`), and `double_dqn` now defaults `true` (was `false` in
+  0.3.0); `dueling` stays opt-in (`false`). Set `double_dqn: false`,
+  `huber_loss: false`, `max_grad_norm: null` to recover vanilla behaviour.
+  **Behaviour change** for existing DQN configs.
+- **BREAKING: `mcts` policy_type renamed to `ucb_q`** (class
+  `MCTSPolicy` → `UCBQPolicy`). The policy was never tree search — it is a
+  tabular UCB1 online Q-learner — so the name was misleading. Update any config
+  with `policy_type: mcts` to `policy_type: ucb_q`; the bare name `mcts` is no
+  longer registered (the accurate, model-based MCTS is `alphazero_mcts`).
+
+### Documentation
+
+- Added an "implementation fidelity vs the field" subsection to
+  `docs/research/competing-projects.md` comparing our shared-name algorithms
+  (CMA-ES, DQN, REINFORCE, LSTM, MCTS) against their canonical/field versions.
+- Updated `CLAUDE.md`, `README.md`, `framework/README.md`, and
+  `tests/README.md` for the new policies, the DQN knobs, and the rename.
 
 ---
 

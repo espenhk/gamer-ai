@@ -17,7 +17,7 @@ DISCRETE_ACTIONS
 ----------------
 A 9×8 array covering the most common control combinations:
   {throttle: -1/0/+1} × {steer: -1/0/+1} with boost/jump/handbrake off.
-Tabular policies (EpsilonGreedy, MCTS) index into this table.
+Tabular policies (EpsilonGreedy, UCBQ) index into this table.
 """
 
 from __future__ import annotations

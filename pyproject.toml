@@ -50,6 +50,16 @@ pyyaml = ">=6.0"
 pysc2 = ">=4.0"
 protobuf = ">=3.20,<4.0"
 
+[tool.poetry.group.deep_rl]
+# Optional, cross-platform. Stable-Baselines3 + SB3-Contrib back the gradient
+# deep-RL policies (ppo, sac, td3, a2c, qr_dqn, recurrent_ppo). SB3 pulls in
+# torch transitively. Install with: poetry install --with deep_rl
+optional = true
+
+[tool.poetry.group.deep_rl.dependencies]
+stable-baselines3 = ">=2.0"
+sb3-contrib = ">=2.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -119,7 +119,7 @@ brake_weights:
 - Existing TMNF files (`steer_weights` / `accel_weights` / `brake_weights`)
   are byte-compatible with this scheme.
 - Other policy types serialise differently: `NeuralNetPolicy` dumps nested
-  weight/bias lists; tabular policies (`epsilon_greedy`, `mcts`) write
+  weight/bias lists; tabular policies (`epsilon_greedy`, `ucb_q`) write
   hyperparameters to YAML **and** pickle the Q-table to a sibling
   `*_qtable.pkl`; `GeneticPolicy.save()` writes its champion in the
   `WeightedLinearPolicy` YAML format so analytics and inference work

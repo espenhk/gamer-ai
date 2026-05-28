@@ -223,15 +223,15 @@ worker mechanics are unit-tested with a dummy env.
 ### test_env_termination.py — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
 
-### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing/Atari adapter abstractions
-- registry: all games registered; adapter instantiable
+### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/AssettoCorsa/iRacing adapter abstractions
+- registry: all games registered (including assetto); adapter instantiable
 - TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
 - TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
 - SC2: experiment_dir includes game/policy/map hierarchy, track override, track_label, build_probe/warmup = None
 - BeamNG: experiment_dir / build_probe = None
-- AssettoCorsa: experiment_dir / build_probe = None
+- AssettoCorsa: experiment_dir/root includes game/policy/track hierarchy; track_label default+override+from-params; build_probe returns ProbeSpec; build_warmup returns WarmupSpec(steps=5); decorate_reward_cfg is a no-op; name="assetto"
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
-- docs roster sync (issue #323): every `GAME_ADAPTERS` key plus the special-cased `assetto` choice appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
+- docs roster sync (issue #323): every `GAME_ADAPTERS` key appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
 
 ### test_atari_obs_spec.py — Atari RAM observation spec
 - 128-dim flat float32 spec; one feature per RAM byte
@@ -806,18 +806,18 @@ enough to only have a smoke test.
 
 **Tested.** That `main.py --game <name>` accepts every supported choice,
 rejects unknown ones, exposes the option in `--help`, accepts `--track`,
-and dispatches to the right runner per game (`run_one` for tmnf / beamng /
-car_racing / torcs / sc2 / rocket_league / iracing, `run_assetto` for assetto, with a clear error
-when the optional dependency is missing); that the Assetto Corsa adapter's
-obs spec, env wrapper, reward calc and a 5-episode training loop all run
-against a stubbed client.
+and dispatches to `_run_one` for all games including assetto (now unified
+via the `GameAdapter` protocol); that the Assetto Corsa adapter is
+registered in `GAME_ADAPTERS`; that the Assetto Corsa adapter's obs spec,
+env wrapper, reward calc and a 5-episode training loop all run against a
+stubbed client.
 
 **Not tested.** The interactive CLI itself (no terminal harness); the real
 Assetto Corsa shared-memory client.
 
 ### cli/test_game_flag.py — `--game` CLI flag in `main.py`
 - default tmnf; all valid choices accepted; invalid → SystemExit; help text mentions flag; `--track` accepted; main parser has all choices
-- dispatch: tmnf / beamng / car_racing / torcs / sc2 → run_one; assetto → run_assetto; assetto missing dep → ValueError; adapter experiment_dir contains game name
+- dispatch: all games (tmnf / beamng / car_racing / torcs / sc2 / assetto / rocket_league / iracing) → run_one; assetto registered in GAME_ADAPTERS; adapter experiment_dir contains game name
 
 ### assetto_corsa/test_smoke.py — Assetto Corsa smoke tests (against fake client)
 - obs spec dimensions match base obs_dim; env reset obs shape; step 5-tuple finite reward; info reflects current step; env terminates on finish; vision features; reward calc finite; 5-episode training loop with linear policy

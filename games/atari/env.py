@@ -34,15 +34,13 @@ try:
     from gymnasium import spaces
 except ImportError as _exc:  # pragma: no cover — exercised only when gym missing
     raise ImportError(
-        "Atari support requires gymnasium and ale-py.  Install with:\n"
-        "    pip install ale-py gymnasium\n"
+        "Atari support requires gymnasium and ale-py.  Install with:\n    pip install ale-py gymnasium\n"
     ) from _exc
 
 from framework.base_env import BaseGameEnv
 from games.atari.actions import N_ACTIONS_FULL
 from games.atari.obs_spec import BASE_OBS_DIM, RAM_SIZE
 from games.atari.reward import AtariRewardCalculator, AtariRewardConfig
-
 
 _DEFAULT_MAP_NAME = "Pong-v5"
 _ALE_PREFIX = "ALE/"
@@ -99,8 +97,7 @@ class AtariEnv(BaseGameEnv):
                 gym.register_envs(ale_py)  # type: ignore[attr-defined]
         except ImportError as exc:  # pragma: no cover — only when ale-py missing
             raise ImportError(
-                "Atari support requires the ale-py package.  Install with:\n"
-                "    pip install ale-py\n"
+                "Atari support requires the ale-py package.  Install with:\n    pip install ale-py\n"
             ) from exc
 
         env_id = _resolve_env_id(map_name)

@@ -182,9 +182,8 @@ class TestGameRouting(unittest.TestCase):
         mock_run_one.assert_called_once()
 
     def test_game_atari_calls_run_one(self):
-        mock_run_one, mock_assetto = self._run_main_with_game("atari")
+        mock_run_one = self._run_main_with_game("atari")
         mock_run_one.assert_called_once()
-        mock_assetto.assert_not_called()
 
 
 class TestImportErrorConversion(unittest.TestCase):

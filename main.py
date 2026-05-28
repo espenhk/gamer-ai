@@ -316,6 +316,5 @@ def _run_play_sc2(args: argparse.Namespace) -> None:
         ) from exc
 
 
-
 if __name__ == "__main__":
     main()

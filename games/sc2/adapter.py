@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from framework.policies import register_continuous_action_incompatible
 from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
@@ -183,6 +184,29 @@ class SC2Adapter:
             enable_belief=enable_belief,
             max_apm=training_params.get("max_apm", None),
             apm_burst_s=training_params.get("apm_burst_s", 2.0),
+            # NOTE: extreme_random_run_count is a *per-client* (per-worker /
+            # per-candidate) episode budget, not a global total.  Parallel
+            # evaluation spawns one SC2Client per worker, so the aggregate
+            # number of random episodes equals this value multiplied by the
+            # worker count.  Population-based training (CMA-ES / genetic)
+            # creates a fresh client per candidate per generation, meaning
+            # each individual's early evaluations are forced random
+            # independently.  When deriving the count from n_sims * fraction,
+            # account for the active training loop's reset cadence to match
+            # the intended exploration budget.
+            extreme_random_run_count=(
+                max(0, int(training_params["initial_extreme_random_runs"]))
+                if training_params.get("initial_extreme_random_runs") is not None
+                else max(
+                    0,
+                    int(
+                        math.ceil(
+                            max(0, int(training_params.get("n_sims", 0) or 0))
+                            * float(training_params.get("initial_extreme_random_fraction", 0.25) or 0.0)
+                        )
+                    ),
+                )
+            ),
         )
 
         return GameSpec(

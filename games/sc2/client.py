@@ -257,6 +257,16 @@ class SC2Client:
     play_mode :
         If True, set up a Human + Agent session instead of Agent (+ Bot).
         The human plays via the standard SC2 UI; the agent acts via PySC2.
+    extreme_random_run_count :
+        Number of episodes at the start of *this client's* lifetime during
+        which every ``step()`` call replaces the incoming policy action with a
+        random valid action.  The counter ``_episodes_started`` is
+        per-instance, so the budget is **per-worker** (parallel evaluation
+        spawns one client per worker) and **per-candidate** (population-based
+        training such as CMA-ES / genetic creates a fresh client per
+        candidate).  When derived from ``n_sims * fraction`` in the adapter
+        the effective total across all workers/candidates scales accordingly —
+        document or account for this when choosing the fraction.
     """
 
     def __init__(
@@ -274,6 +284,7 @@ class SC2Client:
         play_mode: bool = False,
         obs_spec_preset: str | None = None,
         store_minimap_vis: bool = False,
+        extreme_random_run_count: int = 0,
     ) -> None:
         self._map_name = map_name
         self._step_mul = step_mul
@@ -285,6 +296,9 @@ class SC2Client:
         self._realtime = realtime
         self._play_mode = play_mode
         self._store_minimap_vis = store_minimap_vis
+        self._extreme_random_run_count = max(0, int(extreme_random_run_count))
+        self._episodes_started = 0
+        self._rng = np.random.default_rng()
         self._screen_layers: list[str] = list(screen_layers or [])
         self._minimap_layers: list[str] = list(minimap_layers or [])
         self._sc2_env: Any = None
@@ -327,6 +341,7 @@ class SC2Client:
 
     def reset(self) -> tuple[np.ndarray, dict]:
         """Initialise the SC2 env and return the first observation + info."""
+        self._episodes_started += 1
         if self._sc2_env is None:
             self._sc2_env = self._make_sc2_env()
         elif self._is_ladder:
@@ -360,6 +375,8 @@ class SC2Client:
         selection.  Build actions prefer ``select_point`` on a visible
         worker; everything else uses ``select_army``.
         """
+        if self._is_extreme_random_phase():
+            action = self._sample_extreme_random_action()
         fn_idx = int(action[0])
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
         is_selection = fn_name.startswith("select_")
@@ -661,6 +678,25 @@ class SC2Client:
                 )
 
         return fn_call
+
+    def _is_extreme_random_phase(self) -> bool:
+        return self._episodes_started > 0 and self._episodes_started <= self._extreme_random_run_count
+
+    def _sample_extreme_random_action(self) -> np.ndarray:
+        valid_fn_ids: list[int] = []
+        if self._available_actions:
+            id_map = _get_pysc2_id_to_fn_idx()
+            valid_fn_ids = [id_map[pid] for pid in self._available_actions if pid in id_map]
+        fn_idx = int(self._rng.choice(valid_fn_ids)) if valid_fn_ids else 0
+        return np.array(
+            [
+                fn_idx,
+                float(self._rng.random()),
+                float(self._rng.random()),
+                float(self._rng.integers(0, 2)),
+            ],
+            dtype=np.float32,
+        )
 
     # ------------------------------------------------------------------
     # Observation flattening

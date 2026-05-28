@@ -24,6 +24,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
   test so the documented `policy_params` tables stay aligned with the registered
   policy implementations.
 
+
+---
+
+## [0.3.2] - 2026-05-28
+
 ---
 
 ## [0.3.1] - 2026-05-28

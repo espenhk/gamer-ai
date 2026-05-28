@@ -106,6 +106,10 @@ class SC2Env(BaseGameEnv):
         worth of tokens can accumulate before the limiter kicks in.
         Defaults to ``2.0`` — short bursts are fine, but the agent cannot
         spend its entire per-minute budget instantaneously.
+    extreme_random_run_count :
+        Number of initial episodes to execute in extreme-random mode. In this
+        mode each step samples a random *valid* function id and random spatial
+        target coordinates.
     realtime :
         If True, synchronise env steps with wall-clock time so the game
         advances at natural game pace rather than as fast as possible.
@@ -132,6 +136,7 @@ class SC2Env(BaseGameEnv):
         enable_belief: bool = False,
         max_apm: int | None = None,
         apm_burst_s: float = 2.0,
+        extreme_random_run_count: int = 0,
         realtime: bool = False,
     ) -> None:
         super().__init__()
@@ -211,6 +216,7 @@ class SC2Env(BaseGameEnv):
             minimap_layers=self._minimap_layers,
             obs_spec_preset=obs_spec_preset,
             store_minimap_vis=enable_belief,
+            extreme_random_run_count=extreme_random_run_count,
         )
 
         # APM limiter — None when no limit is requested.
@@ -593,6 +599,7 @@ def make_env(
     enable_belief: bool = False,
     max_apm: int | None = None,
     apm_burst_s: float = 2.0,
+    extreme_random_run_count: int = 0,
 ) -> SC2Env:
     """Factory that wires up an :class:`SC2Env` from an experiment directory.
 
@@ -620,4 +627,5 @@ def make_env(
         enable_belief=enable_belief,
         max_apm=max_apm,
         apm_burst_s=apm_burst_s,
+        extreme_random_run_count=extreme_random_run_count,
     )

@@ -15,11 +15,6 @@ import pytest
 
 from framework.game_adapter import GAME_ADAPTERS
 
-# `assetto` is special-cased in main.py (own entry point) and is not a
-# GAME_ADAPTERS key, but it is a user-facing `--game` choice, so the docs
-# must mention it too.
-_EXTRA_GAME_CHOICES = {"assetto"}
-
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -33,6 +28,7 @@ class TestGameAdapterRegistry:
             "sc2",
             "beamng",
             "car_racing",
+            "assetto",
             "rocket_league",
             "iracing",
         }
@@ -42,7 +38,7 @@ class TestDocsRosterStaysInSync:
     """Top-level docs must mention every runnable game so the roster
     can't silently drift away from the registry (issue #323)."""
 
-    @pytest.mark.parametrize("game", sorted(set(GAME_ADAPTERS) | _EXTRA_GAME_CHOICES))
+    @pytest.mark.parametrize("game", sorted(GAME_ADAPTERS))
     def test_game_appears_in_claude_md(self, game):
         text = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
         assert game in text, f"{game!r} is registered/runnable but missing from CLAUDE.md"
@@ -260,3 +256,58 @@ class TestIRacingAdapter:
     def test_build_warmup_returns_none(self):
         a = self._adapter()
         assert a.build_warmup({}) is None
+
+
+class TestAssettoCorsaAdapter:
+    def _adapter(self):
+        return GAME_ADAPTERS["assetto"]()
+
+    def test_experiment_dir(self):
+        a = self._adapter()
+        d = a.experiment_dir("myrun", {"policy_type": "genetic"}, None)
+        assert "assetto_corsa" in d
+        assert "genetic" in d
+        assert "myrun" in d
+
+    def test_track_label_default(self):
+        a = self._adapter()
+        assert a.track_label({}, None) == "assetto_default"
+
+    def test_track_label_from_params(self):
+        a = self._adapter()
+        assert a.track_label({"track": "monza"}, None) == "monza"
+
+    def test_track_label_override(self):
+        a = self._adapter()
+        assert a.track_label({"track": "monza"}, "spa") == "spa"
+
+    def test_build_probe_returns_spec(self):
+        a = self._adapter()
+        probe = a.build_probe({"probe_s": 10.0, "cold_restarts": 3, "cold_sims": 2})
+        assert probe is not None
+        assert probe.probe_in_game_s == 10.0
+        assert probe.cold_start_restarts == 3
+        assert probe.cold_start_sims == 2
+
+    def test_build_warmup_returns_spec(self):
+        a = self._adapter()
+        warmup = a.build_warmup({})
+        assert warmup is not None
+        assert warmup.steps == 5
+
+    def test_decorate_reward_cfg_is_noop(self):
+        a = self._adapter()
+        cfg = {}
+        a.decorate_reward_cfg(cfg, {"track": "assetto_default"}, None)
+        assert cfg == {}
+
+    def test_experiment_dir_root(self):
+        a = self._adapter()
+        root = a.experiment_dir_root({"policy_type": "genetic"}, None)
+        assert "assetto_corsa" in root
+        assert "genetic" in root
+
+    def test_adapter_name(self):
+        a = self._adapter()
+        assert a.name == "assetto"
+        assert a.config_dir.startswith("games/")

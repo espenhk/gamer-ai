@@ -202,10 +202,6 @@ def main() -> None:
     if args.eval and args.game != "sc2":
         raise SystemExit("--eval is only supported with --game sc2")
 
-    if args.game == "assetto":
-        _run_assetto(args)
-        return
-
     if args.play:
         _run_play_sc2(args)
         return
@@ -219,7 +215,7 @@ def main() -> None:
 
 
 # ======================================================================
-# Unified runner (all games except assetto)
+# Unified runner
 # ======================================================================
 
 
@@ -319,23 +315,6 @@ def _run_play_sc2(args: argparse.Namespace) -> None:
             f"Cannot import SC2 play dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
         ) from exc
 
-
-# ======================================================================
-# Assetto Corsa entry point (separate — uses its own runner)
-# ======================================================================
-
-
-def _run_assetto(args: argparse.Namespace) -> None:
-    try:
-        from games.assetto_corsa.entry import run as _ac_run  # noqa: PLC0415
-    except ImportError as exc:
-        raise ValueError(
-            f"Cannot import Assetto Corsa dependencies: {exc}\n"
-            "Install the assetto-corsa-rl package, then:\n"
-            "    poetry install --with assetto_corsa"
-        ) from exc
-
-    _ac_run(args)
 
 
 if __name__ == "__main__":

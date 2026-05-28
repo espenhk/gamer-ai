@@ -71,9 +71,7 @@ class _TemplateAdapter:
         Import your game's obs_spec, actions, analytics, and env here
         (lazy imports to avoid pulling in heavy SDKs at startup).
         """
-        raise NotImplementedError(
-            "Build and return a GameSpec — see games/car_racing/adapter.py"
-        )
+        raise NotImplementedError("Build and return a GameSpec — see games/car_racing/adapter.py")
 
     def build_probe(self, training_params: dict) -> ProbeSpec | None:
         """Build a ProbeSpec, or None to skip probe/cold-start."""

@@ -18,6 +18,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 
+
+---
+
+## [0.3.7] - 2026-05-28
+
 ---
 
 ## [0.3.6] - 2026-05-28

@@ -17,6 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Documentation
+
+- Expanded `CLAUDE.md` with a policy-selection guide, run-sizing formulas, and
+  audited per-policy hyperparameter defaults / tuning notes. Added a regression
+  test so the documented `policy_params` tables stay aligned with the registered
+  policy implementations.
 
 
 

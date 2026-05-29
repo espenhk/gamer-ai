@@ -41,9 +41,9 @@ from enum import Enum, auto
 class SelectionReq(Enum):
     """What kind of selection an action requires."""
 
-    NONE = auto()      # selection ignored: no_op, select_*, etc.
+    NONE = auto()  # selection ignored: no_op, select_*, etc.
     ANY_UNIT = auto()  # any non-building friendly unit selected
-    OF_TYPE = auto()   # selected unit-type must be in selection_target
+    OF_TYPE = auto()  # selected unit-type must be in selection_target
 
 
 @dataclass(frozen=True)
@@ -165,6 +165,10 @@ _TERRAN_UNIT_PRODUCERS: dict[str, frozenset[str]] = {
     "Raven": frozenset({"Starport"}),
     "Banshee": frozenset({"Starport"}),
     "Battlecruiser": frozenset({"Starport"}),
+    # Unit-state morphs: SiegeMode produces a SiegeTankSieged from a
+    # SiegeTank; Unsiege does the reverse. Modeling these in UNIT_PRODUCERS
+    # lets _train() handle them uniformly with the rest of the table.
+    "SiegeTankSieged": frozenset({"SiegeTank"}),
 }
 
 _PROTOSS_UNIT_PRODUCERS: dict[str, frozenset[str]] = {
@@ -186,6 +190,10 @@ _PROTOSS_UNIT_PRODUCERS: dict[str, frozenset[str]] = {
     "Oracle": frozenset({"Stargate"}),
     "Tempest": frozenset({"Stargate"}),
     "Carrier": frozenset({"Stargate"}),
+    # Templar merge: either HighTemplar or DarkTemplar can morph into an
+    # Archon (two source units consumed; the selection-type filter only
+    # checks that the right *type* is selected).
+    "Archon": frozenset({"HighTemplar", "DarkTemplar"}),
 }
 
 _ZERG_UNIT_PRODUCERS: dict[str, frozenset[str]] = {
@@ -201,11 +209,19 @@ _ZERG_UNIT_PRODUCERS: dict[str, frozenset[str]] = {
     "Viper": frozenset({"Larva"}),
     "Ultralisk": frozenset({"Larva"}),
     "Queen": frozenset({"Hatchery", "Lair", "Hive"}),
-    # Morphs (handled separately for now, but listed for completeness).
+    # Unit-level morphs (source unit consumed → target unit).  Modeling
+    # these as "producers" lets the train/morph fn_idx entries share the
+    # same _train() helper as every other unit, and the OR-set semantics
+    # naturally handle Overlord→Overseer (Lair or Hive must exist).
     "Baneling": frozenset({"Zergling"}),
     "Ravager": frozenset({"Roach"}),
     "Lurker": frozenset({"Hydralisk"}),
     "BroodLord": frozenset({"Corruptor"}),
+    "Overseer": frozenset({"Overlord"}),
+    # Building morphs (Hatchery → Lair → Hive, Spire → GreaterSpire).
+    "Lair": frozenset({"Hatchery"}),
+    "Hive": frozenset({"Lair"}),
+    "GreaterSpire": frozenset({"Spire"}),
 }
 
 UNIT_PRODUCERS: dict[str, frozenset[str]] = {
@@ -291,8 +307,15 @@ def _train(
     )
 
 
-def _morph(parent_name: str, extra_buildings: tuple[frozenset[str], ...] = ()) -> Preconditions:
-    """Morph_X_quick helper: parent unit selected."""
+def _morph_inplace(parent_name: str, extra_buildings: tuple[frozenset[str], ...] = ()) -> Preconditions:
+    """In-place state morph (the unit transforms without consuming itself).
+
+    Used for SiegeMode/Unsiege where the *parent* and the result are
+    different states of the same unit type, and ``UNIT_PRODUCERS`` may
+    not be the cleanest model.  For all consume-and-create morphs (Lair,
+    Hive, Baneling, Archon, …) use ``_train()`` so the source unit is
+    pulled from :data:`UNIT_PRODUCERS` like every other unit.
+    """
     return Preconditions(
         required_buildings=extra_buildings,
         required_selection=SelectionReq.OF_TYPE,
@@ -375,8 +398,13 @@ PRECONDITIONS: dict[int, Preconditions] = {
     46: _train("Liberator"),
     # Terran unit abilities
     47: _effect_on(_ATTACK_INFANTRY, upgrades=frozenset({"Stimpack"})),  # Effect_Stim_quick
-    48: _morph("SiegeTank", extra_buildings=_and("FactoryTechLab")),  # Morph_SiegeMode_quick
-    49: _morph("SiegeTankSieged"),  # Morph_Unsiege_quick
+    # Morph_SiegeMode_quick — SiegeTank → SiegeTankSieged (FactoryTechLab gates it).
+    48: _train("SiegeTankSieged", extra_buildings=_and("FactoryTechLab")),
+    # Morph_Unsiege_quick — in-place morph of an already-sieged tank.  Kept on
+    # _morph_inplace because the "produced" SiegeTank entry in UNIT_PRODUCERS
+    # is the Factory-built one, and we want the selection target to be
+    # SiegeTankSieged here.
+    49: _morph_inplace("SiegeTankSieged"),
     # Protoss buildings
     50: _build("Nexus"),
     51: _build("Pylon"),
@@ -409,10 +437,10 @@ PRECONDITIONS: dict[int, Preconditions] = {
     77: _train("Immortal"),
     78: _train("Tempest", extra_buildings=_and("FleetBeacon")),
     79: _train("Disruptor", extra_buildings=_and("RoboticsBay")),
-    80: _morph(  # Morph_Archon_quick — needs two HighTemplar or DarkTemplar.
-        "HighTemplar",  # selection_target only takes one; we accept HT here.
-        extra_buildings=_and("TemplarArchive"),
-    ),
+    # Morph_Archon_quick — needs two HighTemplars OR two DarkTemplars.  The
+    # selection-type filter only checks the right *type* is selected; the
+    # quantity check (≥ 2 templars) is enforced by PySC2 at execution time.
+    80: _train("Archon", extra_buildings=_and("TemplarArchive")),
     81: _train("Mothership", extra_buildings=_and("FleetBeacon")),
     # Zerg buildings
     82: _build("Hatchery"),
@@ -437,24 +465,25 @@ PRECONDITIONS: dict[int, Preconditions] = {
     97: _train("Drone"),
     98: _train("Overlord"),
     99: _train("Zergling", extra_buildings=_and("SpawningPool")),
-    100: _morph("Zergling", extra_buildings=_and("BanelingNest")),  # Train_Baneling_quick
+    100: _train("Baneling", extra_buildings=_and("BanelingNest")),  # Train_Baneling_quick
     101: _train("Roach", extra_buildings=_and("RoachWarren")),
-    102: _morph("Roach", extra_buildings=_and("RoachWarren")),  # Train_Ravager_quick
+    102: _train("Ravager", extra_buildings=_and("RoachWarren")),  # Train_Ravager_quick
     103: _train("Hydralisk", extra_buildings=_and("HydraliskDen")),
     104: _train("Infestor", extra_buildings=_and("InfestationPit")),
     105: _train("SwarmHost", extra_buildings=_and("InfestationPit")),
     106: _train("Mutalisk", extra_buildings=_and("Spire")),
     107: _train("Corruptor", extra_buildings=_and("Spire")),
-    108: _morph("Corruptor", extra_buildings=_and("GreaterSpire")),  # Train_BroodLord_quick
+    108: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Train_BroodLord_quick
     109: _train("Viper", extra_buildings=_and("Hive")),
     110: _train("Ultralisk", extra_buildings=_and("UltraliskCavern")),
-    111: _morph("Hydralisk", extra_buildings=_and("LurkerDenMP")),  # Train_Lurker_quick
+    111: _train("Lurker", extra_buildings=_and("LurkerDenMP")),  # Train_Lurker_quick
     112: _train("Queen", extra_buildings=_and("SpawningPool")),
-    113: _morph("Hatchery", extra_buildings=_and("SpawningPool")),  # Morph_Lair
-    114: _morph("Lair", extra_buildings=_and("InfestationPit")),  # Morph_Hive
-    115: _morph("Overlord", extra_buildings=_and(frozenset({"Lair", "Hive"}))),  # Morph_Overseer
-    116: _morph("Spire", extra_buildings=_and("Hive")),  # Morph_GreaterSpire
-    117: _morph("Corruptor", extra_buildings=_and("GreaterSpire")),  # Morph_BroodLord
+    113: _train("Lair", extra_buildings=_and("SpawningPool")),  # Morph_Lair
+    114: _train("Hive", extra_buildings=_and("InfestationPit")),  # Morph_Hive
+    # Morph_Overseer — Overlord → Overseer; requires Lair (or Hive).
+    115: _train("Overseer", extra_buildings=(frozenset({"Lair", "Hive"}),)),
+    116: _train("GreaterSpire", extra_buildings=_and("Hive")),  # Morph_GreaterSpire
+    117: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Morph_BroodLord
 }
 
 

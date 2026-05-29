@@ -23,8 +23,8 @@ from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_
 from games.sc2.obs_spec import get_spec
 from games.sc2.tech_tree import (
     PRECONDITIONS,
-    SelectionReq,
     WORKER_NAMES,
+    SelectionReq,
     fn_idx_satisfied,
 )
 
@@ -700,9 +700,7 @@ class SC2Client:
         if is_worker_target:
             # Prefer select_idle_worker (cheap, no screen-target).
             siw_id = self._pysc2_fn_id("select_idle_worker")
-            if siw_id is not None and (
-                self._available_actions is None or siw_id in self._available_actions
-            ):
+            if siw_id is not None and (self._available_actions is None or siw_id in self._available_actions):
                 return np.array([4, 0.5, 0.5, 0], dtype=np.float32)
             # Otherwise select_point on any visible worker (mining/building OK).
             for name in target_names:

@@ -29,7 +29,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
   this tick (preferring `select_idle_worker`, falling back to
   `select_point` on a mining/busy worker — issue #346 explicitly
   required workers that aren't idle to still be selectable) and queues
-  the original action for the next tick.
+  the original action for the next tick. All unit and building morphs
+  (Baneling, Ravager, Lurker, BroodLord, Archon, Lair, Hive, Overseer,
+  GreaterSpire) route through `UNIT_PRODUCERS` via the same `_train()`
+  helper as regular units; Archon morph now accepts HighTemplar *or*
+  DarkTemplar selection (previously HT-only).
 - DEBUG-level periodic state dump in `SC2Client` (issue #346 follow-up).
   Every ~10 s of wall-clock time, the client logs a readable snapshot of
   current units, owned buildings, completed upgrades, currently-selected

@@ -610,7 +610,8 @@ handful of iterations only).
 - `TestBuildingPrereqsMet`: no-prereq buildings always buildable; Terran chain (Barracks needs SupplyDepot; FusionCore needs Starport); Zerg OR-set semantics (Spire requires Lair OR Hive)
 - `TestFnIdxSatisfiedTerran`: Build_FusionCore_screen blocked when only CC + SCV visible; unlocked once Starport exists (regression for the issue body); Build_SupplyDepot only needs a worker selected; Train_Marine needs Barracks selected (SCV selection rejected); Train_Marauder needs BarracksTechLab; Train_Battlecruiser chain (Starport + StarportTechLab + FusionCore); Effect_Stim needs Stim upgrade and Marine/Marauder selected (SCV rejected)
 - `TestFnIdxSatisfiedProtoss`: Carrier needs FleetBeacon; Stalker accepts Gateway OR WarpGate selection
-- `TestFnIdxSatisfiedZerg`: Morph_Hive needs Lair selected + InfestationPit exists; Train_Lurker needs Hydralisk selected + LurkerDenMP
+- `TestFnIdxSatisfiedZerg`: Morph_Hive needs Lair selected + InfestationPit exists; Train_Lurker needs Hydralisk selected + LurkerDenMP; Train_Baneling needs Zergling selected + BanelingNest (Roach rejected); Morph_Overseer needs Overlord selected + Lair OR Hive (Zergling rejected); Morph_Lair needs Hatchery selected + SpawningPool; Train_BroodLord needs Corruptor selected + GreaterSpire
+- `TestMorphsFullyIntegrated`: morph fn_ids route through UNIT_PRODUCERS via `_train()`; Morph_Archon accepts HighTemplar OR DarkTemplar (Zealot rejected); Morph_SiegeMode needs SiegeTank + FactoryTechLab; Morph_Unsiege needs SiegeTankSieged
 - `TestUniversalActions`: no_op / select_army / select_point always satisfied; Move_screen requires any unit selected
 - `TestPreconditionsTableShape`: every fn_idx in FUNCTION_IDS has a Preconditions entry; universal actions never require OF_TYPE selection; every Build_*_screen action (except `Build_CreepTumor_screen`, which is a Queen ability) requires worker selection
 

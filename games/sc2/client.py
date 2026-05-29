@@ -14,6 +14,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -815,47 +816,31 @@ class SC2Client:
     def _timestep_to_obs_info(self, timestep: Any) -> tuple[np.ndarray, dict]:
         """Convert a PySC2 TimeStep into ``(flat_obs, info)``.
 
-        Builds a name-indexed feature dict from PySC2 fields then projects
-        onto ``self._spec.names`` to produce the flat observation.  Each
-        feature group has its own extractor so unit tests can target them.
+        The flat observation is built by the module-level
+        :func:`extract_flat_obs` so the live client and the offline replay
+        reader share one code path (issue #350).  Cross-step state
+        (explored-mask accumulation, last-action one-hot, unit-type lookup
+        cache) is threaded in via :class:`_ObsExtractState` and persisted
+        back onto ``self`` afterwards.  The remaining info-dict / side-effect
+        logic stays here because it depends on per-instance training state.
         """
         ob = timestep.observation
-        feat_screen = self._safe_array(ob, "feature_screen")
-        feat_minimap = self._safe_array(ob, "feature_minimap")
 
-        feats: dict[str, float] = {}
-        feats.update(self._player_features(ob))
-        feats.update(self._selected_features(ob))
-        self._selected_count = float(feats.get("selected_count", 0.0))
-        feats.update(self._screen_summary_features(feat_screen))
-        feats.update(self._minimap_summary_features(feat_minimap))
-        feats.update(self._score_features(ob))
-        feats.update(self._screen_hp_features(feat_screen))
-        feats.update(self._topk_enemy_features(feat_screen))
-        feats.update(self._per_unit_type_features(ob))
-        self._update_unit_screen_positions(ob)
-        feats.update(self._quadrant_features(feat_screen))
-        feats.update(self._available_actions_features(ob))
-        feats.update(self._last_action_features())
-        feats.update(self._enemy_unit_type_features(ob))
-        feats.update(self._shield_energy_features(feat_screen))
-        feats.update(self._creep_features(feat_minimap))
-        feats.update(self._economy_pipeline_features(ob))
-        feats.update(self._screen_visibility_features(feat_screen))
-        feats.update(self._screen_antiair_features(feat_screen))
-        feats.update(self._weapon_cooldown_features(ob))
-        feats.update(self._alerts_features(ob))
-
-        # game_loop scalar — present on both ladder and rich.
-        game_loop_arr = self._safe_array(ob, "game_loop")
-        game_loop = float(game_loop_arr[0]) if game_loop_arr is not None and game_loop_arr.size > 0 else 0.0
-        feats["game_loop"] = game_loop
-
-        # Project feature dict → ordered ndarray driven by the active spec.
-        flat = np.array(
-            [float(feats.get(name, 0.0)) for name in self._obs_names],
-            dtype=np.float32,
+        state = _ObsExtractState(
+            last_fn_idx=self._last_fn_idx,
+            explored_mask=self._explored_mask,
+            unit_type_lookup=self._unit_type_id_to_name,
         )
+        flat, feats = extract_flat_obs(timestep, self._obs_names, state=state)
+        # Persist cross-step state mutated during extraction.
+        self._explored_mask = state.explored_mask
+        self._unit_type_id_to_name = state.unit_type_lookup
+
+        self._selected_count = float(feats.get("selected_count", 0.0))
+        self._update_unit_screen_positions(ob)
+        game_loop = feats["game_loop"]
+
+        feat_minimap = self._safe_array(ob, "feature_minimap")
 
         # Build the info dict — score deltas + reward inputs.
         prev_score = self._cumulative_score
@@ -938,6 +923,7 @@ class SC2Client:
 
         # Spatial obs: stack selected screen + minimap layers into (C, H, W).
         if self._screen_layers or self._minimap_layers:
+            feat_screen = self._safe_array(ob, "feature_screen")
             channels: list[np.ndarray] = []
             for name in self._screen_layers:
                 layer = self._extract_named_layer(feat_screen, name)
@@ -971,359 +957,52 @@ class SC2Client:
     # ------------------------------------------------------------------
 
     def _player_features(self, ob: Any) -> dict[str, float]:
-        player = self._safe_player(ob)
-        return {
-            "minerals": float(player.get("minerals", 0.0)),
-            "vespene": float(player.get("vespene", 0.0)),
-            "food_used": float(player.get("food_used", 0.0)),
-            "food_cap": float(player.get("food_cap", 0.0)),
-            "army_count": float(player.get("army_count", 0.0)),
-            "idle_worker_count": float(player.get("idle_worker_count", 0.0)),
-            "warp_gate_count": float(player.get("warp_gate_count", 0.0)),
-            "larva_count": float(player.get("larva_count", 0.0)),
-            "food_workers": float(player.get("food_workers", 0.0)),
-            "food_army": float(player.get("food_army", 0.0)),
-        }
+        return _player_features(ob)
 
     def _selected_features(self, ob: Any) -> dict[str, float]:
-        selected = self._safe_array(ob, "single_select")
-        if selected is None or selected.size == 0:
-            multi = self._safe_array(ob, "multi_select")
-            if multi is not None and multi.size > 0:
-                selected = multi
-        if selected is not None and selected.size > 0:
-            count = float(selected.shape[0]) if selected.ndim >= 2 else 1.0
-            try:
-                hp_col = selected[:, 2] if selected.ndim >= 2 else selected[2:3]
-                avg_hp = float(np.mean(hp_col))
-            except (IndexError, ValueError):
-                avg_hp = 0.0
-            try:
-                shield_col = selected[:, 3] if selected.ndim >= 2 else selected[3:4]
-                avg_shields = float(np.mean(shield_col))
-            except (IndexError, ValueError):
-                avg_shields = 0.0
-            try:
-                energy_col = selected[:, 4] if selected.ndim >= 2 else selected[4:5]
-                avg_energy = float(np.mean(energy_col))
-            except (IndexError, ValueError):
-                avg_energy = 0.0
-        else:
-            count, avg_hp, avg_shields, avg_energy = 0.0, 0.0, 0.0, 0.0
-        return {
-            "selected_count": count,
-            "selected_avg_hp": avg_hp,
-            "selected_avg_shields": avg_shields,
-            "selected_avg_energy": avg_energy,
-        }
+        return _selected_features(ob)
 
     def _screen_summary_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
-        out = {
-            "screen_self_count": 0.0,
-            "screen_enemy_count": 0.0,
-            "screen_self_cx": 0.0,
-            "screen_self_cy": 0.0,
-            "screen_enemy_cx": 0.0,
-            "screen_enemy_cy": 0.0,
-        }
-        layer = self._extract_player_relative(feat_screen, screen=True)
-        if layer is None:
-            return out
-        self_mask = layer == 1
-        enemy_mask = layer == 4
-        out["screen_self_count"] = float(self_mask.sum())
-        out["screen_enemy_count"] = float(enemy_mask.sum())
-        out["screen_self_cx"], out["screen_self_cy"] = self._centroid(self_mask)
-        out["screen_enemy_cx"], out["screen_enemy_cy"] = self._centroid(enemy_mask)
-        return out
+        return _screen_summary_features(feat_screen)
 
     def _minimap_summary_features(self, feat_minimap: np.ndarray | None) -> dict[str, float]:
-        out = {
-            "minimap_self_count": 0.0,
-            "minimap_enemy_count": 0.0,
-            "minimap_enemy_cx": 0.0,
-            "minimap_enemy_cy": 0.0,
-            "minimap_visible_frac": 0.0,
-            "minimap_explored_frac": 0.0,
-            "minimap_camera_x": 0.0,
-            "minimap_camera_y": 0.0,
-        }
-        if feat_minimap is None:
-            return out
-        layer = self._extract_player_relative(feat_minimap, screen=False)
-        if layer is not None:
-            out["minimap_self_count"] = float((layer == 1).sum())
-            enemy_mask = layer == 4
-            out["minimap_enemy_count"] = float(enemy_mask.sum())
-            out["minimap_enemy_cx"], out["minimap_enemy_cy"] = self._centroid(enemy_mask)
-        visible = self._extract_visibility(feat_minimap)
-        if visible is not None:
-            out["minimap_visible_frac"] = float((visible == 2).sum()) / max(visible.size, 1)
-            if self._explored_mask is None:
-                self._explored_mask = (visible > 0).astype(bool)
-            else:
-                self._explored_mask |= visible > 0
-            out["minimap_explored_frac"] = float(self._explored_mask.sum()) / max(self._explored_mask.size, 1)
-        camera = self._extract_named_layer(feat_minimap, "camera")
-        if camera is not None:
-            cmask = camera > 0
-            out["minimap_camera_x"], out["minimap_camera_y"] = self._centroid(cmask)
+        out, self._explored_mask = _minimap_summary_features(feat_minimap, self._explored_mask)
         return out
 
     def _score_features(self, ob: Any) -> dict[str, float]:
-        # Field names are sourced from pysc2.lib.features.ScoreCumulative._fields
-        # (lazily) so we never duplicate them.  'score' is renamed 'score_total'
-        # to avoid confusion with the per-step reward signal.
-        names = _get_score_field_names()
-        # Retrieve the raw value without coercing to ndarray so that PySC2's
-        # NamedNumpyArray field-name access is preserved for the primary path.
-        raw = None
-        try:
-            raw = ob["score_cumulative"] if hasattr(ob, "__getitem__") else None
-        except (KeyError, IndexError, TypeError):
-            pass
-        if raw is None:
-            raw = getattr(ob, "score_cumulative", None)
-        if raw is None:
-            return {n: 0.0 for n in names}
-        # Precompute the positional-fallback array once, outside the per-field
-        # loop.  For plain ndarray inputs every named-access attempt raises an
-        # exception; detecting that here avoids 13 × 2 exception catches per
-        # call and keeps the hot path clean.
-        pos_arr: np.ndarray | None
-        try:
-            pos_arr = raw if isinstance(raw, np.ndarray) else np.asarray(raw)
-            if pos_arr.ndim < 1:
-                pos_arr = None
-        except (TypeError, ValueError):
-            pos_arr = None
-
-        out: dict[str, float] = {}
-        for i, n in enumerate(names):
-            # Prefer field-name access for robustness against PySC2 schema
-            # changes.  The rename score → score_total means we also try the
-            # original PySC2 name ("score") for that entry.  Deduplicate when
-            # the two names are identical (every field except score_total).
-            pysc2_name = "score" if n == "score_total" else n
-            attrs = (pysc2_name,) if pysc2_name == n else (pysc2_name, n)
-            v = None
-            for attr in attrs:
-                try:
-                    v = float(raw[attr])
-                    break
-                except (KeyError, IndexError, TypeError, ValueError):
-                    pass
-            # Fall back to positional index when named access is unavailable.
-            if v is None and pos_arr is not None and i < pos_arr.size:
-                try:
-                    v = float(pos_arr[i])
-                except (IndexError, TypeError, ValueError):
-                    pass
-            out[n] = v if v is not None else 0.0
-        return out
+        return _score_features(ob)
 
     def _screen_hp_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
-        out = {
-            "screen_unit_density_mean": 0.0,
-            "screen_self_hp_mean": 0.0,
-            "screen_enemy_hp_mean": 0.0,
-        }
-        if feat_screen is None:
-            return out
-        density = self._extract_named_layer(feat_screen, "unit_density")
-        if density is not None:
-            out["screen_unit_density_mean"] = float(density.mean())
-        hp = self._extract_named_layer(feat_screen, "unit_hit_points")
-        rel = self._extract_player_relative(feat_screen, screen=True)
-        if hp is not None and rel is not None:
-            self_mask = rel == 1
-            enemy_mask = rel == 4
-            if self_mask.any():
-                out["screen_self_hp_mean"] = float(hp[self_mask].mean())
-            if enemy_mask.any():
-                out["screen_enemy_hp_mean"] = float(hp[enemy_mask].mean())
-        return out
+        return _screen_hp_features(feat_screen)
 
     def _topk_enemy_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
-        # Counts within radii 8 and 24 of the friendly centroid plus the top-3
-        # closest enemies' relative positions and HP ratios.
-        out = {"topk_enemy_within_8": 0.0, "topk_enemy_within_24": 0.0}
-        for i in range(3):
-            out[f"topk_enemy_{i}_rel_x"] = 0.0
-            out[f"topk_enemy_{i}_rel_y"] = 0.0
-            out[f"topk_enemy_{i}_hp_ratio"] = 0.0
-        if feat_screen is None:
-            return out
-        rel = self._extract_player_relative(feat_screen, screen=True)
-        if rel is None:
-            return out
-        self_mask = rel == 1
-        enemy_mask = rel == 4
-        if not self_mask.any() or not enemy_mask.any():
-            return out
-        scx, scy = self._centroid(self_mask)
-        ys, xs = np.where(enemy_mask)
-        dx = xs.astype(np.float32) - scx
-        dy = ys.astype(np.float32) - scy
-        dist = np.sqrt(dx * dx + dy * dy)
-        out["topk_enemy_within_8"] = float((dist <= 8.0).sum())
-        out["topk_enemy_within_24"] = float((dist <= 24.0).sum())
-
-        order = np.argsort(dist)[:3]
-        hp_layer = self._extract_named_layer(feat_screen, "unit_hit_points_ratio")
-        for k, idx in enumerate(order):
-            out[f"topk_enemy_{k}_rel_x"] = float(dx[idx])
-            out[f"topk_enemy_{k}_rel_y"] = float(dy[idx])
-            if hp_layer is not None:
-                # HP ratio layer is 0–255; normalise to [0, 1].
-                out[f"topk_enemy_{k}_hp_ratio"] = float(hp_layer[ys[idx], xs[idx]]) / 255.0
-        return out
+        return _topk_enemy_features(feat_screen)
 
     def _per_unit_type_features(self, ob: Any) -> dict[str, float]:
-        # Initialise every rich-preset unit type to zero.
-        from games.sc2.obs_spec import _RICH_UNIT_TYPES
-
-        out = {f"unit_count_{name}": 0.0 for name in _RICH_UNIT_TYPES}
-        feat_units = self._safe_array(ob, "feature_units")
-        if feat_units is None or feat_units.size == 0:
-            return out
-        # PySC2's feature_units rows have unit_type at column 0 and owner
-        # (player relative) at column 1 in standard schemas; tolerate
-        # missing columns by short-circuiting on shape.
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
-            return out
-        if self._unit_type_id_to_name is None:
-            self._unit_type_id_to_name = self._build_unit_type_lookup()
-        owners = feat_units[:, 1]
-        # PySC2 owner values: 1 = self, others (4 = enemy) excluded for the
-        # friendly count.
-        for row, owner in zip(feat_units, owners):
-            if int(owner) != 1:
-                continue
-            unit_id = int(row[0])
-            name = self._unit_type_id_to_name.get(unit_id)
-            if name is None:
-                continue
-            key = f"unit_count_{name}"
-            if key in out:
-                out[key] += 1.0
+        out, self._unit_type_id_to_name = _per_unit_type_features(ob, self._unit_type_id_to_name)
         return out
 
     def _quadrant_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
-        out = {
-            "screen_self_NE_count": 0.0,
-            "screen_self_NW_count": 0.0,
-            "screen_self_SE_count": 0.0,
-            "screen_self_SW_count": 0.0,
-            "screen_enemy_NE_count": 0.0,
-            "screen_enemy_NW_count": 0.0,
-            "screen_enemy_SE_count": 0.0,
-            "screen_enemy_SW_count": 0.0,
-        }
-        rel = self._extract_player_relative(feat_screen, screen=True)
-        if rel is None:
-            return out
-        h, w = rel.shape
-        mid_y, mid_x = h // 2, w // 2
-        for tag, value in (("self", 1), ("enemy", 4)):
-            mask = rel == value
-            ne = mask[:mid_y, mid_x:]
-            nw = mask[:mid_y, :mid_x]
-            se = mask[mid_y:, mid_x:]
-            sw = mask[mid_y:, :mid_x]
-            out[f"screen_{tag}_NE_count"] = float(ne.sum())
-            out[f"screen_{tag}_NW_count"] = float(nw.sum())
-            out[f"screen_{tag}_SE_count"] = float(se.sum())
-            out[f"screen_{tag}_SW_count"] = float(sw.sum())
-        return out
+        return _quadrant_features(feat_screen)
 
     def _available_actions_features(self, ob: Any) -> dict[str, float]:
-        n = len(FUNCTION_IDS)
-        out = {f"available_fn_{i}": 0.0 for i in range(n)}
-        avail = self._safe_array(ob, "available_actions")
-        if avail is None:
-            return out
-        avail_set = set(int(x) for x in avail.tolist()) if avail.size > 0 else set()
-        # Use the module-level cache to avoid per-step PySC2 attribute lookups
-        # and repeated lazy imports.  _get_pysc2_id_to_fn_idx() resolves
-        # PySC2 function metadata exactly once and caches the result.
-        id_to_fn_idx = _get_pysc2_id_to_fn_idx()
-        for pysc2_id, fn_idx in id_to_fn_idx.items():
-            if pysc2_id in avail_set:
-                out[f"available_fn_{fn_idx}"] = 1.0
-        return out
+        return _available_actions_features(ob)
 
     def _last_action_features(self) -> dict[str, float]:
-        n = len(FUNCTION_IDS)
-        out = {f"last_fn_{i}": 0.0 for i in range(n)}
-        if 0 <= self._last_fn_idx < n:
-            out[f"last_fn_{self._last_fn_idx}"] = 1.0
-        return out
+        return _last_action_features(self._last_fn_idx)
 
     def _enemy_unit_type_features(self, ob: Any) -> dict[str, float]:
-        from games.sc2.obs_spec import _RICH_UNIT_TYPES
-
-        out = {f"enemy_count_{name}": 0.0 for name in _RICH_UNIT_TYPES}
-        feat_units = self._safe_array(ob, "feature_units")
-        if feat_units is None or feat_units.size == 0:
-            return out
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
-            return out
-        if self._unit_type_id_to_name is None:
-            self._unit_type_id_to_name = self._build_unit_type_lookup()
-        # PySC2 player_relative values: 0=none/background, 1=self, 2=ally, 3=neutral, 4=enemy.
-        # Count only true enemy rows (owner == 4); neutrals, allies and background are excluded.
-        for row, owner in zip(feat_units, feat_units[:, 1]):
-            if int(owner) != 4:
-                continue
-            name = self._unit_type_id_to_name.get(int(row[0]))
-            if name is not None:
-                out[f"enemy_count_{name}"] += 1.0
+        out, self._unit_type_id_to_name = _enemy_unit_type_features(ob, self._unit_type_id_to_name)
         return out
 
     def _shield_energy_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
-        out = {
-            "screen_self_shield_mean": 0.0,
-            "screen_enemy_shield_mean": 0.0,
-            "screen_self_energy_mean": 0.0,
-        }
-        if feat_screen is None:
-            return out
-        rel = self._extract_player_relative(feat_screen, screen=True)
-        if rel is None:
-            return out
-        self_mask = rel == 1
-        enemy_mask = rel == 4
-        shield = self._extract_named_layer(feat_screen, "unit_shields")
-        if shield is not None:
-            if self_mask.any():
-                out["screen_self_shield_mean"] = float(shield[self_mask].mean())
-            if enemy_mask.any():
-                out["screen_enemy_shield_mean"] = float(shield[enemy_mask].mean())
-        energy = self._extract_named_layer(feat_screen, "unit_energy")
-        if energy is not None and self_mask.any():
-            out["screen_self_energy_mean"] = float(energy[self_mask].mean())
-        return out
+        return _shield_energy_features(feat_screen)
 
     def _creep_features(self, feat_minimap: np.ndarray | None) -> dict[str, float]:
-        out = {"minimap_creep_frac": 0.0}
-        creep = self._extract_named_layer(feat_minimap, "creep")
-        if creep is not None:
-            out["minimap_creep_frac"] = float((creep > 0).sum()) / max(creep.size, 1)
-        return out
+        return _creep_features(feat_minimap)
 
     def _economy_pipeline_features(self, ob: Any) -> dict[str, float]:
-        out = {"upgrade_count": 0.0, "build_queue_size": 0.0, "cargo_count": 0.0}
-        upgrades = self._safe_array(ob, "upgrades")
-        if upgrades is not None:
-            out["upgrade_count"] = float(upgrades.size)
-        build_queue = self._safe_array(ob, "build_queue")
-        if build_queue is not None and build_queue.ndim >= 1:
-            out["build_queue_size"] = float(build_queue.shape[0] if build_queue.ndim >= 2 else build_queue.size)
-        cargo = self._safe_array(ob, "cargo")
-        if cargo is not None and cargo.ndim >= 1:
-            out["cargo_count"] = float(cargo.shape[0] if cargo.ndim >= 2 else cargo.size)
-        return out
+        return _economy_pipeline_features(ob)
 
     def _screen_visibility_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
         """Fraction of screen tiles currently fully visible (visibility_map == 2).
@@ -1333,13 +1012,7 @@ class SC2Client:
         un-fogged.  PySC2 feature_screen ``visibility_map`` values:
         0 = hidden, 1 = fogged, 2 = visible.
         """
-        out = {"screen_visibility_frac": 0.0}
-        if feat_screen is None:
-            return out
-        vis = self._extract_named_layer(feat_screen, "visibility_map")
-        if vis is not None:
-            out["screen_visibility_frac"] = float((vis == 2).sum()) / max(vis.size, 1)
-        return out
+        return _screen_visibility_features(feat_screen)
 
     def _screen_antiair_features(self, feat_screen: np.ndarray | None) -> dict[str, float]:
         """Mean anti-air unit density across the screen.
@@ -1348,13 +1021,7 @@ class SC2Client:
         count of anti-air units present.  Aggregating to a mean scalar gives a
         compact air-threat signal without requiring the full spatial grid.
         """
-        out = {"screen_unit_density_aa_mean": 0.0}
-        if feat_screen is None:
-            return out
-        aa = self._extract_named_layer(feat_screen, "unit_density_aa")
-        if aa is not None:
-            out["screen_unit_density_aa_mean"] = float(aa.mean())
-        return out
+        return _screen_antiair_features(feat_screen)
 
     def _alerts_features(self, ob: Any) -> dict[str, float]:
         """Number of active PySC2 alerts this step.
@@ -1366,8 +1033,7 @@ class SC2Client:
         policy receives a direct "under attack" signal without needing to handle
         variable-size arrays.
         """
-        alerts = self._safe_array(ob, "alerts")
-        return {"alert_count": float(alerts.size) if alerts is not None else 0.0}
+        return _alerts_features(ob)
 
     def _weapon_cooldown_features(self, ob: Any) -> dict[str, float]:
         """Mean weapon cooldown for friendly units from ``feature_units``.
@@ -1377,19 +1043,7 @@ class SC2Client:
         units that fired recently and cannot shoot again immediately.  Only
         units with alliance == 1 (self) are included.
         """
-        out = {"self_weapon_cooldown_mean": 0.0}
-        feat_units = self._safe_array(ob, "feature_units")
-        if feat_units is None or feat_units.size == 0:
-            return out
-        # Need at least 26 columns to access weapon_cooldown (index 25).
-        if feat_units.ndim != 2 or feat_units.shape[1] < 26:
-            return out
-        self_mask = feat_units[:, 1] == 1  # alliance == self
-        if not self_mask.any():
-            return out
-        cooldowns = feat_units[self_mask, 25].astype(np.float32)
-        out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
-        return out
+        return _weapon_cooldown_features(ob)
 
     def _self_attack_range_px(self, ob: Any) -> float | None:
         """Approximate max friendly attack range in screen pixels."""
@@ -1974,3 +1628,528 @@ class SC2Client:
             return 0.0, 0.0
         ys, xs = np.where(mask)
         return float(np.mean(xs)), float(np.mean(ys))
+
+
+# ---------------------------------------------------------------------------
+# Shared, stateless observation extraction (issue #350)
+# ---------------------------------------------------------------------------
+# The functions below are the single implementation of the PySC2-TimeStep →
+# flat-observation projection.  ``SC2Client._timestep_to_obs_info`` delegates
+# its obs-building half to :func:`extract_flat_obs`, and the per-block instance
+# methods on ``SC2Client`` are thin wrappers around the matching free function
+# here.  The offline replay reader (BC, issue #349) imports these directly, so
+# training and behaviour cloning never drift.
+#
+# Low-level PySC2 accessors (``_safe_array`` / ``_centroid`` / …) remain
+# ``@staticmethod`` on ``SC2Client`` and are reused by reference; cross-step
+# state that the live client accumulates is threaded explicitly via
+# :class:`_ObsExtractState` rather than read off ``self``.
+
+
+@dataclass
+class _ObsExtractState:
+    """Cross-step state needed to reproduce the live client's exact obs.
+
+    A fresh instance is fine for a single-frame, history-free extraction
+    (the replay reader can keep one per episode); ``SC2Client`` seeds one
+    from ``self`` each step and writes the mutated fields back.
+    """
+
+    last_fn_idx: int = 0
+    explored_mask: np.ndarray | None = None
+    unit_type_lookup: dict[int, str] | None = None
+
+
+def _player_features(ob: Any) -> dict[str, float]:
+    player = SC2Client._safe_player(ob)
+    return {
+        "minerals": float(player.get("minerals", 0.0)),
+        "vespene": float(player.get("vespene", 0.0)),
+        "food_used": float(player.get("food_used", 0.0)),
+        "food_cap": float(player.get("food_cap", 0.0)),
+        "army_count": float(player.get("army_count", 0.0)),
+        "idle_worker_count": float(player.get("idle_worker_count", 0.0)),
+        "warp_gate_count": float(player.get("warp_gate_count", 0.0)),
+        "larva_count": float(player.get("larva_count", 0.0)),
+        "food_workers": float(player.get("food_workers", 0.0)),
+        "food_army": float(player.get("food_army", 0.0)),
+    }
+
+
+def _selected_features(ob: Any) -> dict[str, float]:
+    selected = SC2Client._safe_array(ob, "single_select")
+    if selected is None or selected.size == 0:
+        multi = SC2Client._safe_array(ob, "multi_select")
+        if multi is not None and multi.size > 0:
+            selected = multi
+    if selected is not None and selected.size > 0:
+        count = float(selected.shape[0]) if selected.ndim >= 2 else 1.0
+        try:
+            hp_col = selected[:, 2] if selected.ndim >= 2 else selected[2:3]
+            avg_hp = float(np.mean(hp_col))
+        except (IndexError, ValueError):
+            avg_hp = 0.0
+        try:
+            shield_col = selected[:, 3] if selected.ndim >= 2 else selected[3:4]
+            avg_shields = float(np.mean(shield_col))
+        except (IndexError, ValueError):
+            avg_shields = 0.0
+        try:
+            energy_col = selected[:, 4] if selected.ndim >= 2 else selected[4:5]
+            avg_energy = float(np.mean(energy_col))
+        except (IndexError, ValueError):
+            avg_energy = 0.0
+    else:
+        count, avg_hp, avg_shields, avg_energy = 0.0, 0.0, 0.0, 0.0
+    return {
+        "selected_count": count,
+        "selected_avg_hp": avg_hp,
+        "selected_avg_shields": avg_shields,
+        "selected_avg_energy": avg_energy,
+    }
+
+
+def _screen_summary_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {
+        "screen_self_count": 0.0,
+        "screen_enemy_count": 0.0,
+        "screen_self_cx": 0.0,
+        "screen_self_cy": 0.0,
+        "screen_enemy_cx": 0.0,
+        "screen_enemy_cy": 0.0,
+    }
+    layer = SC2Client._extract_player_relative(feat_screen, screen=True)
+    if layer is None:
+        return out
+    self_mask = layer == 1
+    enemy_mask = layer == 4
+    out["screen_self_count"] = float(self_mask.sum())
+    out["screen_enemy_count"] = float(enemy_mask.sum())
+    out["screen_self_cx"], out["screen_self_cy"] = SC2Client._centroid(self_mask)
+    out["screen_enemy_cx"], out["screen_enemy_cy"] = SC2Client._centroid(enemy_mask)
+    return out
+
+
+def _minimap_summary_features(
+    feat_minimap: np.ndarray | None, explored_mask: np.ndarray | None
+) -> tuple[dict[str, float], np.ndarray | None]:
+    out = {
+        "minimap_self_count": 0.0,
+        "minimap_enemy_count": 0.0,
+        "minimap_enemy_cx": 0.0,
+        "minimap_enemy_cy": 0.0,
+        "minimap_visible_frac": 0.0,
+        "minimap_explored_frac": 0.0,
+        "minimap_camera_x": 0.0,
+        "minimap_camera_y": 0.0,
+    }
+    if feat_minimap is None:
+        return out, explored_mask
+    layer = SC2Client._extract_player_relative(feat_minimap, screen=False)
+    if layer is not None:
+        out["minimap_self_count"] = float((layer == 1).sum())
+        enemy_mask = layer == 4
+        out["minimap_enemy_count"] = float(enemy_mask.sum())
+        out["minimap_enemy_cx"], out["minimap_enemy_cy"] = SC2Client._centroid(enemy_mask)
+    visible = SC2Client._extract_visibility(feat_minimap)
+    if visible is not None:
+        out["minimap_visible_frac"] = float((visible == 2).sum()) / max(visible.size, 1)
+        if explored_mask is None:
+            explored_mask = (visible > 0).astype(bool)
+        else:
+            explored_mask |= visible > 0
+        out["minimap_explored_frac"] = float(explored_mask.sum()) / max(explored_mask.size, 1)
+    camera = SC2Client._extract_named_layer(feat_minimap, "camera")
+    if camera is not None:
+        cmask = camera > 0
+        out["minimap_camera_x"], out["minimap_camera_y"] = SC2Client._centroid(cmask)
+    return out, explored_mask
+
+
+def _score_features(ob: Any) -> dict[str, float]:
+    # Field names are sourced from pysc2.lib.features.ScoreCumulative._fields
+    # (lazily) so we never duplicate them.  'score' is renamed 'score_total'
+    # to avoid confusion with the per-step reward signal.
+    names = _get_score_field_names()
+    # Retrieve the raw value without coercing to ndarray so that PySC2's
+    # NamedNumpyArray field-name access is preserved for the primary path.
+    raw = None
+    try:
+        raw = ob["score_cumulative"] if hasattr(ob, "__getitem__") else None
+    except (KeyError, IndexError, TypeError):
+        pass
+    if raw is None:
+        raw = getattr(ob, "score_cumulative", None)
+    if raw is None:
+        return {n: 0.0 for n in names}
+    # Precompute the positional-fallback array once, outside the per-field
+    # loop.  For plain ndarray inputs every named-access attempt raises an
+    # exception; detecting that here avoids 13 × 2 exception catches per
+    # call and keeps the hot path clean.
+    pos_arr: np.ndarray | None
+    try:
+        pos_arr = raw if isinstance(raw, np.ndarray) else np.asarray(raw)
+        if pos_arr.ndim < 1:
+            pos_arr = None
+    except (TypeError, ValueError):
+        pos_arr = None
+
+    out: dict[str, float] = {}
+    for i, n in enumerate(names):
+        # Prefer field-name access for robustness against PySC2 schema
+        # changes.  The rename score → score_total means we also try the
+        # original PySC2 name ("score") for that entry.  Deduplicate when
+        # the two names are identical (every field except score_total).
+        pysc2_name = "score" if n == "score_total" else n
+        attrs = (pysc2_name,) if pysc2_name == n else (pysc2_name, n)
+        v = None
+        for attr in attrs:
+            try:
+                v = float(raw[attr])
+                break
+            except (KeyError, IndexError, TypeError, ValueError):
+                pass
+        # Fall back to positional index when named access is unavailable.
+        if v is None and pos_arr is not None and i < pos_arr.size:
+            try:
+                v = float(pos_arr[i])
+            except (IndexError, TypeError, ValueError):
+                pass
+        out[n] = v if v is not None else 0.0
+    return out
+
+
+def _screen_hp_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {
+        "screen_unit_density_mean": 0.0,
+        "screen_self_hp_mean": 0.0,
+        "screen_enemy_hp_mean": 0.0,
+    }
+    if feat_screen is None:
+        return out
+    density = SC2Client._extract_named_layer(feat_screen, "unit_density")
+    if density is not None:
+        out["screen_unit_density_mean"] = float(density.mean())
+    hp = SC2Client._extract_named_layer(feat_screen, "unit_hit_points")
+    rel = SC2Client._extract_player_relative(feat_screen, screen=True)
+    if hp is not None and rel is not None:
+        self_mask = rel == 1
+        enemy_mask = rel == 4
+        if self_mask.any():
+            out["screen_self_hp_mean"] = float(hp[self_mask].mean())
+        if enemy_mask.any():
+            out["screen_enemy_hp_mean"] = float(hp[enemy_mask].mean())
+    return out
+
+
+def _topk_enemy_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    # Counts within radii 8 and 24 of the friendly centroid plus the top-3
+    # closest enemies' relative positions and HP ratios.
+    out = {"topk_enemy_within_8": 0.0, "topk_enemy_within_24": 0.0}
+    for i in range(3):
+        out[f"topk_enemy_{i}_rel_x"] = 0.0
+        out[f"topk_enemy_{i}_rel_y"] = 0.0
+        out[f"topk_enemy_{i}_hp_ratio"] = 0.0
+    if feat_screen is None:
+        return out
+    rel = SC2Client._extract_player_relative(feat_screen, screen=True)
+    if rel is None:
+        return out
+    self_mask = rel == 1
+    enemy_mask = rel == 4
+    if not self_mask.any() or not enemy_mask.any():
+        return out
+    scx, scy = SC2Client._centroid(self_mask)
+    ys, xs = np.where(enemy_mask)
+    dx = xs.astype(np.float32) - scx
+    dy = ys.astype(np.float32) - scy
+    dist = np.sqrt(dx * dx + dy * dy)
+    out["topk_enemy_within_8"] = float((dist <= 8.0).sum())
+    out["topk_enemy_within_24"] = float((dist <= 24.0).sum())
+
+    order = np.argsort(dist)[:3]
+    hp_layer = SC2Client._extract_named_layer(feat_screen, "unit_hit_points_ratio")
+    for k, idx in enumerate(order):
+        out[f"topk_enemy_{k}_rel_x"] = float(dx[idx])
+        out[f"topk_enemy_{k}_rel_y"] = float(dy[idx])
+        if hp_layer is not None:
+            # HP ratio layer is 0–255; normalise to [0, 1].
+            out[f"topk_enemy_{k}_hp_ratio"] = float(hp_layer[ys[idx], xs[idx]]) / 255.0
+    return out
+
+
+def _per_unit_type_features(
+    ob: Any, unit_type_lookup: dict[int, str] | None
+) -> tuple[dict[str, float], dict[int, str] | None]:
+    # Initialise every rich-preset unit type to zero.
+    from games.sc2.obs_spec import _RICH_UNIT_TYPES
+
+    out = {f"unit_count_{name}": 0.0 for name in _RICH_UNIT_TYPES}
+    feat_units = SC2Client._safe_array(ob, "feature_units")
+    if feat_units is None or feat_units.size == 0:
+        return out, unit_type_lookup
+    # PySC2's feature_units rows have unit_type at column 0 and owner
+    # (player relative) at column 1 in standard schemas; tolerate
+    # missing columns by short-circuiting on shape.
+    if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        return out, unit_type_lookup
+    if unit_type_lookup is None:
+        unit_type_lookup = SC2Client._build_unit_type_lookup()
+    owners = feat_units[:, 1]
+    # PySC2 owner values: 1 = self, others (4 = enemy) excluded for the
+    # friendly count.
+    for row, owner in zip(feat_units, owners):
+        if int(owner) != 1:
+            continue
+        unit_id = int(row[0])
+        name = unit_type_lookup.get(unit_id)
+        if name is None:
+            continue
+        key = f"unit_count_{name}"
+        if key in out:
+            out[key] += 1.0
+    return out, unit_type_lookup
+
+
+def _quadrant_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {
+        "screen_self_NE_count": 0.0,
+        "screen_self_NW_count": 0.0,
+        "screen_self_SE_count": 0.0,
+        "screen_self_SW_count": 0.0,
+        "screen_enemy_NE_count": 0.0,
+        "screen_enemy_NW_count": 0.0,
+        "screen_enemy_SE_count": 0.0,
+        "screen_enemy_SW_count": 0.0,
+    }
+    rel = SC2Client._extract_player_relative(feat_screen, screen=True)
+    if rel is None:
+        return out
+    h, w = rel.shape
+    mid_y, mid_x = h // 2, w // 2
+    for tag, value in (("self", 1), ("enemy", 4)):
+        mask = rel == value
+        ne = mask[:mid_y, mid_x:]
+        nw = mask[:mid_y, :mid_x]
+        se = mask[mid_y:, mid_x:]
+        sw = mask[mid_y:, :mid_x]
+        out[f"screen_{tag}_NE_count"] = float(ne.sum())
+        out[f"screen_{tag}_NW_count"] = float(nw.sum())
+        out[f"screen_{tag}_SE_count"] = float(se.sum())
+        out[f"screen_{tag}_SW_count"] = float(sw.sum())
+    return out
+
+
+def _available_actions_features(ob: Any) -> dict[str, float]:
+    n = len(FUNCTION_IDS)
+    out = {f"available_fn_{i}": 0.0 for i in range(n)}
+    avail = SC2Client._safe_array(ob, "available_actions")
+    if avail is None:
+        return out
+    avail_set = set(int(x) for x in avail.tolist()) if avail.size > 0 else set()
+    # Use the module-level cache to avoid per-step PySC2 attribute lookups
+    # and repeated lazy imports.  _get_pysc2_id_to_fn_idx() resolves
+    # PySC2 function metadata exactly once and caches the result.
+    id_to_fn_idx = _get_pysc2_id_to_fn_idx()
+    for pysc2_id, fn_idx in id_to_fn_idx.items():
+        if pysc2_id in avail_set:
+            out[f"available_fn_{fn_idx}"] = 1.0
+    return out
+
+
+def _last_action_features(last_fn_idx: int) -> dict[str, float]:
+    n = len(FUNCTION_IDS)
+    out = {f"last_fn_{i}": 0.0 for i in range(n)}
+    if 0 <= last_fn_idx < n:
+        out[f"last_fn_{last_fn_idx}"] = 1.0
+    return out
+
+
+def _enemy_unit_type_features(
+    ob: Any, unit_type_lookup: dict[int, str] | None
+) -> tuple[dict[str, float], dict[int, str] | None]:
+    from games.sc2.obs_spec import _RICH_UNIT_TYPES
+
+    out = {f"enemy_count_{name}": 0.0 for name in _RICH_UNIT_TYPES}
+    feat_units = SC2Client._safe_array(ob, "feature_units")
+    if feat_units is None or feat_units.size == 0:
+        return out, unit_type_lookup
+    if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        return out, unit_type_lookup
+    if unit_type_lookup is None:
+        unit_type_lookup = SC2Client._build_unit_type_lookup()
+    # PySC2 player_relative values: 0=none/background, 1=self, 2=ally, 3=neutral, 4=enemy.
+    # Count only true enemy rows (owner == 4); neutrals, allies and background are excluded.
+    for row, owner in zip(feat_units, feat_units[:, 1]):
+        if int(owner) != 4:
+            continue
+        name = unit_type_lookup.get(int(row[0]))
+        if name is not None:
+            out[f"enemy_count_{name}"] += 1.0
+    return out, unit_type_lookup
+
+
+def _shield_energy_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {
+        "screen_self_shield_mean": 0.0,
+        "screen_enemy_shield_mean": 0.0,
+        "screen_self_energy_mean": 0.0,
+    }
+    if feat_screen is None:
+        return out
+    rel = SC2Client._extract_player_relative(feat_screen, screen=True)
+    if rel is None:
+        return out
+    self_mask = rel == 1
+    enemy_mask = rel == 4
+    shield = SC2Client._extract_named_layer(feat_screen, "unit_shields")
+    if shield is not None:
+        if self_mask.any():
+            out["screen_self_shield_mean"] = float(shield[self_mask].mean())
+        if enemy_mask.any():
+            out["screen_enemy_shield_mean"] = float(shield[enemy_mask].mean())
+    energy = SC2Client._extract_named_layer(feat_screen, "unit_energy")
+    if energy is not None and self_mask.any():
+        out["screen_self_energy_mean"] = float(energy[self_mask].mean())
+    return out
+
+
+def _creep_features(feat_minimap: np.ndarray | None) -> dict[str, float]:
+    out = {"minimap_creep_frac": 0.0}
+    creep = SC2Client._extract_named_layer(feat_minimap, "creep")
+    if creep is not None:
+        out["minimap_creep_frac"] = float((creep > 0).sum()) / max(creep.size, 1)
+    return out
+
+
+def _economy_pipeline_features(ob: Any) -> dict[str, float]:
+    out = {"upgrade_count": 0.0, "build_queue_size": 0.0, "cargo_count": 0.0}
+    upgrades = SC2Client._safe_array(ob, "upgrades")
+    if upgrades is not None:
+        out["upgrade_count"] = float(upgrades.size)
+    build_queue = SC2Client._safe_array(ob, "build_queue")
+    if build_queue is not None and build_queue.ndim >= 1:
+        out["build_queue_size"] = float(build_queue.shape[0] if build_queue.ndim >= 2 else build_queue.size)
+    cargo = SC2Client._safe_array(ob, "cargo")
+    if cargo is not None and cargo.ndim >= 1:
+        out["cargo_count"] = float(cargo.shape[0] if cargo.ndim >= 2 else cargo.size)
+    return out
+
+
+def _screen_visibility_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {"screen_visibility_frac": 0.0}
+    if feat_screen is None:
+        return out
+    vis = SC2Client._extract_named_layer(feat_screen, "visibility_map")
+    if vis is not None:
+        out["screen_visibility_frac"] = float((vis == 2).sum()) / max(vis.size, 1)
+    return out
+
+
+def _screen_antiair_features(feat_screen: np.ndarray | None) -> dict[str, float]:
+    out = {"screen_unit_density_aa_mean": 0.0}
+    if feat_screen is None:
+        return out
+    aa = SC2Client._extract_named_layer(feat_screen, "unit_density_aa")
+    if aa is not None:
+        out["screen_unit_density_aa_mean"] = float(aa.mean())
+    return out
+
+
+def _alerts_features(ob: Any) -> dict[str, float]:
+    alerts = SC2Client._safe_array(ob, "alerts")
+    return {"alert_count": float(alerts.size) if alerts is not None else 0.0}
+
+
+def _weapon_cooldown_features(ob: Any) -> dict[str, float]:
+    out = {"self_weapon_cooldown_mean": 0.0}
+    feat_units = SC2Client._safe_array(ob, "feature_units")
+    if feat_units is None or feat_units.size == 0:
+        return out
+    # Need at least 26 columns to access weapon_cooldown (index 25).
+    if feat_units.ndim != 2 or feat_units.shape[1] < 26:
+        return out
+    self_mask = feat_units[:, 1] == 1  # alliance == self
+    if not self_mask.any():
+        return out
+    cooldowns = feat_units[self_mask, 25].astype(np.float32)
+    out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
+    return out
+
+
+def extract_flat_obs(
+    timestep: Any,
+    obs_names: tuple[str, ...] | list[str],
+    *,
+    state: _ObsExtractState | None = None,
+) -> tuple[np.ndarray, dict[str, float]]:
+    """Project a PySC2 ``TimeStep`` onto a flat observation vector.
+
+    This is the single source of truth for SC2 observation building, shared
+    by the live :class:`SC2Client` and the offline replay reader (issue #350)
+    so training and behaviour cloning use identical features.
+
+    Parameters
+    ----------
+    timestep :
+        A PySC2 ``TimeStep`` (anything exposing ``.observation``).
+    obs_names :
+        The ordered feature names of the active ``ObsSpec`` (``spec.names``).
+        Names absent from the computed feature dict project to ``0.0`` — this
+        is the standard "missing key → 0.0" migration path.
+    state :
+        Optional :class:`_ObsExtractState` carrying cross-step state
+        (explored-mask accumulation, last-action one-hot index, unit-type
+        lookup cache).  A fresh state is created when omitted; pass a
+        persistent instance to reproduce the live client's exact,
+        history-dependent output.  Mutated in place.
+
+    Returns
+    -------
+    (flat, feats) :
+        ``flat`` is the float32 vector projected onto ``obs_names``; ``feats``
+        is the full ``{name: value}`` dict (the live client reuses it to build
+        its info dict).
+    """
+    if state is None:
+        state = _ObsExtractState()
+
+    ob = timestep.observation
+    feat_screen = SC2Client._safe_array(ob, "feature_screen")
+    feat_minimap = SC2Client._safe_array(ob, "feature_minimap")
+
+    feats: dict[str, float] = {}
+    feats.update(_player_features(ob))
+    feats.update(_selected_features(ob))
+    feats.update(_screen_summary_features(feat_screen))
+    minimap_feats, state.explored_mask = _minimap_summary_features(feat_minimap, state.explored_mask)
+    feats.update(minimap_feats)
+    feats.update(_score_features(ob))
+    feats.update(_screen_hp_features(feat_screen))
+    feats.update(_topk_enemy_features(feat_screen))
+    unit_feats, state.unit_type_lookup = _per_unit_type_features(ob, state.unit_type_lookup)
+    feats.update(unit_feats)
+    feats.update(_quadrant_features(feat_screen))
+    feats.update(_available_actions_features(ob))
+    feats.update(_last_action_features(state.last_fn_idx))
+    enemy_feats, state.unit_type_lookup = _enemy_unit_type_features(ob, state.unit_type_lookup)
+    feats.update(enemy_feats)
+    feats.update(_shield_energy_features(feat_screen))
+    feats.update(_creep_features(feat_minimap))
+    feats.update(_economy_pipeline_features(ob))
+    feats.update(_screen_visibility_features(feat_screen))
+    feats.update(_screen_antiair_features(feat_screen))
+    feats.update(_weapon_cooldown_features(ob))
+    feats.update(_alerts_features(ob))
+
+    # game_loop scalar — present on both ladder and rich.
+    game_loop_arr = SC2Client._safe_array(ob, "game_loop")
+    game_loop = float(game_loop_arr[0]) if game_loop_arr is not None and game_loop_arr.size > 0 else 0.0
+    feats["game_loop"] = game_loop
+
+    # Project feature dict → ordered ndarray driven by the active spec.
+    flat = np.array(
+        [float(feats.get(name, 0.0)) for name in obs_names],
+        dtype=np.float32,
+    )
+    return flat, feats

@@ -605,6 +605,7 @@ handful of iterations only).
 - SPATIAL_FN_IDS contains exactly the fn_ids whose names end in `_screen` or `_minimap`
 - `TestRaceGating` (9 tests): all four race keys exist in RACE_FUNCTION_IDS; each race's ids are a subset of FUNCTION_IDS; random race = all fn_ids; race-specific sets (_TERRAN / _PROTOSS / _ZERG) are pairwise disjoint; unknown race falls back to all fn_ids; Terran has Build_Barracks_screen (8) not Build_Nexus_screen (50); Protoss has Build_Nexus_screen (50) not Build_Barracks_screen (8); Zerg has Build_Hatchery_screen (82) not Build_Barracks_screen (8); all three named races include Move_screen (2) and no_op (0)
 - `TestActionToFunctionCall`: fake PySC2 module validates encoding branches — `_quick` emits queue-only args, `select_point` and `select_rect` emit screen coords, `_minimap` actions scale with `minimap_size` (not `screen_size`), and `_screen` actions keep using `screen_size`
+- `TestFunctionCallToAction` (#350): `function_call_to_action` (the inverse of `action_to_function_call`) round-trips `[fn_idx, x, y, queue]` for non-spatial (`no_op` / `select_army` / `select_idle_worker` → centre coords 0.5,0.5), `_quick` (queue preserved), `select_point` / `select_rect`, `_screen` (queue preserved), and `_minimap` (coords scale with `minimap_size`) actions; grid-aligned coords round-trip exactly (incl. odd `screen_size` 0.5 midpoint); an explicit mid-screen `FunctionCall` normalises coords into the unit square; unknown PySC2 function ids return `None` (skip sentinel, no exception). The id→fn_idx cache is reset inside the faked-PySC2 context per round-trip.
 
 ### test_sc2_tech_tree.py — hardcoded tech-tree preconditions (issue #346)
 - `TestBuildingPrereqsMet`: no-prereq buildings always buildable; Terran chain (Barracks needs SupplyDepot; FusionCore needs Starport); Zerg OR-set semantics (Spire requires Lair OR Hive)
@@ -634,6 +635,7 @@ handful of iterations only).
 
 ### test_sc2_client.py — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
+- shared obs extraction (#350): the per-block extractors (`_player_features`, `_score_features`, …) and `_timestep_to_obs_info`'s flat-obs half are now thin wrappers over the module-level `extract_flat_obs` / free extractor functions in `games/sc2/client.py` (single code path shared with the offline replay reader). These tests exercise the instance-method API unchanged, so they also cover the module-level functions by delegation; flat-obs values and info-dict contents are asserted identical to before the refactor.
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - info dict includes unit-aware `self_attack_range_px` derived from visible friendly `feature_units` (uses max friendly range from curated PySC2 unit-range table)
 - `total_self_hp`: info dict sums visible friendly health+shield from `feature_units`; also exposes `visible_self_unit_count`; helper returns 0 for no-self / missing `feature_units` / short rows

@@ -320,15 +320,14 @@ Continuous: `Box([0, 0, 0, 0], [5, 1, 1, 1], shape=(4,))`
 Tabular / discrete-output policies (`epsilon_greedy`, `mcts`, `neural_dqn`, `reinforce`, the discrete LSTM head) read from `DISCRETE_ACTIONS` in `games/sc2/actions.py`, which has `2 + N×N` rows (default `N = SCREEN_GRID_RESOLUTION = 8`, so 66 rows):
 
 - Row 0: `no_op` (issue #127 — required for "stand still and shoot" tactics)
-- Row 1: `select_army` (also the warmup action; auto-issued when a Move_screen is blocked, see below)
+- Row 1: `select_army` (also the warmup action; the deferred-action queue described below auto-emits it when a chosen action requires any unit selected and none is)
 - Rows 2…65: `Move_screen` to each cell centre of an 8×8 grid covering the screen at one-cell-per-8-pixels granularity
 
-When the policy emits any selection-required action (for example move/attack/build/train) while zero units are selected, two complementary mechanisms ensure the agent recovers:
+**Tech-tree-gated mask + deferred-action queue (issue #346).** Every fn_idx has a `Preconditions` record in [`games/sc2/tech_tree.py`](tech_tree.py) with (a) required buildings (OR-sets in DNF form, e.g. `Spire` needs `Lair OR Hive`), (b) required upgrades/research, (c) required selection type (none, any unit, or one of a named set of unit-types). `info["available_fn_ids"]` is now race ∩ PySC2 `available_actions` ∩ tech-tree ∩ selection-filtered, so an action like `Build_FusionCore_screen` is masked off until a Starport actually exists on the map. PySC2's `available_actions` is documented to check unit/ability requirements but **not** building prerequisites or arguments (PySC2 issues [#163](https://github.com/google-deepmind/pysc2/issues/163), [#291](https://github.com/google-deepmind/pysc2/issues/291)) — this hardcoded table closes that gap. Previous race-only filtering (PR #311) and reactive `select_army` substitution (PRs #307, #322) have been removed; their job is now done by the mask plus the queue.
 
-1. **Context-aware pre-selection** (`_action_to_call`): blocked build actions (`Build_*`) use `select_point` on a visible worker found via `feature_units` (workers may all be busy, so `select_idle_worker` is unreliable); all other blocked actions fall back to `select_army` (issues #121, #124, #286).
-2. **Proactive selection guard** (`step()`): if `_selected_count` is zero and the requested action is neither `no_op` nor a selection command, build actions are replaced with `select_point` on a visible worker (falling back to `select_army`), and all other actions are replaced with `select_army` *before* reaching `_action_to_call`.
+When the policy emits an action whose selection requirement is unmet, `SC2Client._resolve_action()` emits the right `select_*` *this* tick and stores the original action in a 1-slot deferred-action FIFO so it replays *next* tick. The selector prefers `select_idle_worker` for Build actions, but falls back to `select_point` on a visible worker when no worker is idle (every SCV is mining/building) — issue #346 specifically required workers that aren't idle to still be selectable. For Train_* and Morph_* the resolver `select_point`s the producing building (Barracks, Stargate, Lair, …) cached from `feature_units` each step. A 1-step `select_army` warmup is still issued at the start of every episode (via `SC2Adapter.build_warmup`).
 
-Additionally, a 1-step `select_army` warmup is issued at the start of every episode (via `SC2Adapter.build_warmup`).
+When DEBUG logging is enabled, `SC2Client` also dumps a readable game-state snapshot every ~10 s of wall-clock time: currently-owned friendly units (counts), currently-owned buildings, completed upgrades/research, currently-selected unit type, and the available action set with the unit/building each action needs selected. This makes it easy to verify the mask is doing the right thing without tailing 22.4 obs/s of raw step logs.
 
 ---
 

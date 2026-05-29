@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 import numpy as np
@@ -20,6 +21,13 @@ import numpy as np
 from framework.obs_spec import ObsSpec
 from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_race
 from games.sc2.obs_spec import get_spec
+from games.sc2.tech_tree import (
+    PRECONDITIONS,
+    STRUCTURE_NAMES,
+    WORKER_NAMES,
+    SelectionReq,
+    fn_idx_satisfied,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,16 +127,8 @@ _MARINE_RANGE_PX_AT_64: float = 20.0
 # Built on first use when pysc2 is available.
 _pysc2_id_to_fn_idx: dict[int, int] | None = None
 
-# Retry cadence for re-issuing select_army when a selection-required action
-# stays blocked while no units are selected. Prevents permanent idling after
-# round/selection transitions in minigames while still avoiding per-step spam.
-_SELECT_ARMY_RETRY_BLOCKED_STEPS: int = 8
 _SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
-# Worker unit-type names (must match pysc2.lib.units member names).  Used to
-# locate a worker on screen for ``select_point`` when a Build action is blocked
-# and ``select_idle_worker`` is insufficient (workers may all be busy).
-_WORKER_TYPE_NAMES: frozenset[str] = frozenset({"SCV", "Probe", "Drone"})
 
 # ---------------------------------------------------------------------------
 # Lazy PySC2 field-name helpers
@@ -326,13 +326,13 @@ class SC2Client:
         self._cumulative_score: float = 0.0
         self._explored_mask: np.ndarray | None = None
         self._available_actions: set[int] | None = None
+        # Internal fn_idx mask — race ∩ PySC2 ∩ tech-tree ∩ selection.
+        # Single source of truth: extreme-random sampling, policy masks
+        # (via info["available_fn_ids"]), and the deferred-action resolver
+        # all read from this.
+        self._available_fn_ids: set[int] | None = None
         self._selected_count: float = 0.0
         self._last_fn_idx: int = 0  # for last_fn_* one-hot in rich preset
-        # Consecutive blocked selection-required steps where select_army is
-        # available and no unit is selected.
-        # Used to issue one immediate select_army and then periodic retries
-        # (instead of permanent no_op) if the blocked state persists.
-        self._blocked_unit_targeted_steps: int = 0
         # Lookup table for unit-type ids → label, populated lazily so unit
         # tests don't import pysc2.lib.units at module load.
         self._unit_type_id_to_name: dict[int, str] | None = None
@@ -343,11 +343,30 @@ class SC2Client:
         # Lookup table for unit-type ids → attack range (game units), used by
         # self_attack_range_px for idle-bonus gating.
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
-        # Cached screen position (x, y) of a friendly worker from the most
-        # recent observation's feature_units.  Used by _action_to_call to
-        # select_point a worker when a Build action is blocked and no units
-        # are selected (select_idle_worker may fail if all workers are busy).
-        self._worker_screen_xy: tuple[int, int] | None = None
+        # Tech-tree state cached from the latest timestep.
+        self._owned_buildings: frozenset[str] = frozenset()
+        self._completed_upgrades: frozenset[str] = frozenset()
+        # Currently-selected unit-type name (None when nothing selected or
+        # the selection is mixed across types).
+        # Set of currently-selected unit-type names.  Multi-type
+        # selections (e.g. ``select_army`` on a mixed Marine+Marauder
+        # army) keep both names so ``ANY_UNIT`` actions and ``OF_TYPE``
+        # actions whose target matches either type stay satisfied.
+        self._selected_unit_types: frozenset[str] = frozenset()
+        # Cached screen (x, y) per friendly unit-type name, populated from
+        # feature_units each step.  The deferred-action resolver uses this
+        # to issue select_point on the right worker/building/unit when the
+        # policy's chosen action requires a different selection.
+        self._screen_xy_by_unit_type: dict[str, tuple[int, int]] = {}
+        # 1-slot FIFO for the deferred-action queue. When the resolver auto-
+        # emits a selection this step, the original action is stored here
+        # and replayed on the next step().
+        self._deferred_action: np.ndarray | None = None
+        # Wall-clock timestamp of the last "current game state" debug dump.
+        # Logged every ~10 s when DEBUG logging is enabled so the user can
+        # eyeball units / buildings / upgrades / valid action set without
+        # tailing 22.4 obs/s of raw step logs.  (Issue #346 follow-up.)
+        self._last_state_log_wall_s: float | None = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -370,9 +389,15 @@ class SC2Client:
         self._cumulative_score = 0.0
         self._explored_mask = None
         self._available_actions = None
+        self._available_fn_ids = None
         self._selected_count = 0.0
         self._last_fn_idx = 0
-        self._blocked_unit_targeted_steps = 0
+        self._owned_buildings = frozenset()
+        self._completed_upgrades = frozenset()
+        self._selected_unit_types = frozenset()
+        self._screen_xy_by_unit_type = {}
+        self._deferred_action = None
+        self._last_state_log_wall_s = None
         if self._self_play and len(timesteps) > 1:
             self._opponent_obs, _ = self._timestep_to_obs_info(timesteps[1])
         return self._timestep_to_obs_info(timesteps[0])
@@ -385,44 +410,28 @@ class SC2Client:
         terminal +1 / -1 / 0.  The reward calculator computes the actual
         training reward in :class:`games.sc2.env.SC2Env`.
 
-        Strategy 2 (proactive selection): if no unit is currently selected
-        and the requested action is not itself a selection command, replace
-        it with a selection action so the agent never idles with an empty
-        selection.  Build actions prefer ``select_point`` on a visible
-        worker; everything else uses ``select_army``.
-        """
-        if self._is_extreme_random_phase():
-            action = self._sample_extreme_random_action()
-        fn_idx = int(action[0])
-        fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
-        is_selection = fn_name.startswith("select_")
-        if self._selected_count < 1.0 and fn_name != "no_op" and not is_selection:
-            select_point_available = (
-                self._available_actions is None
-                or _get_pysc2_id_to_fn_idx().get(_FN_NAME_TO_IDX["select_point"], -1) in self._available_actions
-            )
-            if fn_name.startswith("Build_") and self._worker_screen_xy is not None and select_point_available:
-                # Build action: select_point on a visible worker.
-                wx, wy = self._worker_screen_xy
-                x_norm = float(wx) / max(self._screen_size - 1, 1)
-                y_norm = float(wy) / max(self._screen_size - 1, 1)
-                action = np.array([6, x_norm, y_norm, 0], dtype=np.float32)
-                self._last_fn_idx = 6  # select_point
-                logger.debug(
-                    "Proactive selection: %s replaced with select_point on worker at (%d, %d) (no units selected).",
-                    fn_name,
-                    wx,
-                    wy,
-                )
-            else:
-                from games.sc2.actions import WARMUP_ACTION  # select_army
+        Action resolution order (issue #346):
 
-                action = WARMUP_ACTION.copy()
-                self._last_fn_idx = 1  # select_army
-                logger.debug(
-                    "Proactive selection: %s replaced with select_army (no units selected).",
-                    fn_name,
-                )
+        1. **Deferred action** — if the previous step's resolver injected
+           a selection and queued the original action, replay the original
+           now so the agent's intent actually executes.
+        2. **Extreme-random override** — early-episode exploration phase
+           samples uniformly from the current ``_available_fn_ids`` mask
+           (race ∩ PySC2 ∩ tech-tree ∩ selection).
+        3. **Resolve selection** — if the chosen action requires a
+           specific selection type that doesn't match the current
+           selection, this step's call is replaced by the appropriate
+           ``select_*`` and the original action goes into the deferred
+           slot for the next step.
+        """
+        if self._deferred_action is not None:
+            action = self._deferred_action
+            self._deferred_action = None
+        elif self._is_extreme_random_phase():
+            action = self._sample_extreme_random_action()
+
+        action, deferred = self._resolve_action(action)
+        self._deferred_action = deferred
 
         fn_call = self._action_to_call(action)
         if self._self_play and self._opponent_policy is not None:
@@ -611,19 +620,131 @@ class SC2Client:
             sc2_env_mod.Difficulty.very_easy,
         )
 
+    def _resolve_action(self, action: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
+        """Resolve selection preconditions, optionally deferring the action.
+
+        Issue #346: actions like ``Build_SupplyDepot_screen`` and
+        ``Train_Marine_quick`` require specific selection types (a worker
+        for builds, the producer building for trains).  If the currently-
+        selected unit type doesn't match the action's ``selection_target``,
+        emit the appropriate ``select_*`` *this* tick and return the
+        original action for the *next* tick.
+
+        Returns ``(executed_action, deferred_action_or_None)``.
+        """
+        fn_idx = int(action[0])
+        pre = PRECONDITIONS.get(fn_idx)
+        if pre is None or pre.required_selection == SelectionReq.NONE:
+            return action, None
+
+        # ANY_UNIT — any non-building unit selected is fine.
+        if pre.required_selection == SelectionReq.ANY_UNIT:
+            if self._selected_count >= 1.0:
+                return action, None
+            selector = self._pick_any_unit_selector()
+            if selector is None:
+                return action, None  # no recourse; PySC2 will no-op it
+            return selector, action
+
+        # OF_TYPE — selection must contain at least one type in selection_target.
+        if self._selected_unit_types & pre.selection_target:
+            return action, None
+
+        selector = self._pick_typed_selector(pre.selection_target)
+        if selector is None:
+            # Mask should have prevented this. Fall through to the action;
+            # PySC2 will no-op it. Log so the gap is visible.
+            logger.debug(
+                "_resolve_action: no selector available for %s (target=%s, screen_cache=%s)",
+                FUNCTION_IDS.get(fn_idx, "?"),
+                sorted(pre.selection_target),
+                sorted(self._screen_xy_by_unit_type.keys()),
+            )
+            return action, None
+        return selector, action
+
+    def _pick_any_unit_selector(self) -> np.ndarray | None:
+        """Return a ``select_*`` action that picks any visible friendly unit.
+
+        Prefers ``select_army`` when PySC2 reports it available; otherwise
+        falls back to ``select_point`` on any non-worker, non-structure
+        unit cached from ``feature_units``.
+        """
+        from games.sc2.actions import WARMUP_ACTION  # select_army at fn_idx=1
+
+        select_army_pysc2_id = self._pysc2_fn_id("select_army")
+        if self._available_actions is None or (
+            select_army_pysc2_id is not None and select_army_pysc2_id in self._available_actions
+        ):
+            return WARMUP_ACTION.copy()
+        # No army — try select_point on any cached friendly unit.
+        for name, (sx, sy) in self._screen_xy_by_unit_type.items():
+            if name in WORKER_NAMES:
+                continue
+            return self._select_point_action(sx, sy)
+        # Last-ditch: select any worker.
+        for name in WORKER_NAMES:
+            xy = self._screen_xy_by_unit_type.get(name)
+            if xy is not None:
+                return self._select_point_action(*xy)
+        return None
+
+    def _pick_typed_selector(self, target_names: frozenset[str]) -> np.ndarray | None:
+        """Return a ``select_*`` action that selects a unit/building of an
+        accepted type.
+
+        For workers, prefers ``select_idle_worker`` (cheap, no screen-target)
+        when PySC2 reports it available and there's an idle worker; otherwise
+        falls back to ``select_point`` on any cached worker (mining or
+        building — issue #346 specifically requires non-idle workers be
+        selectable).  For non-workers, uses ``select_point`` on the cached
+        screen location of any unit in ``target_names``.
+        """
+        is_worker_target = bool(target_names & WORKER_NAMES)
+
+        if is_worker_target:
+            # Prefer select_idle_worker (cheap, no screen-target).
+            siw_id = self._pysc2_fn_id("select_idle_worker")
+            if siw_id is not None and (self._available_actions is None or siw_id in self._available_actions):
+                return np.array([4, 0.5, 0.5, 0], dtype=np.float32)
+            # Otherwise select_point on any visible worker (mining/building OK).
+            for name in target_names:
+                xy = self._screen_xy_by_unit_type.get(name)
+                if xy is not None:
+                    return self._select_point_action(*xy)
+            return None
+
+        # Non-worker target: scan cached positions for one of the accepted
+        # types and select_point on it.
+        for name in target_names:
+            xy = self._screen_xy_by_unit_type.get(name)
+            if xy is not None:
+                return self._select_point_action(*xy)
+        return None
+
+    def _select_point_action(self, sx: int, sy: int) -> np.ndarray:
+        x_norm = float(sx) / max(self._screen_size - 1, 1)
+        y_norm = float(sy) / max(self._screen_size - 1, 1)
+        return np.array([6, x_norm, y_norm, 0], dtype=np.float32)
+
+    def _pysc2_fn_id(self, name: str) -> int | None:
+        """Return the raw PySC2 function id for *name*, or None if pysc2 unavailable."""
+        try:
+            from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
+        except ImportError:
+            return None
+        fn = getattr(pysc2_actions.FUNCTIONS, name, None)
+        return int(fn.id) if fn is not None else None
+
     def _action_to_call(self, action: np.ndarray) -> Any:
         """Translate a 4-vector action to a PySC2 ``FunctionCall``.
 
-        When the requested function is not available (PySC2 enforces
-        preconditions like "have units selected"), substitute either
-        ``select_army`` or ``no_op`` depending on context.
-
-        Issues #121 / #124 / #286: when the policy emits a blocked
-        selection-required action while no units are selected, fall back to
-        a context-aware selection command rather than ``no_op``.  Build
-        actions use ``select_point`` on a visible worker (workers may all
-        be busy, so ``select_idle_worker`` is unreliable); everything else
-        falls back to ``select_army``.
+        Selection preconditions are handled upstream by ``_resolve_action``;
+        the tech-tree mask plus the deferred-action queue should make this
+        function's input always-executable. When PySC2 still reports the
+        action as unavailable (rare — e.g. resource gates or a stale
+        observation race) we issue ``no_op`` rather than substituting,
+        keeping this layer simple and deterministic.
         """
         from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
@@ -633,70 +754,13 @@ class SC2Client:
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
 
         if self._available_actions is not None and int(fn_call.function) not in self._available_actions:
-            select_army_id = int(pysc2_actions.FUNCTIONS.select_army.id)
-            select_point_id = int(pysc2_actions.FUNCTIONS.select_point.id)
-            selection_required = fn_name != "no_op" and not fn_name.startswith("select_")
-            no_units_selected = self._selected_count < 1.0
-            # Context-aware selection: build commands need a worker.  Use
-            # select_point on a visible worker (workers may all be busy, so
-            # select_idle_worker is unreliable); fall back to select_army.
-            is_build_action = fn_name.startswith("Build_")
-            use_select_point_worker = (
-                is_build_action
-                and no_units_selected
-                and self._worker_screen_xy is not None
-                and select_point_id in (self._available_actions or set())
-            )
-            if use_select_point_worker:
-                preferred_select_id = select_point_id
-                preferred_fn_idx = 6  # FUNCTION_IDS index for select_point
-            else:
-                preferred_select_id = select_army_id
-                preferred_fn_idx = 1  # FUNCTION_IDS index for select_army
-            # Fall back to select_army when preferred is not available.
-            if preferred_select_id not in (self._available_actions or set()):
-                preferred_select_id = select_army_id
-                preferred_fn_idx = 1
-                use_select_point_worker = False
-            if selection_required and no_units_selected and preferred_select_id in self._available_actions:
-                self._blocked_unit_targeted_steps += 1
-                if (
-                    self._blocked_unit_targeted_steps == 1
-                    or self._blocked_unit_targeted_steps % _SELECT_ARMY_RETRY_BLOCKED_STEPS == 0
-                ):
-                    # First blocked step: issue the appropriate selection
-                    # command. If the blocked state persists for many steps
-                    # (e.g. post-round transitions), retry periodically so the
-                    # agent does not get stuck in perpetual no_op.
-                    logger.debug(
-                        "Action %s blocked; auto-selecting (%s).",
-                        fn_name,
-                        FUNCTION_IDS.get(preferred_fn_idx, "select_army"),
-                    )
-                    # Reflect the executed action, not the requested one, so the
-                    # rich preset's last_fn_* one-hot stays consistent.
-                    self._last_fn_idx = preferred_fn_idx
-                    if use_select_point_worker:
-                        wx, wy = self._worker_screen_xy  # type: ignore[misc]
-                        return pysc2_actions.FunctionCall(select_point_id, [[0], [wx, wy]])
-                    return pysc2_actions.FunctionCall(preferred_select_id, [[0]])
-                # Between periodic retries, wait with no_op to avoid spamming
-                # selection commands every step during short transition windows.
-                logger.debug(
-                    "Action %s still blocked after selection; issuing no_op.",
-                    fn_name,
-                )
-            else:
-                self._blocked_unit_targeted_steps = 0
             logger.debug(
-                "Action %s blocked (not in available_actions); substituting no_op.",
+                "Action %s unavailable in PySC2 mask; issuing no_op.",
                 fn_name,
             )
-            self._last_fn_idx = 0  # FUNCTION_IDS index for no_op
+            self._last_fn_idx = 0
             return pysc2_actions.FunctionCall(int(pysc2_actions.FUNCTIONS.no_op.id), [])
 
-        # Action is available — reset blocked-step tracking.
-        self._blocked_unit_targeted_steps = 0
         self._last_fn_idx = fn_idx
 
         if fn_name != "no_op":
@@ -720,11 +784,20 @@ class SC2Client:
         return self._episodes_started > 0 and self._episodes_started <= self._extreme_random_run_count
 
     def _sample_extreme_random_action(self) -> np.ndarray:
-        valid_fn_ids: list[int] = []
-        if self._available_actions:
-            id_map = _get_pysc2_id_to_fn_idx()
-            valid_fn_ids = [id_map[pid] for pid in self._available_actions if pid in id_map]
-        fn_idx = int(self._rng.choice(valid_fn_ids)) if valid_fn_ids else 0
+        """Sample uniformly from the fully-filtered internal fn_idx mask.
+
+        Reads ``self._available_fn_ids`` (race ∩ PySC2 ∩ tech-tree ∩
+        selection) rather than raw PySC2 ``available_actions``; this is
+        what makes issue #346's "Build_FusionCore at game start" no
+        longer reachable in the random phase.  Falls back to ``no_op``
+        (fn_idx=0) when the mask is empty (e.g. very first tick before
+        any observation has populated the mask).
+        """
+        if self._available_fn_ids:
+            valid_fn_ids = sorted(self._available_fn_ids)
+            fn_idx = int(self._rng.choice(valid_fn_ids))
+        else:
+            fn_idx = 0
         return np.array(
             [
                 fn_idx,
@@ -760,7 +833,7 @@ class SC2Client:
         feats.update(self._screen_hp_features(feat_screen))
         feats.update(self._topk_enemy_features(feat_screen))
         feats.update(self._per_unit_type_features(ob))
-        self._update_worker_screen_pos(ob)
+        self._update_unit_screen_positions(ob)
         feats.update(self._quadrant_features(feat_screen))
         feats.update(self._available_actions_features(ob))
         feats.update(self._last_action_features())
@@ -793,22 +866,21 @@ class SC2Client:
             cumulative = prev_score + float(getattr(timestep, "reward", 0.0) or 0.0)
         self._cumulative_score = cumulative
 
-        # Track available actions for precondition checking in _action_to_call.
+        # Track raw PySC2 available_actions for downstream layer checks.
         avail_arr = self._safe_array(ob, "available_actions")
-        available_fn_ids: set[int] | None = None
         if avail_arr is not None:
             self._available_actions = set(avail_arr.tolist())
-            id_map = _get_pysc2_id_to_fn_idx()
-            if id_map:
-                available_fn_ids = {id_map[pid] for pid in self._available_actions if pid in id_map}
-            inferred_fn_ids = self._infer_fn_ids_from_units(ob)
-            if inferred_fn_ids is not None:
-                if available_fn_ids is None:
-                    available_fn_ids = set(inferred_fn_ids)
-                else:
-                    available_fn_ids &= inferred_fn_ids
         else:
             self._available_actions = None
+
+        # Compute the full internal mask: race ∩ PySC2 ∩ tech-tree ∩ selection.
+        # Single source of truth — read by extreme-random sampler, policies
+        # (via info["available_fn_ids"]), and the deferred-action resolver.
+        self._owned_buildings = self._compute_owned_buildings(ob)
+        self._completed_upgrades = self._compute_completed_upgrades(ob)
+        self._selected_unit_types = self._compute_selected_unit_types(ob)
+        available_fn_ids = self._compute_available_fn_ids(ob)
+        self._available_fn_ids = available_fn_ids
 
         # player_outcome is only meaningful for ladder maps where PySC2 emits
         # a terminal +1 / -1 / 0.  For minigames timestep.reward is a per-step
@@ -852,6 +924,11 @@ class SC2Client:
             info["self_attack_range_px"] = self_attack_range_px
         info["total_self_hp"] = self._total_self_hp(ob)
         info["self_weapon_cooldown_mean"] = feats.get("self_weapon_cooldown_mean", 0.0)
+
+        # Periodic human-readable state dump for tech-tree debugging
+        # (issue #346 follow-up).  Logged at DEBUG, throttled to ~10 s
+        # wall-clock so the log isn't drowned in 22.4 lines/sec.
+        self._maybe_log_state_dump(feats)
 
         # Raw minimap visibility layer — only stored when the belief module is
         # active (store_minimap_vis=True) to avoid the per-step payload cost
@@ -1371,26 +1448,25 @@ class SC2Client:
             return 0.0
         return float((feat_units[:, 1] == 1).sum())
 
-    def _update_worker_screen_pos(self, ob: Any) -> None:
-        """Cache screen (x, y) of the first friendly worker visible in ``feature_units``.
+    def _update_unit_screen_positions(self, ob: Any) -> None:
+        """Cache screen (x, y) per friendly unit-type name from ``feature_units``.
 
         PySC2 ``feature_units`` column layout (0-indexed):
           0=unit_type, 1=alliance, …, 8=x, 9=y.
 
-        Workers are identified by matching the unit_type id against
-        :data:`_WORKER_TYPE_NAMES` via the lazy ``_unit_type_id_to_name``
-        lookup.  The position is stored in ``self._worker_screen_xy`` for
-        use in ``_action_to_call`` (``select_point`` fallback when a Build
-        action is blocked and ``select_idle_worker`` is unavailable or
-        insufficient).
+        Populates ``self._screen_xy_by_unit_type`` (replaces the
+        worker-only cache used before issue #346).  The deferred-action
+        resolver uses this to issue ``select_point`` on the right
+        worker/building/unit when the agent's chosen action requires a
+        different selection.
+
+        First-seen-wins per unit-type name; ties are resolved arbitrarily.
         """
+        self._screen_xy_by_unit_type = {}
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
-            self._worker_screen_xy = None
             return
-        # Need at least 10 columns (0..9) for unit_type, alliance, …, x, y.
         if feat_units.ndim != 2 or feat_units.shape[1] < 10:
-            self._worker_screen_xy = None
             return
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
@@ -1398,10 +1474,260 @@ class SC2Client:
             if int(row[1]) != 1:  # alliance != self
                 continue
             name = self._unit_type_id_to_name.get(int(row[0]))
-            if name in _WORKER_TYPE_NAMES:
-                self._worker_screen_xy = (int(row[8]), int(row[9]))
-                return
-        self._worker_screen_xy = None
+            if name is None or name in self._screen_xy_by_unit_type:
+                continue
+            self._screen_xy_by_unit_type[name] = (int(row[8]), int(row[9]))
+
+    def _compute_owned_buildings(self, ob: Any) -> frozenset[str]:
+        """Return the set of friendly structure/building names visible this step.
+
+        Returns frozenset of pysc2.lib.units member names. Used as the
+        ``owned_buildings`` input to the tech-tree filter.
+        """
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return frozenset()
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return frozenset()
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+        names: set[str] = set()
+        for row in feat_units:
+            if int(row[1]) != 1:
+                continue
+            name = self._unit_type_id_to_name.get(int(row[0]))
+            if name is not None and name in STRUCTURE_NAMES:
+                names.add(name)
+        return frozenset(names)
+
+    def _compute_completed_upgrades(self, ob: Any) -> frozenset[str]:
+        """Return the set of completed upgrade/research names this step.
+
+        Reads PySC2's ``upgrades`` field (int array of UpgradeID values)
+        and maps to names via ``pysc2.lib.upgrades.Upgrades`` enum.
+        Returns frozenset of upgrade names (empty if pysc2 unavailable).
+        """
+        upgrades_arr = self._safe_array(ob, "upgrades")
+        if upgrades_arr is None or upgrades_arr.size == 0:
+            return frozenset()
+        lookup = self._upgrade_id_to_name()
+        if not lookup:
+            return frozenset()
+        names: set[str] = set()
+        for uid in upgrades_arr.tolist():
+            name = lookup.get(int(uid))
+            if name is not None:
+                names.add(name)
+        return frozenset(names)
+
+    def _compute_selected_unit_types(self, ob: Any) -> frozenset[str]:
+        """Return the set of unit-type names currently in the selection.
+
+        Reads ``single_select`` and ``multi_select``.  Empty selection →
+        empty frozenset.  Mixed-type selections (e.g. ``select_army`` on
+        a Marine + Marauder army) return all distinct types so that
+        ``ANY_UNIT`` precondition checks stay satisfied and ``OF_TYPE``
+        checks succeed whenever at least one selected unit matches the
+        action's target — PySC2 will route the command to the
+        compatible units in the selection.
+        """
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+
+        names: set[str] = set()
+        for key in ("single_select", "multi_select"):
+            arr = self._safe_array(ob, key)
+            if arr is None or arr.size == 0:
+                continue
+            if arr.ndim == 1:
+                rows = arr[np.newaxis, :]
+            elif arr.ndim == 2 and arr.shape[1] >= 1:
+                rows = arr
+            else:
+                continue
+            for row in rows:
+                name = self._unit_type_id_to_name.get(int(row[0]))
+                if name is not None:
+                    names.add(name)
+        return frozenset(names)
+
+    def _compute_available_fn_ids(self, ob: Any) -> set[int]:
+        """Compute the per-step internal fn_idx mask.
+
+        Order:
+          1. Race mask (configured race; falls back to inferred race when
+             configured is "random").
+          2. PySC2 ``available_actions`` (mapped to internal fn_idx).
+          3. Tech-tree filter: building prereqs, upgrade prereqs, and
+             selection-type requirements (see
+             :func:`games.sc2.tech_tree.fn_idx_satisfied`).
+        """
+        configured = (self._agent_race or "random").lower()
+        if configured == "random":
+            inferred = self._infer_fn_ids_from_units(ob)
+            if inferred is not None:
+                race_set: set[int] = set(inferred)
+            else:
+                race_set = set(fn_ids_for_race("random"))
+        else:
+            race_set = set(fn_ids_for_race(configured))
+
+        pysc2_mapped: set[int] | None = None
+        if self._available_actions is not None:
+            id_map = _get_pysc2_id_to_fn_idx()
+            if id_map:
+                pysc2_mapped = {id_map[pid] for pid in self._available_actions if pid in id_map}
+
+        candidate = race_set if pysc2_mapped is None else race_set & pysc2_mapped
+
+        # Tech-tree filter — exact game-state check.  Skipped when the
+        # unit-type lookup is empty (PySC2 unavailable, e.g. unit tests):
+        # without unit-type names we can't determine owned_buildings or
+        # selected_unit_types, so the tech filter would drop everything
+        # that requires a specific selection.  Fall back to race ∩ PySC2.
+        if not self._unit_type_id_to_name:
+            return set(candidate)
+
+        return {
+            fn_idx
+            for fn_idx in candidate
+            if fn_idx_satisfied(
+                fn_idx,
+                self._owned_buildings,
+                self._completed_upgrades,
+                self._selected_unit_types,
+            )
+        }
+
+    _upgrade_id_to_name_cache: dict[int, str] | None = None
+
+    @classmethod
+    def _upgrade_id_to_name(cls) -> dict[int, str]:
+        """Lazy-built lookup table from PySC2 UpgradeID → name."""
+        if cls._upgrade_id_to_name_cache is None:
+            try:
+                from pysc2.lib import upgrades as pysc2_upgrades  # type: ignore[import-untyped]
+            except ImportError:
+                cls._upgrade_id_to_name_cache = {}
+            else:
+                # PySC2 exposes Upgrades as an IntEnum (Upgrades) with
+                # members like Stimpack=15, CombatShield=16, etc. Fall back
+                # to an empty dict if the structure changes.
+                enum_cls = getattr(pysc2_upgrades, "Upgrades", None) or getattr(pysc2_upgrades, "Upgrade", None)
+                if enum_cls is None:
+                    cls._upgrade_id_to_name_cache = {}
+                else:
+                    cls._upgrade_id_to_name_cache = {int(m.value): m.name for m in enum_cls}
+        return cls._upgrade_id_to_name_cache
+
+    # ------------------------------------------------------------------
+    # Periodic state dump (issue #346 follow-up)
+    # ------------------------------------------------------------------
+
+    _STATE_LOG_INTERVAL_S: float = 10.0
+
+    def _maybe_log_state_dump(self, feats: dict[str, float]) -> None:
+        """Log a readable game-state dump every ~10 s of wall-clock time.
+
+        Gated on DEBUG log level — the dump is skipped entirely when the
+        logger isn't at DEBUG, so there's no per-step cost in production.
+        Logs:
+
+        - Currently owned units (friendly, counted from feature_units).
+        - Currently owned buildings (friendly structures).
+        - Completed upgrades / research.
+        - Possible actions (the internal ``_available_fn_ids`` mask),
+          each annotated with the unit/building type that needs to be
+          selected.
+        """
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        now = time.monotonic()
+        last = self._last_state_log_wall_s
+        if last is not None and (now - last) < self._STATE_LOG_INTERVAL_S:
+            return
+        self._last_state_log_wall_s = now
+
+        units_str = self._format_owned_units(feats)
+        buildings_str = self._format_set_or_dash(self._owned_buildings)
+        upgrades_str = self._format_set_or_dash(self._completed_upgrades)
+        actions_str = self._format_available_actions(self._available_fn_ids)
+        if not self._selected_unit_types:
+            selected_str = "(nothing selected)"
+        else:
+            selected_str = ", ".join(sorted(self._selected_unit_types))
+
+        logger.debug(
+            "SC2 state @ game_loop=%d:\n"
+            "  units      : %s\n"
+            "  buildings  : %s\n"
+            "  upgrades   : %s\n"
+            "  selected   : %s\n"
+            "  actions    : %s",
+            int(feats.get("game_loop", 0.0)),
+            units_str,
+            buildings_str,
+            upgrades_str,
+            selected_str,
+            actions_str,
+        )
+
+    @staticmethod
+    def _format_set_or_dash(items: frozenset[str] | set[str]) -> str:
+        if not items:
+            return "-"
+        return ", ".join(sorted(items))
+
+    def _format_owned_units(self, feats: dict[str, float]) -> str:
+        """Render friendly unit counts as e.g. ``Marine x4, SCV x12``.
+
+        Pulls per-unit-type counts from the feature dict the env already
+        builds (no extra obs traversal).
+        """
+        counts: list[tuple[str, int]] = []
+        for key, value in feats.items():
+            if not key.startswith("unit_count_"):
+                continue
+            n = int(value)
+            if n <= 0:
+                continue
+            name = key[len("unit_count_") :]
+            counts.append((name, n))
+        if not counts:
+            return "-"
+        counts.sort()
+        return ", ".join(f"{name} x{n}" for name, n in counts)
+
+    def _format_available_actions(self, available_fn_ids: set[int] | None) -> str:
+        """Render the available-fn mask as a multi-line list with selection hints.
+
+        Each line: ``  - <fn_name> (<selection requirement>)``.  Selection
+        requirements are pulled from
+        :data:`games.sc2.tech_tree.PRECONDITIONS` so the user can see at
+        a glance which actions are currently waiting on a select.
+        """
+        if not available_fn_ids:
+            return "(none)"
+        lines: list[str] = []
+        for fn_idx in sorted(available_fn_ids):
+            name = FUNCTION_IDS.get(fn_idx, f"fn_{fn_idx}")
+            hint = self._selection_hint(fn_idx)
+            lines.append(f"\n    - {name} ({hint})")
+        return "".join(lines)
+
+    @staticmethod
+    def _selection_hint(fn_idx: int) -> str:
+        pre = PRECONDITIONS.get(fn_idx)
+        if pre is None:
+            return "no requirement"
+        if pre.required_selection == SelectionReq.NONE:
+            return "no selection needed"
+        if pre.required_selection == SelectionReq.ANY_UNIT:
+            return "select any unit"
+        targets = pre.selection_target
+        if not targets:
+            return "select unknown"
+        return "select " + " or ".join(sorted(targets))
 
     @staticmethod
     def _build_attack_range_lookup() -> dict[int, float]:
@@ -1428,17 +1754,22 @@ class SC2Client:
 
     @staticmethod
     def _build_unit_type_lookup() -> dict[int, str]:
-        """Build {unit_type_id: race_label} for the rich preset's unit-type counts.
+        """Build {unit_type_id: unit_name} for all SC2 units and structures.
+
+        Previously restricted to _RICH_UNIT_TYPES (8 combat units) for the
+        rich obs preset; issue #346 needs the full lookup so the tech-tree
+        filter can recognise structures (CommandCenter, Barracks, Starport,
+        …) and morph parents (Lair, Hive, SiegeTankSieged, …).
 
         Uses pysc2.lib.units when available; falls back to an empty dict so
-        unit tests that don't install pysc2 still work (the rich preset will
-        report zero unit-type counts in that case).
+        unit tests that don't install pysc2 still work (no tech filtering
+        in that case — the mask reduces to the race ∩ PySC2 intersection
+        as before).
         """
         try:
             from pysc2.lib import units as pysc2_units  # type: ignore[import-untyped]
         except ImportError:
             return {}
-        from games.sc2.obs_spec import _RICH_UNIT_TYPES
 
         lookup: dict[int, str] = {}
         races = (
@@ -1451,8 +1782,7 @@ class SC2Client:
             if race is None:
                 continue
             for member in race:
-                if member.name in _RICH_UNIT_TYPES:
-                    lookup[int(member.value)] = member.name
+                lookup[int(member.value)] = member.name
         return lookup
 
     @staticmethod

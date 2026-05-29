@@ -90,6 +90,8 @@ _ABBREV = {
     "max_apm": "apm",
     "apm_burst_s": "apmb",
     "log_stats_every_n_sims": "lsens",
+    "initial_extreme_random_fraction": "ierf",
+    "initial_extreme_random_runs": "ierr",
     # neural_net policy params
     "hidden_sizes": "hs",
     "hidden_size": "hsize",

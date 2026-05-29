@@ -717,14 +717,15 @@ class _FakePySc2:
     lib = _FakeLib
 
 
-class TestSC2ClientActionFallback(unittest.TestCase):
-    """Verify the auto-select-army fallback (#121, #124)."""
+class TestSC2ClientActionToCall(unittest.TestCase):
+    """``_action_to_call`` now only translates; selection injection moved to
+    ``_resolve_action`` (issue #346).  These tests pin the simplified
+    contract: legal actions pass through; PySC2-unavailable actions become
+    no_op (no implicit substitution)."""
 
     def setUp(self):
         from unittest.mock import patch
 
-        # Patch pysc2 + the games.sc2.actions.action_to_function_call helper so
-        # _action_to_call can be exercised without a real pysc2 install.
         patcher_pysc2 = patch.dict(
             "sys.modules",
             {
@@ -738,8 +739,6 @@ class TestSC2ClientActionFallback(unittest.TestCase):
 
         from games.sc2 import client as client_mod
 
-        # action_to_function_call also imports pysc2 internally; replace it
-        # with a stub that returns a FakeFunctionCall with the obvious mapping.
         def _fake_action_to_call(action, screen_size, minimap_size=None):
             fn_idx = int(action[0])
             fn_id = {
@@ -751,11 +750,7 @@ class TestSC2ClientActionFallback(unittest.TestCase):
             }.get(fn_idx, _FakeFunctions.no_op.id)
             return _FakeFunctionCall(fn_id, [])
 
-        patcher_helper = patch.object(
-            client_mod,
-            "action_to_function_call",
-            _fake_action_to_call,
-        )
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_action_to_call)
         patcher_helper.start()
         self.addCleanup(patcher_helper.stop)
 
@@ -763,37 +758,23 @@ class TestSC2ClientActionFallback(unittest.TestCase):
 
         self.client = SC2Client(map_name="MoveToBeacon")
 
-    def test_move_screen_with_no_army_selected_substitutes_select_army(self):
-        """Issue #124: blocked Move_screen → auto-select-army (not no_op)."""
-        # Available actions: no_op (0) + select_army (7).  Move_screen (331) is NOT.
+    def test_legal_action_passes_through(self):
         self.client._available_actions = {
             _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_army.id)
-
-    def test_blocked_no_op_when_select_army_also_unavailable(self):
-        """If select_army is also blocked, fall back to no_op as before."""
-        self.client._available_actions = {_FakeFunctions.no_op.id}
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.no_op.id)
-
-    def test_legal_move_screen_passes_through(self):
-        """When Move_screen IS available, the original action is preserved."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
             _FakeFunctions.Move_screen.id,
         }
         action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
         call = self.client._action_to_call(action)
         self.assertEqual(call.function, _FakeFunctions.Move_screen.id)
 
-    def test_no_op_action_not_redirected(self):
-        """A policy emitting no_op should pass through unchanged."""
+    def test_unavailable_action_becomes_no_op(self):
+        """No implicit substitution: PySC2-blocked actions just no_op."""
+        self.client._available_actions = {_FakeFunctions.no_op.id}
+        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
+        call = self.client._action_to_call(action)
+        self.assertEqual(call.function, _FakeFunctions.no_op.id)
+
+    def test_no_op_action_unchanged(self):
         self.client._available_actions = {
             _FakeFunctions.no_op.id,
             _FakeFunctions.select_army.id,
@@ -802,146 +783,10 @@ class TestSC2ClientActionFallback(unittest.TestCase):
         call = self.client._action_to_call(action)
         self.assertEqual(call.function, _FakeFunctions.no_op.id)
 
-    def test_select_army_substitution_not_repeated_on_consecutive_blocked_steps(self):
-        """Issue (beacon idling): when Move_screen is blocked for multiple
-        consecutive steps, select_army should be issued ONCE, then no_op on
-        subsequent blocked steps — not select_army every time."""
-        blocked_available = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        self.client._available_actions = blocked_available
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
 
-        # Step 1: first blocked step → should substitute select_army.
-        call1 = self.client._action_to_call(action)
-        self.assertEqual(call1.function, _FakeFunctions.select_army.id)
-        self.assertEqual(self.client._blocked_unit_targeted_steps, 1)
-
-        # Step 2: still blocked → should NOT repeat select_army; use no_op.
-        call2 = self.client._action_to_call(action)
-        self.assertEqual(call2.function, _FakeFunctions.no_op.id)
-
-        # Step 3: still blocked → no_op again (not select_army).
-        call3 = self.client._action_to_call(action)
-        self.assertEqual(call3.function, _FakeFunctions.no_op.id)
-
-    def test_pending_flag_cleared_when_move_screen_becomes_available(self):
-        """After blocked-step tracking starts, a legal Move_screen should reset
-        it so the next blocked streak starts with select_army again."""
-        blocked = {_FakeFunctions.no_op.id, _FakeFunctions.select_army.id}
-        available = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-            _FakeFunctions.Move_screen.id,
-        }
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-
-        # First blocked step: select_army substituted, pending=True.
-        self.client._available_actions = blocked
-        self.client._action_to_call(action)
-        self.assertEqual(self.client._blocked_unit_targeted_steps, 1)
-
-        # Move_screen becomes available: blocked-step counter should reset.
-        self.client._available_actions = available
-        self.client._action_to_call(action)
-        self.assertEqual(self.client._blocked_unit_targeted_steps, 0)
-
-        # Now block again: should trigger select_army again (not no_op).
-        self.client._available_actions = blocked
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_army.id)
-
-    def test_select_army_retried_periodically_when_blocked_persists(self):
-        """Long blocked streaks should periodically retry select_army so the
-        agent cannot get stuck in endless no_op after a round transition."""
-        blocked_available = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        self.client._available_actions = blocked_available
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-
-        calls = [self.client._action_to_call(action).function for _ in range(8)]
-        self.assertEqual(calls[0], _FakeFunctions.select_army.id)
-        self.assertTrue(all(c == _FakeFunctions.no_op.id for c in calls[1:7]))
-        self.assertEqual(calls[7], _FakeFunctions.select_army.id)
-
-    def test_build_action_with_no_units_selected_substitutes_select_point_worker(self):
-        """Blocked build action should prefer select_point on a visible worker."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-            _FakeFunctions.select_point.id,
-        }
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = (20, 30)
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_point.id)
-        # Should click on the cached worker position.
-        self.assertEqual(call.args[1], [20, 30])
-
-    def test_build_action_falls_back_to_select_army_when_no_worker_visible(self):
-        """Blocked build action falls back to select_army when no worker is
-        visible on screen."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-            _FakeFunctions.select_point.id,
-        }
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = None
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_army.id)
-
-    def test_build_action_falls_back_to_select_army_when_select_point_unavailable(self):
-        """Blocked build action falls back to select_army when select_point
-        is not in available_actions."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = (20, 30)
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_army.id)
-
-    def test_move_action_still_uses_select_army(self):
-        """Non-build blocked actions should still use select_army, not
-        select_point on a worker."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-            _FakeFunctions.select_point.id,
-        }
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = (20, 30)
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.select_army.id)
-
-    def test_does_not_substitute_select_army_when_units_are_already_selected(self):
-        """Blocked actions for other reasons should remain no_op fallback."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        self.client._selected_count = 2.0
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        call = self.client._action_to_call(action)
-        self.assertEqual(call.function, _FakeFunctions.no_op.id)
-
-
-class TestSC2ClientProactiveSelection(unittest.TestCase):
-    """Strategy 2: proactive selection guard in step().
-
-    When _selected_count is 0 and a non-selection, non-no_op action is
-    requested, step() should replace it with select_army before it even
-    reaches _action_to_call.
-    """
+class TestSC2ClientResolveAndDefer(unittest.TestCase):
+    """``step()`` resolves selection preconditions and queues the original
+    action for the next step (issue #346 deferred-action queue)."""
 
     def setUp(self):
         from unittest.mock import MagicMock, patch
@@ -971,124 +816,153 @@ class TestSC2ClientProactiveSelection(unittest.TestCase):
             }.get(fn_idx, _FakeFunctions.no_op.id)
             return _FakeFunctionCall(fn_id, [])
 
-        patcher_helper = patch.object(
-            client_mod,
-            "action_to_function_call",
-            _fake_action_to_call,
-        )
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_action_to_call)
         patcher_helper.start()
         self.addCleanup(patcher_helper.stop)
 
         from games.sc2.client import SC2Client
 
         self.client = SC2Client(map_name="MoveToBeacon")
-        # Mock _sc2_env.step and _timestep_to_obs_info so step() runs.
         fake_ts = MagicMock()
         fake_ts.last.return_value = False
         fake_ts.reward = 0.0
         self.client._sc2_env = MagicMock()
         self.client._sc2_env.step.return_value = [fake_ts]
         self.client._timestep_to_obs_info = MagicMock(return_value=(np.zeros(10), {}))
-        # Make all actions available so _action_to_call passes them through.
+        # All actions available so _action_to_call passes resolved actions through.
         self.client._available_actions = None
-        # Track the action that actually reaches _action_to_call.
+        # Spy on what reaches _action_to_call after resolution.
         self._captured_action = None
         original_atc = self.client._action_to_call
 
-        def _spy_action_to_call(action):
+        def _spy(action):
             self._captured_action = action.copy()
             return original_atc(action)
 
-        self.client._action_to_call = _spy_action_to_call
+        self.client._action_to_call = _spy
 
-    def test_move_screen_replaced_with_select_army_when_no_selection(self):
-        """Move_screen with empty selection → select_army injected."""
+    # --- Pass-through (no resolution needed) -----------------------------
+
+    def test_no_op_passes_through(self):
         self.client._selected_count = 0.0
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 1)  # select_army
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([0, 0.5, 0.5, 0], dtype=np.float32))
+        self.assertEqual(int(self._captured_action[0]), 0)
 
-    def test_no_op_passes_through_with_empty_selection(self):
-        """no_op should not be replaced even with empty selection."""
+    def test_select_army_passes_through(self):
         self.client._selected_count = 0.0
-        action = np.array([0, 0.5, 0.5, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 0)  # no_op
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([1, 0.5, 0.5, 0], dtype=np.float32))
+        self.assertEqual(int(self._captured_action[0]), 1)
 
-    def test_select_army_passes_through_with_empty_selection(self):
-        """select_army should not be replaced."""
-        self.client._selected_count = 0.0
-        action = np.array([1, 0.5, 0.5, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 1)  # select_army
-
-    def test_action_passes_through_when_units_selected(self):
-        """With units already selected, no replacement should occur."""
+    def test_any_unit_action_passes_when_unit_selected(self):
         self.client._selected_count = 3.0
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        self.client.step(action)
+        self.client._selected_unit_types = frozenset({"Marine"})
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
         self.assertEqual(int(self._captured_action[0]), 2)  # Move_screen
 
-    def test_build_action_replaced_with_select_point_when_worker_visible(self):
-        """Build_Barracks_screen with empty selection and visible worker
-        → select_point on the worker."""
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = (20, 30)
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 6)  # select_point
+    def test_build_passes_when_worker_selected(self):
+        self.client._selected_count = 1.0
+        self.client._selected_unit_types = frozenset({"SCV"})
+        self.client.step(np.array([8, 0.4, 0.6, 0], dtype=np.float32))
+        self.assertEqual(int(self._captured_action[0]), 8)  # Build_Barracks
 
-    def test_build_action_falls_back_to_select_army_when_no_worker(self):
-        """Build_Barracks_screen with empty selection and no visible worker
-        → select_army fallback."""
-        self.client._selected_count = 0.0
-        self.client._worker_screen_xy = None
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 1)  # select_army
+    # --- Deferred-action queue -------------------------------------------
 
-    def test_build_action_falls_back_to_select_army_when_select_point_unavailable(self):
-        """Build_Barracks_screen with empty selection and select_point blocked
-        → select_army fallback."""
+    def test_any_unit_action_with_empty_selection_emits_select_army_and_defers(self):
+        """Move_screen with no selection → step 1 is select_army, step 2 replays Move."""
         self.client._selected_count = 0.0
-        self.client._worker_screen_xy = (20, 30)
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
+        # Step 1: select_army issued.
+        self.assertEqual(int(self._captured_action[0]), 1)
+        # And the original Move_screen is queued for next step.
+        self.assertIsNotNone(self.client._deferred_action)
+        self.assertEqual(int(self.client._deferred_action[0]), 2)
+
+        # Step 2: simulate the env populating selection after step 1's
+        # select_army (the mocked _timestep_to_obs_info doesn't do this).
+        # The deferred Move_screen should now replay verbatim.
+        self.client._selected_count = 3.0
+        self.client._selected_unit_types = frozenset({"Marine"})
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+        self.assertEqual(int(self._captured_action[0]), 2)
+        self.assertIsNone(self.client._deferred_action)
+
+    def test_build_with_wrong_selection_emits_select_idle_worker_and_defers(self):
+        """Build_Barracks with non-worker selection → select_idle_worker first."""
         self.client._available_actions = {
             _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
+            _FakeFunctions.select_idle_worker.id,
+            _FakeFunctions.Build_Barracks_screen.id,
         }
-        action = np.array([8, 0.4, 0.6, 0], dtype=np.float32)
-        self.client.step(action)
-        self.assertEqual(int(self._captured_action[0]), 1)  # select_army
+        self.client._selected_count = 1.0
+        self.client._selected_unit_types = frozenset({"Marine"})  # wrong: needs SCV
+        self.client.step(np.array([8, 0.5, 0.5, 0], dtype=np.float32))
+        # select_idle_worker (fn_idx=4) issued first.
+        self.assertEqual(int(self._captured_action[0]), 4)
+        self.assertIsNotNone(self.client._deferred_action)
+        self.assertEqual(int(self.client._deferred_action[0]), 8)
 
-    def test_extreme_random_phase_samples_only_available_fn_ids(self):
-        import games.sc2.client as sc2_client_mod
+    def test_build_with_no_idle_worker_uses_select_point_on_cached_worker(self):
+        """Issue #346: a worker that's currently mining must still be usable
+        as the selection target — select_point on it rather than the unreliable
+        select_idle_worker."""
+        # select_idle_worker NOT in available_actions (every SCV is busy).
+        self.client._available_actions = {
+            _FakeFunctions.no_op.id,
+            _FakeFunctions.select_point.id,
+            _FakeFunctions.Build_Barracks_screen.id,
+        }
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client._screen_xy_by_unit_type = {"SCV": (20, 30)}
+        self.client.step(np.array([8, 0.5, 0.5, 0], dtype=np.float32))
+        # select_point (fn_idx=6) issued at the cached worker position.
+        self.assertEqual(int(self._captured_action[0]), 6)
+        self.assertAlmostEqual(float(self._captured_action[1]), 20 / 63, places=2)
+        self.assertAlmostEqual(float(self._captured_action[2]), 30 / 63, places=2)
+        # Original Build_Barracks deferred.
+        self.assertEqual(int(self.client._deferred_action[0]), 8)
 
-        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
-        try:
-            sc2_client_mod._pysc2_id_to_fn_idx = {331: 2}
-            self.client._available_actions = {_FakeFunctions.Move_screen.id}
-            self.client._selected_count = 1.0
-            self.client._extreme_random_run_count = 2
-            self.client._episodes_started = 1
+    def test_train_with_no_producing_building_passes_through(self):
+        """If the producing building isn't visible and not selected, the
+        resolver has no recourse — emits the action and lets PySC2 no_op it
+        (the mask should have prevented this upstream)."""
+        self.client._available_actions = {_FakeFunctions.no_op.id}
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client._screen_xy_by_unit_type = {}  # no Barracks cached
+        # Train_Marine (fn_idx=7) with no Barracks anywhere.
+        self.client.step(np.array([7, 0.5, 0.5, 0], dtype=np.float32))
+        # Passes through; _action_to_call no-ops it since not in available_actions.
+        self.assertEqual(int(self._captured_action[0]), 7)
+        self.assertIsNone(self.client._deferred_action)
 
-            action = np.array([0, 0.0, 0.0, 0], dtype=np.float32)
-            self.client.step(action)
+    # --- Extreme-random uses _available_fn_ids ---------------------------
 
-            self.assertEqual(int(self._captured_action[0]), 2)
-            self.assertGreaterEqual(float(self._captured_action[1]), 0.0)
-            self.assertLessEqual(float(self._captured_action[1]), 1.0)
-            self.assertGreaterEqual(float(self._captured_action[2]), 0.0)
-            self.assertLessEqual(float(self._captured_action[2]), 1.0)
-        finally:
-            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+    def test_extreme_random_phase_samples_only_from_available_fn_ids(self):
+        """Issue #346: the random sampler reads from the fully-filtered mask,
+        not raw PySC2 available_actions."""
+        self.client._available_fn_ids = {2}  # only Move_screen
+        self.client._selected_count = 1.0
+        self.client._selected_unit_types = frozenset({"Marine"})
+        self.client._extreme_random_run_count = 2
+        self.client._episodes_started = 1
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+        # Sampled fn_idx must be 2 (Move_screen); spatial randomised.
+        self.assertEqual(int(self._captured_action[0]), 2)
+        self.assertGreaterEqual(float(self._captured_action[1]), 0.0)
+        self.assertLessEqual(float(self._captured_action[1]), 1.0)
 
     def test_extreme_random_phase_disabled_after_threshold(self):
+        self.client._available_fn_ids = {2}
         self.client._selected_count = 1.0
+        self.client._selected_unit_types = frozenset({"Marine"})
         self.client._extreme_random_run_count = 1
         self.client._episodes_started = 2
 
-        action = np.array([0, 0.25, 0.75, 0], dtype=np.float32)
-        self.client.step(action)
+        self.client.step(np.array([0, 0.25, 0.75, 0], dtype=np.float32))
         self.assertEqual(int(self._captured_action[0]), 0)
         self.assertAlmostEqual(float(self._captured_action[1]), 0.25)
         self.assertAlmostEqual(float(self._captured_action[2]), 0.75)
@@ -1118,8 +992,13 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             ob["available_actions"] = available_actions
         return ob
 
-    def test_available_fn_ids_absent_when_no_available_actions(self):
-        """When the observation has no available_actions key, available_fn_ids is None."""
+    def test_available_fn_ids_is_set_when_no_available_actions(self):
+        """Issue #346: available_fn_ids is always a set (no more None).
+
+        When the observation lacks available_actions, the mask reduces to
+        race ∩ tech-tree filter (or just race when no PySC2 unit-type
+        lookup is available, as in this unit-test path).
+        """
         client = SC2Client(map_name="MoveToBeacon")
         client._available_actions = {0, 1}
         ob = self._minigame_ob(available_actions=None)
@@ -1127,28 +1006,29 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
         ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)
         _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
         self.assertIn("available_fn_ids", info)
-        self.assertIsNone(info["available_fn_ids"])
+        self.assertIsInstance(info["available_fn_ids"], set)
         self.assertIsNone(client._available_actions)
 
-    def test_available_fn_ids_none_when_mapping_unavailable(self):
-        """When the PySC2 ID→fn_idx mapping is empty (PySC2 not installed),
-        available_fn_ids is None even if available_actions is present."""
+    def test_available_fn_ids_is_set_when_mapping_unavailable(self):
+        """When PySC2 ID→fn_idx mapping is empty, available_fn_ids is still a
+        set (race-filtered when race can be inferred, all-keys otherwise)."""
         import games.sc2.client as sc2_client_mod
 
         old_cache = sc2_client_mod._pysc2_id_to_fn_idx
         try:
-            # Simulate PySC2 not installed: the cache resolves to an empty dict.
             sc2_client_mod._pysc2_id_to_fn_idx = {}
             client = SC2Client(map_name="MoveToBeacon")
             ob = self._minigame_ob(available_actions=np.array([0, 1, 2]))
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
-            self.assertIsNone(info["available_fn_ids"])
+            self.assertIsInstance(info["available_fn_ids"], set)
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
     def test_available_fn_ids_mapped_correctly_with_known_id_table(self):
         """With an injected PySC2-ID→fn_idx table, available_fn_ids contains
-        only the fn_idx values whose PySC2 IDs appear in available_actions."""
+        the fn_idx values whose PySC2 IDs appear in available_actions
+        (race-filtered).
+        """
         import games.sc2.client as sc2_client_mod
 
         old_cache = sc2_client_mod._pysc2_id_to_fn_idx
@@ -1159,7 +1039,7 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             # Observation exposes PySC2 IDs 0 (no_op) and 331 (Move_screen).
             ob = self._minigame_ob(available_actions=np.array([0, 331]))
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
-            self.assertIsNotNone(info["available_fn_ids"])
+            self.assertIsInstance(info["available_fn_ids"], set)
             self.assertEqual(info["available_fn_ids"], {0, 2})
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
@@ -1224,24 +1104,8 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
+            # Build_Nexus (fn_idx=50) is Protoss; race filter drops it.
             self.assertEqual(info["available_fn_ids"], {0, 8})
-        finally:
-            sc2_client_mod._pysc2_id_to_fn_idx = old_cache
-
-    def test_available_fn_ids_inferred_from_one_dimensional_single_select(self):
-        """1-D select arrays still participate in race-aware masking."""
-        import games.sc2.client as sc2_client_mod
-        from games.sc2.actions import fn_ids_for_race
-
-        old_cache = sc2_client_mod._pysc2_id_to_fn_idx
-        try:
-            sc2_client_mod._pysc2_id_to_fn_idx = {}
-            client = SC2Client(map_name="MoveToBeacon")
-            client._unit_type_id_to_race = {1: "terran"}
-            ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
-            ob["single_select"] = np.array([1, 1, 45, 0, 0, 0, 0], dtype=np.int32)
-            _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
-            self.assertEqual(info["available_fn_ids"], set(fn_ids_for_race("terran")))
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
@@ -1805,25 +1669,29 @@ class TestSC2ClientLastFnIdx(unittest.TestCase):
 
         self.client = SC2Client(map_name="MoveToBeacon")
 
-    def test_last_fn_idx_reflects_substituted_select_army(self):
-        """When Move_screen is blocked and select_army is substituted,
-        last_fn_idx should be 1 (select_army), not 2 (Move_screen)."""
-        self.client._available_actions = {
-            _FakeFunctions.no_op.id,
-            _FakeFunctions.select_army.id,
-        }
-        action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        self.client._action_to_call(action)
+    def test_last_fn_idx_reflects_resolved_select_army(self):
+        """Move_screen with empty selection routed through step() runs
+        ``_resolve_action`` → emits select_army; last_fn_idx reflects the
+        actually-executed select_army (1), not the original Move (2)."""
+        from unittest.mock import MagicMock
+
+        fake_ts = MagicMock()
+        fake_ts.last.return_value = False
+        fake_ts.reward = 0.0
+        self.client._sc2_env = MagicMock()
+        self.client._sc2_env.step.return_value = [fake_ts]
+        self.client._timestep_to_obs_info = MagicMock(return_value=(np.zeros(10), {}))
+        self.client._available_actions = None  # all available, so select_army resolves
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
         self.assertEqual(self.client.last_fn_idx, 1)
 
-    def test_last_fn_idx_reflects_substituted_no_op(self):
-        """When both Move_screen and select_army are blocked, last_fn_idx
-        should be 0 (no_op)."""
+    def test_last_fn_idx_reflects_no_op_when_action_blocked(self):
+        """When ``_action_to_call`` issues no_op (action unavailable in
+        PySC2's mask), last_fn_idx should be 0."""
         self.client._available_actions = {_FakeFunctions.no_op.id}
-        # First blocked step → select_army substituted.
         action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
-        self.client._action_to_call(action)
-        # Second blocked step → no_op substituted.
         self.client._action_to_call(action)
         self.assertEqual(self.client.last_fn_idx, 0)
 
@@ -1838,6 +1706,103 @@ class TestSC2ClientLastFnIdx(unittest.TestCase):
         action = np.array([2, 0.4, 0.6, 0], dtype=np.float32)
         self.client._action_to_call(action)
         self.assertEqual(self.client.last_fn_idx, 2)
+
+
+class TestSC2ClientStateDumpLogging(unittest.TestCase):
+    """Issue #346 follow-up: periodic readable game-state debug logs."""
+
+    def setUp(self):
+        import logging
+
+        from games.sc2.client import SC2Client
+
+        self.client = SC2Client(map_name="MoveToBeacon")
+        # Capture all debug logs from the client logger.
+        self.records: list[logging.LogRecord] = []
+        self.handler = logging.Handler()
+        self.handler.emit = self.records.append  # type: ignore[method-assign]
+        self.handler.setLevel(logging.DEBUG)
+        import games.sc2.client as client_mod
+
+        self.logger = client_mod.logger
+        self.prev_level = self.logger.level
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.addHandler(self.handler)
+        self.addCleanup(lambda: self.logger.removeHandler(self.handler))
+        self.addCleanup(lambda: self.logger.setLevel(self.prev_level))
+
+    def _state_messages(self) -> list[str]:
+        return [r.getMessage() for r in self.records if "SC2 state @ game_loop=" in r.getMessage()]
+
+    def test_first_call_logs_state(self):
+        feats = {"game_loop": 5.0, "unit_count_SCV": 12.0, "unit_count_Marine": 3.0}
+        self.client._owned_buildings = frozenset({"CommandCenter", "Barracks"})
+        self.client._completed_upgrades = frozenset({"Stimpack"})
+        self.client._selected_unit_types = frozenset({"Barracks"})
+        self.client._available_fn_ids = {0, 7}  # no_op, Train_Marine_quick
+
+        self.client._maybe_log_state_dump(feats)
+        msgs = self._state_messages()
+        self.assertEqual(len(msgs), 1)
+        msg = msgs[0]
+        self.assertIn("SCV x12", msg)
+        self.assertIn("Marine x3", msg)
+        # Sets render in sorted order so it's stable to read.
+        self.assertIn("Barracks, CommandCenter", msg)
+        self.assertIn("Stimpack", msg)
+        self.assertIn("selected   : Barracks", msg)
+        # no_op + Train_Marine_quick — each annotated with its requirement.
+        self.assertIn("no_op (no selection needed)", msg)
+        self.assertIn("Train_Marine_quick (select Barracks)", msg)
+
+    def test_throttled_to_interval(self):
+        feats = {"game_loop": 5.0}
+        self.client._owned_buildings = frozenset()
+        self.client._completed_upgrades = frozenset()
+        self.client._available_fn_ids = {0}
+
+        self.client._maybe_log_state_dump(feats)
+        # Immediate second call should be suppressed.
+        self.client._maybe_log_state_dump(feats)
+        self.assertEqual(len(self._state_messages()), 1)
+
+    def test_re_emits_after_interval(self):
+        feats = {"game_loop": 5.0}
+        self.client._owned_buildings = frozenset()
+        self.client._completed_upgrades = frozenset()
+        self.client._available_fn_ids = {0}
+
+        self.client._maybe_log_state_dump(feats)
+        # Pretend we're past the throttle window.
+        self.client._last_state_log_wall_s -= self.client._STATE_LOG_INTERVAL_S + 0.1
+        self.client._maybe_log_state_dump(feats)
+        self.assertEqual(len(self._state_messages()), 2)
+
+    def test_skipped_at_info_level(self):
+        import logging
+
+        self.logger.setLevel(logging.INFO)
+        feats = {"game_loop": 5.0}
+        self.client._owned_buildings = frozenset()
+        self.client._completed_upgrades = frozenset()
+        self.client._available_fn_ids = {0}
+        self.client._maybe_log_state_dump(feats)
+        self.assertEqual(len(self._state_messages()), 0)
+
+    def test_empty_state_renders_dashes(self):
+        feats = {"game_loop": 5.0}
+        self.client._owned_buildings = frozenset()
+        self.client._completed_upgrades = frozenset()
+        self.client._selected_unit_types = frozenset()
+        self.client._available_fn_ids = set()
+
+        self.client._maybe_log_state_dump(feats)
+        msg = self._state_messages()[0]
+        self.assertIn("units      : -", msg)
+        self.assertIn("buildings  : -", msg)
+        self.assertIn("upgrades   : -", msg)
+        self.assertIn("selected   : (nothing selected)", msg)
+        self.assertIn("actions    : (none)", msg)
 
 
 class TestSC2ClientRealtimeParam(unittest.TestCase):

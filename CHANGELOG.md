@@ -17,7 +17,61 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- SC2 hardcoded tech tree at `games/sc2/tech_tree.py` and a
+  deferred-action queue in `games/sc2/client.py` (issue #346). Every
+  action in the new `PRECONDITIONS` table records its building/upgrade
+  prerequisites and required selection type; `info["available_fn_ids"]`
+  is now race ∩ PySC2 ∩ tech-tree ∩ selection-filtered, so
+  `Build_FusionCore_screen` is no longer reachable in the extreme-random
+  phase before a Starport exists. When the policy emits an action whose
+  selection requirement is unmet, the client emits the right `select_*`
+  this tick (preferring `select_idle_worker`, falling back to
+  `select_point` on a mining/busy worker — issue #346 explicitly
+  required workers that aren't idle to still be selectable) and queues
+  the original action for the next tick. All unit and building morphs
+  (Baneling, Ravager, Lurker, BroodLord, Archon, Lair, Hive, Overseer,
+  GreaterSpire) route through `UNIT_PRODUCERS` via the same `_train()`
+  helper as regular units; Archon morph now accepts HighTemplar *or*
+  DarkTemplar selection (previously HT-only).
+- `SC2Client._compute_selected_unit_types` (renamed from
+  `_compute_selected_unit_type`) now returns a ``frozenset[str]`` of
+  every distinct unit type in the current selection rather than collapsing
+  multi-type selections to ``None``. ``fn_idx_satisfied`` consumes the
+  set so that ``ANY_UNIT`` actions (Move/Attack/Stop/Patrol/HoldPosition)
+  stay satisfied after ``select_army`` on a mixed army, and ``OF_TYPE``
+  actions match whenever any selected type is in the target set (PySC2
+  applies the command to compatible units in the selection).
+- `SC2Client._compute_owned_buildings` now filters scanned
+  ``feature_units`` rows against the new `games.sc2.tech_tree.STRUCTURE_NAMES`
+  set, so SCVs / Marines / Probes no longer leak into the "buildings"
+  side of the tech-tree mask or the periodic state dump.
+- DEBUG-level periodic state dump in `SC2Client` (issue #346 follow-up).
+  Every ~10 s of wall-clock time, the client logs a readable snapshot of
+  current units, owned buildings, completed upgrades, currently-selected
+  unit type, and the available action set with the unit/building each
+  action would need selected.
+- Grid-search abbreviations for `initial_extreme_random_fraction` (`ierf`)
+  and `initial_extreme_random_runs` (`ierr`) so PR #339's config keys
+  appear in generated experiment directory names.
 
+### Changed
+- **Breaking (internals):** `info["available_fn_ids"]` is now always a
+  set (never `None`). Policies that already mask on this field are
+  unaffected.
+- **Breaking (internals):** removed the proactive `select_army` /
+  `select_point` substitution guard from `SC2Client.step()` and the
+  reactive substitution branch from `SC2Client._action_to_call()` (both
+  added in PR #322). Selection injection is now handled by the
+  deferred-action queue in `_resolve_action`. The
+  `_blocked_unit_targeted_steps` counter and
+  `_SELECT_ARMY_RETRY_BLOCKED_STEPS` constant were dropped along with
+  this.
+- `SC2Client._build_unit_type_lookup()` now covers the full PySC2 unit
+  enum (not just the rich-preset combat-unit subset) so the tech-tree
+  filter can recognise structures and morph parents. The
+  `_RICH_UNIT_TYPES`-driven per-unit-type observation features are
+  unaffected (they filter at the feature-dict layer).
 
 
 ---

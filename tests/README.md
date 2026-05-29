@@ -53,6 +53,7 @@
 - [SC2](#sc2)
   - [test\_sc2\_obs\_spec.py — SC2 obs spec](#test_sc2_obs_specpy--sc2-obs-spec)
   - [test\_sc2\_actions.py — discrete action grid + race gating](#test_sc2_actionspy--discrete-action-grid--race-gating)
+  - [test\_sc2\_tech\_tree.py — hardcoded tech-tree preconditions (issue #346)](#test_sc2_tech_treepy--hardcoded-tech-tree-preconditions-issue-346)
   - [test\_sc2\_reward.py — SC2 reward calc](#test_sc2_rewardpy--sc2-reward-calc)
   - [test\_sc2\_client.py — PySC2 client wrapper](#test_sc2_clientpy--pysc2-client-wrapper)
   - [test\_sc2\_env.py — SC2 env wrapper](#test_sc2_envpy--sc2-env-wrapper)
@@ -605,6 +606,15 @@ handful of iterations only).
 - `TestRaceGating` (9 tests): all four race keys exist in RACE_FUNCTION_IDS; each race's ids are a subset of FUNCTION_IDS; random race = all fn_ids; race-specific sets (_TERRAN / _PROTOSS / _ZERG) are pairwise disjoint; unknown race falls back to all fn_ids; Terran has Build_Barracks_screen (8) not Build_Nexus_screen (50); Protoss has Build_Nexus_screen (50) not Build_Barracks_screen (8); Zerg has Build_Hatchery_screen (82) not Build_Barracks_screen (8); all three named races include Move_screen (2) and no_op (0)
 - `TestActionToFunctionCall`: fake PySC2 module validates encoding branches — `_quick` emits queue-only args, `select_point` and `select_rect` emit screen coords, `_minimap` actions scale with `minimap_size` (not `screen_size`), and `_screen` actions keep using `screen_size`
 
+### test_sc2_tech_tree.py — hardcoded tech-tree preconditions (issue #346)
+- `TestBuildingPrereqsMet`: no-prereq buildings always buildable; Terran chain (Barracks needs SupplyDepot; FusionCore needs Starport); Zerg OR-set semantics (Spire requires Lair OR Hive)
+- `TestFnIdxSatisfiedTerran`: Build_FusionCore_screen blocked when only CC + SCV visible; unlocked once Starport exists (regression for the issue body); Build_SupplyDepot only needs a worker selected; Train_Marine needs Barracks selected (SCV selection rejected); Train_Marauder needs BarracksTechLab; Train_Battlecruiser chain (Starport + StarportTechLab + FusionCore); Effect_Stim needs Stim upgrade and Marine/Marauder selected (SCV rejected)
+- `TestFnIdxSatisfiedProtoss`: Carrier needs FleetBeacon; Stalker accepts Gateway OR WarpGate selection
+- `TestFnIdxSatisfiedZerg`: Morph_Hive needs Lair selected + InfestationPit exists; Train_Lurker needs Hydralisk selected + LurkerDenMP; Train_Baneling needs Zergling selected + BanelingNest (Roach rejected); Morph_Overseer needs Overlord selected + Lair OR Hive (Zergling rejected); Morph_Lair needs Hatchery selected + SpawningPool; Train_BroodLord needs Corruptor selected + GreaterSpire
+- `TestMorphsFullyIntegrated`: morph fn_ids route through UNIT_PRODUCERS via `_train()`; Morph_Archon accepts HighTemplar OR DarkTemplar (Zealot rejected); Morph_SiegeMode needs SiegeTank + FactoryTechLab; Morph_Unsiege needs SiegeTankSieged
+- `TestUniversalActions`: no_op / select_army / select_point always satisfied; Move_screen requires any unit selected
+- `TestPreconditionsTableShape`: every fn_idx in FUNCTION_IDS has a Preconditions entry; universal actions never require OF_TYPE selection; every Build_*_screen action (except `Build_CreepTumor_screen`, which is a Queen ability) requires worker selection
+
 ### test_sc2_reward.py — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
@@ -634,10 +644,12 @@ handful of iterations only).
 - self_weapon_cooldown_mean: mean for alliance==1 from col 25; all ready → 0; no self units → 0; missing feature_units → 0; too few cols → 0
 - alerts: empty array → 0; one alert → 1; two alerts → 2; missing key → 0; None value → 0; alert_count present in ladder names
 - minimap enemy centroid: minimap_enemy_cx/cy computed from player_relative==4 layer; correct when beacon present; zero when no beacon on minimap (edge case)
-- action fallback (#124, beacon-idling fix): blocked Move_screen → select_army immediately, then no_op on short blocked streaks with periodic select_army retries on long streaks; legal Move_screen resets the blocked-streak tracker; no_op action passes through unchanged
+- action translation (#346): `_action_to_call` is now a thin translator — legal actions pass through, PySC2-unavailable actions become `no_op` (no implicit `select_army` / `select_point` substitution; that logic moved to `_resolve_action`)
+- resolve + defer (#346): `step()` runs `_resolve_action` on the policy's chosen action; if the action requires a different unit-type selection than the current one, the right `select_*` is emitted *this* tick and the original action goes into a 1-slot deferred FIFO that replays on the next `step()`. Covers: no_op / `select_army` / legal action passes through; `Move_screen` with empty selection → `select_army` then deferred replay; `Build_Barracks` with non-worker selection → `select_idle_worker` (when available) then deferred replay; `Build_Barracks` with all workers busy and no `select_idle_worker` → `select_point` on a cached worker position (issue #346 mining/building worker requirement); `Train_Marine` with no Barracks anywhere → passes through and PySC2 no-ops it (mask should have prevented this upstream); `extreme_random` samples from `_available_fn_ids` only (tech-tree-filtered), not raw PySC2 `available_actions`; phase disabled after `_extreme_random_run_count` episodes
+- state dump logging (#346 follow-up): periodic readable game-state debug log throttled to one emission per `_STATE_LOG_INTERVAL_S` (10 s); skipped when the logger isn't at DEBUG; rendered units / buildings / upgrades / selection / available-action list with selection-requirement hints; empty state renders dashes
 - action-mask caching overhead (#140): _available_actions_features uses module-level cache (no per-call pysc2 import); correctness test with injected cache; deterministic regression asserting _get_pysc2_id_to_fn_idx is called exactly once per _available_actions_features invocation (not once per FUNCTION_IDS entry)
 - score_features field-name access: named NamedNumpyArray access takes priority over positional; score→score_total rename applied; missing score array → all zeros
-- last_fn_idx property: select_army substitution → idx=1; consecutive block → no_op idx=0; passthrough → requested idx
+- last_fn_idx property: `_resolve_action` routing → idx=1 when select_army resolved; no_op fallback on blocked PySC2 mask → idx=0; passthrough → requested idx
 - realtime param: default False stored; True stored; forwarded as kwarg to SC2Env constructor
 
 ### test_sc2_env.py — SC2 env wrapper

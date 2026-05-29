@@ -2,12 +2,14 @@ name: Tests
 
 on:
   pull_request:
+    types: [opened, ready_for_review, synchronize]
     branches:
       - main
 
 jobs:
   pre-commit:
     runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: read
 
@@ -22,7 +24,107 @@ jobs:
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
 
-  test:
+  # -----------------------------------------------------------------
+  # Detect which parts of the codebase changed so that only the
+  # relevant unit-test suites are run.
+  #
+  # Each game filter includes framework/** so that framework changes
+  # trigger all game test suites (framework code affects every game).
+  # -----------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      framework: ${{ steps.filter.outputs.framework }}
+      tmnf: ${{ steps.filter.outputs.tmnf }}
+      sc2: ${{ steps.filter.outputs.sc2 }}
+      atari: ${{ steps.filter.outputs.atari }}
+      torcs: ${{ steps.filter.outputs.torcs }}
+      rocket-league: ${{ steps.filter.outputs.rocket-league }}
+      iracing: ${{ steps.filter.outputs.iracing }}
+      assetto-corsa: ${{ steps.filter.outputs.assetto-corsa }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            framework:
+              - 'framework/**'
+              - 'main.py'
+              - 'grid_search.py'
+              - 'policies.py'
+              - 'analytics.py'
+              - 'redo_analytics.py'
+              - 'cross_grid_report.py'
+              - 'param_explorer.py'
+              - 'distributed/**'
+              - 'rl/**'
+              - 'pyproject.toml'
+              - 'tests/conftest.py'
+              - 'tests/helpers.py'
+              - 'tests/_parallel_eval_helpers.py'
+              - 'tests/cli/**'
+            tmnf:
+              - 'games/tmnf/**'
+              - 'clients/**'
+              - 'tracks/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_reward.py'
+              - 'tests/test_rl_client.py'
+              - 'tests/test_track.py'
+              - 'tests/test_build_centerline.py'
+            sc2:
+              - 'games/sc2/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_sc2_*.py'
+            atari:
+              - 'games/atari/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_atari_*.py'
+            torcs:
+              - 'games/torcs/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_torcs_*.py'
+            rocket-league:
+              - 'games/rocket_league/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_rocket_league_*.py'
+            iracing:
+              - 'games/iracing/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/test_iracing_controller.py'
+            assetto-corsa:
+              - 'games/assetto_corsa/**'
+              - 'framework/**'
+              - 'main.py'
+              - 'pyproject.toml'
+              - 'tests/assetto_corsa/**'
+
+  # -----------------------------------------------------------------
+  # Framework / core — everything that is not game-specific.
+  # Runs when framework source, shared entry points, or framework-level
+  # test infrastructure changes.
+  # -----------------------------------------------------------------
+  test-framework:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.framework == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,15 +140,212 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
 
-      - name: Run tests
-        # test_env_termination and test_grid_search require tminterface
-        # (Windows-only, not on PyPI) so they are excluded from CI.
-        # tests/assetto_corsa/ uses a stub gym env (see test_smoke.py) so it
-        # runs on every PR without needing the assetto-corsa-rl package.
-        # tests/integration/ requires gymnasium[box2d] and is run separately
-        # by the integration-tests workflow on push to main.
-        # PYTHONPATH=. puts the repo root on sys.path so `import clients` etc.
-        # resolve regardless of pytest's import-mode/rootdir handling.
+      - name: Run framework tests
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/ --ignore=tests/test_env_termination.py --ignore=tests/test_grid_search.py --ignore=tests/integration/
+        # Exclude game-specific test files and the suites that require
+        # platform-only deps (tminterface, gymnasium[box2d]).
+        run: |
+          python -m pytest tests/ \
+            --ignore=tests/test_env_termination.py \
+            --ignore=tests/test_grid_search.py \
+            --ignore=tests/integration/ \
+            --ignore=tests/assetto_corsa/ \
+            --ignore-glob='tests/test_sc2_*.py' \
+            --ignore-glob='tests/test_atari_*.py' \
+            --ignore-glob='tests/test_torcs_*.py' \
+            --ignore-glob='tests/test_rocket_league_*.py' \
+            --ignore=tests/test_iracing_controller.py \
+            --ignore=tests/test_reward.py \
+            --ignore=tests/test_rl_client.py \
+            --ignore=tests/test_track.py \
+            --ignore=tests/test_build_centerline.py
+
+  # -----------------------------------------------------------------
+  # TMNF — Trackmania Nations Forever
+  # -----------------------------------------------------------------
+  test-tmnf:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.tmnf == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run TMNF tests
+        # test_env_termination requires tminterface (Windows-only) so it is
+        # excluded here; test_grid_search also requires it.
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest \
+            tests/test_reward.py \
+            tests/test_rl_client.py \
+            tests/test_track.py \
+            tests/test_build_centerline.py
+
+  # -----------------------------------------------------------------
+  # StarCraft 2
+  # -----------------------------------------------------------------
+  test-sc2:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sc2 == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run SC2 unit tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_sc2_*.py
+
+  # -----------------------------------------------------------------
+  # Atari
+  # -----------------------------------------------------------------
+  test-atari:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.atari == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run Atari tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_atari_*.py
+
+  # -----------------------------------------------------------------
+  # TORCS
+  # -----------------------------------------------------------------
+  test-torcs:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.torcs == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run TORCS tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_torcs_*.py
+
+  # -----------------------------------------------------------------
+  # Rocket League
+  # -----------------------------------------------------------------
+  test-rocket-league:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.rocket-league == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run Rocket League tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_rocket_league_*.py
+
+  # -----------------------------------------------------------------
+  # iRacing
+  # -----------------------------------------------------------------
+  test-iracing:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.iracing == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run iRacing tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/test_iracing_controller.py
+
+  # -----------------------------------------------------------------
+  # Assetto Corsa — uses a stub gym env (no assetto-corsa-rl needed)
+  # -----------------------------------------------------------------
+  test-assetto-corsa:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.assetto-corsa == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy scipy pyyaml gymnasium matplotlib
+
+      - name: Run Assetto Corsa tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests/assetto_corsa/

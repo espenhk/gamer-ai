@@ -331,6 +331,27 @@ class TestFunctionCallToAction(unittest.TestCase):
         self.assertAlmostEqual(float(action[1]), 1.0, places=6)
         self.assertAlmostEqual(float(action[2]), 0.0, places=6)
 
+    def test_malformed_args_are_clamped_to_invariant_ranges(self):
+        # Out-of-range coords and a queue flag > 1 must still yield x/y in
+        # [0, 1] and queue in {0, 1}, as the docstring promises.
+        with patch.dict(sys.modules, _fake_pysc2_modules()):
+            import games.sc2.client as sc2_client_mod
+
+            old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+            sc2_client_mod._pysc2_id_to_fn_idx = None
+            try:
+                # Move_screen with a target past the screen edge and queue=5.
+                call = _FakeFunctionCall(1000 + 2, [[5], [9999, -7]])
+                action = function_call_to_action(call, screen_size=64)
+            finally:
+                sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+        self.assertEqual(int(action[0]), 2)
+        self.assertGreaterEqual(float(action[1]), 0.0)
+        self.assertLessEqual(float(action[1]), 1.0)
+        self.assertGreaterEqual(float(action[2]), 0.0)
+        self.assertLessEqual(float(action[2]), 1.0)
+        self.assertEqual(float(action[3]), 1.0)
+
     def test_unknown_function_id_returns_none_sentinel(self):
         with patch.dict(sys.modules, _fake_pysc2_modules()):
             import games.sc2.client as sc2_client_mod

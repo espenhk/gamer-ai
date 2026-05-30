@@ -665,7 +665,11 @@ def function_call_to_action(
         x_norm, y_norm = 0.5, 0.5
     else:
         denom = max(target_size - 1, 1)
-        x_norm = float(coord[0]) / denom
-        y_norm = float(coord[1]) / denom
+        # Clamp to [0, 1] — mirrors action_to_function_call's coordinate
+        # clipping so the action vector stays invariant even when a malformed
+        # replay/action stream carries out-of-range or unexpected arg values.
+        x_norm = float(np.clip(coord[0] / denom, 0.0, 1.0))
+        y_norm = float(np.clip(coord[1] / denom, 0.0, 1.0))
 
+    queue = int(np.clip(queue, 0, 1))
     return np.array([float(fn_idx), x_norm, y_norm, float(queue)], dtype=np.float32)

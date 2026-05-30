@@ -4,15 +4,20 @@ These tests verify the precondition table catches the recurring bug
 that previous PRs (#307, #311, #315, #317, #322, #339) didn't fully
 fix: actions like ``Build_FusionCore_screen`` being chosen when their
 prerequisites aren't met.
+
+Also covers resource-cost gating (issue #357): build/train actions are
+only available when the player can afford their mineral/vespene cost.
 """
 
 import unittest
 
 from games.sc2.tech_tree import (
     PRECONDITIONS,
+    RESOURCE_COSTS,
     WORKER_NAMES,
     SelectionReq,
     building_prereqs_met,
+    fn_idx_affordable,
     fn_idx_satisfied,
 )
 
@@ -274,6 +279,70 @@ class TestPreconditionsTableShape(unittest.TestCase):
                     pre.selection_target & WORKER_NAMES,
                     f"{name} should accept worker selection",
                 )
+
+
+class TestFnIdxAffordable(unittest.TestCase):
+    """Resource-cost gating (issue #357)."""
+
+    def test_free_actions_always_affordable(self):
+        # no_op (0), select_army (1), Move_screen (2) have no cost entry.
+        for fn_idx in (0, 1, 2, 3):
+            with self.subTest(fn_idx=fn_idx):
+                self.assertTrue(fn_idx_affordable(fn_idx, 0.0, 0.0))
+
+    def test_terran_marine_needs_50_minerals(self):
+        self.assertFalse(fn_idx_affordable(7, 49.0, 0.0))
+        self.assertTrue(fn_idx_affordable(7, 50.0, 0.0))
+        self.assertTrue(fn_idx_affordable(7, 150.0, 0.0))
+
+    def test_terran_factory_needs_minerals_and_gas(self):
+        # Factory costs 150m/100g
+        self.assertFalse(fn_idx_affordable(26, 150.0, 99.0))
+        self.assertFalse(fn_idx_affordable(26, 149.0, 100.0))
+        self.assertTrue(fn_idx_affordable(26, 150.0, 100.0))
+
+    def test_terran_battlecruiser_400m_300g(self):
+        self.assertFalse(fn_idx_affordable(43, 399.0, 300.0))
+        self.assertFalse(fn_idx_affordable(43, 400.0, 299.0))
+        self.assertTrue(fn_idx_affordable(43, 400.0, 300.0))
+
+    def test_protoss_zealot_needs_100_minerals(self):
+        self.assertFalse(fn_idx_affordable(66, 99.0, 0.0))
+        self.assertTrue(fn_idx_affordable(66, 100.0, 0.0))
+
+    def test_zerg_hatchery_needs_300_minerals(self):
+        self.assertFalse(fn_idx_affordable(82, 299.0, 0.0))
+        self.assertTrue(fn_idx_affordable(82, 300.0, 0.0))
+
+    def test_unknown_fn_idx_always_affordable(self):
+        # Unknown fn_idx falls back to True (PySC2 mask handles it).
+        self.assertTrue(fn_idx_affordable(9999, 0.0, 0.0))
+
+    def test_resource_costs_keys_are_valid_fn_idxes(self):
+        from games.sc2.actions import FUNCTION_IDS
+        for fn_idx in RESOURCE_COSTS:
+            with self.subTest(fn_idx=fn_idx):
+                self.assertIn(fn_idx, FUNCTION_IDS, f"fn_idx {fn_idx} not in FUNCTION_IDS")
+
+    def test_all_build_and_train_fn_idxes_have_costs(self):
+        """Every Build_*_screen and Train_*_quick action should have a cost."""
+        from games.sc2.actions import FUNCTION_IDS
+
+        exemptions = {
+            92,  # Build_CreepTumor_screen — Queen ability, free
+            80,  # Morph_Archon_quick — merge of two templars, no resource cost
+            48,  # Morph_SiegeMode_quick — state toggle, no cost
+            49,  # Morph_Unsiege_quick — state toggle, no cost
+        }
+        for fn_idx, name in FUNCTION_IDS.items():
+            is_build = name.startswith("Build_") and name.endswith("_screen")
+            is_train = name.startswith("Train_") and name.endswith("_quick")
+            if not (is_build or is_train):
+                continue
+            if fn_idx in exemptions:
+                continue
+            with self.subTest(fn_idx=fn_idx, name=name):
+                self.assertIn(fn_idx, RESOURCE_COSTS, f"{name} (fn_idx={fn_idx}) has no cost entry")
 
 
 if __name__ == "__main__":

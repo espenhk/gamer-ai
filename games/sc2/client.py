@@ -26,6 +26,7 @@ from games.sc2.tech_tree import (
     STRUCTURE_NAMES,
     WORKER_NAMES,
     SelectionReq,
+    fn_idx_affordable,
     fn_idx_satisfied,
 )
 
@@ -367,6 +368,11 @@ class SC2Client:
         # eyeball units / buildings / upgrades / valid action set without
         # tailing 22.4 obs/s of raw step logs.  (Issue #346 follow-up.)
         self._last_state_log_wall_s: float | None = None
+        # Current mineral/vespene balance cached from the latest observation.
+        # Used by _compute_available_fn_ids to gate build/train commands
+        # behind resource affordability (issue #357).
+        self._current_minerals: float = 0.0
+        self._current_vespene: float = 0.0
 
     # ------------------------------------------------------------------
     # Public interface
@@ -398,6 +404,8 @@ class SC2Client:
         self._screen_xy_by_unit_type = {}
         self._deferred_action = None
         self._last_state_log_wall_s = None
+        self._current_minerals = 0.0
+        self._current_vespene = 0.0
         if self._self_play and len(timesteps) > 1:
             self._opponent_obs, _ = self._timestep_to_obs_info(timesteps[1])
         return self._timestep_to_obs_info(timesteps[0])
@@ -424,14 +432,23 @@ class SC2Client:
            ``select_*`` and the original action goes into the deferred
            slot for the next step.
         """
-        if self._deferred_action is not None:
+        # Bug #356: track whether this step is a deferred replay.  A deferred
+        # action must NOT go through _resolve_action again — the selection was
+        # already issued on the prior step.  Re-running _resolve_action on the
+        # replay would re-queue the action indefinitely if the selection didn't
+        # stick, permanently locking out the policy.  Let it fall through to
+        # _action_to_call; PySC2 will substitute a no-op if unavailable, and
+        # the next step the policy picks a fresh action.
+        is_deferred_replay = self._deferred_action is not None
+        if is_deferred_replay:
             action = self._deferred_action
             self._deferred_action = None
         elif self._is_extreme_random_phase():
             action = self._sample_extreme_random_action()
 
-        action, deferred = self._resolve_action(action)
-        self._deferred_action = deferred
+        if not is_deferred_replay:
+            action, deferred = self._resolve_action(action)
+            self._deferred_action = deferred
 
         fn_call = self._action_to_call(action)
         if self._self_play and self._opponent_policy is not None:
@@ -825,6 +842,9 @@ class SC2Client:
 
         feats: dict[str, float] = {}
         feats.update(self._player_features(ob))
+        # Cache resource balance for _compute_available_fn_ids (issue #357).
+        self._current_minerals = float(feats.get("minerals", 0.0))
+        self._current_vespene = float(feats.get("vespene", 0.0))
         feats.update(self._selected_features(ob))
         self._selected_count = float(feats.get("selected_count", 0.0))
         feats.update(self._screen_summary_features(feat_screen))
@@ -1597,6 +1617,7 @@ class SC2Client:
                 self._completed_upgrades,
                 self._selected_unit_types,
             )
+            and fn_idx_affordable(fn_idx, self._current_minerals, self._current_vespene)
         }
 
     _upgrade_id_to_name_cache: dict[int, str] | None = None

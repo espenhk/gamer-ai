@@ -17,6 +17,21 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- **SC2: deferred-action infinite loop (issue #356).** `SC2Client.step()`
+  was running `_resolve_action` on replayed deferred actions, causing the
+  policy to be permanently locked out when a selection command didn't stick
+  (the action kept getting re-deferred every step).  Deferred replays now
+  skip `_resolve_action` and go straight to `_action_to_call`; if the
+  selection failed, PySC2 substitutes a no-op and the policy picks a fresh
+  action on the next step.
+- **SC2: resource-cost gating for build/train actions (issue #357).**  The
+  action mask (`info["available_fn_ids"]`) now excludes any build or train
+  command whose mineral/vespene cost exceeds the player's current balance.
+  Costs for all Terran, Protoss, and Zerg build/train actions are hardcoded
+  in a new `RESOURCE_COSTS` table in `games/sc2/tech_tree.py`; the
+  affordability check is applied in `SC2Client._compute_available_fn_ids`
+  via the new `fn_idx_affordable` helper.
 
 ---
 

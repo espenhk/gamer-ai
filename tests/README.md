@@ -606,7 +606,7 @@ handful of iterations only).
 - `TestRaceGating` (9 tests): all four race keys exist in RACE_FUNCTION_IDS; each race's ids are a subset of FUNCTION_IDS; random race = all fn_ids; race-specific sets (_TERRAN / _PROTOSS / _ZERG) are pairwise disjoint; unknown race falls back to all fn_ids; Terran has Build_Barracks_screen (8) not Build_Nexus_screen (50); Protoss has Build_Nexus_screen (50) not Build_Barracks_screen (8); Zerg has Build_Hatchery_screen (82) not Build_Barracks_screen (8); all three named races include Move_screen (2) and no_op (0)
 - `TestActionToFunctionCall`: fake PySC2 module validates encoding branches — `_quick` emits queue-only args, `select_point` and `select_rect` emit screen coords, `_minimap` actions scale with `minimap_size` (not `screen_size`), and `_screen` actions keep using `screen_size`
 
-### test_sc2_tech_tree.py — hardcoded tech-tree preconditions (issue #346)
+### test_sc2_tech_tree.py — hardcoded tech-tree preconditions (issue #346) + resource gating (issue #357)
 - `TestBuildingPrereqsMet`: no-prereq buildings always buildable; Terran chain (Barracks needs SupplyDepot; FusionCore needs Starport); Zerg OR-set semantics (Spire requires Lair OR Hive)
 - `TestFnIdxSatisfiedTerran`: Build_FusionCore_screen blocked when only CC + SCV visible; unlocked once Starport exists (regression for the issue body); Build_SupplyDepot only needs a worker selected; Train_Marine needs Barracks selected (SCV selection rejected); Train_Marauder needs BarracksTechLab; Train_Battlecruiser chain (Starport + StarportTechLab + FusionCore); Effect_Stim needs Stim upgrade and Marine/Marauder selected (SCV rejected)
 - `TestFnIdxSatisfiedProtoss`: Carrier needs FleetBeacon; Stalker accepts Gateway OR WarpGate selection
@@ -614,6 +614,7 @@ handful of iterations only).
 - `TestMorphsFullyIntegrated`: morph fn_ids route through UNIT_PRODUCERS via `_train()`; Morph_Archon accepts HighTemplar OR DarkTemplar (Zealot rejected); Morph_SiegeMode needs SiegeTank + FactoryTechLab; Morph_Unsiege needs SiegeTankSieged
 - `TestUniversalActions`: no_op / select_army / select_point always satisfied; Move_screen requires any unit selected
 - `TestPreconditionsTableShape`: every fn_idx in FUNCTION_IDS has a Preconditions entry; universal actions never require OF_TYPE selection; every Build_*_screen action (except `Build_CreepTumor_screen`, which is a Queen ability) requires worker selection
+- `TestFnIdxAffordable` (issue #357): free actions (no_op, select_army, Move_screen) always affordable at 0 resources; Train_Marine requires ≥ 50 minerals; Build_Factory requires ≥ 150m/100g; Train_Battlecruiser requires ≥ 400m/300g; Train_Zealot requires ≥ 100 minerals; Build_Hatchery requires ≥ 300 minerals; unknown fn_idx always affordable; all RESOURCE_COSTS keys are valid FUNCTION_IDS entries; every Build_*_screen and Train_*_quick has a cost entry (exemptions: Archon morph, SiegeMode toggle, Unsiege toggle, CreepTumor Queen ability)
 
 ### test_sc2_reward.py — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config

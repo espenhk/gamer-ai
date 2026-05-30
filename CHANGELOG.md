@@ -18,6 +18,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- SC2 replay BC dataset builder at `games/sc2/replay_bc.py` (issue #351,
+  [2/6]): reads `.SC2Replay` files via the PySC2 replay API and produces
+  sequence-aware NPZ demonstration datasets (`obs`, `actions`,
+  `episode_starts`, `episode_lengths`, `episode_id`, `meta`).  Public API:
+  `iter_replays(folder)`, `replay_observations(path, ...)` (generator),
+  `build_dataset(folder, save_path, ...)`, and `load_dataset(path, ...)`.
+  Supports race filtering, winner/explicit player selection, configurable
+  `step_mul`, and a `multi_action_strategy` knob (`"first"` /
+  `"first_non_noop"`) for steps with multiple simultaneous actions.  All
+  PySC2 imports are lazy (inside function bodies) so the module is
+  importable without PySC2 installed.
 - SC2 behaviour-cloning primitives (issue #350, part 1 of #349): a new
   `function_call_to_action()` in `games/sc2/actions.py` inverts
   `action_to_function_call`, converting a PySC2 `FunctionCall` back into the

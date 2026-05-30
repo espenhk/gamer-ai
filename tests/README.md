@@ -71,6 +71,7 @@
   - [test\_sc2\_play.py — `play_sc2.py` script](#test_sc2_playpy--play_sc2py-script)
   - [test\_sc2\_simple64\_training.py — Simple64 ladder integration](#test_sc2_simple64_trainingpy--simple64-ladder-integration)
   - [test\_sc2\_analytics.py — SC2-specific analytics plots and flags](#test_sc2_analyticspy--sc2-specific-analytics-plots-and-flags)
+  - [test\_sc2\_replay\_bc.py — SC2 replay reader → BC demonstration dataset (issue #351)](#test_sc2_replay_bcpy--sc2-replay-reader--bc-demonstration-dataset-issue-351)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
   - [test\_rocket\_league\_reward.py — Rocket League reward calc](#test_rocket_league_rewardpy--rocket-league-reward-calc)
@@ -584,11 +585,17 @@ round-trips for cmaes and neural_dqn; and the SC2-specific analytics module
 feature averages, spatial heatmap, outcome breakdown, and the full
 `save_experiment_results` integration including that no racing plots appear).
 
+The offline replay-reader module (`games/sc2/replay_bc.py`, issue #351) is covered
+in `test_sc2_replay_bc.py`: the full PySC2 replay API (run_config, controller,
+features) is replaced by lightweight fakes injected into `sys.modules` before
+import, so the suite runs with no SC2 binary or PySC2 package installed.
+
 **Not tested.** PySC2 against the actual Blizzard SC2 binary; real
 1v1 games against the built-in bot; minimap rendering; the deferred
 fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
-handful of iterations only).
+handful of iterations only); reading real `.SC2Replay` files end-to-end
+(covered by integration tests in `tests/integration/test_sc2.py`).
 
 ### test_sc2_obs_spec.py — SC2 obs spec
 - minigame dim (15); ladder dim (46); rich dim (103 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
@@ -781,6 +788,32 @@ handful of iterations only).
 - `save_experiment_results` now also writes `reward_component_breakdown.png` (regression-guarded in `test_writes_sc2_plots`)
 - `save_grid_summary`: forwards config-normalized rewards **and per-component contributions** using `v / max(abs(weight), 1.0)` — weights ≥ 1.0 are divided (making large-weight components comparable across grid-search runs), weights < 1.0 use the raw value (which already encodes the weight, so dividing would amplify by ×1000); wires SC2 extra-plot hook into framework summary generation; covers no-components fallback, multi-sim normalization, malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, allow-listed `scout` component (no unmapped-key warning), step_penalty with sub-1.0 weight passes through raw (-0.5 not -500), idle_penalty with sub-1.0 weight passes through raw, any sub-1.0 weight (0.0001 or 0.001) both use scale=1.0, the new `unit_loss` / `damage_taken` / `passive_under_fire` components normalize through their config weights without unmapped-key warnings, realistic positive reward stays positive after normalization (313.5 ✓), and emits SC2 cross-run charts + summary links; passes `task_metric_fn`, `task_metric_fmt` (percentage formatter) to framework; `attack_bonus` mapped to `attack_bonus` config key in normalisation
 - `_sc2_task_metric`: empty sims → 0.0; win+finish counted as success; loss/timeout/None/other not counted; all-wins → 1.0; `_GS_SUCCESS_REASONS` constant contains win+finish, excludes loss+timeout
+
+### test_sc2_replay_bc.py — SC2 replay reader → BC demonstration dataset (issue #351)
+- `TestIterReplays`: finds only `.SC2Replay` files; sorted order; empty folder returns `[]`
+- `TestParseReplayInfo`: winner + races parsed correctly; winner is player 2; undecided returns `(0, {})`;
+  race integer mapping (1=terran, 2=zerg, 3=protoss, 4=random); unknown race falls back to `"random"`
+- `TestResolvePlayerId`: `"winner"` resolves to winner pid; fallback to 1 when winner=0; explicit int id;
+  explicit int id with zero winner
+- `TestPickBestAction`: empty returns None; `"first"` returns first even if no_op; `"first_non_noop"` skips
+  no_op; fallback to first when all no_op; single action returned regardless of strategy
+- `TestReplayObservations`: obs shape matches spec (float32, `[D]`); action shape+dtype `([4], float32)`;
+  fn_idx preserved in action vector; temporal order preserved via monotonically increasing x-coord;
+  steps with no actions skipped; `[no_op, Move_screen]` → `Move_screen` selected; unknown PySC2 fn_id
+  skipped; `winner_id=0` falls back to player 1; explicit `player_id=2` overrides winner; `controller.step()`
+  called once per step including no-action steps; unknown fn_id still calls `step()`
+- `TestReadOneReplay`: race match returns `(True, player_race, pairs)`; race mismatch returns `(False, ..., [])`;
+  no race filter processes all; race filter drops replay → `start_replay` not called; `player_race` always
+  returned even when filter drops replay
+- `TestBuildDataset` (mocks `_read_one_replay`): single replay writes correct NPZ with `n_episodes=1`;
+  `obs`/`actions` shapes correct; episode boundaries for two replays (`episode_starts`, `episode_lengths`,
+  `episode_id`); temporal order preserved within episode; meta JSON round-trip (`player_id`, `step_mul`,
+  `screen_size`, `source_filenames`); all replays dropped by race filter raises `ValueError` with race name
+  in message; no replay files raises `ValueError`; `race="any"` keeps all; `source_filenames` recorded
+  in meta; `episode_id` covers all rows
+- `TestLoadDataset`: flat load returns all expected keys; correct shapes; `as_episodes=True` yields correct
+  per-episode shapes; episode `episode_starts` partitions correctly; temporal order preserved per episode;
+  `meta` parsed as dict in `as_episodes` mode; round-trip save+load preserves obs+action values
 
 ## Rocket League
 

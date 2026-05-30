@@ -70,10 +70,7 @@ class SelfPlayManager:
         seed: int | None = None,
     ) -> None:
         if mode not in SELF_PLAY_MODES:
-            raise ValueError(
-                f"Unknown self_play_mode {mode!r}; "
-                f"must be one of {sorted(SELF_PLAY_MODES)}"
-            )
+            raise ValueError(f"Unknown self_play_mode {mode!r}; must be one of {sorted(SELF_PLAY_MODES)}")
         self._mode = mode
         self._mutation_scale = float(mutation_scale)
         self._top_n = max(1, int(top_n))

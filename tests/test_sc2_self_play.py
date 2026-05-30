@@ -644,6 +644,7 @@ class TestGreedyLoopCmaesWithSelfPlay(unittest.TestCase):
     def _make_mock_cmaes_policy(self, champion_reward=0.0):
         """Return a minimal CMA-ES-like policy stub."""
         from unittest.mock import MagicMock
+
         import numpy as np
 
         policy = MagicMock()
@@ -659,12 +660,14 @@ class TestGreedyLoopCmaesWithSelfPlay(unittest.TestCase):
 
     def test_self_play_manager_step_called_each_gen(self):
         """Manager.step() is called once per generation and env.set_opponent_policy updated."""
-        import numpy as np
-        import tempfile
         import os
-        from unittest.mock import MagicMock, call
-        from framework.training import _greedy_loop_cmaes
+        import tempfile
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
         from framework.self_play import SelfPlayManager
+        from framework.training import _greedy_loop_cmaes
 
         policy = self._make_mock_cmaes_policy(champion_reward=1.0)
 
@@ -698,10 +701,12 @@ class TestGreedyLoopCmaesWithSelfPlay(unittest.TestCase):
 
     def test_no_self_play_manager_no_set_opponent(self):
         """Without a manager, set_opponent_policy is never called."""
-        import numpy as np
-        import tempfile
         import os
+        import tempfile
         from unittest.mock import MagicMock
+
+        import numpy as np
+
         from framework.training import _greedy_loop_cmaes
 
         policy = self._make_mock_cmaes_policy()

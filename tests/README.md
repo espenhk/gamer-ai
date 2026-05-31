@@ -655,6 +655,8 @@ handful of iterations only).
 - score_features field-name access: named NamedNumpyArray access takes priority over positional; score→score_total rename applied; missing score array → all zeros
 - last_fn_idx property: `_resolve_action` routing → idx=1 when select_army resolved; no_op fallback on blocked PySC2 mask → idx=0; passthrough → requested idx
 - realtime param: default False stored; True stored; forwarded as kwarg to SC2Env constructor
+- deferred-action oscillation fix (#356 H1): deferred `Move_screen` replays directly on step 2 even when army is still empty; `select_army` appears exactly once across both steps (not re-emitted, not re-deferred)
+- owned-buildings accumulation fix (#356 H2): buildings seen in prior steps remain in `_owned_buildings` after the camera pans away; new buildings are unioned in each step; episode `reset()` clears the accumulator
 
 ### test_sc2_env.py — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set

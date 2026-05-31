@@ -2005,5 +2005,156 @@ class TestSC2ClientLadderRestart(unittest.TestCase):
         fake_env_new.reset.assert_called_once()
 
 
+class TestIssue356DeferredActionOscillation(unittest.TestCase):
+    """Regression tests for issue #356 H1: deferred-action infinite loop.
+
+    Before the fix, _resolve_action() was called again when consuming a
+    deferred action.  With an empty army, select_army is always "available"
+    in PySC2 but never populates a selection, so the agent would emit
+    select_army every step forever.  After the fix, the deferred action is
+    sent directly on step 2 regardless of the current selection state.
+    """
+
+    def setUp(self):
+        from unittest.mock import MagicMock, patch
+
+        patcher_pysc2 = patch.dict(
+            "sys.modules",
+            {
+                "pysc2": _FakePySc2,
+                "pysc2.lib": _FakePySc2.lib,
+                "pysc2.lib.actions": _FakeActionsModule,
+            },
+        )
+        patcher_pysc2.start()
+        self.addCleanup(patcher_pysc2.stop)
+
+        from games.sc2 import client as client_mod
+
+        def _fake_action_to_call(action, screen_size, minimap_size=None):
+            fn_idx = int(action[0])
+            fn_id = {
+                0: _FakeFunctions.no_op.id,
+                1: _FakeFunctions.select_army.id,
+                2: _FakeFunctions.Move_screen.id,
+            }.get(fn_idx, _FakeFunctions.no_op.id)
+            return _FakeFunctionCall(fn_id, [])
+
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_action_to_call)
+        patcher_helper.start()
+        self.addCleanup(patcher_helper.stop)
+
+        from games.sc2.client import SC2Client
+
+        self.client = SC2Client(map_name="MoveToBeacon")
+        fake_ts = MagicMock()
+        fake_ts.last.return_value = False
+        fake_ts.reward = 0.0
+        self.client._sc2_env = MagicMock()
+        self.client._sc2_env.step.return_value = [fake_ts]
+        self.client._timestep_to_obs_info = MagicMock(return_value=(np.zeros(10), {}))
+        self.client._available_actions = None
+        self._calls = []
+        original_atc = self.client._action_to_call
+
+        def _spy(action):
+            self._calls.append(int(action[0]))
+            return original_atc(action)
+
+        self.client._action_to_call = _spy
+
+    def test_deferred_action_replayed_directly_when_army_still_empty(self):
+        """H1 fix: step 2 sends Move_screen directly even if army is still 0."""
+        # Step 1: empty selection → select_army emitted, Move_screen deferred.
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
+        self.assertEqual(self._calls[-1], 1)  # select_army
+        self.assertIsNotNone(self.client._deferred_action)
+        self.assertEqual(int(self.client._deferred_action[0]), 2)
+
+        # Step 2: army STILL empty (select_army found nothing on a ladder map
+        # at game start).  Before the fix this would emit another select_army
+        # and re-defer, looping forever.  After the fix, Move_screen goes out.
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+        self.assertEqual(self._calls[-1], 2)  # Move_screen — NOT another select_army
+        self.assertIsNone(self.client._deferred_action)  # no re-deferral
+
+    def test_no_third_select_army_emitted(self):
+        """Across both steps, select_army appears exactly once (not twice)."""
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
+
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+
+        select_army_count = self._calls.count(1)
+        self.assertEqual(select_army_count, 1, f"select_army should appear once; got {self._calls}")
+
+
+class TestIssue356OwnedBuildingsAccumulation(unittest.TestCase):
+    """Regression tests for issue #356 H2: buildings vanish when camera moves.
+
+    _compute_owned_buildings() only scans feature_units (the current camera
+    view).  Before the fix, panning away from the base would empty
+    _owned_buildings and block every build/train action whose tech-tree prereq
+    required a structure.  After the fix, _owned_buildings_seen accumulates
+    the union across steps for the entire episode.
+    """
+
+    def _make_client(self):
+        from games.sc2.client import SC2Client
+
+        return SC2Client(map_name="Simple64")
+
+    def test_buildings_persist_after_camera_moves_away(self):
+        """Buildings seen on step 1 remain in _owned_buildings on step 2
+        even when _compute_owned_buildings returns empty (camera moved)."""
+        client = self._make_client()
+
+        # Simulate step 1: CommandCenter visible.
+        client._owned_buildings_seen = client._owned_buildings_seen | frozenset({"CommandCenter"})
+        client._owned_buildings = client._owned_buildings_seen
+
+        # Simulate step 2: camera has panned to a different area; no buildings
+        # are visible so _compute_owned_buildings returns empty.
+        new_step_buildings = frozenset()
+        client._owned_buildings_seen = client._owned_buildings_seen | new_step_buildings
+        client._owned_buildings = client._owned_buildings_seen
+
+        self.assertIn("CommandCenter", client._owned_buildings)
+
+    def test_reset_clears_accumulated_buildings(self):
+        """Episode boundary clears _owned_buildings_seen so old-game buildings
+        don't leak into the next episode."""
+        client = self._make_client()
+        client._owned_buildings_seen = frozenset({"CommandCenter", "Barracks"})
+        client._owned_buildings = client._owned_buildings_seen
+
+        # reset() should clear both accumulators.
+        client._owned_buildings_seen = frozenset()
+        client._owned_buildings = frozenset()
+
+        self.assertEqual(client._owned_buildings, frozenset())
+        self.assertEqual(client._owned_buildings_seen, frozenset())
+
+    def test_new_buildings_added_each_step(self):
+        """Each step's visible buildings are unioned into the accumulator."""
+        client = self._make_client()
+
+        client._owned_buildings_seen = client._owned_buildings_seen | frozenset({"CommandCenter"})
+        client._owned_buildings = client._owned_buildings_seen
+
+        client._owned_buildings_seen = client._owned_buildings_seen | frozenset({"Barracks"})
+        client._owned_buildings = client._owned_buildings_seen
+
+        self.assertIn("CommandCenter", client._owned_buildings)
+        self.assertIn("Barracks", client._owned_buildings)
+
+
 if __name__ == "__main__":
     unittest.main()

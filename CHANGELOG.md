@@ -17,6 +17,23 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- SC2 agent no longer freezes on ladder maps (issue #356).  Three bugs
+  introduced by PR #348 (tech-tree preconditions + deferred-action queue)
+  are fixed:
+  - **H1 — infinite select_army oscillation**: `step()` now bypasses
+    `_resolve_action()` when consuming a deferred action.  Previously,
+    re-running the resolver on the replayed action would emit another
+    `select_army` (always "available" in PySC2 even with an empty army)
+    and re-defer indefinitely, stalling the agent for the entire episode.
+  - **H2 — buildings disappear on camera move**: `_owned_buildings` is now
+    accumulated across steps via `_owned_buildings_seen` so structures that
+    scroll off-screen no longer vanish from the tech-tree mask and block
+    build/train actions mid-episode.
+  - **H3 — per-step tech-tree CPU overhead**: `_compute_available_fn_ids()`
+    caches its result and skips the 118-call `fn_idx_satisfied()` loop when
+    `owned_buildings`, `completed_upgrades`, `selected_unit_types`, and the
+    PySC2 candidate set are all unchanged since the previous step.
 
 ---
 

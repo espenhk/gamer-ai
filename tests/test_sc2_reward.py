@@ -679,6 +679,7 @@ class TestSC2RewardComponents(unittest.TestCase):
             "score",
             "economy",
             "idle_penalty",
+            "idle_worker_penalty",
             "idle_bonus",
             "move_exploration",
             "move_repeat_penalty",
@@ -1710,6 +1711,82 @@ class TestSC2RewardComponentsExtended(unittest.TestCase):
             info=info,
         )
         self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+
+class TestSC2IdleWorkerPenalty(unittest.TestCase):
+    """Tests for the idle_worker_penalty reward (issue #358)."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg_kwargs = {
+            "score_weight": 0.0,
+            "step_penalty": 0.0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "economy_weight": 0.0,
+        }
+        cfg_kwargs.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
+
+    def test_penalty_fires_for_each_idle_worker(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 3},
+        )
+        self.assertAlmostEqual(r, -3.0)
+
+    def test_penalty_zero_when_no_idle_workers(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_absent_when_key_missing(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.idle_worker_penalty, 0.0)
+
+    def test_penalty_scales_with_n_ticks(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 2},
+            n_ticks=3,
+        )
+        self.assertAlmostEqual(r, -6.0)  # -1.0 * 2 workers * 3 ticks
+
+    def test_penalty_appears_in_components(self):
+        calc = self._make_calc(idle_worker_penalty=-2.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 4},
+        )
+        self.assertIn("idle_worker_penalty", comp)
+        self.assertAlmostEqual(comp["idle_worker_penalty"], -8.0)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from games.sc2.actions import (
     WARMUP_ACTION,
     action_to_function_call,
     fn_ids_for_race,
+    function_call_to_action,
 )
 
 _N = SCREEN_GRID_RESOLUTION
@@ -243,6 +244,126 @@ class TestActionToFunctionCall(unittest.TestCase):
             action = np.array([2, 1.0, 1.0, 0.0], dtype=np.float32)  # Move_screen
             call = action_to_function_call(action, screen_size=64, minimap_size=32)
         self.assertEqual(call.arguments, [[0], [63, 63]])
+
+
+class TestFunctionCallToAction(unittest.TestCase):
+    """Inverse mapping FunctionCall → [fn_idx, x, y, queue] (issue #350)."""
+
+    def _round_trip(self, action, screen_size=64, minimap_size=None):
+        """Run action → FunctionCall → action under faked PySC2 modules.
+
+        The id→fn_idx cache in games.sc2.client is reset inside the patched
+        context so it resolves against the fake FUNCTIONS (id = 1000+fn_idx)
+        rather than any value left over from another test.
+        """
+        import games.sc2.client as sc2_client_mod
+
+        with patch.dict(sys.modules, _fake_pysc2_modules()):
+            old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+            sc2_client_mod._pysc2_id_to_fn_idx = None
+            try:
+                call = action_to_function_call(action, screen_size, minimap_size)
+                recovered = function_call_to_action(call, screen_size, minimap_size)
+            finally:
+                sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+        return recovered
+
+    def _assert_round_trips(self, action, screen_size=64, minimap_size=None):
+        recovered = self._round_trip(action, screen_size, minimap_size)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.dtype, np.float32)
+        self.assertEqual(recovered.shape, (4,))
+        np.testing.assert_allclose(recovered, action, atol=1e-6)
+
+    def test_round_trip_no_op(self):
+        # Non-spatial → centre coords 0.5, 0.5.
+        self._assert_round_trips(np.array([0, 0.5, 0.5, 0], dtype=np.float32))
+
+    def test_round_trip_select_army(self):
+        self._assert_round_trips(np.array([1, 0.5, 0.5, 0], dtype=np.float32))
+
+    def test_round_trip_select_idle_worker(self):
+        self._assert_round_trips(np.array([4, 0.5, 0.5, 0], dtype=np.float32))
+
+    def test_round_trip_quick_action_preserves_queue(self):
+        # Train_Marine_quick (fn_idx 7) with queue=1; coords default to 0.5.
+        self._assert_round_trips(np.array([7, 0.5, 0.5, 1], dtype=np.float32))
+
+    def test_round_trip_select_point(self):
+        # Grid-aligned screen coords survive the int round-trip exactly.
+        self._assert_round_trips(np.array([6, 1.0, 0.0, 0], dtype=np.float32))
+
+    def test_round_trip_select_rect(self):
+        self._assert_round_trips(np.array([17, 1.0, 1.0, 0], dtype=np.float32))
+
+    def test_round_trip_screen_action_with_queue(self):
+        # Move_screen (fn_idx 2), grid corner, queued.
+        self._assert_round_trips(np.array([2, 1.0, 1.0, 1], dtype=np.float32))
+
+    def test_round_trip_minimap_action_uses_minimap_size(self):
+        # Move_minimap (fn_idx 11) normalised against minimap_size, not screen.
+        self._assert_round_trips(
+            np.array([11, 1.0, 1.0, 0], dtype=np.float32),
+            screen_size=64,
+            minimap_size=32,
+        )
+
+    def test_round_trip_screen_midpoint_with_odd_size(self):
+        # screen_size 65 → denom 64 → 0.5 maps to pixel 32 and back exactly.
+        self._assert_round_trips(
+            np.array([2, 0.5, 0.5, 0], dtype=np.float32),
+            screen_size=65,
+        )
+
+    def test_spatial_coords_normalised_to_unit_square(self):
+        # An explicit FunctionCall with mid-screen target normalises correctly.
+        with patch.dict(sys.modules, _fake_pysc2_modules()):
+            import games.sc2.client as sc2_client_mod
+
+            old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+            sc2_client_mod._pysc2_id_to_fn_idx = None
+            try:
+                call = _FakeFunctionCall(1000 + 2, [[0], [63, 0]])  # Move_screen
+                action = function_call_to_action(call, screen_size=64)
+            finally:
+                sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+        self.assertEqual(int(action[0]), 2)
+        self.assertAlmostEqual(float(action[1]), 1.0, places=6)
+        self.assertAlmostEqual(float(action[2]), 0.0, places=6)
+
+    def test_malformed_args_are_clamped_to_invariant_ranges(self):
+        # Out-of-range coords and a queue flag > 1 must still yield x/y in
+        # [0, 1] and queue in {0, 1}, as the docstring promises.
+        with patch.dict(sys.modules, _fake_pysc2_modules()):
+            import games.sc2.client as sc2_client_mod
+
+            old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+            sc2_client_mod._pysc2_id_to_fn_idx = None
+            try:
+                # Move_screen with a target past the screen edge and queue=5.
+                call = _FakeFunctionCall(1000 + 2, [[5], [9999, -7]])
+                action = function_call_to_action(call, screen_size=64)
+            finally:
+                sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+        self.assertEqual(int(action[0]), 2)
+        self.assertGreaterEqual(float(action[1]), 0.0)
+        self.assertLessEqual(float(action[1]), 1.0)
+        self.assertGreaterEqual(float(action[2]), 0.0)
+        self.assertLessEqual(float(action[2]), 1.0)
+        self.assertEqual(float(action[3]), 1.0)
+
+    def test_unknown_function_id_returns_none_sentinel(self):
+        with patch.dict(sys.modules, _fake_pysc2_modules()):
+            import games.sc2.client as sc2_client_mod
+
+            old_cache = sc2_client_mod._pysc2_id_to_fn_idx
+            sc2_client_mod._pysc2_id_to_fn_idx = None
+            try:
+                call = _FakeFunctionCall(99999, [])  # id outside FUNCTION_IDS
+                result = function_call_to_action(call, screen_size=64)
+            finally:
+                sc2_client_mod._pysc2_id_to_fn_idx = old_cache
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

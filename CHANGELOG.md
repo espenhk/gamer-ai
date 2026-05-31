@@ -17,6 +17,33 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- SC2 replay BC dataset builder at `games/sc2/replay_bc.py` (issue #351,
+  [2/6]): reads `.SC2Replay` files via the PySC2 replay API and produces
+  sequence-aware NPZ demonstration datasets (`obs`, `actions`,
+  `episode_starts`, `episode_lengths`, `episode_id`, `meta`).  Public API:
+  `iter_replays(folder)`, `replay_observations(path, ...)` (generator),
+  `build_dataset(folder, save_path, ...)`, and `load_dataset(path, ...)`.
+  Supports race filtering, winner/explicit player selection, configurable
+  `step_mul`, and a `multi_action_strategy` knob (`"first"` /
+  `"first_non_noop"`) for steps with multiple simultaneous actions.  All
+  PySC2 imports are lazy (inside function bodies) so the module is
+  importable without PySC2 installed.
+- SC2 behaviour-cloning primitives (issue #350, part 1 of #349): a new
+  `function_call_to_action()` in `games/sc2/actions.py` inverts
+  `action_to_function_call`, converting a PySC2 `FunctionCall` back into the
+  framework's `[fn_idx, x, y, queue]` vector (spatial coords renormalised to
+  `[0, 1]`, non-spatial actions report centre coords `0.5, 0.5`, unknown
+  function ids return `None` as a skip sentinel). A module-level
+  `extract_flat_obs()` in `games/sc2/client.py` is now the single source of
+  truth for PySC2-TimeStep → flat-observation projection, so the live client
+  and the upcoming offline replay reader share one code path with no drift.
+
+### Changed
+- `SC2Client._timestep_to_obs_info` and its per-block feature extractors are
+  refactored into thin wrappers over the new shared module-level functions.
+  No runtime behaviour change — flat observations and info dicts are
+  identical (existing SC2 tests unchanged and passing).
 
 ---
 

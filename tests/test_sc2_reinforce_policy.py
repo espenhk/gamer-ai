@@ -495,11 +495,19 @@ class TestSC2REINFORCESerialization(unittest.TestCase):
 class TestSC2REINFORCERaceMask(unittest.TestCase):
     """Permanent race filter via overridden _build_fn_mask."""
 
-    def test_default_race_allows_all_fn_ids(self):
+    def test_default_race_allows_all_non_disabled_fn_ids(self):
+        # For race="random" all fn_ids should be unmasked except permanently-
+        # disabled ones (fn_idx 12/13 Patrol, issue #356).
+        from games.sc2.actions import _DISABLED_FN_IDS
+
         p = _make_policy()
         mask = p._build_fn_mask(None)  # noqa: SLF001 - white-box test
-        # All function IDs should be unmasked for race="random".
-        self.assertTrue(mask.all())
+        for i, enabled in enumerate(mask):
+            fn_idx = i  # mask indices == fn_idx for _build_fn_mask (N_FUNCTION_IDS-sized)
+            if fn_idx in _DISABLED_FN_IDS:
+                self.assertFalse(enabled, f"fn_idx={fn_idx} should be masked (disabled)")
+            else:
+                self.assertTrue(enabled, f"fn_idx={fn_idx} should be unmasked for random race")
 
     def test_terran_race_blocks_zerg_fn_ids(self):
         from games.sc2.actions import _ZERG_FN_IDS

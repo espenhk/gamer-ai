@@ -10,6 +10,7 @@ import unittest
 
 from games.sc2.tech_tree import (
     PRECONDITIONS,
+    RESOURCE_COSTS,
     WORKER_NAMES,
     SelectionReq,
     building_prereqs_met,
@@ -252,6 +253,9 @@ class TestPreconditionsTableShape(unittest.TestCase):
     def test_universal_actions_have_no_selection_or_any_unit(self):
         # Universal actions (no_op, select_*, Move_*, Stop, …) should never
         # require a specific selected unit-type.
+        # fn_idx 12 (Patrol_screen) and 13 (Patrol_minimap) remain in
+        # PRECONDITIONS for table completeness but are excluded from
+        # _UNIVERSAL_FN_IDS (issue #356).
         universal = {0, 1, 2, 3, 4, 6, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22}
         for fn_idx in universal:
             with self.subTest(fn_idx=fn_idx):
@@ -274,6 +278,85 @@ class TestPreconditionsTableShape(unittest.TestCase):
                     pre.selection_target & WORKER_NAMES,
                     f"{name} should accept worker selection",
                 )
+
+
+class TestResourceCostGating(unittest.TestCase):
+    """Resource cost check in fn_idx_satisfied (issue #357)."""
+
+    # Build_Barracks_screen (fn_idx=8) costs 150 minerals and requires a
+    # SupplyDepot to exist.  Tests pass SupplyDepot in owned_buildings so the
+    # only failure mode is the resource check.
+    _SUPPLY_DEPOT = frozenset({"SupplyDepot"})
+
+    def test_build_barracks_blocked_with_zero_minerals(self):
+        self.assertFalse(
+            fn_idx_satisfied(8, self._SUPPLY_DEPOT, frozenset(), _SCV, minerals=0.0, vespene=0.0)
+        )
+
+    def test_build_barracks_blocked_with_insufficient_minerals(self):
+        self.assertFalse(
+            fn_idx_satisfied(8, self._SUPPLY_DEPOT, frozenset(), _SCV, minerals=149.0, vespene=0.0)
+        )
+
+    def test_build_barracks_allowed_with_exact_minerals(self):
+        self.assertTrue(
+            fn_idx_satisfied(8, self._SUPPLY_DEPOT, frozenset(), _SCV, minerals=150.0, vespene=0.0)
+        )
+
+    def test_build_barracks_allowed_with_surplus_minerals(self):
+        self.assertTrue(
+            fn_idx_satisfied(8, self._SUPPLY_DEPOT, frozenset(), _SCV, minerals=500.0, vespene=0.0)
+        )
+
+    def test_factory_blocked_with_minerals_but_no_vespene(self):
+        # fn_idx=26 Build_Factory_screen costs 150 minerals + 100 vespene.
+        self.assertFalse(
+            fn_idx_satisfied(26, frozenset({"Barracks"}), frozenset(), _SCV, minerals=200.0, vespene=50.0)
+        )
+
+    def test_factory_allowed_with_sufficient_both(self):
+        self.assertTrue(
+            fn_idx_satisfied(26, frozenset({"Barracks"}), frozenset(), _SCV, minerals=150.0, vespene=100.0)
+        )
+
+    def test_no_op_always_allowed_regardless_of_resources(self):
+        # fn_idx=0 no_op has no cost entry; always allowed.
+        self.assertTrue(
+            fn_idx_satisfied(0, frozenset(), frozenset(), _NONE, minerals=0.0, vespene=0.0)
+        )
+
+    def test_move_screen_always_allowed_regardless_of_resources(self):
+        # fn_idx=2 Move_screen has no resource cost.
+        self.assertTrue(
+            fn_idx_satisfied(2, frozenset(), frozenset(), _sel("Marine"), minerals=0.0, vespene=0.0)
+        )
+
+    def test_default_inf_budget_is_unconstrained(self):
+        # Calling without minerals/vespene uses float("inf") defaults → allowed
+        # (building prereq still needs SupplyDepot).
+        self.assertTrue(fn_idx_satisfied(8, self._SUPPLY_DEPOT, frozenset(), _SCV))
+
+    def test_resource_costs_table_coverage(self):
+        # Every entry in RESOURCE_COSTS should be a fn_idx in FUNCTION_IDS
+        # so costs don't become dead weight when actions are removed.
+        from games.sc2.actions import FUNCTION_IDS
+
+        for fn_idx in RESOURCE_COSTS:
+            with self.subTest(fn_idx=fn_idx):
+                self.assertIn(fn_idx, FUNCTION_IDS, f"fn_idx {fn_idx} in RESOURCE_COSTS but not in FUNCTION_IDS")
+
+    def test_patrol_fn_ids_absent_from_all_race_sets(self):
+        # fn_idx 12 (Patrol_screen) and 13 (Patrol_minimap) must not appear in
+        # any race's reachable action set (issue #356).  They remain in
+        # FUNCTION_IDS for compact array-index compatibility but are excluded
+        # from _UNIVERSAL_FN_IDS so no race can reach them.
+        from games.sc2.actions import fn_ids_for_race
+
+        for race in ("terran", "protoss", "zerg", "random"):
+            with self.subTest(race=race):
+                ids = fn_ids_for_race(race)
+                self.assertNotIn(12, ids, f"Patrol_screen reachable for {race}")
+                self.assertNotIn(13, ids, f"Patrol_minimap reachable for {race}")
 
 
 if __name__ == "__main__":

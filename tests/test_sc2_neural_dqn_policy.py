@@ -15,9 +15,14 @@ from games.sc2.actions import (
     FUNCTION_IDS,
     build_available_actions_mask,
     discrete_action_to_fn_id,
+    fn_ids_for_race,
 )
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 from games.sc2.sc2_policies import SC2NeuralDQNPolicy
+
+# Expected "unconstrained" mask for random race: all fn_ids except disabled ones
+# (Patrol_screen/minimap, issue #356).
+_UNCONSTRAINED_MASK = build_available_actions_mask(fn_ids_for_race("random"), len(DISCRETE_ACTIONS))
 
 _OBS_SPEC = SC2_MINIGAME_OBS_SPEC
 _OBS_DIM = SC2_MINIGAME_OBS_SPEC.dim
@@ -124,12 +129,16 @@ class TestMaskedActionSelection(unittest.TestCase):
         # Should see at least 3 distinct fn_idx values (from 118 total)
         self.assertGreaterEqual(len(seen_fn_ids), 3)
 
-    def test_on_episode_start_without_info_resets_to_all_true(self):
-        """on_episode_start() without info should reset to an all-True mask."""
+    def test_on_episode_start_without_info_resets_to_unconstrained(self):
+        """on_episode_start() without info should reset to the race-unconstrained mask.
+
+        For the default ``race='random'`` policy, this means all actions except
+        permanently-disabled ones (Patrol_screen / Patrol_minimap, issue #356).
+        """
         policy = _make_policy()
         policy._cached_mask = build_available_actions_mask({2})  # partially masked
         policy.on_episode_start()
-        self.assertTrue(policy._cached_mask.all())
+        np.testing.assert_array_equal(policy._cached_mask, _UNCONSTRAINED_MASK)
 
     def test_on_episode_start_with_info_primes_mask(self):
         """on_episode_start(info=...) should prime cached mask from available_fn_ids."""
@@ -145,7 +154,11 @@ class TestMaskedActionSelection(unittest.TestCase):
 
 class TestUpdateStoresAvailableFnIds(unittest.TestCase):
     def test_initial_mask_is_all_true(self):
-        """Freshly constructed policy must start with an all-True mask."""
+        """Freshly constructed policy starts with an all-True bootstrap mask.
+
+        The race filter (which permanently disables Patrol, issue #356) kicks in
+        on the first ``on_episode_start()`` call, not at construction time.
+        """
         policy = _make_policy()
         self.assertTrue(policy._cached_mask.all())
 
@@ -157,23 +170,23 @@ class TestUpdateStoresAvailableFnIds(unittest.TestCase):
         expected = build_available_actions_mask({1, 2})
         np.testing.assert_array_equal(policy._cached_mask, expected)
 
-    def test_update_without_info_resets_to_all_true_mask(self):
-        """update() without info kwarg should reset mask to all-True."""
+    def test_update_without_info_resets_to_unconstrained_mask(self):
+        """update() without info kwarg should reset mask to the race-unconstrained default."""
         policy = _make_policy()
         partial_mask = build_available_actions_mask({2})
         policy._cached_mask = partial_mask.copy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False)  # no info kwarg
-        self.assertTrue(policy._cached_mask.all())
+        np.testing.assert_array_equal(policy._cached_mask, _UNCONSTRAINED_MASK)
 
-    def test_update_with_empty_info_resets_to_all_true_mask(self):
-        """update() with empty info dict should reset mask to all-True."""
+    def test_update_with_empty_info_resets_to_unconstrained_mask(self):
+        """update() with empty info dict should reset mask to the race-unconstrained default."""
         policy = _make_policy()
         partial_mask = build_available_actions_mask({2})
         policy._cached_mask = partial_mask.copy()
         obs = _zero_obs()
         policy.update(obs, 0, 1.0, obs, False, info={})
-        self.assertTrue(policy._cached_mask.all())
+        np.testing.assert_array_equal(policy._cached_mask, _UNCONSTRAINED_MASK)
 
     def test_update_overwrites_mask(self):
         """Consecutive update() calls with different fn_ids update the mask each time."""

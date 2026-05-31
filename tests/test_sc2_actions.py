@@ -147,8 +147,13 @@ class TestRaceGating(unittest.TestCase):
         for race, ids in RACE_FUNCTION_IDS.items():
             self.assertTrue(ids <= all_ids, f"{race} has fn_ids outside FUNCTION_IDS: {ids - all_ids}")
 
-    def test_random_race_includes_all(self):
-        self.assertEqual(fn_ids_for_race("random"), frozenset(FUNCTION_IDS.keys()))
+    def test_random_race_includes_all_except_disabled(self):
+        # "random" includes every fn_idx that is not explicitly disabled.
+        # fn_idx 12/13 (Patrol_screen/minimap) are disabled (issue #356) but
+        # remain in FUNCTION_IDS for compact array-index compatibility.
+        from games.sc2.actions import _DISABLED_FN_IDS
+
+        self.assertEqual(fn_ids_for_race("random"), frozenset(FUNCTION_IDS.keys()) - _DISABLED_FN_IDS)
 
     def test_race_sets_are_disjoint_from_each_other_for_race_specific(self):
         """Race-specific (non-universal) fn_ids must not overlap between races."""
@@ -162,8 +167,10 @@ class TestRaceGating(unittest.TestCase):
         self.assertFalse(_TERRAN_FN_IDS & _ZERG_FN_IDS, "Terran and Zerg-specific fn_ids overlap")
         self.assertFalse(_PROTOSS_FN_IDS & _ZERG_FN_IDS, "Protoss and Zerg-specific fn_ids overlap")
 
-    def test_fn_ids_for_race_unknown_falls_back_to_all(self):
-        self.assertEqual(fn_ids_for_race("unknown_race"), frozenset(FUNCTION_IDS.keys()))
+    def test_fn_ids_for_race_unknown_falls_back_to_all_except_disabled(self):
+        from games.sc2.actions import _DISABLED_FN_IDS
+
+        self.assertEqual(fn_ids_for_race("unknown_race"), frozenset(FUNCTION_IDS.keys()) - _DISABLED_FN_IDS)
 
     def test_terran_has_barracks_not_nexus(self):
         terran_ids = fn_ids_for_race("terran")

@@ -17,6 +17,29 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- **SC2: Patrol_screen / Patrol_minimap removed from all race action sets (issue
+  #356).** Patrol commands cause the SC2 engine's pathfinder to accumulate
+  waypoints indefinitely; as more units are set to patrol over a long run the
+  game crawls to a halt.  `fn_idx` 12 and 13 are now excluded from
+  `_UNIVERSAL_FN_IDS` and from the "random" race fallback in
+  `RACE_FUNCTION_IDS`, so they never appear in the agent's candidate action set.
+  A `_DISABLED_FN_IDS` frozenset is introduced for clean future extension.  A
+  safety-net guard in `SC2Client._action_to_call` additionally substitutes
+  `no_op` for any Patrol action that slips through continuous-output policies.
+  The two fn_idx values are retained in `FUNCTION_IDS` to preserve the compact
+  array-index mapping used by `sc2_policies.py`.
+- **SC2: action mask now gates build/train actions on resource balance (issue
+  #357).** `fn_idx_satisfied()` in `tech_tree.py` previously skipped mineral and
+  vespene checks ("mineral cost / supply etc. are not modeled").  A new
+  `RESOURCE_COSTS` dict (sourced from Liquipedia LotV pages) maps every
+  build/train fn_idx to its `(minerals, vespene)` cost.  The function now
+  accepts optional `minerals` and `vespene` keyword arguments (defaulting to
+  `float("inf")` for backward-compat) and returns `False` when the current
+  balance falls short.  `SC2Client._compute_available_fn_ids` extracts the live
+  player balance from the PySC2 observation via `_safe_player()` and passes it
+  through; unit-test code paths (where `_unit_type_id_to_name` is empty) are
+  unaffected by the early-return guard.
 
 ---
 

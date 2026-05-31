@@ -753,6 +753,16 @@ class SC2Client:
         fn_idx = int(action[0])
         fn_name = FUNCTION_IDS.get(fn_idx, "no_op")
 
+        # Patrol commands (fn_idx 12, 13) are removed from the action space
+        # (issue #356): they cause progressive pathfinder load as units accumulate
+        # patrol waypoints, making the game crawl to a halt.  Substitute no_op
+        # here as a safety net for continuous-output policies whose raw fn_idx
+        # scores may still land on 12 or 13.
+        if fn_idx in (12, 13):
+            logger.debug("Patrol action (fn_idx=%d) blocked; issuing no_op.", fn_idx)
+            self._last_fn_idx = 0
+            return pysc2_actions.FunctionCall(int(pysc2_actions.FUNCTIONS.no_op.id), [])
+
         if self._available_actions is not None and int(fn_call.function) not in self._available_actions:
             logger.debug(
                 "Action %s unavailable in PySC2 mask; issuing no_op.",
@@ -1588,6 +1598,14 @@ class SC2Client:
         if not self._unit_type_id_to_name:
             return set(candidate)
 
+        player = self._safe_player(ob)
+        if player:
+            minerals_f = float(player.get("minerals", 0.0))
+            vespene_f = float(player.get("vespene", 0.0))
+        else:
+            minerals_f = float("inf")
+            vespene_f = float("inf")
+
         return {
             fn_idx
             for fn_idx in candidate
@@ -1596,6 +1614,8 @@ class SC2Client:
                 self._owned_buildings,
                 self._completed_upgrades,
                 self._selected_unit_types,
+                minerals_f,
+                vespene_f,
             )
         }
 

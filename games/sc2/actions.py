@@ -87,6 +87,10 @@ FUNCTION_IDS = {
     # --- issue #276 (expanded): full cross-race action coverage ---
     # movement / combat
     11: "Move_minimap",
+    # fn_idx 12 (Patrol_screen) and 13 (Patrol_minimap) are excluded from
+    # _UNIVERSAL_FN_IDS and thus from every race's action set (issue #356).
+    # They stay in FUNCTION_IDS to preserve the compact fn_idx → array-index
+    # mapping used by sc2_policies.py.
     12: "Patrol_screen",
     13: "Patrol_minimap",
     14: "HoldPosition_quick",
@@ -231,8 +235,6 @@ _UNIVERSAL_FN_IDS: frozenset[int] = frozenset(
         5,  # Harvest_Gather_screen
         6,  # select_point
         11,  # Move_minimap
-        12,  # Patrol_screen
-        13,  # Patrol_minimap
         14,  # HoldPosition_quick
         15,  # Stop_quick
         16,  # Attack_minimap
@@ -359,21 +361,28 @@ _ZERG_FN_IDS: frozenset[int] = frozenset(
     }
 )
 
+# fn_idx values that are kept in FUNCTION_IDS for compact array-index
+# compatibility but intentionally excluded from every race's active set.
+_DISABLED_FN_IDS: frozenset[int] = frozenset({
+    12,  # Patrol_screen  — issue #356: causes progressive pathfinder load
+    13,  # Patrol_minimap — issue #356: same reason
+})
+
 RACE_FUNCTION_IDS: dict[str, frozenset[int]] = {
     "terran": _UNIVERSAL_FN_IDS | _TERRAN_FN_IDS,
     "protoss": _UNIVERSAL_FN_IDS | _PROTOSS_FN_IDS,
     "zerg": _UNIVERSAL_FN_IDS | _ZERG_FN_IDS,
-    "random": frozenset(FUNCTION_IDS.keys()),
+    "random": frozenset(FUNCTION_IDS.keys()) - _DISABLED_FN_IDS,
 }
 
 
 def fn_ids_for_race(race: str) -> frozenset[int]:
     """Return the fn_idx values applicable to *race*.
 
-    Falls back to all fn_ids if *race* is not one of
+    Falls back to all non-disabled fn_ids if *race* is not one of
     ``"terran"``, ``"protoss"``, ``"zerg"``, or ``"random"``.
     """
-    return RACE_FUNCTION_IDS.get(race.lower(), frozenset(FUNCTION_IDS.keys()))
+    return RACE_FUNCTION_IDS.get(race.lower(), frozenset(FUNCTION_IDS.keys()) - _DISABLED_FN_IDS)
 
 
 # ---------------------------------------------------------------------------

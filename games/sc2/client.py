@@ -352,7 +352,7 @@ class SC2Client:
         # Current resource counts cached from the latest timestep (issue #357).
         self._minerals: float = 0.0
         self._vespene: float = 0.0
-        # Cache for _compute_available_fn_ids() — skip the 118-call tech-tree
+        # Cache for _compute_available_fn_ids() — skip the per-fn_idx tech-tree
         # loop when owned_buildings / completed_upgrades / selected_unit_types
         # and the candidate set are all unchanged since last step (issue #356 H3).
         self._fn_ids_cache_keys: tuple | None = None

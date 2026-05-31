@@ -551,8 +551,8 @@ have to be covered.
 (`minimap_enemy_cx/cy`) that enables the policy to locate the beacon even
 when it is off the current camera view (beacon-idling fix); the `_action_to_call`
 no-spam fix (blocked Move_screen issues select_army once, then no_op on
-consecutive blocked steps); the 118-entry `FUNCTION_IDS` table and the
-`DISCRETE_ACTIONS` uniform `[command × location]` grid (3 583 rows: every
+consecutive blocked steps); the 116-entry `FUNCTION_IDS` table and the
+`DISCRETE_ACTIONS` uniform `[command × location]` grid (3 455 rows: every
 spatial fn_id gets a full 8×8 = 64-cell block, every non-spatial fn_id gets 1
 row); `SPATIAL_FN_IDS` derivation; race gating (`RACE_FUNCTION_IDS`,
 `fn_ids_for_race()`, pairwise-disjoint race-specific sets); the SC2 reward calculator

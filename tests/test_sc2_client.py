@@ -1097,14 +1097,14 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
 
         old_cache = sc2_client_mod._pysc2_id_to_fn_idx
         try:
-            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 50)
-            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 50}
+            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 48)
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 48}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
             ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
-            # Build_Nexus (fn_idx=50) is Protoss; race filter drops it.
+            # Build_Nexus (fn_idx=48) is Protoss; race filter drops it.
             self.assertEqual(info["available_fn_ids"], {0, 8})
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache

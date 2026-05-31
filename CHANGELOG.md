@@ -17,6 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
+- **SC2: removed the Patrol commands from the action space (issue #359).**
+  `Patrol_screen` and `Patrol_minimap` (the rarely-useful follow/patrol-unit
+  orders) are dropped from `FUNCTION_IDS`, the race fn-id sets, and the
+  tech-tree `PRECONDITIONS` / `RESOURCE_COSTS` tables.  All following fn_ids
+  shift down by 2 to keep the table contiguous (`FUNCTION_IDS` now has 116
+  entries, `0–115`).  Existing SC2 champion weight files migrate via the
+  standard "missing key → 0.0" path; the fn_idx head is now 2 rows smaller.
 
 ---
 

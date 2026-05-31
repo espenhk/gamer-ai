@@ -169,12 +169,12 @@ class TestRaceGating(unittest.TestCase):
         terran_ids = fn_ids_for_race("terran")
         # Build_Barracks_screen is fn_idx 8 (Terran)
         self.assertIn(8, terran_ids)
-        # Build_Nexus_screen is fn_idx 50 (Protoss)
-        self.assertNotIn(50, terran_ids)
+        # Build_Nexus_screen is fn_idx 48 (Protoss)
+        self.assertNotIn(48, terran_ids)
 
     def test_protoss_has_nexus_not_barracks(self):
         protoss_ids = fn_ids_for_race("protoss")
-        self.assertIn(50, protoss_ids)  # Build_Nexus_screen
+        self.assertIn(48, protoss_ids)  # Build_Nexus_screen
         self.assertNotIn(8, protoss_ids)  # Build_Barracks_screen
 
     def test_zerg_has_hatchery_not_barracks(self):
@@ -228,7 +228,7 @@ class TestActionToFunctionCall(unittest.TestCase):
 
     def test_select_rect_uses_degenerate_rect(self):
         with patch.dict(sys.modules, _fake_pysc2_modules()):
-            action = np.array([17, 0.5, 0.5, 0.0], dtype=np.float32)  # select_rect
+            action = np.array([15, 0.5, 0.5, 0.0], dtype=np.float32)  # select_rect
             call = action_to_function_call(action, screen_size=64)
         self.assertEqual(call.arguments, [[0], [31, 31], [31, 31]])
 

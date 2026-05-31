@@ -86,121 +86,121 @@ FUNCTION_IDS = {
     10: "Train_SCV_quick",
     # --- issue #276 (expanded): full cross-race action coverage ---
     # movement / combat
+    # Patrol_screen / Patrol_minimap were removed in issue #359 (rarely useful);
+    # all following fn_ids shifted down by 2 to keep the table contiguous.
     11: "Move_minimap",
-    12: "Patrol_screen",
-    13: "Patrol_minimap",
-    14: "HoldPosition_quick",
-    15: "Stop_quick",
-    16: "Attack_minimap",
+    12: "HoldPosition_quick",
+    13: "Stop_quick",
+    14: "Attack_minimap",
     # selection / logistics
-    17: "select_rect",
-    18: "Harvest_Return_quick",
-    19: "Rally_Units_screen",
-    20: "Rally_Workers_screen",
-    21: "Rally_Units_minimap",
-    22: "Rally_Workers_minimap",
+    15: "select_rect",
+    16: "Harvest_Return_quick",
+    17: "Rally_Units_screen",
+    18: "Rally_Workers_screen",
+    19: "Rally_Units_minimap",
+    20: "Rally_Workers_minimap",
     # === Terran buildings ===
-    23: "Build_CommandCenter_screen",
-    24: "Build_Refinery_screen",
-    25: "Build_EngineeringBay_screen",
-    26: "Build_Factory_screen",
-    27: "Build_Armory_screen",
-    28: "Build_Bunker_screen",
-    29: "Build_MissileTurret_screen",
-    30: "Build_Starport_screen",
-    31: "Build_GhostAcademy_screen",
-    32: "Build_FusionCore_screen",
-    33: "Build_TechLab_quick",
-    34: "Build_Reactor_quick",
+    21: "Build_CommandCenter_screen",
+    22: "Build_Refinery_screen",
+    23: "Build_EngineeringBay_screen",
+    24: "Build_Factory_screen",
+    25: "Build_Armory_screen",
+    26: "Build_Bunker_screen",
+    27: "Build_MissileTurret_screen",
+    28: "Build_Starport_screen",
+    29: "Build_GhostAcademy_screen",
+    30: "Build_FusionCore_screen",
+    31: "Build_TechLab_quick",
+    32: "Build_Reactor_quick",
     # === Terran training ===
-    35: "Train_Marauder_quick",
-    36: "Train_Ghost_quick",
-    37: "Train_Hellion_quick",
-    38: "Train_SiegeTank_quick",
-    39: "Train_Medivac_quick",
-    40: "Train_Viking_quick",
-    41: "Train_Raven_quick",
-    42: "Train_Banshee_quick",
-    43: "Train_Battlecruiser_quick",
-    44: "Train_Cyclone_quick",
-    45: "Train_Thor_quick",
-    46: "Train_Liberator_quick",
+    33: "Train_Marauder_quick",
+    34: "Train_Ghost_quick",
+    35: "Train_Hellion_quick",
+    36: "Train_SiegeTank_quick",
+    37: "Train_Medivac_quick",
+    38: "Train_Viking_quick",
+    39: "Train_Raven_quick",
+    40: "Train_Banshee_quick",
+    41: "Train_Battlecruiser_quick",
+    42: "Train_Cyclone_quick",
+    43: "Train_Thor_quick",
+    44: "Train_Liberator_quick",
     # === Terran unit abilities ===
-    47: "Effect_Stim_quick",
-    48: "Morph_SiegeMode_quick",
-    49: "Morph_Unsiege_quick",
+    45: "Effect_Stim_quick",
+    46: "Morph_SiegeMode_quick",
+    47: "Morph_Unsiege_quick",
     # === Protoss buildings ===
-    50: "Build_Nexus_screen",
-    51: "Build_Pylon_screen",
-    52: "Build_Gateway_screen",
-    53: "Build_Assimilator_screen",
-    54: "Build_CyberneticsCore_screen",
-    55: "Build_Forge_screen",
-    56: "Build_PhotonCannon_screen",
-    57: "Build_RoboticsFacility_screen",
-    58: "Build_Stargate_screen",
-    59: "Build_TwilightCouncil_screen",
-    60: "Build_TemplarArchive_screen",
-    61: "Build_DarkShrine_screen",
-    62: "Build_RoboticsBay_screen",
-    63: "Build_FleetBeacon_screen",
-    64: "Build_ShieldBattery_screen",
+    48: "Build_Nexus_screen",
+    49: "Build_Pylon_screen",
+    50: "Build_Gateway_screen",
+    51: "Build_Assimilator_screen",
+    52: "Build_CyberneticsCore_screen",
+    53: "Build_Forge_screen",
+    54: "Build_PhotonCannon_screen",
+    55: "Build_RoboticsFacility_screen",
+    56: "Build_Stargate_screen",
+    57: "Build_TwilightCouncil_screen",
+    58: "Build_TemplarArchive_screen",
+    59: "Build_DarkShrine_screen",
+    60: "Build_RoboticsBay_screen",
+    61: "Build_FleetBeacon_screen",
+    62: "Build_ShieldBattery_screen",
     # === Protoss training / morphs ===
-    65: "Train_Probe_quick",
-    66: "Train_Zealot_quick",
-    67: "Train_Stalker_quick",
-    68: "Train_Adept_quick",
-    69: "Train_HighTemplar_quick",
-    70: "Train_DarkTemplar_quick",
-    71: "Train_Sentry_quick",
-    72: "Train_Phoenix_quick",
-    73: "Train_Carrier_quick",
-    74: "Train_VoidRay_quick",
-    75: "Train_Oracle_quick",
-    76: "Train_Colossus_quick",
-    77: "Train_Immortal_quick",
-    78: "Train_Tempest_quick",
-    79: "Train_Disruptor_quick",
-    80: "Morph_Archon_quick",
-    81: "Train_Mothership_quick",
+    63: "Train_Probe_quick",
+    64: "Train_Zealot_quick",
+    65: "Train_Stalker_quick",
+    66: "Train_Adept_quick",
+    67: "Train_HighTemplar_quick",
+    68: "Train_DarkTemplar_quick",
+    69: "Train_Sentry_quick",
+    70: "Train_Phoenix_quick",
+    71: "Train_Carrier_quick",
+    72: "Train_VoidRay_quick",
+    73: "Train_Oracle_quick",
+    74: "Train_Colossus_quick",
+    75: "Train_Immortal_quick",
+    76: "Train_Tempest_quick",
+    77: "Train_Disruptor_quick",
+    78: "Morph_Archon_quick",
+    79: "Train_Mothership_quick",
     # === Zerg buildings ===
-    82: "Build_Hatchery_screen",
-    83: "Build_SpawningPool_screen",
-    84: "Build_Extractor_screen",
-    85: "Build_EvolutionChamber_screen",
-    86: "Build_HydraliskDen_screen",
-    87: "Build_BanelingNest_screen",
-    88: "Build_RoachWarren_screen",
-    89: "Build_Spire_screen",
-    90: "Build_InfestationPit_screen",
-    91: "Build_UltraliskCavern_screen",
-    92: "Build_CreepTumor_screen",
-    93: "Build_SpineCrawler_screen",
-    94: "Build_SporeCrawler_screen",
-    95: "Build_NydusNetwork_screen",
-    96: "Build_LurkerDen_screen",
+    80: "Build_Hatchery_screen",
+    81: "Build_SpawningPool_screen",
+    82: "Build_Extractor_screen",
+    83: "Build_EvolutionChamber_screen",
+    84: "Build_HydraliskDen_screen",
+    85: "Build_BanelingNest_screen",
+    86: "Build_RoachWarren_screen",
+    87: "Build_Spire_screen",
+    88: "Build_InfestationPit_screen",
+    89: "Build_UltraliskCavern_screen",
+    90: "Build_CreepTumor_screen",
+    91: "Build_SpineCrawler_screen",
+    92: "Build_SporeCrawler_screen",
+    93: "Build_NydusNetwork_screen",
+    94: "Build_LurkerDen_screen",
     # === Zerg training / morphs ===
-    97: "Train_Drone_quick",
-    98: "Train_Overlord_quick",
-    99: "Train_Zergling_quick",
-    100: "Train_Baneling_quick",
-    101: "Train_Roach_quick",
-    102: "Train_Ravager_quick",
-    103: "Train_Hydralisk_quick",
-    104: "Train_Infestor_quick",
-    105: "Train_SwarmHost_quick",
-    106: "Train_Mutalisk_quick",
-    107: "Train_Corruptor_quick",
-    108: "Train_BroodLord_quick",
-    109: "Train_Viper_quick",
-    110: "Train_Ultralisk_quick",
-    111: "Train_Lurker_quick",
-    112: "Train_Queen_quick",
-    113: "Morph_Lair_quick",
-    114: "Morph_Hive_quick",
-    115: "Morph_Overseer_quick",
-    116: "Morph_GreaterSpire_quick",
-    117: "Morph_BroodLord_quick",
+    95: "Train_Drone_quick",
+    96: "Train_Overlord_quick",
+    97: "Train_Zergling_quick",
+    98: "Train_Baneling_quick",
+    99: "Train_Roach_quick",
+    100: "Train_Ravager_quick",
+    101: "Train_Hydralisk_quick",
+    102: "Train_Infestor_quick",
+    103: "Train_SwarmHost_quick",
+    104: "Train_Mutalisk_quick",
+    105: "Train_Corruptor_quick",
+    106: "Train_BroodLord_quick",
+    107: "Train_Viper_quick",
+    108: "Train_Ultralisk_quick",
+    109: "Train_Lurker_quick",
+    110: "Train_Queen_quick",
+    111: "Morph_Lair_quick",
+    112: "Morph_Hive_quick",
+    113: "Morph_Overseer_quick",
+    114: "Morph_GreaterSpire_quick",
+    115: "Morph_BroodLord_quick",
 }
 
 # ---------------------------------------------------------------------------
@@ -231,17 +231,15 @@ _UNIVERSAL_FN_IDS: frozenset[int] = frozenset(
         5,  # Harvest_Gather_screen
         6,  # select_point
         11,  # Move_minimap
-        12,  # Patrol_screen
-        13,  # Patrol_minimap
-        14,  # HoldPosition_quick
-        15,  # Stop_quick
-        16,  # Attack_minimap
-        17,  # select_rect
-        18,  # Harvest_Return_quick
-        19,  # Rally_Units_screen
-        20,  # Rally_Workers_screen
-        21,  # Rally_Units_minimap
-        22,  # Rally_Workers_minimap
+        12,  # HoldPosition_quick
+        13,  # Stop_quick
+        14,  # Attack_minimap
+        15,  # select_rect
+        16,  # Harvest_Return_quick
+        17,  # Rally_Units_screen
+        18,  # Rally_Workers_screen
+        19,  # Rally_Units_minimap
+        20,  # Rally_Workers_minimap
     }
 )
 
@@ -251,111 +249,111 @@ _TERRAN_FN_IDS: frozenset[int] = frozenset(
         8,
         9,
         10,  # Train_Marine, Build_Barracks, Build_SupplyDepot, Train_SCV
+        21,
+        22,
         23,
         24,
-        25,
+        25,  # CommandCenter, Refinery, EngineeringBay, Factory, Armory
         26,
-        27,  # CommandCenter, Refinery, EngineeringBay, Factory, Armory
+        27,
         28,
         29,
-        30,
+        30,  # Bunker, MissileTurret, Starport, GhostAcademy, FusionCore
         31,
-        32,  # Bunker, MissileTurret, Starport, GhostAcademy, FusionCore
+        32,  # TechLab_quick, Reactor_quick
         33,
-        34,  # TechLab_quick, Reactor_quick
+        34,
         35,
         36,
-        37,
+        37,  # Marauder, Ghost, Hellion, SiegeTank, Medivac
         38,
-        39,  # Marauder, Ghost, Hellion, SiegeTank, Medivac
+        39,
         40,
         41,
-        42,
+        42,  # Viking, Raven, Banshee, Battlecruiser, Cyclone
         43,
-        44,  # Viking, Raven, Banshee, Battlecruiser, Cyclone
+        44,  # Thor, Liberator
         45,
-        46,  # Thor, Liberator
-        47,
-        48,
-        49,  # Stim, SiegeMode, Unsiege
+        46,
+        47,  # Stim, SiegeMode, Unsiege
     }
 )
 
 _PROTOSS_FN_IDS: frozenset[int] = frozenset(
     {
+        48,
+        49,
         50,
         51,
-        52,
+        52,  # Nexus, Pylon, Gateway, Assimilator, CyberneticsCore
         53,
-        54,  # Nexus, Pylon, Gateway, Assimilator, CyberneticsCore
+        54,
         55,
         56,
-        57,
+        57,  # Forge, PhotonCannon, RoboticsFacility, Stargate, TwilightCouncil
         58,
-        59,  # Forge, PhotonCannon, RoboticsFacility, Stargate, TwilightCouncil
+        59,
         60,
         61,
-        62,
+        62,  # TemplarArchive, DarkShrine, RoboticsBay, FleetBeacon, ShieldBattery
         63,
-        64,  # TemplarArchive, DarkShrine, RoboticsBay, FleetBeacon, ShieldBattery
+        64,
         65,
         66,
-        67,
+        67,  # Probe, Zealot, Stalker, Adept, HighTemplar
         68,
-        69,  # Probe, Zealot, Stalker, Adept, HighTemplar
+        69,
         70,
         71,
-        72,
+        72,  # DarkTemplar, Sentry, Phoenix, Carrier, VoidRay
         73,
-        74,  # DarkTemplar, Sentry, Phoenix, Carrier, VoidRay
+        74,
         75,
         76,
-        77,
+        77,  # Oracle, Colossus, Immortal, Tempest, Disruptor
         78,
-        79,  # Oracle, Colossus, Immortal, Tempest, Disruptor
-        80,
-        81,  # Morph_Archon, Mothership
+        79,  # Morph_Archon, Mothership
     }
 )
 
 _ZERG_FN_IDS: frozenset[int] = frozenset(
     {
+        80,
+        81,
         82,
         83,
-        84,
+        84,  # Hatchery, SpawningPool, Extractor, EvolutionChamber, HydraliskDen
         85,
-        86,  # Hatchery, SpawningPool, Extractor, EvolutionChamber, HydraliskDen
+        86,
         87,
         88,
-        89,
+        89,  # BanelingNest, RoachWarren, Spire, InfestationPit, UltraliskCavern
         90,
-        91,  # BanelingNest, RoachWarren, Spire, InfestationPit, UltraliskCavern
+        91,
         92,
         93,
-        94,
+        94,  # CreepTumor, SpineCrawler, SporeCrawler, NydusNetwork, LurkerDen
         95,
-        96,  # CreepTumor, SpineCrawler, SporeCrawler, NydusNetwork, LurkerDen
+        96,
         97,
         98,
-        99,
+        99,  # Drone, Overlord, Zergling, Baneling, Roach
         100,
-        101,  # Drone, Overlord, Zergling, Baneling, Roach
+        101,
         102,
-        103,
+        103,  # Ravager, Hydralisk, Infestor, SwarmHost
         104,
-        105,  # Ravager, Hydralisk, Infestor, SwarmHost
+        105,
         106,
-        107,
+        107,  # Mutalisk, Corruptor, BroodLord, Viper
         108,
-        109,  # Mutalisk, Corruptor, BroodLord, Viper
-        110,
+        109,
+        110,  # Ultralisk, Lurker, Queen
         111,
-        112,  # Ultralisk, Lurker, Queen
+        112,
         113,
         114,
-        115,
-        116,
-        117,  # Morph_Lair, Hive, Overseer, GreaterSpire, BroodLord
+        115,  # Morph_Lair, Hive, Overseer, GreaterSpire, BroodLord
     }
 )
 
@@ -550,6 +548,6 @@ def action_to_function_call(action: np.ndarray, screen_size: int, minimap_size: 
         # queued flag — no spatial target.
         return actions.FunctionCall(fn_id, [[queue]])
     # Default: spatial actions with [queued, target_screen/minimap].
-    # Covers Move_screen/minimap, Attack_screen/minimap, Patrol_screen/minimap,
+    # Covers Move_screen/minimap, Attack_screen/minimap,
     # Harvest_Gather_screen, all Build_*_screen, Rally_*_screen/minimap, etc.
     return actions.FunctionCall(fn_id, [[queue], [sx, sy]])

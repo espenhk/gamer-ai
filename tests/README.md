@@ -72,7 +72,7 @@
   - [test\_sc2\_simple64\_training.py — Simple64 ladder integration](#test_sc2_simple64_trainingpy--simple64-ladder-integration)
   - [test\_sc2\_self\_play.py — `SelfPlayManager` (three self-play opponent modes)](#test_sc2_self_playpy--selfplaymanager-three-self-play-opponent-modes)
   - [test\_sc2\_analytics.py — SC2-specific analytics plots and flags](#test_sc2_analyticspy--sc2-specific-analytics-plots-and-flags)
-  - [test\_sc2\_replay\_bc.py — SC2 replay reader → BC demonstration dataset (issues #351, #352)](#test_sc2_replay_bcpy--sc2-replay-reader--bc-demonstration-dataset-issues-351-352)
+  - [test\_sc2\_replay\_bc.py — SC2 replay BC: dataset, fit, run, and `--bc` CLI (issues #351–#353)](#test_sc2_replay_bcpy--sc2-replay-bc-dataset-fit-run-and---bc-cli-issues-351353)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
   - [test\_rocket\_league\_reward.py — Rocket League reward calc](#test_rocket_league_rewardpy--rocket-league-reward-calc)
@@ -588,12 +588,15 @@ feature averages, spatial heatmap, outcome breakdown, and the full
 and `SelfPlayManager` — all three opponent modes (`exact`, `mutated`, `top_n`),
 pool growth/eviction semantics, and wiring through `train_rl`.
 
-The offline replay-reader module (`games/sc2/replay_bc.py`, issues #351 and #352)
-is covered in `test_sc2_replay_bc.py`: the full PySC2 replay API (run_config,
-controller, features) is replaced by lightweight fakes injected into
-`sys.modules` before import, so the suite runs with no SC2 binary or PySC2
-package installed. `validate_replay_dir` (issue #352) is tested against real
-temp-dir fixtures — no fakes needed since it only touches the filesystem.
+The offline replay-reader and BC fit modules (`games/sc2/replay_bc.py`, issues
+#351–#353) are covered in `test_sc2_replay_bc.py`: the full PySC2 replay API
+(run_config, controller, features) is replaced by lightweight fakes injected
+into `sys.modules` before import, so the suite runs with no SC2 binary or
+PySC2 package installed. `validate_replay_dir` (issue #352) is tested against
+real temp-dir fixtures — no fakes needed since it only touches the filesystem.
+`fit_bc` (MLP and linear paths), `run` (full pipeline), and the `main.py --bc`
+entry point are all unit-tested with synthetic numpy datasets and mocked
+pipeline helpers (issue #353).
 
 **Not tested.** PySC2 against the actual Blizzard SC2 binary; real
 1v1 games against the built-in bot; minimap rendering; the deferred
@@ -802,7 +805,7 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - `save_grid_summary`: forwards config-normalized rewards **and per-component contributions** using `v / max(abs(weight), 1.0)` — weights ≥ 1.0 are divided (making large-weight components comparable across grid-search runs), weights < 1.0 use the raw value (which already encodes the weight, so dividing would amplify by ×1000); wires SC2 extra-plot hook into framework summary generation; covers no-components fallback, multi-sim normalization, malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, allow-listed `scout` component (no unmapped-key warning), step_penalty with sub-1.0 weight passes through raw (-0.5 not -500), idle_penalty with sub-1.0 weight passes through raw, any sub-1.0 weight (0.0001 or 0.001) both use scale=1.0, the new `unit_loss` / `damage_taken` / `passive_under_fire` components normalize through their config weights without unmapped-key warnings, realistic positive reward stays positive after normalization (313.5 ✓), and emits SC2 cross-run charts + summary links; passes `task_metric_fn`, `task_metric_fmt` (percentage formatter) to framework; `attack_bonus` mapped to `attack_bonus` config key in normalisation
 - `_sc2_task_metric`: empty sims → 0.0; win+finish counted as success; loss/timeout/None/other not counted; all-wins → 1.0; `_GS_SUCCESS_REASONS` constant contains win+finish, excludes loss+timeout
 
-### test_sc2_replay_bc.py — SC2 replay reader → BC demonstration dataset (issues #351, #352)
+### test_sc2_replay_bc.py — SC2 replay BC: dataset, fit, run, and `--bc` CLI (issues #351–#353)
 - `TestValidateReplayDir`: nonexistent folder raises `ValueError`; file path raises `ValueError`; empty
   folder raises with "No .SC2Replay files found"; returns only `.SC2Replay` files sorted; race filter warning
   emitted when race is non-null/non-"any"; no warning for `race="any"` or `race=None`; version mismatch
@@ -832,6 +835,25 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - `TestLoadDataset`: flat load returns all expected keys; correct shapes; `as_episodes=True` yields correct
   per-episode shapes; episode `episode_starts` partitions correctly; temporal order preserved per episode;
   `meta` parsed as dict in `as_episodes` mode; round-trip save+load preserves obs+action values
+- `TestFitBCMLP` (issue #353): loss decreases over more epochs on a separable dataset; saved weights
+  load back as `SC2REINFORCEPolicy` via `from_cfg`; all-noop dataset raises `ValueError` when
+  `bc_ignore_noop=True`; `bc_ignore_noop=False` keeps all steps; pairwise accuracy > 80%
+  (logit of correct fn_idx class exceeds logit of the alternative class) after 20 epochs with a
+  linear model (`hidden_sizes=[]`) on a linearly-separable two-class dataset; accepts a `Path`
+  argument in place of a dict dataset
+- `TestFitBCLinear` (issue #353): returns a loadable `SC2MultiHeadLinearPolicy`; saved weights load back
+  via `sc2_genetic` path; `fn_weights` shape is `(N_FUNCTION_IDS, obs_dim)`; `sp_weights` shape is
+  `(2, obs_dim)` for spatial fn_idx actions; when no spatial steps are present `sp_weights` are all zero
+- `TestRunBC` (issue #353, mocks `validate_replay_dir`/`build_dataset`/`load_dataset`): writes
+  `policy_weights.yaml`; writes `bc_summary.json` with all required keys (`n_replays_kept`,
+  `n_replays_skipped_race`, `n_episodes`, `n_pairs`, `fn_idx_histogram`, `bc_player_id`, `bc_race`,
+  `bc_target`, `final_bc_loss`); `fn_idx_histogram` covers all actions from the synthetic dataset;
+  writes `trainer_state.npz` for the MLP target; linear target writes `policy_weights.yaml` without
+  trainer state; `winner` player id and passed race filter appear in summary
+- `TestBCCLIMain` (issue #353): `--bc` flag is parsed; default player is `None` (config fallback);
+  `winner`/`1`/`2` are valid `--bc-player` choices; all four race choices accepted for `--bc-race`;
+  `sc2_reinforce`/`sc2_genetic` accepted for `--bc-target`; `--bc` with `--game != sc2` raises
+  `SystemExit`; `--bc` and `--play` are mutually exclusive; `--bc` and `--eval` are mutually exclusive
 
 ## Rocket League
 

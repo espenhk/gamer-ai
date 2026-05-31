@@ -113,14 +113,18 @@ _s2_pkg, _sc2_api_mod = _make_fake_s2api()
 
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC  # noqa: E402
 from games.sc2.replay_bc import (  # noqa: E402
+    _fit_bc_linear,
+    _fit_bc_mlp,
     _parse_replay_info,
     _pick_best_action,
     _read_one_replay,
     _resolve_player_id,
     build_dataset,
+    fit_bc,
     iter_replays,
     load_dataset,
     replay_observations,
+    run as bc_run,
     validate_replay_dir,
 )
 
@@ -1021,6 +1025,478 @@ class TestLoadDataset(unittest.TestCase):
             episodes = load_dataset(save_path, as_episodes=True)
             self.assertEqual(len(episodes), 1)
             np.testing.assert_array_almost_equal(episodes[0][0][0], obs_expected)
+
+
+# ---------------------------------------------------------------------------
+# Tests: fit_bc — MLP target (issue #353)
+# ---------------------------------------------------------------------------
+
+
+class TestFitBCMLP(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_reinforce' (MLP gradient descent)."""
+
+    def _make_separable_dataset(self, n: int = 200, fn_idx_label: int = 2, seed: int = 0) -> dict:
+        """Create a synthetic dataset where obs uniquely predicts fn_idx."""
+        rng = np.random.default_rng(seed)
+        obs = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
+        # One-hot-like: always the same fn_idx label, with consistent x/y
+        fn_idx = np.full(n, fn_idx_label, dtype=np.float32)
+        x_coord = np.full(n, 0.5, dtype=np.float32)
+        y_coord = np.full(n, 0.5, dtype=np.float32)
+        actions = np.stack([fn_idx, x_coord, y_coord, np.zeros(n, dtype=np.float32)], axis=1)
+        return {"obs": obs, "actions": actions}
+
+    def test_loss_decreases_over_epochs(self):
+        """BC loss on a simple separable dataset must fall with more epochs."""
+        dataset = self._make_separable_dataset(n=400, fn_idx_label=2)
+        _, loss_few = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+            hidden_sizes=[16, 8], bc_epochs=1, bc_learning_rate=0.01,
+            bc_batch_size=64, bc_ignore_noop=False, seed=42,
+        )
+        _, loss_more = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+            hidden_sizes=[16, 8], bc_epochs=20, bc_learning_rate=0.01,
+            bc_batch_size=64, bc_ignore_noop=False, seed=42,
+        )
+        self.assertLess(loss_more, loss_few, "Loss after 20 epochs must be lower than after 1")
+
+    def test_saved_weights_load_as_sc2_reinforce(self):
+        """Policy saved after BC must be re-loadable via SC2REINFORCEPolicy.from_cfg."""
+        import tempfile
+
+        from games.sc2.sc2_policies import SC2REINFORCEPolicy
+
+        dataset = self._make_separable_dataset(n=100, fn_idx_label=1)
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+            hidden_sizes=[8], bc_epochs=2, bc_learning_rate=0.01,
+            bc_batch_size=50, bc_ignore_noop=False, seed=1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "policy_weights.yaml"
+            policy.save(str(path))
+            loaded = SC2REINFORCEPolicy.from_cfg(
+                __import__("yaml").safe_load(path.read_text()) or {},
+                SC2_MINIGAME_OBS_SPEC,
+            )
+        # Should run without error
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = loaded(obs)
+        self.assertEqual(action.shape, (4,))
+
+    def test_bc_ignore_noop_all_noop_raises(self):
+        """Dataset of pure no-ops with bc_ignore_noop=True must raise ValueError."""
+        obs = np.zeros((10, _OBS_DIM), dtype=np.float32)
+        actions = np.zeros((10, 4), dtype=np.float32)  # fn_idx=0 everywhere
+        dataset = {"obs": obs, "actions": actions}
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+                   bc_ignore_noop=True, bc_epochs=1, seed=0)
+
+    def test_bc_ignore_noop_false_keeps_all_steps(self):
+        """bc_ignore_noop=False must not filter any steps."""
+        obs = np.zeros((10, _OBS_DIM), dtype=np.float32)
+        actions = np.zeros((10, 4), dtype=np.float32)  # fn_idx=0 everywhere
+        dataset = {"obs": obs, "actions": actions}
+        # Should not raise — 10 steps are kept
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+            bc_ignore_noop=False, bc_epochs=1, bc_learning_rate=0.001,
+            bc_batch_size=10, seed=0,
+        )
+        self.assertIsNotNone(policy)
+
+    def test_fn_idx_accuracy_improves(self):
+        """After many epochs on a separable dataset, the network favours the correct fn_idx.
+
+        Uses a linear model (hidden_sizes=[]) so the gradient signal reaches
+        fn_w directly without vanishing through trunk layers.  Obs are scaled
+        by the spec scales so that the normalised inputs have std ≈ 1 and the
+        gradient is non-negligible.  Pairwise check: for each sample the logit
+        of the correct class (1 or 2) should exceed the logit of the other
+        class (2 or 1).
+        """
+        # Build a dataset where obs[:,0] / scale[0] sign predicts fn_idx.
+        # Scale raw obs by spec scales so normalised values have std ~ 1.
+        rng = np.random.default_rng(7)
+        n = 400
+        raw = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
+        obs = (raw * SC2_MINIGAME_OBS_SPEC.scales).astype(np.float32)
+        fn_labels = np.where(obs[:, 0] > 0, 2, 1).astype(int)
+        actions = np.stack([fn_labels.astype(np.float32), np.full(n, 0.5, dtype=np.float32),
+                            np.full(n, 0.5, dtype=np.float32), np.zeros(n, np.float32)], axis=1)
+        dataset = {"obs": obs, "actions": actions}
+
+        # Linear model (no trunk): gradient is direct, convergence is fast and reliable.
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+            hidden_sizes=[], bc_epochs=20, bc_learning_rate=0.05,
+            bc_batch_size=64, bc_ignore_noop=False, seed=7,
+        )
+        # Pairwise accuracy: correct class logit > other class logit (1 vs 2 only).
+        # h_last = obs_norm when there is no trunk.
+        obs_norm = obs / SC2_MINIGAME_OBS_SPEC.scales
+        fn_logits = obs_norm.astype(np.float64) @ policy._fn_w.T.astype(np.float64) + policy._fn_b.astype(np.float64)
+        logit_correct = fn_logits[np.arange(n), fn_labels]
+        wrong_labels = 3 - fn_labels  # label=1→wrong=2, label=2→wrong=1
+        logit_wrong = fn_logits[np.arange(n), wrong_labels]
+        pair_accuracy = float((logit_correct > logit_wrong).mean())
+        self.assertGreater(pair_accuracy, 0.8, f"Expected pairwise accuracy > 0.8, got {pair_accuracy:.3f}")
+
+    def test_dataset_from_path(self):
+        """fit_bc accepts a file path (not just a dict)."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "demos.npz"
+            obs = np.zeros((20, _OBS_DIM), dtype=np.float32)
+            actions = np.column_stack([
+                np.full(20, 2, dtype=np.float32),
+                np.full(20, 0.3, dtype=np.float32),
+                np.full(20, 0.7, dtype=np.float32),
+                np.zeros(20, np.float32),
+            ])
+            ep_id = np.zeros(20, dtype=np.int64)
+            np.savez_compressed(
+                str(p), obs=obs, actions=actions,
+                episode_starts=np.array([0], dtype=np.int64),
+                episode_lengths=np.array([20], dtype=np.int64),
+                episode_id=ep_id,
+                meta=np.array(json.dumps({"n_episodes": 1})),
+            )
+            policy, loss = fit_bc(p, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
+                                   bc_epochs=1, bc_learning_rate=0.001, bc_ignore_noop=False, seed=0)
+        self.assertIsNotNone(policy)
+        self.assertIsInstance(loss, float)
+
+
+# ---------------------------------------------------------------------------
+# Tests: fit_bc — linear target (issue #353)
+# ---------------------------------------------------------------------------
+
+
+class TestFitBCLinear(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_genetic' (closed-form least squares)."""
+
+    def _make_dataset(self, n: int = 100, fn_idx_label: int = 2) -> dict:
+        rng = np.random.default_rng(0)
+        obs = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
+        actions = np.column_stack([
+            np.full(n, fn_idx_label, np.float32),
+            np.full(n, 0.6, np.float32),
+            np.full(n, 0.4, np.float32),
+            np.zeros(n, np.float32),
+        ])
+        return {"obs": obs, "actions": actions}
+
+    def test_returns_loadable_sc2_multihead_policy(self):
+        """fit_bc sc2_genetic must return an SC2MultiHeadLinearPolicy."""
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+
+        dataset = self._make_dataset(n=80, fn_idx_label=2)
+        policy, loss = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            bc_ignore_noop=False,
+        )
+        self.assertIsInstance(policy, SC2MultiHeadLinearPolicy)
+        self.assertIsInstance(loss, float)
+
+    def test_saved_weights_load_as_sc2_genetic(self):
+        """Saved linear BC policy loads cleanly as SC2MultiHeadLinearPolicy."""
+        import tempfile
+
+        from games.sc2.sc2_policies import SC2MultiHeadLinearPolicy
+
+        dataset = self._make_dataset(n=50, fn_idx_label=1)
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            bc_ignore_noop=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "policy_weights.yaml"
+            policy.save(str(path))
+            loaded = SC2MultiHeadLinearPolicy.load(str(path), SC2_MINIGAME_OBS_SPEC)
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = loaded(obs)
+        self.assertEqual(action.shape, (4,))
+
+    def test_fn_weights_shape(self):
+        """fn_weights must have shape (N_FUNCTION_IDS, obs_dim)."""
+        from games.sc2.sc2_policies import N_FUNCTION_IDS
+
+        dataset = self._make_dataset(n=60)
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            bc_ignore_noop=False,
+        )
+        self.assertEqual(policy._fn_weights.shape, (N_FUNCTION_IDS, _OBS_DIM))
+
+    def test_spatial_weights_shape(self):
+        """sp_weights must have shape (2, obs_dim)."""
+        dataset = self._make_dataset(n=60, fn_idx_label=2)  # Move_screen is spatial
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            bc_ignore_noop=False,
+        )
+        self.assertEqual(policy._sp_weights.shape, (2, _OBS_DIM))
+
+    def test_no_spatial_steps_sp_weights_zero(self):
+        """When no spatial steps exist, sp_weights should remain all-zero."""
+        from games.sc2.actions import SPATIAL_FN_IDS
+
+        # Use a fn_idx not in SPATIAL_FN_IDS (e.g. select_army=1)
+        non_spatial = min(k for k in range(118) if k not in SPATIAL_FN_IDS and k != 0)
+        dataset = self._make_dataset(n=60, fn_idx_label=non_spatial)
+        policy, _ = fit_bc(
+            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            bc_ignore_noop=False,
+        )
+        np.testing.assert_array_equal(policy._sp_weights, np.zeros((2, _OBS_DIM), dtype=np.float32))
+
+
+# ---------------------------------------------------------------------------
+# Tests: run (full pipeline) (issue #353)
+# ---------------------------------------------------------------------------
+
+
+class TestRunBC(unittest.TestCase):
+    """Tests for the run() orchestration function."""
+
+    def _synthetic_dataset_dict(self, n: int = 30) -> dict:
+        obs = np.zeros((n, _OBS_DIM), dtype=np.float32)
+        actions = np.column_stack([
+            np.full(n, 2, np.float32),
+            np.full(n, 0.5, np.float32),
+            np.full(n, 0.5, np.float32),
+            np.zeros(n, np.float32),
+        ])
+        ep_id = np.zeros(n, dtype=np.int64)
+        return {
+            "obs": obs, "actions": actions,
+            "episode_starts": np.array([0], dtype=np.int64),
+            "episode_lengths": np.array([n], dtype=np.int64),
+            "episode_id": ep_id,
+            "meta": {"n_episodes": 1, "n_steps": n},
+        }
+
+    def _patch_run(self, dataset_dict: dict, target: str = "sc2_reinforce"):
+        """Context manager: patch build_dataset + load_dataset so run() never touches replays."""
+        from unittest.mock import patch
+
+        meta_return = {
+            "n_episodes": 1, "n_steps": dataset_dict["obs"].shape[0],
+            "obs_dim": _OBS_DIM, "n_replays_skipped_race": 0,
+            "player_id": "winner", "race_filter": None,
+        }
+        return patch.multiple(
+            "games.sc2.replay_bc",
+            validate_replay_dir=lambda d, race=None, version=None: [Path(d) / "fake.SC2Replay"],
+            build_dataset=lambda *a, **kw: meta_return,
+            load_dataset=lambda p: dataset_dict,
+        )
+
+    def test_writes_policy_weights_yaml(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset, target="sc2_reinforce"):
+                bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", bc_epochs=1, bc_learning_rate=0.001,
+                    bc_batch_size=10, bc_ignore_noop=False, seed=0,
+                )
+            self.assertTrue((experiment_dir / "policy_weights.yaml").exists())
+
+    def test_writes_bc_summary_json(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset):
+                summary = bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", bc_epochs=1, bc_learning_rate=0.001,
+                    bc_batch_size=10, bc_ignore_noop=False, seed=0,
+                )
+            summary_file = experiment_dir / "bc_summary.json"
+            self.assertTrue(summary_file.exists())
+            loaded = json.loads(summary_file.read_text())
+            for key in ("n_replays_kept", "n_episodes", "n_pairs", "fn_idx_histogram",
+                        "bc_player_id", "bc_race", "bc_target", "final_bc_loss"):
+                self.assertIn(key, loaded, f"Missing key '{key}' in bc_summary.json")
+
+    def test_summary_fn_idx_histogram_covers_actions(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict(n=30)  # all fn_idx=2
+            with self._patch_run(dataset):
+                summary = bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
+                    bc_ignore_noop=False, seed=0,
+                )
+            histogram = summary["fn_idx_histogram"]
+            self.assertIn(2, histogram)
+            self.assertEqual(histogram[2], 30)
+
+    def test_writes_trainer_state_for_mlp_target(self):
+        """run() with sc2_reinforce must also write trainer_state.npz."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset, target="sc2_reinforce"):
+                bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
+                    bc_ignore_noop=False, seed=0,
+                )
+            self.assertTrue((experiment_dir / "trainer_state.npz").exists())
+
+    def test_linear_target_writes_policy_weights(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset, target="sc2_genetic"):
+                bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_genetic", bc_ignore_noop=False,
+                )
+            self.assertTrue((experiment_dir / "policy_weights.yaml").exists())
+            summary_file = experiment_dir / "bc_summary.json"
+            self.assertTrue(summary_file.exists())
+            summary = json.loads(summary_file.read_text())
+            self.assertEqual(summary["bc_target"], "sc2_genetic")
+
+    def test_winner_player_id_default_in_summary(self):
+        """bc_player_id defaults to 'winner' in bc_summary.json."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset):
+                summary = bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
+                    bc_ignore_noop=False, seed=0,
+                    # Do NOT pass player_id — should default to "winner"
+                )
+            self.assertEqual(summary["bc_player_id"], "winner")
+
+    def test_race_filter_passthrough_in_summary(self):
+        """bc_race is recorded in bc_summary.json."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            experiment_dir = Path(tmp) / "exp"
+            replay_dir = Path(tmp) / "replays"
+            replay_dir.mkdir()
+            (replay_dir / "g.SC2Replay").touch()
+            dataset = self._synthetic_dataset_dict()
+            with self._patch_run(dataset):
+                summary = bc_run(
+                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce", race="terran",
+                    bc_epochs=1, bc_batch_size=10,
+                    bc_ignore_noop=False, seed=0,
+                )
+            self.assertEqual(summary["bc_race"], "terran")
+
+
+# ---------------------------------------------------------------------------
+# Tests: --bc CLI guard (issue #353)
+# ---------------------------------------------------------------------------
+
+
+class TestBCCLIMain(unittest.TestCase):
+    """Tests for --bc CLI flag behaviour in main.py."""
+
+    def _parse(self, argv: list[str]) -> "argparse.Namespace":
+        from main import _build_arg_parser
+
+        return _build_arg_parser().parse_args(argv)
+
+    def test_bc_flag_parsed(self):
+        args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/tmp/r"])
+        self.assertTrue(args.bc)
+        self.assertEqual(args.replay_dir, "/tmp/r")
+
+    def test_bc_default_player_is_winner(self):
+        """--bc-player defaults to None (resolved to 'winner' in _run_bc_sc2)."""
+        args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/r"])
+        self.assertIsNone(args.bc_player)
+
+    def test_bc_player_choices(self):
+        for choice in ["winner", "1", "2"]:
+            args = self._parse(["myexp", "--game", "sc2", "--bc",
+                                 "--replay-dir", "/r", "--bc-player", choice])
+            self.assertEqual(args.bc_player, choice)
+
+    def test_bc_race_choices(self):
+        for race in ["terran", "protoss", "zerg", "any"]:
+            args = self._parse(["myexp", "--game", "sc2", "--bc",
+                                 "--replay-dir", "/r", "--bc-race", race])
+            self.assertEqual(args.bc_race, race)
+
+    def test_bc_target_choices(self):
+        for target in ["sc2_reinforce", "sc2_genetic"]:
+            args = self._parse(["myexp", "--game", "sc2", "--bc",
+                                 "--replay-dir", "/r", "--bc-target", target])
+            self.assertEqual(args.bc_target, target)
+
+    def test_bc_rejected_for_non_sc2(self):
+        """--bc with --game != sc2 must raise SystemExit."""
+        import argparse as _ap
+
+        from main import main as main_fn
+
+        with unittest.mock.patch(
+            "sys.argv",
+            ["main.py", "myexp", "--game", "tmnf", "--bc", "--replay-dir", "/r"],
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                main_fn()
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_bc_mutually_exclusive_with_play(self):
+        import argparse
+
+        with self.assertRaises(SystemExit):
+            self._parse(["myexp", "--game", "sc2", "--bc", "--play", "--replay-dir", "/r"])
+
+    def test_bc_mutually_exclusive_with_eval(self):
+        import argparse
+
+        with self.assertRaises(SystemExit):
+            self._parse(["myexp", "--game", "sc2", "--bc", "--eval", "--replay-dir", "/r"])
 
 
 if __name__ == "__main__":

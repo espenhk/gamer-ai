@@ -110,6 +110,46 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "No weight updates occur."
         ),
     )
+    sc2_mode.add_argument(
+        "--bc",
+        action="store_true",
+        help=(
+            "Behaviour-cloning pre-training mode (SC2 only).  "
+            "Reads .SC2Replay files from --replay-dir, fits a policy to the "
+            "demonstration data, and writes policy_weights.yaml into the "
+            "experiment directory.  Run without --bc afterwards to fine-tune "
+            "from the pre-trained weights.  Defaults: --bc-player winner, "
+            "--bc-race any, --bc-target sc2_reinforce."
+        ),
+    )
+
+    parser.add_argument(
+        "--replay-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Directory containing .SC2Replay files for --bc mode.  "
+            "May also be set via bc_replay_dir in training_params.yaml."
+        ),
+    )
+    parser.add_argument(
+        "--bc-player",
+        default=None,
+        choices=["winner", "1", "2"],
+        help="Which player to clone: 'winner' (default), '1', or '2'.  Overrides bc_player_id in config.",
+    )
+    parser.add_argument(
+        "--bc-race",
+        default=None,
+        choices=["terran", "protoss", "zerg", "any"],
+        help="Race filter for --bc mode (default: any).  Overrides bc_race in config.",
+    )
+    parser.add_argument(
+        "--bc-target",
+        default=None,
+        choices=["sc2_reinforce", "sc2_genetic"],
+        help="Policy type to pre-train (default: sc2_reinforce).  Overrides bc_target in config.",
+    )
 
     def _positive_int(name: str):
         def _check(v: str) -> int:
@@ -204,12 +244,19 @@ def main() -> None:
     if args.eval and args.game != "sc2":
         raise SystemExit("--eval is only supported with --game sc2")
 
+    if args.bc and args.game != "sc2":
+        raise SystemExit("--bc is only supported with --game sc2")
+
     if args.play:
         _run_play_sc2(args)
         return
 
     if args.eval:
         _run_eval_sc2(args)
+        return
+
+    if args.bc:
+        _run_bc_sc2(args)
         return
 
     adapter = GAME_ADAPTERS[args.game]()
@@ -316,6 +363,81 @@ def _run_play_sc2(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"Cannot import SC2 play dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
         ) from exc
+
+
+# ======================================================================
+# SC2 behaviour-cloning entry point
+# ======================================================================
+
+
+def _run_bc_sc2(args: argparse.Namespace) -> None:
+    try:
+        from games.sc2.adapter import SC2Adapter
+        from games.sc2.replay_bc import run as bc_run
+    except ImportError as exc:
+        raise SystemExit(
+            f"Cannot import SC2 BC dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
+        ) from exc
+
+    adapter = SC2Adapter()
+    master_cfg = os.path.join(adapter.config_dir, "training_params.yaml")
+    with open(master_cfg) as f:
+        master_p = yaml.safe_load(f)
+
+    experiment_dir = adapter.experiment_dir(args.experiment, master_p, args.track)
+    training_params_file = f"{experiment_dir}/training_params.yaml"
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    if not os.path.exists(training_params_file):
+        shutil.copy(master_cfg, training_params_file)
+        logger.info("Copied master training params → %s", training_params_file)
+
+    with open(training_params_file) as f:
+        p = yaml.safe_load(f)
+
+    # Resolve obs_spec from training params
+    from games.sc2.adapter import _get_obs_spec  # noqa: PLC0415
+
+    map_name = p.get("map_name", "MoveToBeacon")
+    obs_spec_preset = p.get("obs_spec_preset")
+    enable_belief = p.get("enable_belief", False)
+    obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
+
+    # CLI flags override config; config overrides hard-wired defaults.
+    replay_dir = getattr(args, "replay_dir", None) or p.get("bc_replay_dir")
+    if not replay_dir:
+        raise SystemExit(
+            "--replay-dir must be specified for --bc mode "
+            "(or set bc_replay_dir in training_params.yaml)"
+        )
+
+    player_id: str | int = getattr(args, "bc_player", None) or p.get("bc_player_id", "winner")
+    # Coerce "1"/"2" string choices to int so _resolve_player_id works
+    if player_id in ("1", "2"):
+        player_id = int(player_id)
+
+    race = getattr(args, "bc_race", None) or p.get("bc_race", "any")
+    target = getattr(args, "bc_target", None) or p.get("bc_target", "sc2_reinforce")
+
+    bc_opts: dict = dict(
+        target=target,
+        player_id=player_id,
+        race=race,
+        max_replays=p.get("bc_max_replays"),
+        step_mul=p.get("bc_step_mul", p.get("step_mul", 1)),
+        screen_size=p.get("screen_size", 64),
+        minimap_size=p.get("minimap_size", 64),
+        bc_epochs=p.get("bc_epochs", 10),
+        bc_learning_rate=p.get("bc_learning_rate", 1e-3),
+        bc_batch_size=p.get("bc_batch_size", 256),
+        bc_ignore_noop=p.get("bc_ignore_noop", True),
+    )
+
+    bc_run(replay_dir, experiment_dir, obs_spec, **bc_opts)
+    logger.info(
+        "BC complete — run 'python main.py %s --game sc2' to fine-tune from pre-trained weights.",
+        args.experiment,
+    )
 
 
 if __name__ == "__main__":

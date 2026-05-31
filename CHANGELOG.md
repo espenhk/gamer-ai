@@ -18,6 +18,19 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- SC2 behaviour-cloning core fit + `--bc` entry point (issue #353, [4/6]):
+  `fit_bc(dataset, obs_spec, *, target, ...)` in `games/sc2/replay_bc.py`
+  pre-trains a policy from a demonstration NPZ: `target="sc2_reinforce"`
+  trains a two-head REINFORCE MLP via mini-batch gradient descent (cross-entropy
+  on fn_idx, MSE on spatial coords); `target="sc2_genetic"` fits a
+  `SC2MultiHeadLinearPolicy` via closed-form least squares.  `run(replay_dir,
+  experiment_dir, obs_spec, **opts)` wires the full pipeline
+  (replay → dataset → fit → save `policy_weights.yaml` + trainer state +
+  `bc_summary.json`).  New `main.py --bc` mode (SC2-only, mutually exclusive
+  with `--play`/`--eval`) and matching config keys in
+  `games/sc2/config/training_params.yaml` (`bc_player_id`, `bc_race`,
+  `bc_target`, `bc_epochs`, `bc_learning_rate`, `bc_batch_size`,
+  `bc_ignore_noop`, `bc_step_mul`, `bc_max_replays`).
 - SC2 replay BC dataset builder at `games/sc2/replay_bc.py` (issue #351,
   [2/6]): reads `.SC2Replay` files via the PySC2 replay API and produces
   sequence-aware NPZ demonstration datasets (`obs`, `actions`,

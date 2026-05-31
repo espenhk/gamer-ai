@@ -121,6 +121,7 @@ from games.sc2.replay_bc import (  # noqa: E402
     iter_replays,
     load_dataset,
     replay_observations,
+    validate_replay_dir,
 )
 
 _OBS_DIM = len(SC2_MINIGAME_OBS_SPEC.names)
@@ -159,8 +160,7 @@ def _fake_replay_info(*, winner_pid: int, races: dict[int, int]):
     """
     info = MagicMock()
     info.player_info = [
-        _FakePlayerInfo(pid, race_int, 1 if pid == winner_pid else 2)
-        for pid, race_int in races.items()
+        _FakePlayerInfo(pid, race_int, 1 if pid == winner_pid else 2) for pid, race_int in races.items()
     ]
     return info
 
@@ -192,10 +192,7 @@ def _build_mock_controller(
             self.actions = raw_actions
             self.player_result = [object()] if done else []
 
-    responses = [
-        _FakeObsProto(obs, acts)
-        for obs, acts in zip(observe_sequence, actions_per_step)
-    ]
+    responses = [_FakeObsProto(obs, acts) for obs, acts in zip(observe_sequence, actions_per_step)]
     responses.append(_FakeObsProto({}, [], done=True))
     observe_iter = iter(responses)
 
@@ -250,6 +247,121 @@ def _reset_fakes() -> None:
     """Reset the injected fakes to avoid test cross-contamination."""
     _run_configs_mod.get.reset_mock(return_value=True, side_effect=True)
     _features_mod.features_from_game_info.reset_mock(return_value=True, side_effect=True)
+
+
+# ---------------------------------------------------------------------------
+# Tests: validate_replay_dir (issue #352)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateReplayDir(unittest.TestCase):
+    def test_nonexistent_folder_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_replay_dir("/nonexistent/path/that/does/not/exist")
+        self.assertIn("does not exist", str(ctx.exception))
+
+    def test_file_path_raises(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".SC2Replay") as f:
+            with self.assertRaises(ValueError) as ctx:
+                validate_replay_dir(f.name)
+        self.assertIn("not a directory", str(ctx.exception))
+
+    def test_empty_folder_raises(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError) as ctx:
+                validate_replay_dir(d)
+        self.assertIn("No .SC2Replay files found", str(ctx.exception))
+
+    def test_returns_sc2replay_files_only(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "game1.SC2Replay").touch()
+            (d / "game2.SC2Replay").touch()
+            (d / "notes.txt").touch()
+            result = validate_replay_dir(d)
+            self.assertEqual([p.name for p in result], ["game1.SC2Replay", "game2.SC2Replay"])
+
+    def test_returns_sorted_paths(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "b.SC2Replay").touch()
+            (d / "a.SC2Replay").touch()
+            result = validate_replay_dir(d)
+            self.assertEqual(result[0].name, "a.SC2Replay")
+            self.assertEqual(result[1].name, "b.SC2Replay")
+
+    def test_race_filter_warning_emitted(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "game.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="WARNING") as cm:
+                validate_replay_dir(d, race="terran")
+            self.assertTrue(any("terran" in msg for msg in cm.output))
+
+    def test_race_any_no_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "game.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="INFO") as cm:
+                validate_replay_dir(d, race="any")
+            # No WARNING lines about race should appear
+            self.assertFalse(any("WARNING" in msg and "Race filter" in msg for msg in cm.output))
+
+    def test_race_none_no_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "game.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="INFO") as cm:
+                validate_replay_dir(d, race=None)
+            self.assertFalse(any("Race filter" in msg for msg in cm.output))
+
+    def test_version_mismatch_warning_emitted(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "replay_3.0.0.12345.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="WARNING") as cm:
+                validate_replay_dir(d, version="4.9.3")
+            self.assertTrue(any("4.9.3" in msg for msg in cm.output))
+
+    def test_version_match_no_warning(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "replay_4.9.3.77379.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="INFO") as cm:
+                validate_replay_dir(d, version="4.9.3")
+            self.assertFalse(any("WARNING" in msg and "version" in msg.lower() for msg in cm.output))
+
+    def test_version_partial_mismatch_warns(self):
+        """Warns when SOME but not all replays match the version string."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "replay_4.9.3.77379.SC2Replay").touch()
+            (d / "replay_4.8.2.70000.SC2Replay").touch()
+            with self.assertLogs("games.sc2.replay_bc", level="WARNING") as cm:
+                validate_replay_dir(d, version="4.9.3")
+            warning_msgs = [m for m in cm.output if "WARNING" in m and "version" in m.lower()]
+            self.assertEqual(len(warning_msgs), 1)
+            self.assertIn("1/2", warning_msgs[0])
 
 
 # ---------------------------------------------------------------------------
@@ -426,9 +538,8 @@ class TestReplayObservations(unittest.TestCase):
         """The fn_idx in the action vector must match the issued action."""
         # select_army (internal fn_idx=1) → PySC2 id for select_army
         from games.sc2.actions import FUNCTION_IDS
-        pysc2_id_for_select_army = next(
-            i for i, name in FUNCTION_IDS.items() if name == "select_army"
-        )
+
+        pysc2_id_for_select_army = next(i for i, name in FUNCTION_IDS.items() if name == "select_army")
         obs_dicts = [{}]
         actions = [[_FakeFunctionCall(pysc2_id_for_select_army)]]
         pairs, _ = self._run(obs_dicts, actions)
@@ -442,10 +553,7 @@ class TestReplayObservations(unittest.TestCase):
         obs_dicts = [{} for _ in range(5)]
         # Each step issues Move_screen with a strictly increasing x pixel coordinate.
         # PySC2 fn_id for Move_screen is 2 in FUNCTION_IDS (internal fn_idx 2).
-        actions = [
-            [_FakeFunctionCall(2, [[0], [i * 10, 5]])]
-            for i in range(5)
-        ]
+        actions = [[_FakeFunctionCall(2, [[0], [i * 10, 5]])] for i in range(5)]
         pairs, _ = self._run(obs_dicts, actions, screen_size=screen_size)
         self.assertEqual(len(pairs), 5)
         # x_norm = pixel_x / (screen_size - 1); must be monotonically increasing.
@@ -594,9 +702,7 @@ class TestReadOneReplay(unittest.TestCase):
         """player_race is populated even when the race filter drops the replay."""
         obs_dicts = [{}]
         actions = [[_FakeFunctionCall(2, [[0], [10, 10]])]]
-        (race_ok, player_race, _), _ = self._run(
-            obs_dicts, actions, race_filter="zerg", races={1: 1, 2: 3}
-        )
+        (race_ok, player_race, _), _ = self._run(obs_dicts, actions, race_filter="zerg", races={1: 1, 2: 3})
         self.assertFalse(race_ok)
         self.assertEqual(player_race, "terran")
 
@@ -652,10 +758,7 @@ class TestBuildDataset(unittest.TestCase):
             folder = self._setup_folder(tmp, ["g.SC2Replay"])
             save_path = tmp / "demos.npz"
             spec = SC2_MINIGAME_OBS_SPEC
-            pairs = [
-                (np.zeros(_OBS_DIM, dtype=np.float32), np.zeros(4, dtype=np.float32))
-                for _ in range(5)
-            ]
+            pairs = [(np.zeros(_OBS_DIM, dtype=np.float32), np.zeros(4, dtype=np.float32)) for _ in range(5)]
             with self._mock_read_one([(True, "terran", pairs)]):
                 build_dataset(folder, save_path, obs_spec=spec)
             data = np.load(str(save_path), allow_pickle=False)
@@ -688,10 +791,7 @@ class TestBuildDataset(unittest.TestCase):
             folder = self._setup_folder(tmp, ["g.SC2Replay"])
             save_path = tmp / "demos.npz"
             spec = SC2_MINIGAME_OBS_SPEC
-            pairs = [
-                (np.full(_OBS_DIM, float(i), dtype=np.float32), np.zeros(4, dtype=np.float32))
-                for i in range(4)
-            ]
+            pairs = [(np.full(_OBS_DIM, float(i), dtype=np.float32), np.zeros(4, dtype=np.float32)) for i in range(4)]
             with self._mock_read_one([(True, "terran", pairs)]):
                 build_dataset(folder, save_path, obs_spec=spec)
             data = np.load(str(save_path), allow_pickle=False)
@@ -708,9 +808,7 @@ class TestBuildDataset(unittest.TestCase):
             spec = SC2_MINIGAME_OBS_SPEC
             pairs = [(np.zeros(_OBS_DIM, dtype=np.float32), np.zeros(4, dtype=np.float32))]
             with self._mock_read_one([(True, "terran", pairs)]):
-                build_dataset(
-                    folder, save_path, obs_spec=spec, player_id="winner", step_mul=2, screen_size=32
-                )
+                build_dataset(folder, save_path, obs_spec=spec, player_id="winner", step_mul=2, screen_size=32)
             data = np.load(str(save_path), allow_pickle=False)
             meta = json.loads(str(data["meta"]))
             self.assertEqual(meta["player_id"], "winner")
@@ -802,9 +900,7 @@ class TestLoadDataset(unittest.TestCase):
     ) -> None:
         ep_starts = np.array(episode_starts, dtype=np.int64)
         ep_lengths = np.array(episode_lengths, dtype=np.int64)
-        ep_id = np.concatenate(
-            [np.full(n, i, dtype=np.int64) for i, n in enumerate(episode_lengths)]
-        )
+        ep_id = np.concatenate([np.full(n, i, dtype=np.int64) for i, n in enumerate(episode_lengths)])
         np.savez_compressed(
             str(path),
             obs=obs,

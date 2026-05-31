@@ -74,6 +74,87 @@ def iter_replays(folder: str | pathlib.Path) -> list[pathlib.Path]:
     return sorted(pathlib.Path(folder).glob("*.SC2Replay"))
 
 
+def validate_replay_dir(
+    folder: str | pathlib.Path,
+    *,
+    race: str | None = None,
+    version: str | None = None,
+) -> list[pathlib.Path]:
+    """Validate *folder* for use as a behaviour-cloning replay source.
+
+    Checks that the directory exists, is non-empty, and contains at least one
+    ``.SC2Replay`` file.  Emits :mod:`logging` warnings when *race* or
+    *version* hints suggest the replay set may not match the experiment config.
+
+    Parameters
+    ----------
+    folder:
+        Directory to validate.
+    race:
+        Race filter the caller intends to apply (e.g. ``"terran"``).  When
+        set to a non-empty, non-``"any"`` value, a ``WARNING`` is emitted
+        reminding the user that cross-race replays will be silently skipped
+        by :func:`build_dataset`.
+    version:
+        SC2 build version string to cross-check against replay filenames
+        (e.g. ``"4.9.3"``).  Blizzard packs encode the build in the filename
+        (e.g. ``"4.9.3.77379"``); a ``WARNING`` is emitted when one or more
+        filenames do not contain the supplied string.  Does **not** reject
+        any files.
+
+    Returns
+    -------
+    list[Path]
+        Sorted list of ``.SC2Replay`` paths found in *folder*.
+
+    Raises
+    ------
+    ValueError
+        If *folder* does not exist, is not a directory, or contains no
+        ``.SC2Replay`` files.
+    """
+    folder = pathlib.Path(folder)
+    if not folder.exists():
+        raise ValueError(f"Replay directory does not exist: {folder}")
+    if not folder.is_dir():
+        raise ValueError(f"Replay path is not a directory: {folder}")
+
+    replays = sorted(folder.glob("*.SC2Replay"))
+    if not replays:
+        raise ValueError(
+            f"No .SC2Replay files found in {folder!r}. "
+            "Download Blizzard replay packs via the replay-api samples at "
+            "https://github.com/Blizzard/s2client-proto and unzip them here."
+        )
+
+    logger.info("Found %d .SC2Replay file(s) in %s.", len(replays), folder)
+
+    if race and race.lower() not in ("", "any"):
+        logger.warning(
+            "Race filter '%s' is active: replays whose cloned player is not "
+            "%s will be silently skipped. Use race=None or race='any' to keep "
+            "all races.",
+            race,
+            race,
+        )
+
+    if version:
+        unmatched = [r for r in replays if version not in r.name]
+        if unmatched:
+            logger.warning(
+                "%d/%d replay file(s) do not contain version string %r in "
+                "their filename. Blizzard packs encode the SC2 build in the "
+                "filename (e.g. '4.9.3.77379'). Replays from a different "
+                "build may fail to load — ensure your SC2 binary version "
+                "matches the replay pack.",
+                len(unmatched),
+                len(replays),
+                version,
+            )
+
+    return replays
+
+
 def _parse_replay_info(info: Any) -> tuple[int, dict[int, str]]:
     """Return ``(winner_player_id, {player_id: race_name})`` from a replay_info proto.
 
@@ -215,9 +296,7 @@ def replay_observations(
         game_info = controller.game_info()
         feat = sc2_features.features_from_game_info(
             game_info=game_info,
-            feature_dimensions=sc2_features.Dimensions(
-                screen=screen_size, minimap=minimap_size
-            ),
+            feature_dimensions=sc2_features.Dimensions(screen=screen_size, minimap=minimap_size),
             use_feature_units=True,
         )
 
@@ -250,9 +329,7 @@ def replay_observations(
                 controller.step(step_mul)
                 continue
 
-            action_vec = function_call_to_action(
-                chosen_fc, screen_size=screen_size, minimap_size=minimap_size
-            )
+            action_vec = function_call_to_action(chosen_fc, screen_size=screen_size, minimap_size=minimap_size)
             if action_vec is None:
                 skipped_unknown += 1
                 state.last_fn_idx = 0
@@ -341,9 +418,7 @@ def _read_one_replay(
         game_info = controller.game_info()
         feat = sc2_features.features_from_game_info(
             game_info=game_info,
-            feature_dimensions=sc2_features.Dimensions(
-                screen=screen_size, minimap=minimap_size
-            ),
+            feature_dimensions=sc2_features.Dimensions(screen=screen_size, minimap=minimap_size),
             use_feature_units=True,
         )
 
@@ -373,9 +448,7 @@ def _read_one_replay(
                 controller.step(step_mul)
                 continue
 
-            action_vec = function_call_to_action(
-                chosen_fc, screen_size=screen_size, minimap_size=minimap_size
-            )
+            action_vec = function_call_to_action(chosen_fc, screen_size=screen_size, minimap_size=minimap_size)
             if action_vec is None:
                 skipped_unknown += 1
                 state.last_fn_idx = 0
@@ -503,9 +576,7 @@ def build_dataset(
 
     if kept == 0:
         if skipped_race > 0:
-            raise ValueError(
-                f"Race filter '{race}' removed all {skipped_race} replay(s) in {folder!r}."
-            )
+            raise ValueError(f"Race filter '{race}' removed all {skipped_race} replay(s) in {folder!r}.")
         raise ValueError(f"No usable replays found in {folder!r}.")
 
     obs_arr = np.stack(all_obs, axis=0).astype(np.float32)

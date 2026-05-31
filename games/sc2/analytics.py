@@ -74,6 +74,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "score": "score_weight",
     "economy": "economy_weight",
     "idle_penalty": "idle_penalty",
+    "idle_worker_penalty": "idle_worker_penalty",
     "idle_bonus": "idle_bonus",
     "move_exploration": "move_exploration_bonus",
     "move_repeat_penalty": "move_repeat_penalty",

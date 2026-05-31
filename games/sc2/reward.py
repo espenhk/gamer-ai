@@ -39,6 +39,15 @@ class SC2RewardConfig:
     idle_penalty :
         Per-step penalty when ``army_count == 0 and food_used < food_cap``;
         used by ``BuildMarines`` to discourage doing nothing.
+    idle_worker_penalty :
+        Per-step penalty scaled by the number of idle workers reported by
+        PySC2 (``player.idle_worker_count``).  Having idle workers is almost
+        always inefficient in StarCraft 2 — workers should be mining or
+        building.  The penalty fires whenever ``idle_worker_count > 0``; the
+        full penalty is ``idle_worker_penalty × idle_worker_count × n_ticks``.
+        Default ``0.0`` — opt-in.  Recommended for economy maps and ladder
+        runs where worker efficiency matters (e.g. ``-0.05`` to ``-0.5``
+        per idle worker per step).
     idle_bonus :
         Per-step bonus awarded when the agent issues ``no_op`` *and* friendly
         units are within effective attack range of an enemy on the screen
@@ -164,6 +173,7 @@ class SC2RewardConfig:
     loss_penalty: float = -100.0
     step_penalty: float = -0.001
     idle_penalty: float = 0.0
+    idle_worker_penalty: float = 0.0
     idle_bonus: float = 0.0
     attack_move_bonus: float = 0.0
     click_attack_bonus: float = 0.0
@@ -208,6 +218,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``minerals``, ``vespene`` — current totals
         ``prev_minerals``, ``prev_vespene`` — previous totals
         ``army_count``, ``food_used``, ``food_cap``
+        ``idle_worker_count`` — idle workers this step (issue #358)
         ``player_outcome`` — None / +1 / -1 (only set on the final step)
         ``action_fn_idx`` — fn_idx of the action issued this step
         ``action_target_x`` / ``action_target_y`` — normalised [0, 1] screen
@@ -316,9 +327,9 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         ``components`` exposes a per-term breakdown so analytics can
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
-        ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
-        ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_bonus``, ``attack_friendly_penalty``,
+        ``idle_worker_penalty``, ``idle_bonus``, ``move_exploration``,
+        ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
+        ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
         ``early_random_action``, ``unit_loss``, ``damage_taken``,
         ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
         ``terminal`` separately.
@@ -363,6 +374,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
             if army == 0 and food_used < food_cap:
                 idle_pen = cfg.idle_penalty * n_ticks
         components["idle_penalty"] = float(idle_pen)
+
+        # Idle worker penalty (issue #358): penalise each idle worker.
+        idle_worker_pen = 0.0
+        if cfg.idle_worker_penalty != 0.0:
+            idle_workers = float(info.get("idle_worker_count", 0.0))
+            if idle_workers > 0:
+                idle_worker_pen = cfg.idle_worker_penalty * idle_workers * n_ticks
+        components["idle_worker_penalty"] = float(idle_worker_pen)
 
         # Idle bonus (issue #127): reward standing still when units are in
         # effective attack range of an enemy. If the client provides

@@ -17,6 +17,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- SC2: new `idle_worker_penalty` reward config key (issue #358).  Per-step
+  penalty scaled by `idle_worker_count` from PySC2 — each idle worker
+  subtracts `idle_worker_penalty` per step per idle worker.  Default `0.0`
+  (opt-in); recommended range for economy/ladder maps: `-0.05` to `-0.5`.
+  The count is now forwarded in the env `info` dict so downstream reward
+  shaping can always read it.
 
 ---
 

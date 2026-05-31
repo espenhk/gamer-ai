@@ -36,6 +36,13 @@ step_penalty: -0.001
 # --- Idle penalty (BuildMarines / economy maps) ---
 idle_penalty: 0.0
 
+# --- Idle worker penalty (issue #358) ---
+# Penalty per idle worker per step (scaled by idle_worker_count from PySC2).
+# Workers should always be mining or building; each step a worker is idle
+# drains this much reward per idle worker.  Set to 0.0 to disable.
+# Recommended range for economy/ladder maps: -0.05 to -0.5.
+idle_worker_penalty: 0.0
+
 # --- Idle bonus (issue #127) ---
 # Per-step bonus when the agent issues no_op AND friendly units are within
 # combat range of an enemy.  Off by default; enable on combat minigames

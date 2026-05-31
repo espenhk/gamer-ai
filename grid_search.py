@@ -138,6 +138,7 @@ _ABBREV = {
     "par_time_s": "par",
     "accel_bonus": "ab",
     "idle_penalty": "ip",
+    "idle_worker_penalty": "iwp",
     "idle_bonus": "ib",
     "move_exploration_bonus": "meb",
     "move_exploration_grid_size": "megs",

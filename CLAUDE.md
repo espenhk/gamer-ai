@@ -122,6 +122,28 @@ unit-tested logic and mocked integration shifts.
 
 ---
 
+## Pre-commit checks
+
+The repository uses [pre-commit](https://pre-commit.com/) to enforce YAML
+validity, merge-conflict markers, end-of-file newlines, trailing whitespace,
+and Ruff lint + format. **All pre-commit checks must pass before committing.**
+
+```bash
+# Install once
+pip install pre-commit
+pre-commit install   # installs the git hook so it runs automatically
+
+# Run manually on all files
+pre-commit run --all-files
+```
+
+Ruff's `--fix` flag auto-corrects most lint issues in-place; run
+`pre-commit run --all-files` a second time after it modifies files to confirm
+everything is clean before staging. **Never use `--no-verify` to skip the
+hook.** Fix the underlying issue instead.
+
+---
+
 ## Changelog
 
 `CHANGELOG.md` is the project's running log of user- and

@@ -345,10 +345,18 @@ class SC2Client:
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
         # Tech-tree state cached from the latest timestep.
         self._owned_buildings: frozenset[str] = frozenset()
+        # Accumulates every building seen this episode so that buildings that
+        # scroll off-screen don't vanish from the tech-tree mask (issue #356 H2).
+        self._owned_buildings_seen: frozenset[str] = frozenset()
         self._completed_upgrades: frozenset[str] = frozenset()
         # Current resource counts cached from the latest timestep (issue #357).
         self._minerals: float = 0.0
         self._vespene: float = 0.0
+        # Cache for _compute_available_fn_ids() — skip the 118-call tech-tree
+        # loop when owned_buildings / completed_upgrades / selected_unit_types
+        # and the candidate set are all unchanged since last step (issue #356 H3).
+        self._fn_ids_cache_keys: tuple | None = None
+        self._fn_ids_cache_result: set[int] = set()
         # Currently-selected unit-type name (None when nothing selected or
         # the selection is mixed across types).
         # Set of currently-selected unit-type names.  Multi-type
@@ -396,10 +404,13 @@ class SC2Client:
         self._selected_count = 0.0
         self._last_fn_idx = 0
         self._owned_buildings = frozenset()
+        self._owned_buildings_seen = frozenset()
         self._completed_upgrades = frozenset()
         self._selected_unit_types = frozenset()
         self._minerals = 0.0
         self._vespene = 0.0
+        self._fn_ids_cache_keys = None
+        self._fn_ids_cache_result = set()
         self._screen_xy_by_unit_type = {}
         self._deferred_action = None
         self._last_state_log_wall_s = None
@@ -430,13 +441,20 @@ class SC2Client:
            slot for the next step.
         """
         if self._deferred_action is not None:
+            # The selector was already emitted last step; send the original
+            # action directly without re-resolving.  If the selection still
+            # doesn't match, PySC2 will no-op it — but we must not re-defer,
+            # or we get an infinite select_army oscillation (issue #356: H1).
+            # select_army is always "available" in PySC2 even with zero army
+            # units, so without this guard the deferred action would never
+            # actually execute.
             action = self._deferred_action
             self._deferred_action = None
-        elif self._is_extreme_random_phase():
-            action = self._sample_extreme_random_action()
-
-        action, deferred = self._resolve_action(action)
-        self._deferred_action = deferred
+        else:
+            if self._is_extreme_random_phase():
+                action = self._sample_extreme_random_action()
+            action, deferred = self._resolve_action(action)
+            self._deferred_action = deferred
 
         fn_call = self._action_to_call(action)
         if self._self_play and self._opponent_policy is not None:
@@ -881,7 +899,8 @@ class SC2Client:
         # Compute the full internal mask: race ∩ PySC2 ∩ tech-tree ∩ selection ∩ resources.
         # Single source of truth — read by extreme-random sampler, policies
         # (via info["available_fn_ids"]), and the deferred-action resolver.
-        self._owned_buildings = self._compute_owned_buildings(ob)
+        self._owned_buildings_seen = self._owned_buildings_seen | self._compute_owned_buildings(ob)
+        self._owned_buildings = self._owned_buildings_seen
         self._completed_upgrades = self._compute_completed_upgrades(ob)
         self._selected_unit_types = self._compute_selected_unit_types(ob)
         self._minerals = feats.get("minerals", 0.0)
@@ -1601,7 +1620,21 @@ class SC2Client:
         if not self._unit_type_id_to_name:
             return set(candidate)
 
-        return {
+        # Cache: skip the full fn_idx_satisfied loop when the game-state inputs
+        # are unchanged (issue #356 H3).  Minerals and vespene are included
+        # because PR #357 gates build/train actions on affordability.
+        cache_keys = (
+            frozenset(candidate),
+            self._owned_buildings,
+            self._completed_upgrades,
+            self._selected_unit_types,
+            self._minerals,
+            self._vespene,
+        )
+        if cache_keys == self._fn_ids_cache_keys:
+            return set(self._fn_ids_cache_result)
+
+        result = {
             fn_idx
             for fn_idx in candidate
             if fn_idx_satisfied(
@@ -1613,6 +1646,9 @@ class SC2Client:
                 self._vespene,
             )
         }
+        self._fn_ids_cache_keys = cache_keys
+        self._fn_ids_cache_result = result
+        return set(result)
 
     _upgrade_id_to_name_cache: dict[int, str] | None = None
 

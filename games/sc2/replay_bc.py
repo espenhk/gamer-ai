@@ -296,9 +296,7 @@ def replay_observations(
         game_info = controller.game_info()
         feat = sc2_features.features_from_game_info(
             game_info=game_info,
-            feature_dimensions=sc2_features.Dimensions(
-                screen=screen_size, minimap=minimap_size
-            ),
+            feature_dimensions=sc2_features.Dimensions(screen=screen_size, minimap=minimap_size),
             use_feature_units=True,
         )
 
@@ -331,9 +329,7 @@ def replay_observations(
                 controller.step(step_mul)
                 continue
 
-            action_vec = function_call_to_action(
-                chosen_fc, screen_size=screen_size, minimap_size=minimap_size
-            )
+            action_vec = function_call_to_action(chosen_fc, screen_size=screen_size, minimap_size=minimap_size)
             if action_vec is None:
                 skipped_unknown += 1
                 state.last_fn_idx = 0
@@ -422,9 +418,7 @@ def _read_one_replay(
         game_info = controller.game_info()
         feat = sc2_features.features_from_game_info(
             game_info=game_info,
-            feature_dimensions=sc2_features.Dimensions(
-                screen=screen_size, minimap=minimap_size
-            ),
+            feature_dimensions=sc2_features.Dimensions(screen=screen_size, minimap=minimap_size),
             use_feature_units=True,
         )
 
@@ -454,9 +448,7 @@ def _read_one_replay(
                 controller.step(step_mul)
                 continue
 
-            action_vec = function_call_to_action(
-                chosen_fc, screen_size=screen_size, minimap_size=minimap_size
-            )
+            action_vec = function_call_to_action(chosen_fc, screen_size=screen_size, minimap_size=minimap_size)
             if action_vec is None:
                 skipped_unknown += 1
                 state.last_fn_idx = 0
@@ -584,9 +576,7 @@ def build_dataset(
 
     if kept == 0:
         if skipped_race > 0:
-            raise ValueError(
-                f"Race filter '{race}' removed all {skipped_race} replay(s) in {folder!r}."
-            )
+            raise ValueError(f"Race filter '{race}' removed all {skipped_race} replay(s) in {folder!r}.")
         raise ValueError(f"No usable replays found in {folder!r}.")
 
     obs_arr = np.stack(all_obs, axis=0).astype(np.float32)

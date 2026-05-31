@@ -2301,7 +2301,6 @@ class TestIssue356FnIdxCache(unittest.TestCase):
             after_first = mock_sat.call_count
 
             # Shrink the candidate set → cache miss.
-            from games.sc2.actions import fn_ids_for_race
 
             id_map = __import__("games.sc2.client", fromlist=["_get_pysc2_id_to_fn_idx"])._get_pysc2_id_to_fn_idx()
             if id_map:
@@ -2309,7 +2308,6 @@ class TestIssue356FnIdxCache(unittest.TestCase):
                 self.client._available_actions = {min(id_map.keys())}
                 self.client._compute_available_fn_ids(None)
                 self.assertGreater(mock_sat.call_count, after_first)
-
 
 
 if __name__ == "__main__":

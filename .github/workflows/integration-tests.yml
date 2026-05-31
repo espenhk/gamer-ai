@@ -1,7 +1,8 @@
 name: Integration Tests
 
-# Run heavier end-to-end tests after a PR is approved — acts as a final
-# gate before merge to main.  Also available on-demand via workflow_dispatch.
+# Run heavier end-to-end tests on PR creation (or when a draft PR is marked
+# ready for review) without requiring approval.  Also available on-demand via
+# workflow_dispatch.
 #
 # Only the integration-test suites relevant to the changed files are run:
 # - changes to games/car_racing/ (or shared framework code) → car-racing job
@@ -12,8 +13,10 @@ name: Integration Tests
 # "Integration Tests / sc2" as required status checks in the repository's
 # branch-protection rules for `main`.
 on:
-  pull_request_review:
-    types: [submitted]
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -23,11 +26,9 @@ jobs:
   # -----------------------------------------------------------------
   detect-changes:
     runs-on: ubuntu-latest
-    # Only run after an approving review or a manual dispatch.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request_review' &&
-       github.event.review.state == 'approved')
+      github.event.pull_request.draft == false
     outputs:
       run-car-racing: ${{ steps.set-outputs.outputs.run-car-racing }}
       run-sc2: ${{ steps.set-outputs.outputs.run-sc2 }}

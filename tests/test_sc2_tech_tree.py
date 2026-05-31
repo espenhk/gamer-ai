@@ -10,6 +10,7 @@ import unittest
 
 from games.sc2.tech_tree import (
     PRECONDITIONS,
+    RESOURCE_COSTS,
     WORKER_NAMES,
     SelectionReq,
     building_prereqs_met,
@@ -237,6 +238,101 @@ class TestMixedSelection(unittest.TestCase):
         # Train_Marine needs Barracks selected; a mixed army selection
         # without any Barracks should still fail.
         self.assertFalse(fn_idx_satisfied(7, frozenset({"Barracks"}), frozenset(), _sel("Marine", "Marauder")))
+
+
+class TestResourceCostFilter(unittest.TestCase):
+    """Resource-cost gating (issue #357): actions whose mineral/vespene cost
+    exceeds current resources must be excluded from the available mask."""
+
+    def test_no_minerals_blocks_supply_depot(self):
+        # fn_idx=9 (Build_SupplyDepot) costs 100 minerals.
+        # Satisfied with enough minerals, blocked without.
+        self.assertTrue(fn_idx_satisfied(9, frozenset(), frozenset(), _SCV, minerals=100))
+        self.assertFalse(fn_idx_satisfied(9, frozenset(), frozenset(), _SCV, minerals=99))
+        self.assertFalse(fn_idx_satisfied(9, frozenset(), frozenset(), _SCV, minerals=0))
+
+    def test_exactly_at_cost_is_allowed(self):
+        # Boundary: exactly 150 minerals for Barracks (fn_idx=8).
+        # Barracks also requires a SupplyDepot as a building prerequisite.
+        self.assertTrue(fn_idx_satisfied(8, frozenset({"SupplyDepot"}), frozenset(), _SCV, minerals=150))
+        self.assertFalse(fn_idx_satisfied(8, frozenset({"SupplyDepot"}), frozenset(), _SCV, minerals=149))
+
+    def test_vespene_cost_gating(self):
+        # fn_idx=26 (Build_Factory) costs 150 minerals + 100 vespene.
+        # Fail on insufficient vespene even if minerals are sufficient.
+        self.assertFalse(fn_idx_satisfied(26, frozenset({"Barracks"}), frozenset(), _SCV, minerals=200, vespene=99))
+        self.assertTrue(fn_idx_satisfied(26, frozenset({"Barracks"}), frozenset(), _SCV, minerals=150, vespene=100))
+
+    def test_battlecruiser_double_cost(self):
+        # fn_idx=43 (Train_Battlecruiser) costs 400 minerals + 300 vespene.
+        self.assertFalse(
+            fn_idx_satisfied(
+                43,
+                frozenset({"Starport", "StarportTechLab", "FusionCore"}),
+                frozenset(),
+                _sel("Starport"),
+                minerals=399,
+                vespene=300,
+            )
+        )
+        self.assertFalse(
+            fn_idx_satisfied(
+                43,
+                frozenset({"Starport", "StarportTechLab", "FusionCore"}),
+                frozenset(),
+                _sel("Starport"),
+                minerals=400,
+                vespene=299,
+            )
+        )
+        self.assertTrue(
+            fn_idx_satisfied(
+                43,
+                frozenset({"Starport", "StarportTechLab", "FusionCore"}),
+                frozenset(),
+                _sel("Starport"),
+                minerals=400,
+                vespene=300,
+            )
+        )
+
+    def test_no_cost_actions_unaffected(self):
+        # Universal actions with no resource cost must always pass the resource check.
+        # fn_idx=0 (no_op), fn_idx=1 (select_army), fn_idx=2 (Move_screen).
+        self.assertTrue(fn_idx_satisfied(0, frozenset(), frozenset(), _NONE, minerals=0, vespene=0))
+        self.assertTrue(fn_idx_satisfied(1, frozenset(), frozenset(), _NONE, minerals=0, vespene=0))
+        self.assertTrue(fn_idx_satisfied(2, frozenset(), frozenset(), _sel("Marine"), minerals=0, vespene=0))
+
+    def test_morph_actions_with_zero_cost(self):
+        # Morph_SiegeMode (fn_idx=48) and Morph_Unsiege (fn_idx=49) have no
+        # resource cost (mode changes only).
+        self.assertFalse(fn_idx_satisfied(48, frozenset(), frozenset(), _sel("SiegeTank"), minerals=0))
+        # fails because missing FactoryTechLab prerequisite, not resource cost
+        self.assertTrue(fn_idx_satisfied(48, frozenset({"FactoryTechLab"}), frozenset(), _sel("SiegeTank"), minerals=0))
+        self.assertTrue(fn_idx_satisfied(49, frozenset(), frozenset(), _sel("SiegeTankSieged"), minerals=0))
+
+    def test_backwards_compat_no_resource_args(self):
+        # Calling fn_idx_satisfied without minerals/vespene defaults to inf
+        # so all existing callers remain unaffected.
+        self.assertTrue(fn_idx_satisfied(9, frozenset(), frozenset(), _SCV))
+        self.assertFalse(fn_idx_satisfied(9, frozenset(), frozenset(), _NONE))
+
+    def test_resource_costs_table_coverage(self):
+        # Every fn_idx in RESOURCE_COSTS must be within the known fn_idx range
+        # (0–117 as defined in FUNCTION_IDS) and must appear in PRECONDITIONS.
+        # (We avoid importing games.sc2.actions here because it requires numpy.)
+        for fn_idx in RESOURCE_COSTS:
+            with self.subTest(fn_idx=fn_idx):
+                self.assertIn(fn_idx, PRECONDITIONS, f"fn_idx {fn_idx} in RESOURCE_COSTS but not in PRECONDITIONS")
+
+    def test_zerg_morph_cost(self):
+        # fn_idx=113 (Morph_Lair) costs 150 minerals + 100 vespene.
+        self.assertFalse(
+            fn_idx_satisfied(113, frozenset({"SpawningPool"}), frozenset(), _sel("Hatchery"), minerals=100, vespene=100)
+        )
+        self.assertTrue(
+            fn_idx_satisfied(113, frozenset({"SpawningPool"}), frozenset(), _sel("Hatchery"), minerals=150, vespene=100)
+        )
 
 
 class TestPreconditionsTableShape(unittest.TestCase):

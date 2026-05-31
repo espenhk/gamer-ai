@@ -3,7 +3,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -369,6 +369,51 @@ class TestCMAESEvalEpisodes(unittest.TestCase):
                 os.unlink(wf)
 
         self.assertEqual(reset_count[0], pop_size * eval_episodes)
+
+    def test_self_play_manager_refreshes_opponent(self):
+        from framework.training import _greedy_loop_cmaes
+
+        policy = _make_tmnf_policy(population_size=2, initial_sigma=0.3, eval_episodes=1)
+        policy.initialize_random()
+
+        class _Env:
+            def __init__(self):
+                self.set_opponent_policy = MagicMock()
+
+            def reset(self):
+                return np.zeros(BASE_OBS_DIM, dtype=np.float32), {}
+
+            def step(self, action):
+                info = {"track_progress": 0.5, "laps_completed": 0, "pos_x": 0.0, "pos_z": 0.0}
+                return (np.zeros(BASE_OBS_DIM, dtype=np.float32), 1.0, True, False, info)
+
+            def get_episode_time_limit(self):
+                return None
+
+            def set_episode_time_limit(self, _):
+                pass
+
+        env = _Env()
+        manager = MagicMock()
+        new_opp = MagicMock()
+        manager.step.return_value = new_opp
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            wf = f.name
+        try:
+            loop = _greedy_loop_cmaes(
+                env=env,
+                policy=policy,
+                n_generations=1,
+                weights_file=wf,
+                self_play_manager=manager,
+            )
+        finally:
+            if os.path.exists(wf):
+                os.unlink(wf)
+
+        manager.step.assert_called_once_with(policy, loop.greedy_sims[0].improved)
+        env.set_opponent_policy.assert_called_once_with(new_opp)
 
 
 # ---------------------------------------------------------------------------

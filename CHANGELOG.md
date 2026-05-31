@@ -18,6 +18,19 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- SC2 behaviour-cloning core fit + `--bc` entry point (issue #353, [4/6]):
+  `fit_bc(dataset, obs_spec, *, target, ...)` in `games/sc2/replay_bc.py`
+  pre-trains a policy from a demonstration NPZ: `target="sc2_reinforce"`
+  trains a two-head REINFORCE MLP via mini-batch gradient descent (cross-entropy
+  on fn_idx, MSE on spatial coords); `target="sc2_genetic"` fits a
+  `SC2MultiHeadLinearPolicy` via closed-form least squares.  `run(replay_dir,
+  experiment_dir, obs_spec, **opts)` wires the full pipeline
+  (replay → dataset → fit → save `policy_weights.yaml` + trainer state +
+  `bc_summary.json`).  New `main.py --bc` mode (SC2-only, mutually exclusive
+  with `--play`/`--eval`) and matching config keys in
+  `games/sc2/config/training_params.yaml` (`bc_player_id`, `bc_race`,
+  `bc_target`, `bc_epochs`, `bc_learning_rate`, `bc_batch_size`,
+  `bc_ignore_noop`, `bc_step_mul`, `bc_max_replays`).
 - SC2 replay BC dataset builder at `games/sc2/replay_bc.py` (issue #351,
   [2/6]): reads `.SC2Replay` files via the PySC2 replay API and produces
   sequence-aware NPZ demonstration datasets (`obs`, `actions`,
@@ -44,6 +57,48 @@ formatting, internal refactors with no behaviour change — can be skipped.
   refactored into thin wrappers over the new shared module-level functions.
   No runtime behaviour change — flat observations and info dicts are
   identical (existing SC2 tests unchanged and passing).
+
+---
+
+## [0.3.12] - 2026-05-31
+
+### Fixed
+- SC2: build and train actions are now excluded from `available_fn_ids` when
+  the agent cannot afford them (issue #357). The action mask now filters by
+  mineral and vespene cost in addition to the existing tech-tree, building
+  prerequisite, and selection checks. `fn_idx_satisfied()` in
+  `games/sc2/tech_tree.py` accepts optional `minerals` and `vespene`
+  arguments (defaulting to `inf` for backwards compatibility); the client
+  tracks current resource counts each step and passes them to the filter.
+  Costs for every build/train fn_idx with a non-zero mineral or vespene
+  cost across Terran, Protoss, and Zerg are recorded in the new
+  `RESOURCE_COSTS` table in `tech_tree.py`; zero-cost actions (movement,
+  selection, energy abilities, mode-change morphs) have no entry.
+
+---
+
+## [0.3.11] - 2026-05-30
+
+### Added
+- SC2 self-play now supports three opponent-selection modes (issue #345).
+  Set `self_play_mode` in `training_params.yaml` (default `"exact"`):
+  - `"exact"` — opponent is a fresh snapshot of the current champion,
+    refreshed every generation (previously the opponent was set only once
+    at run start and never updated).
+  - `"mutated"` — opponent is a slightly mutated copy of the champion;
+    mutation strength controlled by `self_play_mutation_scale` (default
+    inherits `mutation_scale`).
+  - `"top_n"` — opponent is drawn uniformly at random from a pool of the
+    top-N champions seen so far (pool capacity set by `self_play_top_n`,
+    default 5); weakest pool entry is replaced when a stronger champion
+    arrives.
+  Implemented in `framework/self_play.py` (`SelfPlayManager`); the
+  opponent is refreshed at the end of each generation in all four greedy
+  loops (`hill_climbing`, `q_learning`, `cmaes`, `genetic`).
+
+---
+
+## [0.3.10] - 2026-05-30
 
 ---
 

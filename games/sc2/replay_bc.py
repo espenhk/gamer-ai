@@ -1,7 +1,6 @@
-"""Replay behaviour-cloning dataset builder for StarCraft II (issue #351).
+"""Replay behaviour-cloning dataset builder and fitter for StarCraft II.
 
-Reads a folder of .SC2Replay files and produces a sequence-aware
-``(obs, action)`` demonstration dataset for offline behaviour cloning.
+Issues #351 (dataset builder), #352 (validate_replay_dir), #353 (fit_bc + run).
 
 Usage — build a dataset from replays::
 
@@ -30,6 +29,21 @@ Usage — load a saved dataset::
     episodes = load_dataset("demos.npz", as_episodes=True)
     for obs_seq, act_seq in episodes:
         ...  # obs_seq: [T, D], act_seq: [T, 4]
+
+Usage — fit a BC policy from a dataset or replay directory::
+
+    from games.sc2.replay_bc import fit_bc, run
+
+    # Fit directly from a loaded dataset dict
+    policy, loss = fit_bc(data, spec, target="sc2_reinforce", bc_epochs=20)
+
+    # Full pipeline: replays → dataset → fit → save weights + summary
+    summary = run(
+        "my_replays/",
+        "experiments/sc2/sc2_reinforce/MoveToBeacon/myrun/",
+        obs_spec=spec,
+        target="sc2_reinforce",
+    )
 
 PySC2 imports are lazy: this module can be imported without the SC2 binary or
 PySC2 installed (matching the existing games/sc2 convention).
@@ -485,6 +499,7 @@ def build_dataset(
     screen_size: int = 64,
     minimap_size: int = 64,
     multi_action_strategy: str = "first_non_noop",
+    max_replays: int | None = None,
 ) -> dict:
     """Read replays in *folder*, optionally filter by race, and write ``demos.npz``.
 
@@ -503,6 +518,9 @@ def build_dataset(
         is not that race are dropped.  ``None`` / ``"any"`` keeps all replays.
     step_mul, screen_size, minimap_size, multi_action_strategy:
         Forwarded to the per-replay collector.
+    max_replays:
+        When set, only the first *max_replays* files (sorted order) are
+        processed.  ``None`` (default) processes all files.
 
     Returns
     -------
@@ -519,6 +537,11 @@ def build_dataset(
     replay_paths = iter_replays(folder)
     if not replay_paths:
         raise ValueError(f"No .SC2Replay files found in {folder!r}")
+    if max_replays is not None:
+        if max_replays <= 0:
+            raise ValueError(f"max_replays must be a positive integer, got {max_replays!r}")
+        replay_paths = replay_paths[:max_replays]
+        logger.info("max_replays=%d: processing first %d replay(s)", max_replays, len(replay_paths))
 
     race_filter: str | None = None
     if race and race.lower() not in ("", "any"):
@@ -595,6 +618,7 @@ def build_dataset(
         "n_episodes": kept,
         "n_steps": int(obs_arr.shape[0]),
         "obs_dim": int(obs_arr.shape[1]),
+        "n_replays_skipped_race": skipped_race,
     }
 
     logger.info(
@@ -674,3 +698,422 @@ def load_dataset(
         ep_act = actions[start : start + length]
         episodes.append((ep_obs, ep_act))
     return episodes
+
+
+# ---------------------------------------------------------------------------
+# BC fitting — private helpers
+# ---------------------------------------------------------------------------
+
+
+def _fit_bc_mlp(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+    *,
+    hidden_sizes: list[int],
+    lr: float,
+    epochs: int,
+    batch_size: int,
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Mini-batch gradient descent BC fit into an SC2REINFORCEPolicy.
+
+    Loss = cross-entropy on the fn_idx softmax head
+         + MSE on the sigmoid (x, y) spatial head for spatial actions only.
+
+    Parameters are updated in-place on the policy via pure NumPy backward
+    passes (no autograd dependency).
+
+    Returns (policy, avg_loss_last_epoch).
+    """
+    from games.sc2.actions import SPATIAL_FN_IDS
+    from games.sc2.sc2_policies import SC2REINFORCEPolicy
+
+    policy = SC2REINFORCEPolicy(obs_spec, hidden_sizes=hidden_sizes, seed=seed)
+    rng = np.random.default_rng(seed)
+
+    fn_idx_arr = act_arr[:, 0].astype(int)
+    xy_arr = act_arr[:, 1:3]
+    n = len(obs_arr)
+    scales = obs_spec.scales.astype(np.float64)
+    spatial_mask_all = np.array([fi in SPATIAL_FN_IDS for fi in fn_idx_arr], dtype=bool)
+
+    avg_loss = float("inf")
+    for epoch in range(epochs):
+        order = rng.permutation(n)
+        total_loss = 0.0
+        n_batches = 0
+
+        for start in range(0, n, batch_size):
+            idx = order[start : start + batch_size]
+            obs_b = obs_arr[idx].astype(np.float64)
+            fn_b = fn_idx_arr[idx]
+            xy_b = xy_arr[idx].astype(np.float64)
+            sp_mask = spatial_mask_all[idx]
+            B = len(idx)
+
+            # --- forward ---
+            x = obs_b / scales  # (B, D)
+            li: list[np.ndarray] = []  # layer inputs (for weight grads)
+            pre: list[np.ndarray] = []  # pre-ReLU activations (for backprop)
+            for w, b in zip(policy._trunk_w, policy._trunk_b):
+                li.append(x.copy())
+                z = x @ w.T.astype(np.float64) + b.astype(np.float64)
+                pre.append(z.copy())
+                x = np.maximum(0.0, z)
+            h = x  # (B, H_last)
+
+            # Capture pre-update weights for correct gradient computation.
+            fn_w = policy._fn_w.astype(np.float64)
+            sp_w = policy._sp_w.astype(np.float64)
+            fn_b_vec = policy._fn_b.astype(np.float64)
+            sp_b_vec = policy._sp_b.astype(np.float64)
+
+            fn_logits = h @ fn_w.T + fn_b_vec  # (B, N_FN)
+            sp_logits = h @ sp_w.T + sp_b_vec  # (B, 2)
+
+            # --- fn cross-entropy ---
+            fn_shift = fn_logits - fn_logits.max(axis=1, keepdims=True)
+            exp_fn = np.exp(fn_shift)
+            sm = exp_fn / exp_fn.sum(axis=1, keepdims=True)  # (B, N_FN)
+            ce_loss = -float(np.mean(np.log(np.maximum(sm[np.arange(B), fn_b], 1e-10))))
+
+            # --- sp MSE (spatial steps only) ---
+            sp_sig = 1.0 / (1.0 + np.exp(-np.clip(sp_logits, -20.0, 20.0)))
+            sp_loss = 0.0
+            d_sp = np.zeros_like(sp_logits)
+            if sp_mask.any():
+                diff = sp_sig[sp_mask] - xy_b[sp_mask]  # (M, 2)
+                sp_loss = float(np.mean(diff**2))
+                M = int(sp_mask.sum())
+                # Gradient: ∂MSE/∂sp_logit = (diff/M) * sig*(1-sig)
+                d_sp_sig = diff / M
+                d_sp[sp_mask] = d_sp_sig * sp_sig[sp_mask] * (1.0 - sp_sig[sp_mask])
+
+            total_loss += ce_loss + sp_loss
+            n_batches += 1
+
+            # --- fn CE gradient: ∂CE/∂fn_logits = (softmax - one_hot) / B ---
+            d_fn = sm.copy()
+            d_fn[np.arange(B), fn_b] -= 1.0
+            d_fn /= B  # (B, N_FN)
+
+            # --- backprop to h_last using pre-update head weights ---
+            g = d_fn @ fn_w + d_sp @ sp_w  # (B, H_last)
+
+            # --- collect trunk gradients (pre-update pass) ---
+            trunk_dw: list[np.ndarray] = []
+            trunk_db: list[np.ndarray] = []
+            for i in range(len(policy._trunk_w) - 1, -1, -1):
+                g = g * (pre[i] > 0)  # backprop through ReLU
+                trunk_dw.insert(0, g.T @ li[i])  # (H_i, H_{i-1})
+                trunk_db.insert(0, g.sum(axis=0))  # (H_i,)
+                if i > 0:
+                    g = g @ policy._trunk_w[i].astype(np.float64)
+
+            # --- apply all updates ---
+            policy._fn_w = (fn_w - lr * (d_fn.T @ h)).astype(np.float32)
+            policy._fn_b = (fn_b_vec - lr * d_fn.sum(axis=0)).astype(np.float32)
+            policy._sp_w = (sp_w - lr * (d_sp.T @ h)).astype(np.float32)
+            policy._sp_b = (sp_b_vec - lr * d_sp.sum(axis=0)).astype(np.float32)
+            for i, (dw, db) in enumerate(zip(trunk_dw, trunk_db)):
+                policy._trunk_w[i] = (policy._trunk_w[i].astype(np.float64) - lr * dw).astype(np.float32)
+                policy._trunk_b[i] = (policy._trunk_b[i].astype(np.float64) - lr * db).astype(np.float32)
+
+        avg_loss = total_loss / max(n_batches, 1)
+        logger.info("BC epoch %d/%d: avg_loss=%.6f", epoch + 1, epochs, avg_loss)
+
+    return policy, avg_loss
+
+
+def _fit_bc_linear(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+) -> tuple[Any, float]:
+    """Closed-form least-squares BC fit into an SC2MultiHeadLinearPolicy.
+
+    fn head  : one-hot labels → lstsq over normalised obs.
+    spatial head : logit-transformed (x, y) labels for spatial steps → lstsq.
+
+    Returns (SC2MultiHeadLinearPolicy, normalised_residual).
+    """
+    from games.sc2.actions import SPATIAL_FN_IDS
+    from games.sc2.sc2_policies import N_FUNCTION_IDS, N_SPATIAL_ROWS, SC2MultiHeadLinearPolicy
+
+    scales = obs_spec.scales.astype(np.float64)
+    X = obs_arr.astype(np.float64) / scales  # (N, D)
+    fn_idx_arr = act_arr[:, 0].astype(int)
+    xy_arr = act_arr[:, 1:3].astype(np.float64)
+    N = len(X)
+
+    # fn head: one-hot → lstsq → W_fn of shape (D, N_FN) → transpose to (N_FN, D)
+    Y_fn = np.zeros((N, N_FUNCTION_IDS), dtype=np.float64)
+    Y_fn[np.arange(N), fn_idx_arr] = 1.0
+    W_fn, resid_fn, _, _ = np.linalg.lstsq(X, Y_fn, rcond=None)
+    fn_weights = W_fn.T.astype(np.float32)  # (N_FN, D)
+
+    # sp head: logit-transformed coords for spatial steps → lstsq → (D, 2) → (2, D)
+    sp_mask = np.array([fi in SPATIAL_FN_IDS for fi in fn_idx_arr], dtype=bool)
+    sp_weights = np.zeros((N_SPATIAL_ROWS, obs_spec.dim), dtype=np.float32)
+    sp_resid = 0.0
+    if sp_mask.any():
+        X_sp = X[sp_mask]
+        Y_sp_raw = np.clip(xy_arr[sp_mask], 1e-6, 1.0 - 1e-6)
+        Y_logit = np.log(Y_sp_raw / (1.0 - Y_sp_raw))  # logit: (M, 2)
+        W_sp, resid_sp, _, _ = np.linalg.lstsq(X_sp, Y_logit, rcond=None)
+        sp_weights = W_sp.T.astype(np.float32)  # (2, D)
+        sp_resid = float(resid_sp.mean()) if resid_sp.size > 0 else 0.0
+
+    fn_resid = float(resid_fn.mean()) if resid_fn.size > 0 else 0.0
+    final_loss = fn_resid / max(N, 1) + sp_resid / max(sp_mask.sum(), 1)
+
+    policy = SC2MultiHeadLinearPolicy(obs_spec, fn_weights=fn_weights, spatial_weights=sp_weights)
+    return policy, final_loss
+
+
+# ---------------------------------------------------------------------------
+# Public fit_bc entry point
+# ---------------------------------------------------------------------------
+
+
+def fit_bc(
+    dataset: "dict | str | pathlib.Path",
+    obs_spec: ObsSpec,
+    *,
+    target: str = "sc2_reinforce",
+    hidden_sizes: list[int] | None = None,
+    bc_epochs: int = 10,
+    bc_learning_rate: float = 1e-3,
+    bc_batch_size: int = 256,
+    bc_ignore_noop: bool = True,
+    seed: int | None = None,
+) -> tuple[Any, float]:
+    """Pre-train a policy on a demonstration dataset via behaviour cloning.
+
+    Parameters
+    ----------
+    dataset :
+        A dict returned by :func:`load_dataset`, or a path to a ``.npz``
+        file written by :func:`build_dataset`.
+    obs_spec :
+        Observation spec used to normalise observations before fitting.
+    target :
+        Policy architecture to train.
+
+        * ``"sc2_reinforce"`` (default) — two-head MLP
+          (:class:`games.sc2.sc2_policies.SC2REINFORCEPolicy`) trained via
+          mini-batch gradient descent.  Loss = cross-entropy on the fn_idx
+          softmax head + MSE on the sigmoid ``(x, y)`` spatial head for
+          spatial actions only.  Saved weights load via
+          ``SC2REINFORCEPolicy.from_cfg`` so a subsequent ``sc2_reinforce``
+          fine-tuning run resumes from them.
+
+        * ``"sc2_genetic"`` — linear
+          (:class:`games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`) fitted
+          via closed-form least squares.  Saved in ``SC2MultiHeadLinearPolicy``
+          YAML format; compatible with ``sc2_genetic`` fine-tuning.
+
+    hidden_sizes :
+        MLP trunk hidden-layer widths (``"sc2_reinforce"`` only).
+        Defaults to ``[128, 64]``.
+    bc_epochs :
+        Full passes over the dataset (``"sc2_reinforce"`` only).
+    bc_learning_rate :
+        Gradient step size (``"sc2_reinforce"`` only).
+    bc_batch_size :
+        Mini-batch size (``"sc2_reinforce"`` only).
+    bc_ignore_noop :
+        Drop steps where ``fn_idx == 0`` (no-op) before fitting so the fn
+        head is not swamped by idle frames.
+    seed :
+        Optional RNG seed for reproducibility.
+
+    Returns
+    -------
+    (policy, final_bc_loss)
+        *policy* is the fitted policy object.  *final_bc_loss* is the
+        average loss over the last epoch for MLP targets, or the normalised
+        residual for the linear target.
+
+    Raises
+    ------
+    ValueError
+        If the dataset is empty after the optional no-op filter.
+    """
+    if not isinstance(dataset, dict):
+        dataset = load_dataset(str(dataset))
+
+    obs_arr = dataset["obs"].astype(np.float32)
+    act_arr = dataset["actions"].astype(np.float32)
+
+    if bc_ignore_noop:
+        fn_idx_all = act_arr[:, 0].astype(int)
+        keep = fn_idx_all != 0
+        n_before = len(obs_arr)
+        obs_arr = obs_arr[keep]
+        act_arr = act_arr[keep]
+        logger.info("bc_ignore_noop: kept %d / %d steps (dropped %d no-ops)", len(obs_arr), n_before, n_before - len(obs_arr))
+
+    if len(obs_arr) == 0:
+        raise ValueError("Empty dataset after filtering — no non-noop steps available for BC.")
+
+    if target == "sc2_genetic":
+        return _fit_bc_linear(obs_arr, act_arr, obs_spec)
+
+    if target != "sc2_reinforce":
+        raise ValueError(
+            f"Unknown BC target {target!r}. "
+            "Supported targets: 'sc2_reinforce' (MLP), 'sc2_genetic' (linear)."
+        )
+
+    return _fit_bc_mlp(
+        obs_arr,
+        act_arr,
+        obs_spec,
+        hidden_sizes=hidden_sizes if hidden_sizes is not None else [128, 64],
+        lr=bc_learning_rate,
+        epochs=bc_epochs,
+        batch_size=bc_batch_size,
+        seed=seed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# run — full pipeline: replays → dataset → fit → save
+# ---------------------------------------------------------------------------
+
+
+def run(
+    replay_dir: "str | pathlib.Path",
+    experiment_dir: "str | pathlib.Path",
+    obs_spec: ObsSpec,
+    *,
+    target: str = "sc2_reinforce",
+    player_id: "int | str" = "winner",
+    race: str | None = None,
+    max_replays: int | None = None,
+    step_mul: int = 1,
+    screen_size: int = 64,
+    minimap_size: int = 64,
+    hidden_sizes: list[int] | None = None,
+    bc_epochs: int = 10,
+    bc_learning_rate: float = 1e-3,
+    bc_batch_size: int = 256,
+    bc_ignore_noop: bool = True,
+    seed: int | None = None,
+) -> dict:
+    """Orchestrate replay reading, BC fitting, and saving of weights + summary.
+
+    Workflow:
+
+    1. :func:`validate_replay_dir` and optionally cap at *max_replays*.
+    2. :func:`build_dataset` — parse replays → NPZ demonstration dataset.
+    3. :func:`fit_bc` — pre-train the policy on the dataset.
+    4. Save ``policy_weights.yaml`` (+ ``trainer_state.npz`` for MLP targets)
+       and ``bc_summary.json`` into *experiment_dir*.
+
+    Parameters
+    ----------
+    replay_dir :
+        Directory containing ``.SC2Replay`` files.
+    experiment_dir :
+        Destination directory for ``policy_weights.yaml``,
+        ``trainer_state.npz``, and ``bc_summary.json``.
+    obs_spec :
+        Observation spec — built from ``training_params.yaml`` by the caller.
+    target, player_id, race, max_replays, step_mul, screen_size,
+    minimap_size, hidden_sizes, bc_epochs, bc_learning_rate,
+    bc_batch_size, bc_ignore_noop, seed :
+        Forwarded to :func:`build_dataset` and/or :func:`fit_bc`.
+
+    Returns
+    -------
+    dict
+        BC summary dict (same content written to ``bc_summary.json``).
+
+    Raises
+    ------
+    ValueError
+        If the replay directory is empty, race filter drops all replays, or
+        the filtered dataset has no steps.
+    """
+    import os
+    import tempfile
+
+    from framework.policies import BasePolicy, trainer_state_path
+
+    experiment_dir = pathlib.Path(experiment_dir)
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+
+    # Normalise race: "any"/empty → None (no filter in build_dataset)
+    race_filter: str | None = None
+    if race and race.lower() not in ("", "any"):
+        race_filter = race.lower()
+
+    validate_replay_dir(replay_dir, race=race_filter)
+
+    # Build dataset in a temporary file
+    with tempfile.TemporaryDirectory() as tmp:
+        demos_path = pathlib.Path(tmp) / "demos.npz"
+        meta = build_dataset(
+            replay_dir,
+            demos_path,
+            obs_spec=obs_spec,
+            player_id=player_id,
+            race=race_filter,
+            step_mul=step_mul,
+            screen_size=screen_size,
+            minimap_size=minimap_size,
+            max_replays=max_replays,
+        )
+        dataset = load_dataset(demos_path)
+
+    # Fit BC
+    policy, bc_loss = fit_bc(
+        dataset,
+        obs_spec,
+        target=target,
+        hidden_sizes=hidden_sizes,
+        bc_epochs=bc_epochs,
+        bc_learning_rate=bc_learning_rate,
+        bc_batch_size=bc_batch_size,
+        bc_ignore_noop=bc_ignore_noop,
+        seed=seed,
+    )
+
+    # Save policy weights
+    weights_path = str(experiment_dir / "policy_weights.yaml")
+    policy.save(weights_path)
+    logger.info("BC: saved policy weights → %s", weights_path)
+
+    # Save trainer state for policies that carry one (e.g. SC2REINFORCEPolicy)
+    if isinstance(policy, BasePolicy):
+        ts_path = trainer_state_path(weights_path)
+        policy.save_trainer_state(ts_path)
+        logger.info("BC: saved trainer state → %s", ts_path)
+
+    # Build fn_idx histogram from the raw (unfiltered) dataset
+    act_arr_all = dataset["actions"]
+    fn_idx_all = act_arr_all[:, 0].astype(int)
+    unique_fns, counts = np.unique(fn_idx_all, return_counts=True)
+    fn_histogram = {int(k): int(v) for k, v in zip(unique_fns, counts)}
+
+    summary = {
+        "n_replays_kept": int(meta["n_episodes"]),
+        "n_replays_skipped_race": int(meta.get("n_replays_skipped_race", 0)),
+        "n_episodes": int(meta["n_episodes"]),
+        "n_pairs": int(meta["n_steps"]),
+        "fn_idx_histogram": fn_histogram,
+        "bc_player_id": str(player_id),
+        "bc_race": race if race else "any",
+        "bc_target": target,
+        "final_bc_loss": float(bc_loss),
+    }
+
+    summary_path = experiment_dir / "bc_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    logger.info("BC summary written → %s", summary_path)
+
+    return summary

@@ -565,11 +565,128 @@ PRECONDITIONS: dict[int, Preconditions] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Resource costs (minerals, vespene) per fn_idx (issue #357).
+# ---------------------------------------------------------------------------
+# Only actions with a non-zero mineral or vespene cost are listed.  Actions
+# that have no resource cost — Build_CreepTumor_screen (Queen energy ability),
+# Effect_Stim_quick (costs HP, not minerals/gas), Morph_Archon_quick (consumes
+# Templar units), and Morph_SiegeMode/Unsiege (mode change only) — have no
+# entry and default to (0, 0).
+#
+# Source: Liquipedia LotV unit/building tables (SC2 patch 5.0.11).
+
+RESOURCE_COSTS: dict[int, tuple[int, int]] = {
+    # --- Terran buildings ---
+    8: (150, 0),  # Build_Barracks_screen
+    9: (100, 0),  # Build_SupplyDepot_screen
+    23: (400, 0),  # Build_CommandCenter_screen
+    24: (75, 0),  # Build_Refinery_screen
+    25: (125, 0),  # Build_EngineeringBay_screen
+    26: (150, 100),  # Build_Factory_screen
+    27: (150, 100),  # Build_Armory_screen
+    28: (100, 0),  # Build_Bunker_screen
+    29: (100, 0),  # Build_MissileTurret_screen
+    30: (150, 100),  # Build_Starport_screen
+    31: (150, 50),  # Build_GhostAcademy_screen
+    32: (150, 150),  # Build_FusionCore_screen
+    33: (50, 25),  # Build_TechLab_quick
+    34: (50, 50),  # Build_Reactor_quick
+    # --- Terran units ---
+    7: (50, 0),  # Train_Marine_quick
+    10: (50, 0),  # Train_SCV_quick
+    35: (100, 25),  # Train_Marauder_quick
+    36: (150, 125),  # Train_Ghost_quick
+    37: (100, 0),  # Train_Hellion_quick
+    38: (150, 125),  # Train_SiegeTank_quick
+    39: (100, 100),  # Train_Medivac_quick
+    40: (150, 75),  # Train_Viking_quick
+    41: (100, 200),  # Train_Raven_quick
+    42: (150, 100),  # Train_Banshee_quick
+    43: (400, 300),  # Train_Battlecruiser_quick
+    44: (150, 100),  # Train_Cyclone_quick
+    45: (300, 200),  # Train_Thor_quick
+    46: (150, 150),  # Train_Liberator_quick
+    # --- Protoss buildings ---
+    50: (400, 0),  # Build_Nexus_screen
+    51: (100, 0),  # Build_Pylon_screen
+    52: (150, 0),  # Build_Gateway_screen
+    53: (75, 0),  # Build_Assimilator_screen
+    54: (150, 0),  # Build_CyberneticsCore_screen
+    55: (150, 0),  # Build_Forge_screen
+    56: (150, 0),  # Build_PhotonCannon_screen
+    57: (150, 100),  # Build_RoboticsFacility_screen
+    58: (150, 150),  # Build_Stargate_screen
+    59: (150, 100),  # Build_TwilightCouncil_screen
+    60: (150, 200),  # Build_TemplarArchive_screen
+    61: (150, 150),  # Build_DarkShrine_screen
+    62: (150, 150),  # Build_RoboticsBay_screen
+    63: (300, 200),  # Build_FleetBeacon_screen
+    64: (100, 0),  # Build_ShieldBattery_screen
+    # --- Protoss units ---
+    65: (50, 0),  # Train_Probe_quick
+    66: (100, 0),  # Train_Zealot_quick
+    67: (125, 50),  # Train_Stalker_quick
+    68: (100, 25),  # Train_Adept_quick
+    69: (50, 150),  # Train_HighTemplar_quick
+    70: (125, 125),  # Train_DarkTemplar_quick
+    71: (50, 100),  # Train_Sentry_quick
+    72: (150, 100),  # Train_Phoenix_quick
+    73: (350, 250),  # Train_Carrier_quick
+    74: (250, 150),  # Train_VoidRay_quick
+    75: (150, 150),  # Train_Oracle_quick
+    76: (300, 200),  # Train_Colossus_quick
+    77: (275, 100),  # Train_Immortal_quick
+    78: (250, 175),  # Train_Tempest_quick
+    79: (150, 150),  # Train_Disruptor_quick
+    81: (400, 400),  # Train_Mothership_quick
+    # --- Zerg buildings ---
+    82: (300, 0),  # Build_Hatchery_screen
+    83: (200, 0),  # Build_SpawningPool_screen
+    84: (25, 0),  # Build_Extractor_screen
+    85: (75, 0),  # Build_EvolutionChamber_screen
+    86: (100, 100),  # Build_HydraliskDen_screen
+    87: (100, 50),  # Build_BanelingNest_screen
+    88: (150, 0),  # Build_RoachWarren_screen
+    89: (200, 200),  # Build_Spire_screen
+    90: (100, 100),  # Build_InfestationPit_screen
+    91: (150, 200),  # Build_UltraliskCavern_screen
+    93: (100, 0),  # Build_SpineCrawler_screen
+    94: (75, 0),  # Build_SporeCrawler_screen
+    95: (150, 200),  # Build_NydusNetwork_screen
+    96: (100, 150),  # Build_LurkerDen_screen
+    # --- Zerg units ---
+    97: (50, 0),  # Train_Drone_quick
+    98: (100, 0),  # Train_Overlord_quick
+    99: (50, 0),  # Train_Zergling_quick  (produces 2 for 50 minerals)
+    100: (25, 25),  # Train_Baneling_quick  (morph cost delta)
+    101: (75, 25),  # Train_Roach_quick
+    102: (25, 75),  # Train_Ravager_quick   (morph cost delta)
+    103: (100, 50),  # Train_Hydralisk_quick
+    104: (100, 150),  # Train_Infestor_quick
+    105: (100, 75),  # Train_SwarmHost_quick
+    106: (100, 100),  # Train_Mutalisk_quick
+    107: (150, 100),  # Train_Corruptor_quick
+    108: (150, 150),  # Train_BroodLord_quick (morph cost delta)
+    109: (100, 200),  # Train_Viper_quick
+    110: (300, 200),  # Train_Ultralisk_quick
+    111: (50, 100),  # Train_Lurker_quick   (morph cost delta)
+    112: (150, 0),  # Train_Queen_quick
+    113: (150, 100),  # Morph_Lair_quick
+    114: (200, 150),  # Morph_Hive_quick
+    115: (50, 50),  # Morph_Overseer_quick
+    116: (100, 150),  # Morph_GreaterSpire_quick
+    117: (150, 150),  # Morph_BroodLord_quick
+}
+
+
 def fn_idx_satisfied(
     fn_idx: int,
     owned_buildings: frozenset[str],
     completed_upgrades: frozenset[str],
     selected_unit_types: frozenset[str],
+    minerals: float = float("inf"),
+    vespene: float = float("inf"),
 ) -> bool:
     """Return True if all preconditions for *fn_idx* are met.
 
@@ -596,12 +713,26 @@ def fn_idx_satisfied(
         type is in :attr:`Preconditions.selection_target` — PySC2 will
         apply the issued command only to compatible units in the
         selection.
+    minerals :
+        Current mineral count.  Defaults to ``inf`` so callers that
+        don't track resources still allow all actions (backwards
+        compatible).
+    vespene :
+        Current vespene count.  Same default semantics as *minerals*.
     """
     pre = PRECONDITIONS.get(fn_idx)
     if pre is None:
         # Unknown fn_idx: be conservative and allow it; the PySC2 mask
         # will still gate it if it isn't actually available.
         return True
+
+    # Resource cost check (issue #357): mask actions whose mineral or
+    # vespene cost exceeds current resources.
+    cost = RESOURCE_COSTS.get(fn_idx)
+    if cost is not None:
+        min_cost, gas_cost = cost
+        if minerals < min_cost or vespene < gas_cost:
+            return False
 
     # required_buildings is a tuple of OR-sets (DNF): each frozenset is
     # satisfied when any of its members exists in owned_buildings; the

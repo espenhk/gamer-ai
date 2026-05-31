@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.13] - 2026-05-31
+
 ### Fixed
 - SC2 agent no longer freezes on ladder maps (issue #356).  Three bugs
   introduced by PR #348 (tech-tree preconditions + deferred-action queue)

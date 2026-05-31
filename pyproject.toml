@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "espenhk/tmnf-ai"
-version = "0.3.12"
+version = "0.3.13"
 description = "Trackmania AI hobby project"
 authors = []
 package-mode = false

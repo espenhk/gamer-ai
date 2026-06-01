@@ -18,6 +18,26 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- BC warm-start integration with `grid_search.py` (issue #354, [6/6]): two ways
+  to warm-start every combo in a grid search from a behaviour-cloning checkpoint.
+  (1) **Post-hoc warm-start** — pass `--bc-warmstart-dir <path>` pointing to an
+  existing BC experiment directory (one that contains `policy_weights.yaml` +
+  `bc_summary.json`).  Before any combo runs, a policy-compatibility check reads
+  `bc_target` from `bc_summary.json` and validates it against every combo's
+  `policy_type` via `_BC_COMPATIBLE_POLICY_TYPES` (cross-compatibility:
+  `sc2_genetic` ↔ `sc2_cmaes`; all others self-only).  Weight files
+  (`policy_weights.yaml`, `trainer_state.npz`, `policy_weights_qtable.pkl`) are
+  copied into each combo's experiment directory before `train_rl` is called.
+  (2) **Inline BC** — add a `bc:` section to the grid config YAML with at
+  minimum `replay_dir` and optionally `bc_target`, `player_id`, `race`,
+  `bc_epochs`, `bc_learning_rate`, and all other BC knobs.  `grid_search.py`
+  runs BC once into a shared `<base_name>__bc_warmstart/` directory, skips re-run
+  if `policy_weights.yaml` + `bc_summary.json` already exist, then validates
+  compatibility and copies weights into every combo directory.  If both
+  `--bc-warmstart-dir` and an inline `bc:` section are present,
+  `--bc-warmstart-dir` takes precedence with a warning.
+  `_load_grid_config` now returns a 7-tuple including `bc_cfg`.
+  New abbreviated entries added to `_ABBREV` for all `bc_*` config keys.
 - SC2 BC warm-start for all policy families (issue #354, [5/6]): `fit_bc` now
   accepts seven additional targets beyond the original `sc2_reinforce` /
   `sc2_genetic` pair.  `sc2_cmaes` — linear least-squares fit into

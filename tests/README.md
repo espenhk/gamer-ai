@@ -287,6 +287,10 @@ worker mechanics are unit-tested with a dummy env.
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names
 - format helpers: int / float strips zeros / negative float / string
 - `--game` flag: default tmnf / honoured / track field / track none / unaffected by game field
+- BC config section: no `bc:` key returns empty dict / `bc:` contents returned verbatim / 7-tuple unpacking still valid
+- BC compatible policy types: `sc2_genetic`↔`sc2_cmaes` cross-compatible / `sc2_reinforce` self-only / tabular policies self-only / all nine targets are keys
+- BC warmstart validation (`_validate_bc_warmstart_combos`): passing compatible target returns `bc_target` string / `sc2_genetic` warmstart accepted by `sc2_cmaes` combo / incompatible target raises `ValueError` mentioning "incompatible" / error lists all failing combos but not passing ones / missing `bc_summary.json` raises / missing `bc_target` field in summary raises
+- BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
 
 ### test_info_gain.py — staleness-based intrinsic reward
 - initial staleness all 1; never-observed = max; just-observed near zero; grows linearly

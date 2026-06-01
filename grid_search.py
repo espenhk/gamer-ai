@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import uuid as _uuid
@@ -173,6 +175,15 @@ _ABBREV = {
     "action_mode": "actm",
     # atari params
     "clip_sign": "csign",
+    # behaviour-cloning params
+    "bc_target": "bct",
+    "bc_player_id": "bcpid",
+    "bc_race": "bcrace",
+    "bc_step_mul": "bcstm",
+    "bc_epochs": "bcep",
+    "bc_learning_rate": "bclr",
+    "bc_batch_size": "bcbs",
+    "bc_ignore_noop": "bcin",
     # curiosity params (issue #24)
     "curiosity_type": "ck",
     "curiosity_weight": "cwgt",
@@ -269,6 +280,203 @@ def _validate_policy_param_map() -> None:
 _validate_policy_param_map()
 
 
+# ---------------------------------------------------------------------------
+# BC warm-start helpers
+# ---------------------------------------------------------------------------
+
+# Maps bc_target → frozenset of compatible training policy_type values.
+# sc2_genetic and sc2_cmaes share the SC2MultiHeadLinearPolicy weight format
+# and are cross-compatible for warm-starting.
+_BC_COMPATIBLE_POLICY_TYPES: dict[str, frozenset[str]] = {
+    "sc2_genetic": frozenset({"sc2_genetic", "sc2_cmaes"}),
+    "sc2_cmaes": frozenset({"sc2_cmaes", "sc2_genetic"}),
+    "sc2_reinforce": frozenset({"sc2_reinforce"}),
+    "sc2_neural_net": frozenset({"sc2_neural_net"}),
+    "sc2_neural_dqn": frozenset({"sc2_neural_dqn"}),
+    "sc2_lstm": frozenset({"sc2_lstm"}),
+    "sc2_cnn": frozenset({"sc2_cnn"}),
+    "epsilon_greedy": frozenset({"epsilon_greedy"}),
+    "ucb_q": frozenset({"ucb_q"}),
+}
+
+
+def _validate_bc_warmstart_combos(
+    bc_warmstart_dir: str,
+    combos: list[dict[str, Any]],
+    names: list[str],
+) -> str:
+    """Check every combo's policy_type is compatible with the BC target.
+
+    Reads ``bc_summary.json`` from *bc_warmstart_dir*, then for every
+    combo checks that ``policy_type`` is in
+    ``_BC_COMPATIBLE_POLICY_TYPES[bc_target]``.  All incompatible combos
+    are collected and reported in a single ``ValueError`` so the user can
+    fix them all at once.
+
+    Returns the ``bc_target`` string from the summary on success.
+    """
+    summary_path = os.path.join(bc_warmstart_dir, "bc_summary.json")
+    if not os.path.exists(summary_path):
+        raise ValueError(
+            f"No bc_summary.json found in {bc_warmstart_dir!r}. "
+            "Cannot verify policy compatibility. "
+            "Run BC pre-training first: python main.py <exp> --game sc2 --bc"
+        )
+    with open(summary_path) as f:
+        summary = json.load(f)
+    bc_target = summary.get("bc_target")
+    if not bc_target:
+        raise ValueError(f"bc_summary.json in {bc_warmstart_dir!r} is missing the 'bc_target' field.")
+    compatible = _BC_COMPATIBLE_POLICY_TYPES.get(bc_target, frozenset())
+    errors = []
+    for name, combo in zip(names, combos):
+        t = combo["training_params"]
+        policy_type = t.get("policy_type", "sc2_genetic")
+        if policy_type not in compatible:
+            errors.append(f"  {name}: bc_target={bc_target!r} incompatible with policy_type={policy_type!r}")
+    if errors:
+        raise ValueError(
+            f"BC warm-start (target={bc_target!r}) is incompatible with the following "
+            "combo(s):\n" + "\n".join(errors) + f"\nCompatible policy_type values: {sorted(compatible)}"
+        )
+    logger.info(
+        "BC warm-start compatibility check passed: target=%s compatible with all %d combo(s).",
+        bc_target,
+        len(combos),
+    )
+    return bc_target
+
+
+def _copy_bc_weights(bc_warmstart_dir: str, experiment_dir: str) -> None:
+    """Copy BC-trained weight files from *bc_warmstart_dir* into *experiment_dir*.
+
+    Copies ``policy_weights.yaml`` (required), ``trainer_state.npz`` (MLP
+    gradient targets such as ``sc2_reinforce``), and
+    ``policy_weights_qtable.pkl`` (tabular targets ``epsilon_greedy`` /
+    ``ucb_q``) when they exist in *bc_warmstart_dir*.
+    """
+    copied = []
+    for fname in ("policy_weights.yaml", "trainer_state.npz", "policy_weights_qtable.pkl"):
+        src = os.path.join(bc_warmstart_dir, fname)
+        if os.path.exists(src):
+            dst = os.path.join(experiment_dir, fname)
+            shutil.copy2(src, dst)
+            copied.append(fname)
+    if not copied:
+        raise FileNotFoundError(
+            f"No BC weight files found in {bc_warmstart_dir!r}. Expected at least policy_weights.yaml."
+        )
+    logger.debug("BC warm-start: copied %s → %s", copied, experiment_dir)
+
+
+def _run_inline_bc(
+    bc_cfg: dict[str, Any],
+    adapter: Any,
+    base_name: str,
+    training_spec: dict[str, Any],
+    track_override: str | None,
+    game_name: str,
+) -> str:
+    """Run BC pre-training from the grid config ``bc:`` section.
+
+    Creates a shared ``<base_name>__bc_warmstart`` experiment directory
+    adjacent to the grid experiments.  If that directory already contains
+    ``policy_weights.yaml`` and ``bc_summary.json`` the BC step is skipped,
+    so restarting a grid run after an interruption is cheap.
+
+    Returns the path to the BC experiment directory.
+
+    Raises ``ValueError`` if *game_name* is not ``"sc2"`` or ``bc.replay_dir``
+    is missing.  Raises ``SystemExit`` when the SC2/PySC2 stack cannot be
+    imported.
+    """
+    if game_name != "sc2":
+        raise ValueError(
+            f"Inline BC pre-training (grid config 'bc:' section) is only supported for game='sc2', got {game_name!r}."
+        )
+    try:
+        from games.sc2.adapter import _get_obs_spec  # noqa: PLC0415
+        from games.sc2.replay_bc import run as bc_run  # noqa: PLC0415
+    except ImportError as exc:
+        raise SystemExit(f"Cannot import SC2 BC dependencies: {exc}\nInstall with: poetry install --with sc2") from exc
+
+    replay_dir = bc_cfg.get("replay_dir") or bc_cfg.get("bc_replay_dir")
+    if not replay_dir:
+        raise ValueError("Grid config 'bc.replay_dir' is required when a 'bc:' section is present.")
+
+    # Build obs_spec from the base training spec (before grid expansion).
+    map_name = training_spec.get("map_name", "MoveToBeacon")
+    obs_spec_preset = training_spec.get("obs_spec_preset")
+    enable_belief = bool(training_spec.get("enable_belief", False))
+    obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
+
+    # BC experiment dir is a sibling of the per-combo experiment dirs.
+    summary_root = adapter.experiment_dir_root(training_spec, track_override)
+    bc_dir = os.path.join(summary_root, f"{base_name}__bc_warmstart")
+    os.makedirs(bc_dir, exist_ok=True)
+
+    # Skip if already completed.
+    bc_summary_path = os.path.join(bc_dir, "bc_summary.json")
+    weights_path = os.path.join(bc_dir, "policy_weights.yaml")
+    if os.path.exists(bc_summary_path) and os.path.exists(weights_path):
+        logger.info(
+            "BC warm-start already exists at %s — skipping re-run. Delete %s to force a fresh BC run.",
+            bc_dir,
+            bc_dir,
+        )
+        return bc_dir
+
+    # Resolve BC options; bc_cfg keys take precedence over training_spec fallbacks.
+    bc_target = bc_cfg.get("bc_target") or bc_cfg.get("target") or training_spec.get("bc_target", "sc2_reinforce")
+    player_id: str | int = bc_cfg.get("player_id") or bc_cfg.get("bc_player_id", "winner")
+    if player_id in ("1", "2"):
+        player_id = int(player_id)
+    race = bc_cfg.get("race") or bc_cfg.get("bc_race", "any")
+    max_replays = bc_cfg.get("max_replays") or bc_cfg.get("bc_max_replays")
+    step_mul = bc_cfg.get("step_mul") or bc_cfg.get("bc_step_mul") or training_spec.get("step_mul", 1)
+    screen_size = bc_cfg.get("screen_size") or training_spec.get("screen_size", 64)
+    minimap_size = bc_cfg.get("minimap_size") or training_spec.get("minimap_size", 64)
+    bc_epochs = bc_cfg.get("bc_epochs") or bc_cfg.get("epochs", 10)
+    bc_lr = bc_cfg.get("bc_learning_rate") or bc_cfg.get("learning_rate", 1e-3)
+    bc_batch = bc_cfg.get("bc_batch_size") or bc_cfg.get("batch_size", 256)
+    # bc_ignore_noop may legitimately be False, so don't use `or`.
+    if "bc_ignore_noop" in bc_cfg:
+        bc_ignore_noop = bool(bc_cfg["bc_ignore_noop"])
+    elif "ignore_noop" in bc_cfg:
+        bc_ignore_noop = bool(bc_cfg["ignore_noop"])
+    else:
+        bc_ignore_noop = True
+
+    logger.info(
+        "=== Inline BC pre-training (target=%s, replay_dir=%s) ===",
+        bc_target,
+        replay_dir,
+    )
+    bc_run(
+        replay_dir,
+        bc_dir,
+        obs_spec,
+        target=bc_target,
+        player_id=player_id,
+        race=race,
+        max_replays=max_replays,
+        step_mul=step_mul,
+        screen_size=screen_size,
+        minimap_size=minimap_size,
+        bc_epochs=bc_epochs,
+        bc_learning_rate=bc_lr,
+        bc_batch_size=bc_batch,
+        bc_ignore_noop=bc_ignore_noop,
+        seed=bc_cfg.get("seed"),
+        n_channels=bc_cfg.get("n_channels", 1),
+        n_bins=bc_cfg.get("n_bins", 3),
+        bc_lstm_hidden_size=bc_cfg.get("bc_lstm_hidden_size") or bc_cfg.get("lstm_hidden_size", 64),
+        hidden_sizes=bc_cfg.get("hidden_sizes"),
+    )
+    logger.info("=== Inline BC pre-training complete → %s ===", bc_dir)
+    return bc_dir
+
+
 def _fmt_value(v: Any) -> str:
     """Format a param value for use in a directory name.
 
@@ -309,8 +517,13 @@ def _split_grid_run_name(name: str) -> tuple[str, str | None]:
 
 def _load_grid_config(
     path: str,
-) -> tuple[str, str, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """Load grid config YAML. Returns (base_name, game, track, training_spec, reward_spec, distribute_cfg)."""
+) -> tuple[str, str, str, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load grid config YAML.
+
+    Returns ``(base_name, game, track, training_spec, reward_spec, distribute_cfg, bc_cfg)``.
+    *bc_cfg* is the optional ``bc:`` section used for inline BC pre-training; it is
+    an empty dict when the section is absent.
+    """
     with open(path) as f:
         cfg = yaml.safe_load(f)
     base_name = cfg.get("base_name", "gs")
@@ -319,7 +532,8 @@ def _load_grid_config(
     training_spec = cfg.get("training_params", {})
     reward_spec = cfg.get("reward_params", {})
     distribute_cfg = cfg.get("distribute", {})
-    return base_name, game, track, training_spec, reward_spec, distribute_cfg
+    bc_cfg = cfg.get("bc", {})
+    return base_name, game, track, training_spec, reward_spec, distribute_cfg, bc_cfg
 
 
 def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -428,6 +642,7 @@ def _run_local(
     track_override: str | None,
     no_interrupt: bool,
     re_initialize: bool,
+    bc_warmstart_dir: str | None = None,
 ) -> list[tuple[str, Any]]:
     """Run all combos sequentially on this machine. Returns list of (name, ExperimentData)."""
     from framework.analytics import save_experiment_data_json
@@ -440,6 +655,9 @@ def _run_local(
         logger.info("=== Run %d/%d: %s ===", i, n, name)
 
         experiment_dir, weights_file, reward_cfg_file = _setup_experiment_dir(adapter, name, t, r, track_override)
+
+        if bc_warmstart_dir is not None:
+            _copy_bc_weights(bc_warmstart_dir, experiment_dir)
 
         # Merge promoted policy params so grid axes like `epsilon: [0.5, 1.0]` work.
         t_with_pp = dict(t)
@@ -488,6 +706,7 @@ def _run_distributed(
     local_worker_start_stagger_s: float = 5.0,
     no_interrupt: bool = False,
     re_initialize: bool = False,
+    bc_warmstart_dir: str | None = None,
 ) -> list[tuple[str, Any]]:
     """Start coordinator, write local config files, block until all results arrive."""
 
@@ -497,7 +716,9 @@ def _run_distributed(
     for combo, name in zip(combos, names):
         t = combo["training_params"]
         r = combo["reward_params"]
-        _setup_experiment_dir(adapter, name, t, r, track_override)
+        experiment_dir, _, _ = _setup_experiment_dir(adapter, name, t, r, track_override)
+        if bc_warmstart_dir is not None:
+            _copy_bc_weights(bc_warmstart_dir, experiment_dir)
         track = adapter.track_label(t, track_override)
         combo_specs.append(
             ComboSpec(
@@ -836,6 +1057,18 @@ def main() -> None:
         "(issue #254). Set to 0 to disable.",
     )
     parser.add_argument(
+        "--bc-warmstart-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "Path to an existing BC-trained experiment directory containing "
+            "policy_weights.yaml and bc_summary.json.  Every grid combo will be "
+            "warm-started from those weights.  A policy-compatibility check is "
+            "performed before any training starts.  Mutually exclusive with an "
+            "inline 'bc:' section in the grid config YAML."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -865,7 +1098,9 @@ def main() -> None:
     if args.local_workers not in (None, 0) and not args.distribute:
         parser.error("--local-workers requires --distribute")
 
-    base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg = _load_grid_config(args.config)
+    base_name, game_name, track_override, training_spec, reward_spec, distribute_cfg, bc_cfg = _load_grid_config(
+        args.config
+    )
 
     # CLI --game / --track override YAML values
     game_name = getattr(args, "game", None) or game_name
@@ -901,6 +1136,24 @@ def main() -> None:
         name = _make_experiment_name(base_name, c.get("_flat", {}), varied_keys)
         names.append(name)
         logger.info("  %s", name)
+
+    # ------------------------------------------------------------------
+    # BC warm-start: resolve warmstart dir, then validate compatibility.
+    # ------------------------------------------------------------------
+    bc_warmstart_dir: str | None = None
+    if args.bc_warmstart_dir and bc_cfg:
+        logger.warning(
+            "--bc-warmstart-dir and an inline 'bc:' section are both present; "
+            "--bc-warmstart-dir takes precedence and the 'bc:' section will be ignored."
+        )
+    if args.bc_warmstart_dir:
+        bc_warmstart_dir = args.bc_warmstart_dir
+    elif bc_cfg:
+        bc_warmstart_dir = _run_inline_bc(bc_cfg, adapter, base_name, training_spec, track_override, game_name)
+
+    if bc_warmstart_dir is not None:
+        _validate_bc_warmstart_combos(bc_warmstart_dir, combos, names)
+        logger.info("BC warm-start directory: %s", bc_warmstart_dir)
 
     if args.distribute:
         if args.local_workers is not None:
@@ -954,6 +1207,7 @@ def main() -> None:
             local_worker_start_stagger_s=local_worker_stagger,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
+            bc_warmstart_dir=bc_warmstart_dir,
         )
     else:
         all_runs = _run_local(
@@ -963,6 +1217,7 @@ def main() -> None:
             track_override=track_override,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
+            bc_warmstart_dir=bc_warmstart_dir,
         )
 
     # Final summary table

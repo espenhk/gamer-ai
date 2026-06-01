@@ -709,12 +709,21 @@ class TestCopyBcWeights:
         assert not (dst_dir / "trainer_state.npz").exists()
         assert not (dst_dir / "policy_weights_qtable.pkl").exists()
 
+    def test_copies_weights_npz_for_cnn(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.npz").write_bytes(b"\x93NUMPY")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert (dst_dir / "policy_weights.npz").exists()
+
     def test_raises_when_no_weight_files(self, tmp_path):
         src_dir = tmp_path / "bc"
         dst_dir = tmp_path / "combo"
         src_dir.mkdir()
         dst_dir.mkdir()
-        with pytest.raises(FileNotFoundError, match="policy_weights.yaml"):
+        with pytest.raises(FileNotFoundError, match="policy_weights"):
             _copy_bc_weights(str(src_dir), str(dst_dir))
 
     def test_does_not_copy_bc_summary(self, tmp_path):

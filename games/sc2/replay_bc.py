@@ -1039,19 +1039,21 @@ def _fit_bc_dqn(
         action_indices[start:end] = np.argmin(diffs, axis=1)
 
     for t in range(n - 1):
+        done = bool(done_flags[t])
+        next_obs = np.zeros_like(obs_arr[t]) if done else obs_arr[t + 1]
         policy._replay.push(
             obs_arr[t],
             int(action_indices[t]),
             1.0,
-            obs_arr[t + 1],
-            bool(done_flags[t]),
+            next_obs,
+            done,
         )
-    # Last step: use itself as next_obs (terminal)
+    # Last step: terminal — zero next_obs so the Bellman target is unaffected
     policy._replay.push(
         obs_arr[n - 1],
         int(action_indices[n - 1]),
         1.0,
-        obs_arr[n - 1],
+        np.zeros_like(obs_arr[n - 1]),
         True,
     )
 
@@ -1247,14 +1249,24 @@ def _fit_bc_cnn(
     W_fn_fit, _, _, _ = np.linalg.lstsq(H, Y_fn, rcond=None)  # (FC_DIM, N_FUNCTION_IDS)
 
     # --- spatial head lstsq ---
+    # Use batched distance computation to avoid the (N, _N_SPATIAL_CELLS) OOM matrix.
+    # Then solve H^T H W = H^T Y via scatter-add rather than materialising Y_sp.
     xy_arr = act_arr[:, 1:3].astype(np.float64)
     grid_xy = np.array(_GRID_XY, dtype=np.float64)  # (_N_SPATIAL_CELLS, 2)
-    # Find nearest CNN grid cell for each (x, y) demo action
-    dists = np.sum((xy_arr[:, np.newaxis, :] - grid_xy[np.newaxis, :, :]) ** 2, axis=2)  # (N, S)
-    sp_indices = np.argmin(dists, axis=1)  # (N,)
-    Y_sp = np.zeros((N, _N_SPATIAL_CELLS), dtype=np.float64)
-    Y_sp[np.arange(N), sp_indices] = 1.0
-    W_sp_fit, _, _, _ = np.linalg.lstsq(H, Y_sp, rcond=None)  # (FC_DIM, _N_SPATIAL_CELLS)
+    _DIST_BATCH = 4096
+    sp_indices = np.empty(N, dtype=np.intp)
+    for _s in range(0, N, _DIST_BATCH):
+        _e = min(_s + _DIST_BATCH, N)
+        _d = np.sum(
+            (xy_arr[_s:_e, np.newaxis, :] - grid_xy[np.newaxis, :, :]) ** 2, axis=2
+        )
+        sp_indices[_s:_e] = np.argmin(_d, axis=1)
+    # Normal equations: (H^T H) W_sp = H^T Y_sp
+    # H^T Y_sp[j, c] = sum_{t: sp_indices[t]==c} H[t, j]; use scatter-add on H^T Y_sp.T
+    HtH = H.T @ H  # (FC_DIM, FC_DIM)
+    HtY_sp = np.zeros((FC_DIM, _N_SPATIAL_CELLS), dtype=np.float64)
+    np.add.at(HtY_sp.T, sp_indices, H)
+    W_sp_fit, _, _, _ = np.linalg.lstsq(HtH, HtY_sp, rcond=None)  # (FC_DIM, _N_SPATIAL_CELLS)
 
     # Build champion model with warm weights
     champion = model.with_flat(model.to_flat())  # structural copy
@@ -1336,11 +1348,11 @@ def _fit_bc_tabular(
         policy._n_sa[state][action_idx] += 1.0
         policy._n_s[state] = policy._n_s.get(state, 0) + 1
 
-    # Normalise Q-values by visit count
+    # Normalise Q-values to action-frequency distribution: q[s,a] = count(s,a)/count(s)
     for state, q in policy._q_table.items():
-        counts = policy._n_sa[state]
-        mask = counts > 0
-        q[mask] /= counts[mask]
+        total = policy._n_s[state]
+        if total > 0:
+            q /= total
 
     return policy, 0.0
 
@@ -1463,6 +1475,12 @@ def fit_bc(
 
     # sc2_lstm needs episode sequences — handle before flat filtering
     if target == "sc2_lstm":
+        missing = [k for k in ("episode_starts", "episode_lengths") if k not in dataset]
+        if missing:
+            raise ValueError(
+                f"Dataset is missing keys required for sc2_lstm BC: {missing}. "
+                "Re-extract the dataset with episode boundary tracking enabled."
+            )
         episodes = list(_iter_episodes_from_dataset(dataset))
         return _fit_bc_lstm_supervised(
             episodes,

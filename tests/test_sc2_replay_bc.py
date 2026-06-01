@@ -2225,5 +2225,92 @@ class TestFitBCUnknownTarget(unittest.TestCase):
         self.assertIn("Supported", str(ctx.exception))
 
 
+class TestBugFixes354(unittest.TestCase):
+    """Regression tests for bugs fixed in issue #354 Copilot review."""
+
+    # --- Fix 1: Q-normalization sums to 1 per state ---
+
+    def test_tabular_q_sums_to_one_per_state(self):
+        """After BC fit, Q-values across actions must sum to 1.0 for every state."""
+        dataset = _make_flat_dataset(n=60, fn_idx_label=2)
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="epsilon_greedy",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        for state, q in policy._q_table.items():
+            self.assertAlmostEqual(float(q.sum()), 1.0, places=5,
+                                   msg=f"Q sums to {q.sum():.6f} for state {state}")
+
+    # --- Fix 2: DQN terminal transitions have zero next_obs ---
+
+    def test_dqn_terminal_next_obs_is_zeros(self):
+        """Transitions marked done=True must have a zero-vector next_obs in the replay buffer."""
+        n = 10
+        obs = np.ones((n, _OBS_DIM), dtype=np.float32)
+        actions = np.column_stack(
+            [
+                np.full(n, 2, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.zeros(n, np.float32),
+            ]
+        )
+        dataset = {
+            "obs": obs,
+            "actions": actions,
+            "episode_starts": np.array([0, 5], dtype=np.int64),
+            "episode_lengths": np.array([5, 5], dtype=np.int64),
+            "episode_id": np.array([0] * 5 + [1] * 5, dtype=np.int64),
+            "meta": {"n_episodes": 2, "n_steps": n},
+        }
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_dqn",
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        buf = list(policy._replay._buf)
+        for entry in buf:
+            # Entry is (obs, action_idx, reward, next_obs, done[, mask])
+            next_obs, done = entry[3], entry[4]
+            if done:
+                np.testing.assert_array_equal(
+                    next_obs, np.zeros_like(next_obs),
+                    err_msg="next_obs should be zeros for terminal transitions",
+                )
+
+    # --- Fix 3: LSTM missing episode keys raises ValueError ---
+
+    def test_lstm_missing_episode_keys_raises_value_error(self):
+        """fit_bc sc2_lstm must raise ValueError when episode boundary keys are absent."""
+        rng = np.random.default_rng(0)
+        obs = rng.standard_normal((20, _OBS_DIM)).astype(np.float32)
+        actions = np.column_stack(
+            [
+                np.full(20, 2, np.float32),
+                np.full(20, 0.5, np.float32),
+                np.full(20, 0.5, np.float32),
+                np.zeros(20, np.float32),
+            ]
+        )
+        dataset_no_boundaries = {"obs": obs, "actions": actions}
+        with self.assertRaises(ValueError) as ctx:
+            fit_bc(
+                dataset_no_boundaries,
+                SC2_MINIGAME_OBS_SPEC,
+                target="sc2_lstm",
+                bc_lstm_hidden_size=8,
+                bc_epochs=1,
+                bc_ignore_noop=False,
+                seed=0,
+            )
+        self.assertIn("episode_starts", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

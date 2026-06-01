@@ -290,7 +290,7 @@ worker mechanics are unit-tested with a dummy env.
 - BC config section: no `bc:` key returns empty dict / `bc:` contents returned verbatim / 7-tuple unpacking still valid
 - BC compatible policy types: `sc2_genetic`↔`sc2_cmaes` cross-compatible / `sc2_reinforce` self-only / tabular policies self-only / all nine targets are keys
 - BC warmstart validation (`_validate_bc_warmstart_combos`): passing compatible target returns `bc_target` string / `sc2_genetic` warmstart accepted by `sc2_cmaes` combo / incompatible target raises `ValueError` mentioning "incompatible" / error lists all failing combos but not passing ones / missing `bc_summary.json` raises / missing `bc_target` field in summary raises
-- BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
+- BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `policy_weights.npz` (sc2_cnn) / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
 
 ### test_info_gain.py — staleness-based intrinsic reward
 - initial staleness all 1; never-observed = max; just-observed near zero; grows linearly
@@ -880,6 +880,9 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - `TestFitBCUnknownTarget` (issue #354): SB3 targets (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`,
   `recurrent_ppo`) each raise `ValueError` mentioning "SB3"; completely unknown targets raise
   `ValueError` with the target name in the message; error message lists supported targets
+- `TestBugFixes354`: tabular Q-values sum to exactly 1.0 per state (not per-action count-divided);
+  DQN terminal transitions store a zero-vector `next_obs` (not the next episode's first obs);
+  `sc2_lstm` raises `ValueError` with "episode_starts" in the message when those keys are absent
 
 ## Rocket League
 

@@ -17,6 +17,26 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- `_fit_bc_tabular()` Q-normalization bug (issue #354): Q-values are now
+  divided by the total state-visit count `_n_s[state]` to produce a proper
+  action-frequency distribution summing to 1.0 per state, rather than dividing
+  each `q[s,a]` by its own `_n_sa[s,a]` (which always yielded 1.0).
+- `_fit_bc_dqn()` terminal transition bug (issue #354): transitions at episode
+  boundaries now store a zero-vector as `next_obs` instead of leaking the first
+  observation of the following episode, which would corrupt the Bellman target.
+- `fit_bc(target="sc2_lstm")` now raises a descriptive `ValueError` listing the
+  missing keys when `episode_starts` / `episode_lengths` are absent from the
+  dataset, rather than propagating a bare `KeyError` from `_iter_episodes_from_dataset`.
+- `_copy_bc_weights()` in `grid_search.py` now also copies `policy_weights.npz`
+  (the `sc2_cnn` weight format) alongside `policy_weights.yaml`, fixing the
+  CNN warm-start path that previously silently left the experiment without weights.
+- `_fit_bc_cnn()` spatial-head OOM (issue #354): replaced the dense
+  `(N × _N_SPATIAL_CELLS)` distance and one-hot matrices with batched distance
+  computation (4096-row chunks) and scatter-add normal equations
+  `(H^T H) W = H^T Y`, reducing peak memory from O(N × S) to O(N × FC_DIM)
+  plus O(FC_DIM × S).
+
 ### Added
 - BC warm-start integration with `grid_search.py` (issue #354, [6/6]): two ways
   to warm-start every combo in a grid search from a behaviour-cloning checkpoint.

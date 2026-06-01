@@ -350,13 +350,19 @@ def _validate_bc_warmstart_combos(
 def _copy_bc_weights(bc_warmstart_dir: str, experiment_dir: str) -> None:
     """Copy BC-trained weight files from *bc_warmstart_dir* into *experiment_dir*.
 
-    Copies ``policy_weights.yaml`` (required), ``trainer_state.npz`` (MLP
+    Copies ``policy_weights.yaml`` (evolutionary/gradient targets),
+    ``policy_weights.npz`` (``sc2_cnn``), ``trainer_state.npz`` (MLP
     gradient targets such as ``sc2_reinforce``), and
     ``policy_weights_qtable.pkl`` (tabular targets ``epsilon_greedy`` /
     ``ucb_q``) when they exist in *bc_warmstart_dir*.
     """
     copied = []
-    for fname in ("policy_weights.yaml", "trainer_state.npz", "policy_weights_qtable.pkl"):
+    for fname in (
+        "policy_weights.yaml",
+        "policy_weights.npz",
+        "trainer_state.npz",
+        "policy_weights_qtable.pkl",
+    ):
         src = os.path.join(bc_warmstart_dir, fname)
         if os.path.exists(src):
             dst = os.path.join(experiment_dir, fname)
@@ -364,7 +370,8 @@ def _copy_bc_weights(bc_warmstart_dir: str, experiment_dir: str) -> None:
             copied.append(fname)
     if not copied:
         raise FileNotFoundError(
-            f"No BC weight files found in {bc_warmstart_dir!r}. Expected at least policy_weights.yaml."
+            f"No BC weight files found in {bc_warmstart_dir!r}. "
+            "Expected at least policy_weights.yaml or policy_weights.npz."
         )
     logger.debug("BC warm-start: copied %s → %s", copied, experiment_dir)
 

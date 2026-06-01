@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.16] - 2026-06-01
+
 ### Added
 - SC2: `new_action_unlock_bonus` reward config key (issue #360). Fires a
   one-shot bonus per episode the first time a tech-tree-gated action appears

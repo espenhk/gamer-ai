@@ -2070,5 +2070,6 @@ class TestSC2ResourceBankingPenalty(unittest.TestCase):
         # penalty = -0.01 * 150 = -1.5
         self.assertAlmostEqual(r, -1.5)
 
+
 if __name__ == "__main__":
     unittest.main()

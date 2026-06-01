@@ -113,8 +113,6 @@ _s2_pkg, _sc2_api_mod = _make_fake_s2api()
 
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC  # noqa: E402
 from games.sc2.replay_bc import (  # noqa: E402
-    _fit_bc_linear,
-    _fit_bc_mlp,
     _parse_replay_info,
     _pick_best_action,
     _read_one_replay,
@@ -124,8 +122,10 @@ from games.sc2.replay_bc import (  # noqa: E402
     iter_replays,
     load_dataset,
     replay_observations,
-    run as bc_run,
     validate_replay_dir,
+)
+from games.sc2.replay_bc import (
+    run as bc_run,
 )
 
 _OBS_DIM = len(SC2_MINIGAME_OBS_SPEC.names)
@@ -1050,14 +1050,26 @@ class TestFitBCMLP(unittest.TestCase):
         """BC loss on a simple separable dataset must fall with more epochs."""
         dataset = self._make_separable_dataset(n=400, fn_idx_label=2)
         _, loss_few = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-            hidden_sizes=[16, 8], bc_epochs=1, bc_learning_rate=0.01,
-            bc_batch_size=64, bc_ignore_noop=False, seed=42,
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_reinforce",
+            hidden_sizes=[16, 8],
+            bc_epochs=1,
+            bc_learning_rate=0.01,
+            bc_batch_size=64,
+            bc_ignore_noop=False,
+            seed=42,
         )
         _, loss_more = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-            hidden_sizes=[16, 8], bc_epochs=20, bc_learning_rate=0.01,
-            bc_batch_size=64, bc_ignore_noop=False, seed=42,
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_reinforce",
+            hidden_sizes=[16, 8],
+            bc_epochs=20,
+            bc_learning_rate=0.01,
+            bc_batch_size=64,
+            bc_ignore_noop=False,
+            seed=42,
         )
         self.assertLess(loss_more, loss_few, "Loss after 20 epochs must be lower than after 1")
 
@@ -1069,9 +1081,15 @@ class TestFitBCMLP(unittest.TestCase):
 
         dataset = self._make_separable_dataset(n=100, fn_idx_label=1)
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-            hidden_sizes=[8], bc_epochs=2, bc_learning_rate=0.01,
-            bc_batch_size=50, bc_ignore_noop=False, seed=1,
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_reinforce",
+            hidden_sizes=[8],
+            bc_epochs=2,
+            bc_learning_rate=0.01,
+            bc_batch_size=50,
+            bc_ignore_noop=False,
+            seed=1,
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "policy_weights.yaml"
@@ -1091,8 +1109,7 @@ class TestFitBCMLP(unittest.TestCase):
         actions = np.zeros((10, 4), dtype=np.float32)  # fn_idx=0 everywhere
         dataset = {"obs": obs, "actions": actions}
         with self.assertRaises(ValueError):
-            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-                   bc_ignore_noop=True, bc_epochs=1, seed=0)
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce", bc_ignore_noop=True, bc_epochs=1, seed=0)
 
     def test_bc_ignore_noop_false_keeps_all_steps(self):
         """bc_ignore_noop=False must not filter any steps."""
@@ -1101,9 +1118,14 @@ class TestFitBCMLP(unittest.TestCase):
         dataset = {"obs": obs, "actions": actions}
         # Should not raise — 10 steps are kept
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-            bc_ignore_noop=False, bc_epochs=1, bc_learning_rate=0.001,
-            bc_batch_size=10, seed=0,
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_reinforce",
+            bc_ignore_noop=False,
+            bc_epochs=1,
+            bc_learning_rate=0.001,
+            bc_batch_size=10,
+            seed=0,
         )
         self.assertIsNotNone(policy)
 
@@ -1124,15 +1146,28 @@ class TestFitBCMLP(unittest.TestCase):
         raw = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
         obs = (raw * SC2_MINIGAME_OBS_SPEC.scales).astype(np.float32)
         fn_labels = np.where(obs[:, 0] > 0, 2, 1).astype(int)
-        actions = np.stack([fn_labels.astype(np.float32), np.full(n, 0.5, dtype=np.float32),
-                            np.full(n, 0.5, dtype=np.float32), np.zeros(n, np.float32)], axis=1)
+        actions = np.stack(
+            [
+                fn_labels.astype(np.float32),
+                np.full(n, 0.5, dtype=np.float32),
+                np.full(n, 0.5, dtype=np.float32),
+                np.zeros(n, np.float32),
+            ],
+            axis=1,
+        )
         dataset = {"obs": obs, "actions": actions}
 
         # Linear model (no trunk): gradient is direct, convergence is fast and reliable.
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-            hidden_sizes=[], bc_epochs=20, bc_learning_rate=0.05,
-            bc_batch_size=64, bc_ignore_noop=False, seed=7,
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_reinforce",
+            hidden_sizes=[],
+            bc_epochs=20,
+            bc_learning_rate=0.05,
+            bc_batch_size=64,
+            bc_ignore_noop=False,
+            seed=7,
         )
         # Pairwise accuracy: correct class logit > other class logit (1 vs 2 only).
         # h_last = obs_norm when there is no trunk.
@@ -1151,22 +1186,33 @@ class TestFitBCMLP(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "demos.npz"
             obs = np.zeros((20, _OBS_DIM), dtype=np.float32)
-            actions = np.column_stack([
-                np.full(20, 2, dtype=np.float32),
-                np.full(20, 0.3, dtype=np.float32),
-                np.full(20, 0.7, dtype=np.float32),
-                np.zeros(20, np.float32),
-            ])
+            actions = np.column_stack(
+                [
+                    np.full(20, 2, dtype=np.float32),
+                    np.full(20, 0.3, dtype=np.float32),
+                    np.full(20, 0.7, dtype=np.float32),
+                    np.zeros(20, np.float32),
+                ]
+            )
             ep_id = np.zeros(20, dtype=np.int64)
             np.savez_compressed(
-                str(p), obs=obs, actions=actions,
+                str(p),
+                obs=obs,
+                actions=actions,
                 episode_starts=np.array([0], dtype=np.int64),
                 episode_lengths=np.array([20], dtype=np.int64),
                 episode_id=ep_id,
                 meta=np.array(json.dumps({"n_episodes": 1})),
             )
-            policy, loss = fit_bc(p, SC2_MINIGAME_OBS_SPEC, target="sc2_reinforce",
-                                   bc_epochs=1, bc_learning_rate=0.001, bc_ignore_noop=False, seed=0)
+            policy, loss = fit_bc(
+                p,
+                SC2_MINIGAME_OBS_SPEC,
+                target="sc2_reinforce",
+                bc_epochs=1,
+                bc_learning_rate=0.001,
+                bc_ignore_noop=False,
+                seed=0,
+            )
         self.assertIsNotNone(policy)
         self.assertIsInstance(loss, float)
 
@@ -1182,12 +1228,14 @@ class TestFitBCLinear(unittest.TestCase):
     def _make_dataset(self, n: int = 100, fn_idx_label: int = 2) -> dict:
         rng = np.random.default_rng(0)
         obs = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
-        actions = np.column_stack([
-            np.full(n, fn_idx_label, np.float32),
-            np.full(n, 0.6, np.float32),
-            np.full(n, 0.4, np.float32),
-            np.zeros(n, np.float32),
-        ])
+        actions = np.column_stack(
+            [
+                np.full(n, fn_idx_label, np.float32),
+                np.full(n, 0.6, np.float32),
+                np.full(n, 0.4, np.float32),
+                np.zeros(n, np.float32),
+            ]
+        )
         return {"obs": obs, "actions": actions}
 
     def test_returns_loadable_sc2_multihead_policy(self):
@@ -1196,7 +1244,9 @@ class TestFitBCLinear(unittest.TestCase):
 
         dataset = self._make_dataset(n=80, fn_idx_label=2)
         policy, loss = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_genetic",
             bc_ignore_noop=False,
         )
         self.assertIsInstance(policy, SC2MultiHeadLinearPolicy)
@@ -1210,7 +1260,9 @@ class TestFitBCLinear(unittest.TestCase):
 
         dataset = self._make_dataset(n=50, fn_idx_label=1)
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_genetic",
             bc_ignore_noop=False,
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -1227,7 +1279,9 @@ class TestFitBCLinear(unittest.TestCase):
 
         dataset = self._make_dataset(n=60)
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_genetic",
             bc_ignore_noop=False,
         )
         self.assertEqual(policy._fn_weights.shape, (N_FUNCTION_IDS, _OBS_DIM))
@@ -1236,7 +1290,9 @@ class TestFitBCLinear(unittest.TestCase):
         """sp_weights must have shape (2, obs_dim)."""
         dataset = self._make_dataset(n=60, fn_idx_label=2)  # Move_screen is spatial
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_genetic",
             bc_ignore_noop=False,
         )
         self.assertEqual(policy._sp_weights.shape, (2, _OBS_DIM))
@@ -1249,7 +1305,9 @@ class TestFitBCLinear(unittest.TestCase):
         non_spatial = min(k for k in range(118) if k not in SPATIAL_FN_IDS and k != 0)
         dataset = self._make_dataset(n=60, fn_idx_label=non_spatial)
         policy, _ = fit_bc(
-            dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_genetic",
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_genetic",
             bc_ignore_noop=False,
         )
         np.testing.assert_array_equal(policy._sp_weights, np.zeros((2, _OBS_DIM), dtype=np.float32))
@@ -1265,15 +1323,18 @@ class TestRunBC(unittest.TestCase):
 
     def _synthetic_dataset_dict(self, n: int = 30) -> dict:
         obs = np.zeros((n, _OBS_DIM), dtype=np.float32)
-        actions = np.column_stack([
-            np.full(n, 2, np.float32),
-            np.full(n, 0.5, np.float32),
-            np.full(n, 0.5, np.float32),
-            np.zeros(n, np.float32),
-        ])
+        actions = np.column_stack(
+            [
+                np.full(n, 2, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.zeros(n, np.float32),
+            ]
+        )
         ep_id = np.zeros(n, dtype=np.int64)
         return {
-            "obs": obs, "actions": actions,
+            "obs": obs,
+            "actions": actions,
             "episode_starts": np.array([0], dtype=np.int64),
             "episode_lengths": np.array([n], dtype=np.int64),
             "episode_id": ep_id,
@@ -1285,9 +1346,12 @@ class TestRunBC(unittest.TestCase):
         from unittest.mock import patch
 
         meta_return = {
-            "n_episodes": 1, "n_steps": dataset_dict["obs"].shape[0],
-            "obs_dim": _OBS_DIM, "n_replays_skipped_race": 0,
-            "player_id": "winner", "race_filter": None,
+            "n_episodes": 1,
+            "n_steps": dataset_dict["obs"].shape[0],
+            "obs_dim": _OBS_DIM,
+            "n_replays_skipped_race": 0,
+            "player_id": "winner",
+            "race_filter": None,
         }
         return patch.multiple(
             "games.sc2.replay_bc",
@@ -1307,9 +1371,15 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset, target="sc2_reinforce"):
                 bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", bc_epochs=1, bc_learning_rate=0.001,
-                    bc_batch_size=10, bc_ignore_noop=False, seed=0,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    bc_epochs=1,
+                    bc_learning_rate=0.001,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                 )
             self.assertTrue((experiment_dir / "policy_weights.yaml").exists())
 
@@ -1323,16 +1393,30 @@ class TestRunBC(unittest.TestCase):
             (replay_dir / "g.SC2Replay").touch()
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset):
-                summary = bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", bc_epochs=1, bc_learning_rate=0.001,
-                    bc_batch_size=10, bc_ignore_noop=False, seed=0,
+                bc_run(
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    bc_epochs=1,
+                    bc_learning_rate=0.001,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                 )
             summary_file = experiment_dir / "bc_summary.json"
             self.assertTrue(summary_file.exists())
             loaded = json.loads(summary_file.read_text())
-            for key in ("n_replays_kept", "n_episodes", "n_pairs", "fn_idx_histogram",
-                        "bc_player_id", "bc_race", "bc_target", "final_bc_loss"):
+            for key in (
+                "n_replays_kept",
+                "n_episodes",
+                "n_pairs",
+                "fn_idx_histogram",
+                "bc_player_id",
+                "bc_race",
+                "bc_target",
+                "final_bc_loss",
+            ):
                 self.assertIn(key, loaded, f"Missing key '{key}' in bc_summary.json")
 
     def test_summary_fn_idx_histogram_covers_actions(self):
@@ -1346,9 +1430,14 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict(n=30)  # all fn_idx=2
             with self._patch_run(dataset):
                 summary = bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
-                    bc_ignore_noop=False, seed=0,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    bc_epochs=1,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                 )
             histogram = summary["fn_idx_histogram"]
             self.assertIn(2, histogram)
@@ -1366,9 +1455,14 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset, target="sc2_reinforce"):
                 bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
-                    bc_ignore_noop=False, seed=0,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    bc_epochs=1,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                 )
             self.assertTrue((experiment_dir / "trainer_state.npz").exists())
 
@@ -1383,8 +1477,11 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset, target="sc2_genetic"):
                 bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_genetic", bc_ignore_noop=False,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_genetic",
+                    bc_ignore_noop=False,
                 )
             self.assertTrue((experiment_dir / "policy_weights.yaml").exists())
             summary_file = experiment_dir / "bc_summary.json"
@@ -1404,9 +1501,14 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset):
                 summary = bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", bc_epochs=1, bc_batch_size=10,
-                    bc_ignore_noop=False, seed=0,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    bc_epochs=1,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                     # Do NOT pass player_id — should default to "winner"
                 )
             self.assertEqual(summary["bc_player_id"], "winner")
@@ -1423,10 +1525,15 @@ class TestRunBC(unittest.TestCase):
             dataset = self._synthetic_dataset_dict()
             with self._patch_run(dataset):
                 summary = bc_run(
-                    replay_dir, experiment_dir, SC2_MINIGAME_OBS_SPEC,
-                    target="sc2_reinforce", race="terran",
-                    bc_epochs=1, bc_batch_size=10,
-                    bc_ignore_noop=False, seed=0,
+                    replay_dir,
+                    experiment_dir,
+                    SC2_MINIGAME_OBS_SPEC,
+                    target="sc2_reinforce",
+                    race="terran",
+                    bc_epochs=1,
+                    bc_batch_size=10,
+                    bc_ignore_noop=False,
+                    seed=0,
                 )
             self.assertEqual(summary["bc_race"], "terran")
 
@@ -1439,7 +1546,7 @@ class TestRunBC(unittest.TestCase):
 class TestBCCLIMain(unittest.TestCase):
     """Tests for --bc CLI flag behaviour in main.py."""
 
-    def _parse(self, argv: list[str]) -> "argparse.Namespace":
+    def _parse(self, argv: list[str]) -> "argparse.Namespace":  # noqa: F821
         from main import _build_arg_parser
 
         return _build_arg_parser().parse_args(argv)
@@ -1456,25 +1563,21 @@ class TestBCCLIMain(unittest.TestCase):
 
     def test_bc_player_choices(self):
         for choice in ["winner", "1", "2"]:
-            args = self._parse(["myexp", "--game", "sc2", "--bc",
-                                 "--replay-dir", "/r", "--bc-player", choice])
+            args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/r", "--bc-player", choice])
             self.assertEqual(args.bc_player, choice)
 
     def test_bc_race_choices(self):
         for race in ["terran", "protoss", "zerg", "any"]:
-            args = self._parse(["myexp", "--game", "sc2", "--bc",
-                                 "--replay-dir", "/r", "--bc-race", race])
+            args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/r", "--bc-race", race])
             self.assertEqual(args.bc_race, race)
 
     def test_bc_target_choices(self):
         for target in ["sc2_reinforce", "sc2_genetic"]:
-            args = self._parse(["myexp", "--game", "sc2", "--bc",
-                                 "--replay-dir", "/r", "--bc-target", target])
+            args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/r", "--bc-target", target])
             self.assertEqual(args.bc_target, target)
 
     def test_bc_rejected_for_non_sc2(self):
         """--bc with --game != sc2 must raise SystemExit."""
-        import argparse as _ap
 
         from main import main as main_fn
 
@@ -1487,16 +1590,639 @@ class TestBCCLIMain(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
 
     def test_bc_mutually_exclusive_with_play(self):
-        import argparse
-
         with self.assertRaises(SystemExit):
             self._parse(["myexp", "--game", "sc2", "--bc", "--play", "--replay-dir", "/r"])
 
     def test_bc_mutually_exclusive_with_eval(self):
-        import argparse
-
         with self.assertRaises(SystemExit):
             self._parse(["myexp", "--game", "sc2", "--bc", "--eval", "--replay-dir", "/r"])
+
+
+# ---------------------------------------------------------------------------
+# Tests: fit_bc — new policy targets (issue #354)
+# ---------------------------------------------------------------------------
+
+
+def _make_flat_dataset(n: int = 80, fn_idx_label: int = 2) -> dict:
+    """Build a minimal flat dataset dict for non-LSTM BC tests."""
+    rng = np.random.default_rng(42)
+    obs = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
+    actions = np.column_stack(
+        [
+            np.full(n, fn_idx_label, np.float32),
+            np.full(n, 0.5, np.float32),
+            np.full(n, 0.5, np.float32),
+            np.zeros(n, np.float32),
+        ]
+    )
+    ep_starts = np.array([0, n // 2], dtype=np.int64)
+    ep_lengths = np.array([n // 2, n // 2], dtype=np.int64)
+    ep_id = np.concatenate([np.zeros(n // 2, np.int64), np.ones(n // 2, np.int64)])
+    return {
+        "obs": obs,
+        "actions": actions,
+        "episode_starts": ep_starts,
+        "episode_lengths": ep_lengths,
+        "episode_id": ep_id,
+        "meta": {"n_episodes": 2, "n_steps": n},
+    }
+
+
+class TestFitBCCMAES(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_cmaes' (issue #354)."""
+
+    def _make_dataset(self, n: int = 80) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=2)
+
+    def test_returns_sc2cmaes_policy(self):
+        """fit_bc sc2_cmaes must return an SC2CMAESPolicy."""
+        from games.sc2.sc2_policies import SC2CMAESPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_cmaes", bc_ignore_noop=False)
+        self.assertIsInstance(policy, SC2CMAESPolicy)
+        self.assertIsInstance(loss, float)
+
+    def test_champion_is_set(self):
+        """After BC fit, _champion should not be None."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_cmaes", bc_ignore_noop=False)
+        self.assertIsNotNone(policy._champion)
+
+    def test_dist_mean_equals_champion_flat(self):
+        """Distribution mean must equal champion.to_flat()."""
+
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_cmaes", bc_ignore_noop=False)
+        np.testing.assert_allclose(
+            policy._dist._mean,
+            policy._champion.to_flat().astype(np.float64),
+            rtol=1e-5,
+        )
+
+    def test_champion_callable(self):
+        """Champion policy should produce a valid 4-element action."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sc2_cmaes", bc_ignore_noop=False)
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = policy(obs)
+        self.assertEqual(action.shape, (4,))
+
+
+class TestFitBCNeuralNet(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_neural_net' (issue #354)."""
+
+    def _make_dataset(self, n: int = 60) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=2)
+
+    def test_returns_sc2neuralnet_policy(self):
+        """fit_bc sc2_neural_net must return an SC2NeuralNetPolicy."""
+        from games.sc2.sc2_policies import SC2NeuralNetPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[8],
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, SC2NeuralNetPolicy)
+        self.assertIsInstance(loss, float)
+        self.assertGreaterEqual(loss, 0.0)
+
+    def test_weight_shapes_match_architecture(self):
+        """Layer weight shapes must match [obs_dim, hidden, 4]."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[8, 8],
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertEqual(policy._weights[0].shape, (8, _OBS_DIM))
+        self.assertEqual(policy._weights[1].shape, (8, 8))
+        self.assertEqual(policy._weights[2].shape, (4, 8))
+
+    def test_callable_after_fit(self):
+        """Policy must produce a (4,) action after BC fit."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[4],
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = policy(obs)
+        self.assertEqual(action.shape, (4,))
+
+    def test_loss_decreases_over_epochs(self):
+        """Loss should decrease (or stay flat) over multiple epochs on a small dataset."""
+        rng = np.random.default_rng(10)
+        n = 200
+        raw_obs = rng.standard_normal((n, _OBS_DIM)).astype(np.float32)
+        obs = (raw_obs * SC2_MINIGAME_OBS_SPEC.scales).astype(np.float32)
+        # All same fn_idx: simple regression target
+        actions = np.column_stack(
+            [
+                np.full(n, 2, np.float32),
+                np.full(n, 0.7, np.float32),
+                np.full(n, 0.3, np.float32),
+                np.zeros(n, np.float32),
+            ]
+        )
+        dataset = {"obs": obs, "actions": actions}
+        _, loss_1 = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[],
+            bc_epochs=1,
+            bc_learning_rate=0.01,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        _, loss_20 = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[],
+            bc_epochs=20,
+            bc_learning_rate=0.01,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertLessEqual(loss_20, loss_1 + 1e-3, "Loss should not increase over more epochs")
+
+    def test_saved_weights_reload(self):
+        """SC2NeuralNetPolicy.to_cfg() / from_cfg() round-trip after BC."""
+        import tempfile
+
+        from games.sc2.sc2_policies import SC2NeuralNetPolicy
+
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_net",
+            hidden_sizes=[4],
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path as _Path
+
+            path = str(_Path(tmp) / "policy_weights.yaml")
+            policy.save(path)
+            loaded = SC2NeuralNetPolicy.from_cfg(__import__("yaml").safe_load(open(path)), SC2_MINIGAME_OBS_SPEC)
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = loaded(obs)
+        self.assertEqual(action.shape, (4,))
+
+
+class TestFitBCDQN(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_neural_dqn' (issue #354)."""
+
+    def _make_dataset(self, n: int = 60, fn_idx_label: int = 2) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=fn_idx_label)
+
+    def test_returns_sc2neuraldqn_policy(self):
+        """fit_bc sc2_neural_dqn must return an SC2NeuralDQNPolicy."""
+        from games.sc2.sc2_policies import SC2NeuralDQNPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_dqn",
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, SC2NeuralDQNPolicy)
+        self.assertIsInstance(loss, float)
+        self.assertGreaterEqual(loss, 0.0)
+
+    def test_replay_buffer_filled(self):
+        """Replay buffer should have transitions after BC fill."""
+        dataset = self._make_dataset(n=40)
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_dqn",
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        # Should have n transitions pushed
+        self.assertGreater(len(policy._replay), 0)
+
+    def test_fill_fraction_as_bc_loss(self):
+        """bc_loss should be fill_fraction = transitions / buffer_capacity."""
+        n = 50
+        dataset = self._make_dataset(n=n)
+        policy, bc_loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_dqn",
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        expected = len(policy._replay) / max(policy._buf_maxlen, 1)
+        self.assertAlmostEqual(bc_loss, expected, places=6)
+
+    def test_episode_starts_used_for_done_flags(self):
+        """Transitions at episode boundaries should be marked done."""
+        n = 10
+        obs = np.zeros((n, _OBS_DIM), dtype=np.float32)
+        actions = np.column_stack(
+            [
+                np.full(n, 2, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.full(n, 0.5, np.float32),
+                np.zeros(n, np.float32),
+            ]
+        )
+        # Two episodes: [0..4] and [5..9]
+        dataset = {
+            "obs": obs,
+            "actions": actions,
+            "episode_starts": np.array([0, 5], dtype=np.int64),
+            "episode_lengths": np.array([5, 5], dtype=np.int64),
+            "episode_id": np.array([0] * 5 + [1] * 5, dtype=np.int64),
+            "meta": {"n_episodes": 2, "n_steps": n},
+        }
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_neural_dqn",
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        # Check that step 4 (last of episode 0) is marked done in the buffer.
+        buf = list(policy._replay._buf)
+        done_flags = [entry[4] for entry in buf]
+        self.assertGreater(sum(done_flags), 0)
+
+
+class TestFitBCLSTM(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_lstm' (issue #354)."""
+
+    def _make_dataset(self, n: int = 40) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=2)
+
+    def test_returns_sc2lstmevolution_policy(self):
+        """fit_bc sc2_lstm must return an SC2LSTMEvolutionPolicy."""
+        from games.sc2.sc2_policies import SC2LSTMEvolutionPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=1,
+            bc_learning_rate=0.001,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, SC2LSTMEvolutionPolicy)
+        self.assertIsInstance(loss, float)
+
+    def test_champion_is_set(self):
+        """After BC fit, _champion must not be None."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsNotNone(policy._champion)
+
+    def test_champion_callable(self):
+        """Champion must produce a (4,) action."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = policy(obs)
+        self.assertEqual(action.shape, (4,))
+
+    def test_loss_is_finite(self):
+        """BC loss must be a finite non-negative float."""
+        dataset = self._make_dataset()
+        _, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertFalse(np.isinf(loss))
+        self.assertGreaterEqual(loss, 0.0)
+
+    def test_mean_matches_champion_flat(self):
+        """Evolution mean should equal champion.to_flat() after seeding."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        np.testing.assert_allclose(
+            policy._mean,
+            policy._champion.to_flat().astype(np.float64),
+            rtol=1e-5,
+        )
+
+    def test_saved_weights_load_as_sc2_lstm(self):
+        """Saved LSTM BC policy must reload cleanly via SC2LSTMPolicy.from_cfg."""
+        import tempfile
+
+        from games.sc2.sc2_policies import SC2LSTMPolicy
+
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_lstm",
+            bc_lstm_hidden_size=8,
+            bc_epochs=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path as _Path
+
+            path = str(_Path(tmp) / "policy_weights.yaml")
+            policy.save(path)
+            loaded = SC2LSTMPolicy.from_cfg(__import__("yaml").safe_load(open(path)), SC2_MINIGAME_OBS_SPEC)
+        self.assertEqual(loaded._hidden_size, 8)
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = loaded(obs)
+        self.assertEqual(action.shape, (4,))
+
+
+class TestFitBCCNN(unittest.TestCase):
+    """Tests for fit_bc with target='sc2_cnn' (issue #354)."""
+
+    def _make_dataset(self, n: int = 60) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=2)
+
+    def test_returns_sc2cnn_evolution_policy(self):
+        """fit_bc sc2_cnn must return an SC2CNNEvolutionPolicy."""
+        from games.sc2.cnn_policy import SC2CNNEvolutionPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_cnn",
+            n_channels=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, SC2CNNEvolutionPolicy)
+        self.assertIsInstance(loss, float)
+        self.assertGreaterEqual(loss, 0.0)
+
+    def test_champion_is_set(self):
+        """_champion must be set after CNN BC fit."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_cnn",
+            n_channels=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsNotNone(policy._champion)
+
+    def test_mean_matches_champion_flat(self):
+        """_mean should equal champion.to_flat() after seeding."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_cnn",
+            n_channels=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        np.testing.assert_allclose(
+            policy._mean,
+            policy._champion.to_flat().astype(np.float64),
+            rtol=1e-5,
+        )
+
+    def test_conv_weights_zeroed(self):
+        """W1 and W2 (conv layers) must be zeroed in the warm-start champion."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_cnn",
+            n_channels=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        champ = policy._champion
+        np.testing.assert_array_equal(champ.W1, np.zeros_like(champ.W1))
+        np.testing.assert_array_equal(champ.W2, np.zeros_like(champ.W2))
+
+    def test_w3_obs_portion_nonzero(self):
+        """The obs-portion of W3 should be non-zero (random projection)."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="sc2_cnn",
+            n_channels=1,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        champ = policy._champion
+        pool_flat = champ._pool_flat
+        obs_portion = champ.W3[:, pool_flat:]
+        self.assertFalse(np.all(obs_portion == 0), "W3 obs portion should be non-zero")
+
+
+class TestFitBCTabular(unittest.TestCase):
+    """Tests for fit_bc with targets 'epsilon_greedy' / 'ucb_q' (issue #354)."""
+
+    def _make_dataset(self, n: int = 60) -> dict:
+        return _make_flat_dataset(n=n, fn_idx_label=2)
+
+    def test_epsilon_greedy_returns_correct_type(self):
+        """fit_bc epsilon_greedy must return an EpsilonGreedyPolicy."""
+        from framework.policies import EpsilonGreedyPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="epsilon_greedy",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, EpsilonGreedyPolicy)
+        self.assertEqual(loss, 0.0)
+
+    def test_ucb_q_returns_correct_type(self):
+        """fit_bc ucb_q must return a UCBQPolicy."""
+        from framework.policies import UCBQPolicy
+
+        dataset = self._make_dataset()
+        policy, loss = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="ucb_q",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertIsInstance(policy, UCBQPolicy)
+        self.assertEqual(loss, 0.0)
+
+    def test_q_table_populated(self):
+        """Q-table should have entries after seeding."""
+        dataset = self._make_dataset(n=40)
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="epsilon_greedy",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertGreater(len(policy._q_table), 0)
+
+    def test_n_sa_populated(self):
+        """Visit count table _n_sa should be populated."""
+        dataset = self._make_dataset(n=40)
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="ucb_q",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        self.assertGreater(len(policy._n_sa), 0)
+
+    def test_q_values_normalised(self):
+        """Q-values should be normalised by visit count (sum over actions = 1 for seeded states)."""
+        dataset = self._make_dataset(n=60)
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="epsilon_greedy",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        for state, q in policy._q_table.items():
+            counts = policy._n_sa.get(state, np.zeros_like(q))
+            if counts.sum() > 0:
+                # Q-values for seeded actions should be in [0, 1]
+                seeded_q = q[counts > 0]
+                self.assertTrue(np.all(seeded_q >= 0.0))
+                self.assertTrue(np.all(seeded_q <= 1.0 + 1e-6))
+
+    def test_epsilon_greedy_callable(self):
+        """Policy must return a (4,) action without raising."""
+        dataset = self._make_dataset()
+        policy, _ = fit_bc(
+            dataset,
+            SC2_MINIGAME_OBS_SPEC,
+            target="epsilon_greedy",
+            n_bins=2,
+            bc_ignore_noop=False,
+            seed=0,
+        )
+        obs = np.zeros(_OBS_DIM, dtype=np.float32)
+        action = policy(obs)
+        self.assertEqual(action.shape, (4,))
+
+
+class TestFitBCUnknownTarget(unittest.TestCase):
+    """Tests for fit_bc error handling with invalid/unsupported targets (issue #354)."""
+
+    def _make_dataset(self) -> dict:
+        return _make_flat_dataset(n=20, fn_idx_label=1)
+
+    def test_sb3_ppo_raises_value_error(self):
+        """SB3 policy targets must raise ValueError."""
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError) as ctx:
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="ppo", bc_ignore_noop=False)
+        self.assertIn("SB3", str(ctx.exception))
+
+    def test_sb3_a2c_raises_value_error(self):
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="a2c", bc_ignore_noop=False)
+
+    def test_sb3_sac_raises_value_error(self):
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="sac", bc_ignore_noop=False)
+
+    def test_sb3_td3_raises_value_error(self):
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="td3", bc_ignore_noop=False)
+
+    def test_sb3_qr_dqn_raises_value_error(self):
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="qr_dqn", bc_ignore_noop=False)
+
+    def test_sb3_recurrent_ppo_raises_value_error(self):
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError):
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="recurrent_ppo", bc_ignore_noop=False)
+
+    def test_unknown_target_raises_value_error(self):
+        """Completely unknown target names must raise ValueError."""
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError) as ctx:
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="banana", bc_ignore_noop=False)
+        self.assertIn("banana", str(ctx.exception))
+
+    def test_error_message_lists_supported_targets(self):
+        """ValueError for unknown target should list the supported targets."""
+        dataset = self._make_dataset()
+        with self.assertRaises(ValueError) as ctx:
+            fit_bc(dataset, SC2_MINIGAME_OBS_SPEC, target="xyz", bc_ignore_noop=False)
+        self.assertIn("Supported", str(ctx.exception))
 
 
 if __name__ == "__main__":

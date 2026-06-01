@@ -18,6 +18,26 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 ### Added
+- SC2 BC warm-start for all policy families (issue #354, [5/6]): `fit_bc` now
+  accepts seven additional targets beyond the original `sc2_reinforce` /
+  `sc2_genetic` pair.  `sc2_cmaes` — linear least-squares fit into
+  `SC2MultiHeadLinearPolicy`, then seeds `SC2CMAESPolicy.initialize_from_champion`
+  so the CMA-ES distribution mean starts at the fitted weights.  `sc2_neural_net`
+  — mini-batch MSE regression (logit-transformed fn_idx / x / y targets) into
+  `SC2NeuralNetPolicy`.  `sc2_neural_dqn` — pre-fills the `MaskedReplayBuffer`
+  with demo transitions matched to the nearest `DISCRETE_ACTIONS` row by L1
+  distance; BC "loss" is reported as fill fraction.  `sc2_lstm` — collects LSTM
+  hidden states via a full episode-sequence forward pass (with proper h/c resets
+  at episode boundaries), then trains only the output head (`W_out`/`b_out`) via
+  cross-entropy SGD, and seeds `SC2LSTMEvolutionPolicy.initialize_from_champion`.
+  `sc2_cnn` — zeroes the two conv layers and fits a random projection from
+  obs → FC_DIM, then solves for the fn and spatial output heads via closed-form
+  least squares, seeding `SC2CNNEvolutionPolicy._champion` and `_mean`.
+  `epsilon_greedy` / `ucb_q` — seeds `_q_table`, `_n_sa`, and `_n_s` from
+  binned demo (state, action_idx) visits; Q-values are normalised by visit count.
+  SB3 targets raise `ValueError` with an explicit "SB3" message.  New `fit_bc`
+  params: `n_channels` (CNN), `n_bins` (tabular), `bc_lstm_hidden_size` (LSTM).
+  `run()` forwards all new params through to `fit_bc`.
 - SC2 behaviour-cloning core fit + `--bc` entry point (issue #353, [4/6]):
   `fit_bc(dataset, obs_spec, *, target, ...)` in `games/sc2/replay_bc.py`
   pre-trains a policy from a demonstration NPZ: `target="sc2_reinforce"`

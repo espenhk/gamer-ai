@@ -406,10 +406,7 @@ def _run_bc_sc2(args: argparse.Namespace) -> None:
     # CLI flags override config; config overrides hard-wired defaults.
     replay_dir = getattr(args, "replay_dir", None) or p.get("bc_replay_dir")
     if not replay_dir:
-        raise SystemExit(
-            "--replay-dir must be specified for --bc mode "
-            "(or set bc_replay_dir in training_params.yaml)"
-        )
+        raise SystemExit("--replay-dir must be specified for --bc mode (or set bc_replay_dir in training_params.yaml)")
 
     player_id: str | int = getattr(args, "bc_player", None) or p.get("bc_player_id", "winner")
     # Coerce "1"/"2" string choices to int so _resolve_player_id works

@@ -873,8 +873,496 @@ def _fit_bc_linear(
 
 
 # ---------------------------------------------------------------------------
+# BC fitting — new policy targets (issue #354)
+# ---------------------------------------------------------------------------
+
+
+def _fit_bc_cmaes(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+) -> tuple[Any, float]:
+    """BC warm-start for SC2CMAESPolicy via linear fit + champion seeding.
+
+    Fits an SC2MultiHeadLinearPolicy via closed-form least squares (same as
+    ``sc2_genetic``), then seeds an SC2CMAESPolicy's distribution mean and
+    champion from the fitted linear policy.
+
+    Returns (SC2CMAESPolicy, normalised_residual).
+    """
+    from games.sc2.sc2_policies import SC2CMAESPolicy
+
+    linear_policy, bc_loss = _fit_bc_linear(obs_arr, act_arr, obs_spec)
+    policy = SC2CMAESPolicy(obs_spec=obs_spec)
+    policy.initialize_from_champion(linear_policy)
+    return policy, bc_loss
+
+
+def _fit_bc_neural_net(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+    *,
+    hidden_sizes: list[int],
+    lr: float,
+    epochs: int,
+    batch_size: int,
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Mini-batch SGD regression BC fit into an SC2NeuralNetPolicy.
+
+    Targets: logit-transformed ``fn_idx / (N_FUNCTION_IDS - 1)``, ``x``, ``y``
+    for the first three output neurons (output[3] = queue, trained toward 0).
+    Loss = MSE on all 4 outputs.
+
+    Returns (SC2NeuralNetPolicy, avg_loss_last_epoch).
+    """
+    from games.sc2.sc2_policies import N_FUNCTION_IDS, SC2NeuralNetPolicy
+
+    policy = SC2NeuralNetPolicy(obs_spec=obs_spec, hidden_sizes=hidden_sizes)
+    rng = np.random.default_rng(seed)
+
+    n = len(obs_arr)
+    scales = obs_spec.scales.astype(np.float64)
+    fn_idx_arr = act_arr[:, 0].astype(np.float64)
+    x_arr = act_arr[:, 1].astype(np.float64)
+    y_arr = act_arr[:, 2].astype(np.float64)
+
+    def _logit(p: np.ndarray) -> np.ndarray:
+        p_clip = np.clip(p, 1e-6, 1.0 - 1e-6)
+        return np.log(p_clip / (1.0 - p_clip))
+
+    # Build regression targets: logit-transform fn_idx/N and x/y
+    fn_norm = np.clip(fn_idx_arr / max(N_FUNCTION_IDS - 1, 1), 1e-6, 1.0 - 1e-6)
+    t0 = _logit(fn_norm)  # (N,) — logit of normalised fn_idx
+    t1 = _logit(x_arr)  # (N,) — logit of x
+    t2 = _logit(y_arr)  # (N,) — logit of y
+    t3 = np.zeros(n, dtype=np.float64)  # queue target = 0
+    targets = np.stack([t0, t1, t2, t3], axis=1)  # (N, 4)
+
+    avg_loss = float("inf")
+    for epoch in range(epochs):
+        order = rng.permutation(n)
+        total_loss = 0.0
+        n_batches = 0
+
+        for start in range(0, n, batch_size):
+            idx = order[start : start + batch_size]
+            obs_b = obs_arr[idx].astype(np.float64)
+            tgt_b = targets[idx]  # (B, 4)
+            B = len(idx)
+
+            # --- forward ---
+            x = obs_b / scales  # (B, D)
+            layer_inputs: list[np.ndarray] = []
+            pre_relus: list[np.ndarray] = []
+            for i, (w, b) in enumerate(zip(policy._weights, policy._biases)):
+                layer_inputs.append(x.copy())
+                z = x @ w.T.astype(np.float64) + b.astype(np.float64)
+                pre_relus.append(z.copy())
+                if i < len(policy._weights) - 1:
+                    x = np.maximum(0.0, z)
+                else:
+                    x = z  # final layer: no activation
+            out = x  # (B, 4)
+
+            # --- MSE loss on all 4 outputs ---
+            diff = out - tgt_b  # (B, 4)
+            mse = float(np.mean(diff**2))
+            total_loss += mse
+            n_batches += 1
+
+            # --- backprop ---
+            g = 2.0 * diff / B  # (B, 4) — dLoss/d_out
+
+            # Backprop through layers (reverse order)
+            for i in range(len(policy._weights) - 1, -1, -1):
+                w_old = policy._weights[i].astype(np.float64)
+                b_old = policy._biases[i].astype(np.float64)
+                h_in = layer_inputs[i]  # (B, fan_in)
+
+                dw = g.T @ h_in  # (fan_out, fan_in)
+                db = g.sum(axis=0)  # (fan_out,)
+
+                policy._weights[i] = (w_old - lr * dw).astype(np.float32)
+                policy._biases[i] = (b_old - lr * db).astype(np.float32)
+
+                if i > 0:
+                    g = g @ w_old  # (B, fan_in)
+                    g = g * (pre_relus[i - 1] > 0)  # backprop through ReLU
+
+        avg_loss = total_loss / max(n_batches, 1)
+        logger.info("BC neural_net epoch %d/%d: avg_loss=%.6f", epoch + 1, epochs, avg_loss)
+
+    return policy, avg_loss
+
+
+def _fit_bc_dqn(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+    *,
+    episode_starts: "np.ndarray | None",
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Pre-fill an SC2NeuralDQNPolicy replay buffer with demonstration transitions.
+
+    Each demo step is matched to the nearest row in DISCRETE_ACTIONS by L1
+    distance and pushed into the policy's replay buffer.  The bc_loss returned
+    is the fill fraction (transitions / capacity).
+
+    Returns (SC2NeuralDQNPolicy, fill_fraction).
+    """
+    from games.sc2.actions import DISCRETE_ACTIONS
+    from games.sc2.sc2_policies import SC2NeuralDQNPolicy
+
+    policy = SC2NeuralDQNPolicy(obs_spec=obs_spec, seed=seed)
+    n = len(obs_arr)
+    da = DISCRETE_ACTIONS  # (M, 4)
+
+    # Build done flags: last step of each episode is done.
+    done_flags = np.zeros(n, dtype=bool)
+    if episode_starts is not None:
+        ep_starts = np.asarray(episode_starts, dtype=int)
+        for s in ep_starts[1:]:
+            if 0 < s <= n:
+                done_flags[s - 1] = True
+    done_flags[n - 1] = True
+
+    # Vectorised nearest-action matching: batch to keep memory reasonable.
+    batch = 2048
+    action_indices = np.empty(n, dtype=int)
+    for start in range(0, n, batch):
+        end = min(start + batch, n)
+        acts_b = act_arr[start:end].astype(np.float32)  # (B, 4)
+        diffs = np.abs(da[np.newaxis, :, :] - acts_b[:, np.newaxis, :]).sum(axis=2)  # (B, M)
+        action_indices[start:end] = np.argmin(diffs, axis=1)
+
+    for t in range(n - 1):
+        policy._replay.push(
+            obs_arr[t],
+            int(action_indices[t]),
+            1.0,
+            obs_arr[t + 1],
+            bool(done_flags[t]),
+        )
+    # Last step: use itself as next_obs (terminal)
+    policy._replay.push(
+        obs_arr[n - 1],
+        int(action_indices[n - 1]),
+        1.0,
+        obs_arr[n - 1],
+        True,
+    )
+
+    bc_loss = float(len(policy._replay)) / max(policy._buf_maxlen, 1)
+    return policy, bc_loss
+
+
+def _iter_episodes_from_dataset(dataset: dict) -> "Iterator[tuple[np.ndarray, np.ndarray]]":
+    """Yield ``(obs_seq, act_seq)`` episode pairs from a dataset dict.
+
+    Works with both file-loaded datasets (numpy arrays) and raw dict datasets
+    (numpy arrays or lists).
+    """
+    obs_all = dataset["obs"]
+    act_all = dataset["actions"]
+    ep_starts = np.asarray(dataset["episode_starts"], dtype=int)
+    ep_lengths = np.asarray(dataset["episode_lengths"], dtype=int)
+    for start, length in zip(ep_starts.tolist(), ep_lengths.tolist()):
+        yield obs_all[start : start + length], act_all[start : start + length]
+
+
+def _fit_bc_lstm_supervised(
+    episodes: "list[tuple[np.ndarray, np.ndarray]]",
+    obs_spec: ObsSpec,
+    *,
+    hidden_size: int,
+    lr: float,
+    epochs: int,
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Supervised training of an SC2LSTMPolicy output head from episode sequences.
+
+    Only the output head (W_out, b_out) is trained; LSTM gate weights are kept
+    at their random initialisation.  Forward passes run through the LSTM to
+    collect hidden states, which are then used as inputs to the output head.
+    Loss = cross-entropy on fn_idx head + cross-entropy on spatial cell head.
+
+    Returns (SC2LSTMEvolutionPolicy, avg_loss_last_epoch).
+    """
+    from games.sc2.sc2_policies import (
+        _SPATIAL_GRID,
+        N_FUNCTION_IDS,
+        SC2LSTMEvolutionPolicy,
+        SC2LSTMPolicy,
+    )
+
+    lstm = SC2LSTMPolicy(obs_spec=obs_spec, hidden_size=hidden_size, seed=seed)
+    h_sz = hidden_size
+    scales = obs_spec.scales.astype(np.float32)
+
+    def _vsig(z: np.ndarray) -> np.ndarray:
+        return 1.0 / (1.0 + np.exp(-np.clip(z, -20.0, 20.0)))
+
+    # Collect (h_t, fn_idx_t, cell_idx_t) across all episodes via forward pass.
+    all_h: list[np.ndarray] = []
+    all_fn: list[int] = []
+    all_sp: list[int] = []
+
+    grid = np.array(_SPATIAL_GRID, dtype=np.float64)  # (N_LSTM_SPATIAL_CELLS, 2)
+
+    for obs_ep, act_ep in episodes:
+        h_state = np.zeros(h_sz, dtype=np.float32)
+        c_state = np.zeros(h_sz, dtype=np.float32)
+        for t in range(len(obs_ep)):
+            x = obs_ep[t].astype(np.float32) / scales
+            hx = np.concatenate([h_state, x])
+            f = _vsig(lstm._W_f @ hx + lstm._b_f)
+            ig = _vsig(lstm._W_i @ hx + lstm._b_i)
+            g = np.tanh(lstm._W_g @ hx + lstm._b_g)
+            o = _vsig(lstm._W_o @ hx + lstm._b_o)
+            c_state = f * c_state + ig * g
+            h_state = o * np.tanh(c_state)
+            all_h.append(h_state.copy())
+            all_fn.append(int(act_ep[t, 0]))
+            xy = act_ep[t, 1:3].astype(np.float64)
+            cell_idx = int(np.argmin(np.sum((grid - xy) ** 2, axis=1)))
+            all_sp.append(cell_idx)
+
+    if not all_h:
+        # No steps — return untrained policy
+        evo = SC2LSTMEvolutionPolicy(obs_spec=obs_spec, hidden_size=hidden_size, seed=seed)
+        evo.initialize_from_champion(lstm)
+        return evo, float("inf")
+
+    H_arr = np.array(all_h, dtype=np.float64)  # (N, h_sz)
+    fn_arr = np.array(all_fn, dtype=int)
+    sp_arr = np.array(all_sp, dtype=int)
+    N_total = len(H_arr)
+
+    rng = np.random.default_rng(seed)
+    avg_loss = float("inf")
+    for epoch in range(epochs):
+        order = rng.permutation(N_total)
+        total_loss = 0.0
+        n_batches = 0
+        for start in range(0, N_total, 256):
+            idx = order[start : start + 256]
+            h_b = H_arr[idx]  # (B, h_sz)
+            fn_b = fn_arr[idx]
+            sp_b = sp_arr[idx]
+            B = len(idx)
+
+            W_out = lstm._W_out.astype(np.float64)
+            b_out = lstm._b_out.astype(np.float64)
+            out = h_b @ W_out.T + b_out  # (B, N_OUTPUT)
+
+            fn_logits = out[:, :N_FUNCTION_IDS]
+            sp_logits = out[:, N_FUNCTION_IDS:]
+
+            # --- CE on fn head ---
+            fn_shift = fn_logits - fn_logits.max(axis=1, keepdims=True)
+            exp_fn = np.exp(fn_shift)
+            sm_fn = exp_fn / exp_fn.sum(axis=1, keepdims=True)
+            ce_fn = -float(np.mean(np.log(np.maximum(sm_fn[np.arange(B), fn_b], 1e-10))))
+
+            # --- CE on spatial head ---
+            sp_shift = sp_logits - sp_logits.max(axis=1, keepdims=True)
+            exp_sp = np.exp(sp_shift)
+            sm_sp = exp_sp / exp_sp.sum(axis=1, keepdims=True)
+            ce_sp = -float(np.mean(np.log(np.maximum(sm_sp[np.arange(B), sp_b], 1e-10))))
+
+            total_loss += ce_fn + ce_sp
+            n_batches += 1
+
+            # --- gradients ---
+            d_fn = sm_fn.copy()
+            d_fn[np.arange(B), fn_b] -= 1.0
+            d_fn /= B
+            d_sp = sm_sp.copy()
+            d_sp[np.arange(B), sp_b] -= 1.0
+            d_sp /= B
+            d_out = np.concatenate([d_fn, d_sp], axis=1)  # (B, N_OUTPUT)
+
+            lstm._W_out = (W_out - lr * (d_out.T @ h_b)).astype(np.float32)
+            lstm._b_out = (b_out - lr * d_out.sum(axis=0)).astype(np.float32)
+
+        avg_loss = total_loss / max(n_batches, 1)
+        logger.info("BC lstm epoch %d/%d: avg_loss=%.6f", epoch + 1, epochs, avg_loss)
+
+    # Wrap in evolution policy
+    evo = SC2LSTMEvolutionPolicy(obs_spec=obs_spec, hidden_size=hidden_size, seed=seed)
+    evo.initialize_from_champion(lstm)
+    return evo, avg_loss
+
+
+def _fit_bc_cnn(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+    *,
+    n_channels: int,
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Random-projection warm-start for SC2CNNEvolutionPolicy.
+
+    Since the CNN's conv layers cannot be meaningfully fitted from flat
+    observations, the conv weights are zeroed and the FC layer is replaced by
+    a random projection from obs_dim → FC_DIM.  The output heads (W_fn, W_sp)
+    are then fitted via closed-form least squares on the projected features.
+
+    Returns (SC2CNNEvolutionPolicy, mean_squared_residual_on_fn_head).
+    """
+    from games.sc2.cnn_policy import (
+        _GRID_XY,
+        _N_SPATIAL_CELLS,
+        SC2CNNEvolutionPolicy,
+    )
+    from games.sc2.sc2_policies import N_FUNCTION_IDS
+
+    policy = SC2CNNEvolutionPolicy(n_channels=n_channels, obs_spec=obs_spec, seed=seed)
+    model = policy._template  # SC2CNNModel — source of architecture info
+
+    rng = np.random.default_rng(seed)
+    scales = obs_spec.scales.astype(np.float64)
+    obs_dim = obs_spec.dim
+    FC_DIM = model._FC_DIM  # 256
+    pool_flat = model._pool_flat  # 1024
+
+    N = len(obs_arr)
+
+    # Random projection: obs_dim → FC_DIM (replaces conv + pool path with zeros)
+    W3_flat = (rng.standard_normal((FC_DIM, obs_dim)) / np.sqrt(obs_dim)).astype(np.float32)
+    b3 = np.zeros(FC_DIM, dtype=np.float32)
+
+    # Compute projected features H = relu(norm_obs @ W3_flat.T)
+    norm_obs = obs_arr.astype(np.float64) / scales
+    H = np.maximum(0.0, norm_obs @ W3_flat.T.astype(np.float64))  # (N, FC_DIM)
+
+    # --- fn head lstsq ---
+    fn_idx_arr = act_arr[:, 0].astype(int)
+    Y_fn = np.zeros((N, N_FUNCTION_IDS), dtype=np.float64)
+    Y_fn[np.arange(N), fn_idx_arr] = 1.0
+    W_fn_fit, _, _, _ = np.linalg.lstsq(H, Y_fn, rcond=None)  # (FC_DIM, N_FUNCTION_IDS)
+
+    # --- spatial head lstsq ---
+    xy_arr = act_arr[:, 1:3].astype(np.float64)
+    grid_xy = np.array(_GRID_XY, dtype=np.float64)  # (_N_SPATIAL_CELLS, 2)
+    # Find nearest CNN grid cell for each (x, y) demo action
+    dists = np.sum((xy_arr[:, np.newaxis, :] - grid_xy[np.newaxis, :, :]) ** 2, axis=2)  # (N, S)
+    sp_indices = np.argmin(dists, axis=1)  # (N,)
+    Y_sp = np.zeros((N, _N_SPATIAL_CELLS), dtype=np.float64)
+    Y_sp[np.arange(N), sp_indices] = 1.0
+    W_sp_fit, _, _, _ = np.linalg.lstsq(H, Y_sp, rcond=None)  # (FC_DIM, _N_SPATIAL_CELLS)
+
+    # Build champion model with warm weights
+    champion = model.with_flat(model.to_flat())  # structural copy
+    champion.W1 = np.zeros_like(champion.W1)
+    champion.W2 = np.zeros_like(champion.W2)
+    champion.b1 = np.zeros_like(champion.b1)
+    champion.b2 = np.zeros_like(champion.b2)
+    # W3: shape (FC_DIM, pool_flat + obs_dim) — zero the conv portion, use W3_flat for obs portion
+    champion.W3 = np.zeros((FC_DIM, pool_flat + obs_dim), dtype=np.float32)
+    champion.W3[:, pool_flat:] = W3_flat
+    champion.b3 = b3.copy()
+    champion.W_fn = W_fn_fit.T.astype(np.float32)  # (N_FUNCTION_IDS, FC_DIM)
+    champion.b_fn = np.zeros(N_FUNCTION_IDS, dtype=np.float32)
+    champion.W_sp = W_sp_fit.T.astype(np.float32)  # (_N_SPATIAL_CELLS, FC_DIM)
+    champion.b_sp = np.zeros(_N_SPATIAL_CELLS, dtype=np.float32)
+
+    # Seed policy champion and distribution mean
+    policy._champion = champion
+    policy._mean = champion.to_flat().astype(np.float64)
+
+    # BC loss = mean squared residual on fn head predictions
+    H_pred_fn = H @ W_fn_fit  # (N, N_FUNCTION_IDS)
+    bc_loss = float(np.mean((H_pred_fn - Y_fn) ** 2))
+    return policy, bc_loss
+
+
+def _fit_bc_tabular(
+    obs_arr: np.ndarray,
+    act_arr: np.ndarray,
+    obs_spec: ObsSpec,
+    *,
+    target: str,
+    n_bins: int,
+    seed: int | None,
+) -> tuple[Any, float]:
+    """Seed Q-table and visit-count tables from binned demo (state, action_idx) pairs.
+
+    Each demonstration step is discretised into a state key and matched to
+    the nearest row in DISCRETE_ACTIONS by L1 distance.  The Q-table is
+    seeded with normalised visit counts (Q[s][a] = count(s,a)/count(s)) and
+    the count tables are populated for UCB exploration.
+
+    Returns (EpsilonGreedyPolicy or UCBQPolicy, 0.0).
+    """
+    from framework.policies import EpsilonGreedyPolicy, UCBQPolicy, _discretize_obs
+    from games.sc2.actions import DISCRETE_ACTIONS
+
+    da = DISCRETE_ACTIONS
+    n_actions = len(da)
+    scales = obs_spec.scales
+
+    if target == "epsilon_greedy":
+        policy: Any = EpsilonGreedyPolicy(obs_spec, da, n_bins=n_bins)
+    else:
+        policy = UCBQPolicy(obs_spec, da, n_bins=n_bins)
+
+    n = len(obs_arr)
+
+    # Vectorised nearest-action matching
+    batch = 2048
+    action_indices = np.empty(n, dtype=int)
+    for start in range(0, n, batch):
+        end = min(start + batch, n)
+        acts_b = act_arr[start:end].astype(np.float32)
+        diffs = np.abs(da[np.newaxis, :, :] - acts_b[:, np.newaxis, :]).sum(axis=2)
+        action_indices[start:end] = np.argmin(diffs, axis=1)
+
+    for t in range(n):
+        obs = obs_arr[t].astype(np.float32)
+        state = _discretize_obs(obs, scales, n_bins)
+        action_idx = int(action_indices[t])
+
+        if state not in policy._q_table:
+            policy._q_table[state] = np.zeros(n_actions, dtype=np.float32)
+        if state not in policy._n_sa:
+            policy._n_sa[state] = np.zeros(n_actions, dtype=np.float32)
+
+        policy._q_table[state][action_idx] += 1.0
+        policy._n_sa[state][action_idx] += 1.0
+        policy._n_s[state] = policy._n_s.get(state, 0) + 1
+
+    # Normalise Q-values by visit count
+    for state, q in policy._q_table.items():
+        counts = policy._n_sa[state]
+        mask = counts > 0
+        q[mask] /= counts[mask]
+
+    return policy, 0.0
+
+
+# ---------------------------------------------------------------------------
 # Public fit_bc entry point
 # ---------------------------------------------------------------------------
+
+_SB3_TARGETS: frozenset[str] = frozenset({"ppo", "a2c", "sac", "td3", "qr_dqn", "recurrent_ppo"})
+_SUPPORTED_TARGETS: frozenset[str] = frozenset(
+    {
+        "sc2_reinforce",
+        "sc2_genetic",
+        "sc2_cmaes",
+        "sc2_neural_net",
+        "sc2_neural_dqn",
+        "sc2_lstm",
+        "sc2_cnn",
+        "epsilon_greedy",
+        "ucb_q",
+    }
+)
 
 
 def fit_bc(
@@ -888,6 +1376,9 @@ def fit_bc(
     bc_batch_size: int = 256,
     bc_ignore_noop: bool = True,
     seed: int | None = None,
+    n_channels: int = 1,
+    n_bins: int = 3,
+    bc_lstm_hidden_size: int = 64,
 ) -> tuple[Any, float]:
     """Pre-train a policy on a demonstration dataset via behaviour cloning.
 
@@ -899,50 +1390,88 @@ def fit_bc(
     obs_spec :
         Observation spec used to normalise observations before fitting.
     target :
-        Policy architecture to train.
+        Policy architecture to train.  Supported values:
 
-        * ``"sc2_reinforce"`` (default) — two-head MLP
-          (:class:`games.sc2.sc2_policies.SC2REINFORCEPolicy`) trained via
-          mini-batch gradient descent.  Loss = cross-entropy on the fn_idx
-          softmax head + MSE on the sigmoid ``(x, y)`` spatial head for
-          spatial actions only.  Saved weights load via
-          ``SC2REINFORCEPolicy.from_cfg`` so a subsequent ``sc2_reinforce``
-          fine-tuning run resumes from them.
+        * ``"sc2_reinforce"`` (default) — two-head MLP trained via
+          mini-batch gradient descent.
+        * ``"sc2_genetic"`` — linear least-squares fit into
+          ``SC2MultiHeadLinearPolicy``.
+        * ``"sc2_cmaes"`` — same linear fit as ``sc2_genetic``, then seeds
+          the CMA-ES distribution mean.
+        * ``"sc2_neural_net"`` — MSE regression into ``SC2NeuralNetPolicy``
+          via mini-batch SGD.
+        * ``"sc2_neural_dqn"`` — pre-fills the DQN replay buffer with demo
+          transitions matched to the nearest ``DISCRETE_ACTIONS`` row.
+        * ``"sc2_lstm"`` — trains the LSTM output head (W_out/b_out) via
+          cross-entropy SGD while keeping gate weights frozen.
+        * ``"sc2_cnn"`` — random-projection warm-start: zeroes conv weights
+          and fits the FC+head via least squares on projected obs.
+        * ``"epsilon_greedy"`` / ``"ucb_q"`` — seeds the Q-table and visit
+          counts from binned demo (state, action) pairs.
 
-        * ``"sc2_genetic"`` — linear
-          (:class:`games.sc2.sc2_policies.SC2MultiHeadLinearPolicy`) fitted
-          via closed-form least squares.  Saved in ``SC2MultiHeadLinearPolicy``
-          YAML format; compatible with ``sc2_genetic`` fine-tuning.
+        SB3 policies (``"ppo"``, ``"a2c"``, ``"sac"``, ``"td3"``,
+        ``"qr_dqn"``, ``"recurrent_ppo"``) are not supported for SC2 and
+        raise ``ValueError``.
 
     hidden_sizes :
-        MLP trunk hidden-layer widths (``"sc2_reinforce"`` only).
-        Defaults to ``[128, 64]``.
+        MLP trunk hidden-layer widths (``"sc2_reinforce"`` and
+        ``"sc2_neural_net"`` only).  Defaults to ``[128, 64]``.
     bc_epochs :
-        Full passes over the dataset (``"sc2_reinforce"`` only).
+        Full passes over the dataset (gradient targets only).
     bc_learning_rate :
-        Gradient step size (``"sc2_reinforce"`` only).
+        Gradient step size (gradient targets only).
     bc_batch_size :
-        Mini-batch size (``"sc2_reinforce"`` only).
+        Mini-batch size (gradient targets only).
     bc_ignore_noop :
-        Drop steps where ``fn_idx == 0`` (no-op) before fitting so the fn
-        head is not swamped by idle frames.
+        Drop steps where ``fn_idx == 0`` (no-op) before fitting.
+        Not applied to ``"sc2_lstm"`` (which reconstructs per-episode
+        sequences directly from the dataset).
     seed :
         Optional RNG seed for reproducibility.
+    n_channels :
+        Number of CNN spatial channels (``"sc2_cnn"`` only).
+    n_bins :
+        Observation bins per dimension for tabular discretisation
+        (``"epsilon_greedy"`` / ``"ucb_q"`` only).
+    bc_lstm_hidden_size :
+        LSTM hidden state size (``"sc2_lstm"`` only).
 
     Returns
     -------
     (policy, final_bc_loss)
         *policy* is the fitted policy object.  *final_bc_loss* is the
-        average loss over the last epoch for MLP targets, or the normalised
-        residual for the linear target.
+        average loss over the last epoch for gradient targets, the
+        normalised residual for linear targets, the replay-buffer fill
+        fraction for DQN, or ``0.0`` for tabular targets.
 
     Raises
     ------
     ValueError
-        If the dataset is empty after the optional no-op filter.
+        If *target* is an SB3 policy or unknown, or if the dataset is
+        empty after the optional no-op filter.
     """
+    if target in _SB3_TARGETS:
+        raise ValueError(
+            f"BC warm-start for target={target!r} is not supported: SB3 policies are "
+            "gated off SC2 and cannot be seeded from a demonstration dataset."
+        )
+    if target not in _SUPPORTED_TARGETS:
+        raise ValueError(f"Unknown BC target {target!r}. Supported: {sorted(_SUPPORTED_TARGETS)}.")
+
     if not isinstance(dataset, dict):
         dataset = load_dataset(str(dataset))
+
+    # sc2_lstm needs episode sequences — handle before flat filtering
+    if target == "sc2_lstm":
+        episodes = list(_iter_episodes_from_dataset(dataset))
+        return _fit_bc_lstm_supervised(
+            episodes,
+            obs_spec,
+            hidden_size=bc_lstm_hidden_size,
+            lr=bc_learning_rate,
+            epochs=bc_epochs,
+            seed=seed,
+        )
 
     obs_arr = dataset["obs"].astype(np.float32)
     act_arr = dataset["actions"].astype(np.float32)
@@ -953,7 +1482,9 @@ def fit_bc(
         n_before = len(obs_arr)
         obs_arr = obs_arr[keep]
         act_arr = act_arr[keep]
-        logger.info("bc_ignore_noop: kept %d / %d steps (dropped %d no-ops)", len(obs_arr), n_before, n_before - len(obs_arr))
+        logger.info(
+            "bc_ignore_noop: kept %d / %d steps (dropped %d no-ops)", len(obs_arr), n_before, n_before - len(obs_arr)
+        )
 
     if len(obs_arr) == 0:
         raise ValueError("Empty dataset after filtering — no non-noop steps available for BC.")
@@ -961,12 +1492,37 @@ def fit_bc(
     if target == "sc2_genetic":
         return _fit_bc_linear(obs_arr, act_arr, obs_spec)
 
-    if target != "sc2_reinforce":
-        raise ValueError(
-            f"Unknown BC target {target!r}. "
-            "Supported targets: 'sc2_reinforce' (MLP), 'sc2_genetic' (linear)."
+    if target == "sc2_cmaes":
+        return _fit_bc_cmaes(obs_arr, act_arr, obs_spec)
+
+    if target == "sc2_neural_net":
+        return _fit_bc_neural_net(
+            obs_arr,
+            act_arr,
+            obs_spec,
+            hidden_sizes=hidden_sizes if hidden_sizes is not None else [128, 64],
+            lr=bc_learning_rate,
+            epochs=bc_epochs,
+            batch_size=bc_batch_size,
+            seed=seed,
         )
 
+    if target == "sc2_neural_dqn":
+        return _fit_bc_dqn(
+            obs_arr,
+            act_arr,
+            obs_spec,
+            episode_starts=dataset.get("episode_starts"),
+            seed=seed,
+        )
+
+    if target == "sc2_cnn":
+        return _fit_bc_cnn(obs_arr, act_arr, obs_spec, n_channels=n_channels, seed=seed)
+
+    if target in ("epsilon_greedy", "ucb_q"):
+        return _fit_bc_tabular(obs_arr, act_arr, obs_spec, target=target, n_bins=n_bins, seed=seed)
+
+    # sc2_reinforce (default)
     return _fit_bc_mlp(
         obs_arr,
         act_arr,
@@ -1002,6 +1558,9 @@ def run(
     bc_batch_size: int = 256,
     bc_ignore_noop: bool = True,
     seed: int | None = None,
+    n_channels: int = 1,
+    n_bins: int = 3,
+    bc_lstm_hidden_size: int = 64,
 ) -> dict:
     """Orchestrate replay reading, BC fitting, and saving of weights + summary.
 
@@ -1024,7 +1583,8 @@ def run(
         Observation spec — built from ``training_params.yaml`` by the caller.
     target, player_id, race, max_replays, step_mul, screen_size,
     minimap_size, hidden_sizes, bc_epochs, bc_learning_rate,
-    bc_batch_size, bc_ignore_noop, seed :
+    bc_batch_size, bc_ignore_noop, seed, n_channels, n_bins,
+    bc_lstm_hidden_size :
         Forwarded to :func:`build_dataset` and/or :func:`fit_bc`.
 
     Returns
@@ -1038,7 +1598,6 @@ def run(
         If the replay directory is empty, race filter drops all replays, or
         the filtered dataset has no steps.
     """
-    import os
     import tempfile
 
     from framework.policies import BasePolicy, trainer_state_path
@@ -1080,12 +1639,23 @@ def run(
         bc_batch_size=bc_batch_size,
         bc_ignore_noop=bc_ignore_noop,
         seed=seed,
+        n_channels=n_channels,
+        n_bins=n_bins,
+        bc_lstm_hidden_size=bc_lstm_hidden_size,
     )
 
-    # Save policy weights
+    # Save policy weights.
+    # For champion-based policies whose save() writes metadata only (e.g.
+    # SC2CMAESPolicy), save the champion directly in the linear YAML format so
+    # _construct_or_resume can reload it on the next run.
     weights_path = str(experiment_dir / "policy_weights.yaml")
-    policy.save(weights_path)
-    logger.info("BC: saved policy weights → %s", weights_path)
+    champion = getattr(policy, "_champion", None)
+    if champion is not None and hasattr(champion, "save") and callable(champion.save):
+        champion.save(weights_path)
+        logger.info("BC: saved champion weights → %s", weights_path)
+    else:
+        policy.save(weights_path)
+        logger.info("BC: saved policy weights → %s", weights_path)
 
     # Save trainer state for policies that carry one (e.g. SC2REINFORCEPolicy)
     if isinstance(policy, BasePolicy):

@@ -149,8 +149,20 @@ class TestLogNewBestDetails(unittest.TestCase):
         # one log line per action (sorted by descending count: fn2, fn0, fn1)
         self.assertEqual(len(lines), 3)
         all_text = "\n".join(lines)
-        # Actions are logged by their raw key (int) — no game-specific name lookup.
+        # Without a name map the key is stringified: "2=60.0%".
         self.assertIn("2=60.0%", all_text)
+
+    def test_action_counts_uses_name_map(self):
+        info = {
+            "episode_action_counts": {0: 30, 3: 70},
+            "episode_action_name_map": {0: "no_op", 3: "Attack_screen"},
+        }
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        all_text = "\n".join(lines)
+        self.assertIn("Attack_screen=70.0%", all_text)
+        self.assertIn("no_op=30.0%", all_text)
+        # Raw integer keys must not appear when a name map is present.
+        self.assertNotIn("3=", all_text)
 
     def test_action_counts_prev_comparison(self):
         info = {"episode_action_counts": {0: 10, 2: 90}}

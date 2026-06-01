@@ -323,6 +323,14 @@ class SC2Client:
         # onto self._spec.names to produce the flat ndarray.
         self._spec: ObsSpec = get_spec(map_name, preset=obs_spec_preset)
         self._obs_names = self._spec.names
+        # Preset-gating flags: skip expensive feature extractors whose output
+        # is not present in the active obs spec.  Checked at __init__ time so
+        # there is zero per-step branching overhead beyond a single bool test.
+        _obs_name_set = frozenset(self._obs_names)
+        # Ladder and rich presets include features absent from minigame.
+        self._use_ladder_obs: bool = "food_workers" in _obs_name_set
+        # Rich preset adds per-unit-type counts, quadrants, top-k enemies, etc.
+        self._use_rich_obs: bool = "screen_self_NE_count" in _obs_name_set
         self._cumulative_score: float = 0.0
         self._explored_mask: np.ndarray | None = None
         self._available_actions: set[int] | None = None
@@ -852,22 +860,29 @@ class SC2Client:
         self._selected_count = float(feats.get("selected_count", 0.0))
         feats.update(self._screen_summary_features(feat_screen))
         feats.update(self._minimap_summary_features(feat_minimap))
-        feats.update(self._score_features(ob))
-        feats.update(self._screen_hp_features(feat_screen))
-        feats.update(self._topk_enemy_features(feat_screen))
+        # Ladder preset adds economy/minimap/score/HP/topk/alerts features.
+        if self._use_ladder_obs:
+            feats.update(self._score_features(ob))
+            feats.update(self._screen_hp_features(feat_screen))
+            feats.update(self._topk_enemy_features(feat_screen))
+            feats.update(self._alerts_features(ob))
+        # _per_unit_type_features is always needed: info["unit_counts"] drives
+        # build-order tracking in SC2Env regardless of obs preset.
         feats.update(self._per_unit_type_features(ob))
+        # _update_unit_screen_positions is always needed for action resolution.
         self._update_unit_screen_positions(ob)
-        feats.update(self._quadrant_features(feat_screen))
-        feats.update(self._available_actions_features(ob))
-        feats.update(self._last_action_features())
-        feats.update(self._enemy_unit_type_features(ob))
-        feats.update(self._shield_energy_features(feat_screen))
-        feats.update(self._creep_features(feat_minimap))
-        feats.update(self._economy_pipeline_features(ob))
-        feats.update(self._screen_visibility_features(feat_screen))
-        feats.update(self._screen_antiair_features(feat_screen))
-        feats.update(self._weapon_cooldown_features(ob))
-        feats.update(self._alerts_features(ob))
+        # Rich preset adds quadrants, action features, enemy types, etc.
+        if self._use_rich_obs:
+            feats.update(self._quadrant_features(feat_screen))
+            feats.update(self._available_actions_features(ob))
+            feats.update(self._last_action_features())
+            feats.update(self._enemy_unit_type_features(ob))
+            feats.update(self._shield_energy_features(feat_screen))
+            feats.update(self._creep_features(feat_minimap))
+            feats.update(self._economy_pipeline_features(ob))
+            feats.update(self._screen_visibility_features(feat_screen))
+            feats.update(self._screen_antiair_features(feat_screen))
+            feats.update(self._weapon_cooldown_features(ob))
 
         # game_loop scalar — present on both ladder and rich.
         game_loop_arr = self._safe_array(ob, "game_loop")

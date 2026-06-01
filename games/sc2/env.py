@@ -424,6 +424,7 @@ class SC2Env(BaseGameEnv):
                 self._ep_obs_sums[_feat] = self._ep_obs_sums.get(_feat, 0.0) + float(_v)
         self._ep_obs_step_count += 1
         info["episode_action_counts"] = dict(self._ep_action_counts)
+        info["episode_action_name_map"] = FUNCTION_IDS
         info["episode_xy_hist"] = self._ep_xy_hist.tolist()
         if self._ep_obs_step_count > 0:
             info["episode_obs_averages"] = {k: v / self._ep_obs_step_count for k, v in self._ep_obs_sums.items()}

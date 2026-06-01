@@ -17,6 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **Atari: DQN grid-search template** (`games/atari/config/gs_neural_dqn_template.yaml`, issue #385).
+  Sweeps `learning_rate × epsilon_decay_steps` (6 combos) on `Pong-v5` using DQN-paper
+  conventions: reward clipping (`clip_sign: true`), Double-DQN targets, Huber loss,
+  `replay_buffer_size: 100 000`, and `hidden_sizes: [256, 256]` for the 128-dim RAM
+  observation.  `games/atari/README.md` updated to reference the template.
 
 ---
 

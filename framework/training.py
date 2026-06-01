@@ -85,9 +85,7 @@ def _resolve_policy_class(policy_type: str) -> type[BasePolicy]:
     """Look up *policy_type* in POLICY_REGISTRY, raising if unknown."""
     cls = POLICY_REGISTRY.get(policy_type)
     if cls is None:
-        raise ValueError(
-            f"Unknown policy_type: {policy_type!r}. Registered: {sorted(POLICY_REGISTRY)}"
-        )
+        raise ValueError(f"Unknown policy_type: {policy_type!r}. Registered: {sorted(POLICY_REGISTRY)}")
     return cls
 
 
@@ -238,10 +236,7 @@ def _run_episode(
         else:
             if _batch_obs(obs):
                 action = np.stack(
-                    [
-                        np.asarray(policy(agent_obs), dtype=np.float32)
-                        for agent_obs in obs
-                    ],
+                    [np.asarray(policy(agent_obs), dtype=np.float32) for agent_obs in obs],
                     axis=0,
                 )
             else:
@@ -278,9 +273,7 @@ def _run_episode(
         obs = next_obs
 
         # Throttle classification (works for any action with accel@[1], brake@[2])
-        action_stats = (
-            action[0] if isinstance(action, np.ndarray) and action.ndim == 2 else action
-        )
+        action_stats = action[0] if isinstance(action, np.ndarray) and action.ndim == 2 else action
         if len(action_stats) >= 3:
             accel_on = float(action_stats[1]) >= 0.5
             brake_on = float(action_stats[2]) >= 0.5
@@ -320,15 +313,11 @@ def _run_episode(
     )
 
 
-def _print_episode_summary(
-    info: dict, steps: int, total_reward: float, truncated: bool
-) -> None:
+def _print_episode_summary(info: dict, steps: int, total_reward: float, truncated: bool) -> None:
     finished = bool(info.get("finished", False))
     outcome = "truncated" if truncated else ("finished" if finished else "terminated")
     skipped_frames = _episode_skipped_frames(info)
-    skipped_suffix = (
-        f"  skipped_frames={skipped_frames}" if skipped_frames is not None else ""
-    )
+    skipped_suffix = f"  skipped_frames={skipped_frames}" if skipped_frames is not None else ""
     player_outcome = info.get("player_outcome")
     raw_reward = info.get("raw_reward")
     if player_outcome is not None or raw_reward is not None:
@@ -355,9 +344,7 @@ def _print_episode_summary(
             skipped_suffix,
         )
         return
-    logger.debug(
-        "ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix
-    )
+    logger.debug("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
 
 
 def _episode_skipped_frames(info: dict) -> int | None:
@@ -406,9 +393,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
         prev_loss_penalty = prev_terminal if prev_terminal < 0 else 0.0
         if "terminal" in prev_rc:
             logger.info("    win_bonus=%+.1f (prev %+.1f)", win_bonus, prev_win_bonus)
-            logger.info(
-                "    loss_penalty=%+.1f (prev %+.1f)", loss_penalty, prev_loss_penalty
-            )
+            logger.info("    loss_penalty=%+.1f (prev %+.1f)", loss_penalty, prev_loss_penalty)
         else:
             logger.info("    win_bonus=%+.1f", win_bonus)
             logger.info("    loss_penalty=%+.1f", loss_penalty)
@@ -427,11 +412,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                 if prev_total > 0:
                     # Keys are ints from env.step(); str fallback handles any
                     # JSON-deserialised prev_best_info where keys became strings.
-                    ppct = (
-                        100.0
-                        * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0))
-                        / prev_total
-                    )
+                    ppct = 100.0 * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0)) / prev_total
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:
                     cmp_s = ""
@@ -457,9 +438,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             prev_kills = prev.get("episode_killed_value_units")
             cmp_s = f" (prev {prev_kills:.0f})" if prev_kills is not None else ""
             prev_struct = prev.get("episode_killed_value_structures")
-            struct_cmp_s = (
-                f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
-            )
+            struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
             logger.info(
                 "    kills: units=%d%s  structures=%d%s",
                 int(kills),
@@ -515,9 +494,7 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
                 logger.info("    %s=%.1f%%", label, pct)
 
 
-def _print_action_stats(
-    throttle_counts: list[int], turning_steps: int, steps: int
-) -> None:
+def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:
     if steps == 0:
         return
     b, c, a = throttle_counts
@@ -599,9 +576,7 @@ def _run_probes(
     logger.info("Probe results:")
     for i, r in results.items():
         marker = " <-- best" if i == best_idx else ""
-        logger.info(
-            "  action %d (%-15s)  reward=%+.1f%s", i, probe_actions[i].name, r, marker
-        )
+        logger.info("  action %d (%-15s)  reward=%+.1f%s", i, probe_actions[i].name, r, marker)
     logger.info("Probe best: %+.1f", results[best_idx])
     time.sleep(1)
     return ProbePhaseResult(best_reward=results[best_idx], probe_results=probe_results)
@@ -642,20 +617,13 @@ def _cold_start_search(
 
         rng = np.random.default_rng()
         names = obs_spec.names
-        random_cfg = {
-            f"{h}_weights": {n: float(rng.standard_normal()) for n in names}
-            for h in head_names
-        }
-        local_best_policy = WeightedLinearPolicy.from_cfg(
-            random_cfg, obs_spec, head_names
-        )
+        random_cfg = {f"{h}_weights": {n: float(rng.standard_normal()) for n in names} for h in head_names}
+        local_best_policy = WeightedLinearPolicy.from_cfg(random_cfg, obs_spec, head_names)
         local_best_reward = float("-inf")
         sim_results: list[ColdStartSimResult] = []
 
         for sim in range(1, sims_per_restart + 1):
-            candidate = local_best_policy.mutated(
-                scale=mutation_scale, share=mutation_share
-            )
+            candidate = local_best_policy.mutated(scale=mutation_scale, share=mutation_share)
             obs, reset_info = env.reset()
             ep: EpisodeResult = _run_episode(
                 env,
@@ -709,9 +677,7 @@ def _cold_start_search(
         overall_best_policy = WeightedLinearPolicy(obs_spec, head_names, weights_file)
         overall_best_policy.save(weights_file)
 
-    logger.info(
-        "Cold-start complete — best: %+.1f  → %s", overall_best_reward, weights_file
-    )
+    logger.info("Cold-start complete — best: %+.1f  → %s", overall_best_reward, weights_file)
     return ColdStartPhaseResult(
         policy=overall_best_policy,
         best_reward=overall_best_reward,
@@ -856,9 +822,7 @@ def _greedy_loop(
                 candidate = best_policy.mutated(scale=current_scale)
                 logger.info("--- Sim %d/%d ---", sim, n_sims)
                 if full_episode_time_s is not None:
-                    env.set_episode_time_limit(
-                        _scaled_episode_time(sim, n_sims, full_episode_time_s)
-                    )
+                    env.set_episode_time_limit(_scaled_episode_time(sim, n_sims, full_episode_time_s))
                 obs, reset_info = env.reset()
                 ep: EpisodeResult = _run_episode(
                     env,
@@ -882,9 +846,7 @@ def _greedy_loop(
                     _log_new_best_details(ep.info, best_info)
                     best_info = ep.info
                 else:
-                    verdict = (
-                        f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
-                    )
+                    verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
                     logger.debug("  >> %s", verdict)
                     if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                         _log_periodic_stats(ep.info, sim)
@@ -920,20 +882,14 @@ def _greedy_loop(
                         laps_completed=ep.info.get("laps_completed", 0),
                         mutation_scale=current_scale,
                         termination_reason=ep.info.get("termination_reason"),
-                        finish_time_s=(
-                            ep.info.get("elapsed_s")
-                            if ep.info.get("finished")
-                            else None
-                        ),
+                        finish_time_s=(ep.info.get("elapsed_s") if ep.info.get("finished") else None),
                         mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
                         reward_components=ep.info.get("episode_reward_components"),
                         action_counts=ep.info.get("episode_action_counts"),
                         obs_averages=ep.info.get("episode_obs_averages"),
                         xy_hist=ep.info.get("episode_xy_hist"),
                         skipped_frames=_episode_skipped_frames(ep.info),
-                        supply_capped_fraction=ep.info.get(
-                            "episode_supply_capped_fraction"
-                        ),
+                        supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
                         build_order=ep.info.get("episode_build_order"),
                         army_count_series=ep.info.get("episode_army_series"),
                         resource_series=ep.info.get("episode_resource_series"),
@@ -962,9 +918,7 @@ def _greedy_loop(
         )
 
     if not isinstance(best_policy, WeightedLinearPolicy):
-        raise TypeError(
-            f"Unsupported policy for _greedy_loop: {type(best_policy).__name__}"
-        )
+        raise TypeError(f"Unsupported policy for _greedy_loop: {type(best_policy).__name__}")
 
     # ES mirrored-perturbation loop
     rng = np.random.default_rng()
@@ -983,9 +937,7 @@ def _greedy_loop(
             policy_minus = best_policy.with_flat(theta - eps)
 
             if has_episode_time_limit:
-                env.set_episode_time_limit(
-                    _scaled_episode_time(sim, n_sims, full_episode_time_s)
-                )
+                env.set_episode_time_limit(_scaled_episode_time(sim, n_sims, full_episode_time_s))
 
             obs, reset_info = env.reset()
             ep_plus: EpisodeResult = _run_episode(
@@ -999,11 +951,7 @@ def _greedy_loop(
             )
             # Capture the plus replay before env.reset() starts the minus episode
             # and overwrites it in the SC2 process.
-            _plus_candidate = (
-                _save_candidate_replay(env, weights_file)
-                if ep_plus.reward > best_reward
-                else None
-            )
+            _plus_candidate = _save_candidate_replay(env, weights_file) if ep_plus.reward > best_reward else None
             obs, reset_info = env.reset()
             ep_minus: EpisodeResult = _run_episode(
                 env,
@@ -1026,11 +974,7 @@ def _greedy_loop(
                 best_ep, best_cand = ep_minus, policy_minus
                 # Minus won and its replay is still current — save it now.
                 _discard_candidate_replay(_plus_candidate)
-                _winner_candidate = (
-                    _save_candidate_replay(env, weights_file)
-                    if ep_minus.reward > best_reward
-                    else None
-                )
+                _winner_candidate = _save_candidate_replay(env, weights_file) if ep_minus.reward > best_reward else None
 
             improved = False
             if best_ep.reward > best_reward:
@@ -1050,7 +994,9 @@ def _greedy_loop(
                 best_info_logged = best_ep.info
             else:
                 _discard_candidate_replay(_winner_candidate)
-                verdict = f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
+                verdict = (
+                    f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
+                )
                 logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                     _log_periodic_stats(best_ep.info, sim)
@@ -1061,11 +1007,7 @@ def _greedy_loop(
                     env.set_opponent_policy(_new_opp)
 
             improvement_history.append(improved)
-            if (
-                adaptive_mutation
-                and len(improvement_history) == ADAPT_WINDOW
-                and sim % ADAPT_WINDOW == 0
-            ):
+            if adaptive_mutation and len(improvement_history) == ADAPT_WINDOW and sim % ADAPT_WINDOW == 0:
                 p = sum(improvement_history) / ADAPT_WINDOW
                 prev_scale = current_scale
                 if p > 1 / 5:
@@ -1093,20 +1035,14 @@ def _greedy_loop(
                     laps_completed=best_ep.info.get("laps_completed", 0),
                     mutation_scale=current_scale,
                     termination_reason=best_ep.info.get("termination_reason"),
-                    finish_time_s=(
-                        best_ep.info.get("elapsed_s")
-                        if best_ep.info.get("finished")
-                        else None
-                    ),
+                    finish_time_s=(best_ep.info.get("elapsed_s") if best_ep.info.get("finished") else None),
                     mean_abs_lateral_offset=best_ep.info.get("mean_abs_lateral_offset"),
                     reward_components=best_ep.info.get("episode_reward_components"),
                     action_counts=best_ep.info.get("episode_action_counts"),
                     obs_averages=best_ep.info.get("episode_obs_averages"),
                     xy_hist=best_ep.info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(best_ep.info),
-                    supply_capped_fraction=best_ep.info.get(
-                        "episode_supply_capped_fraction"
-                    ),
+                    supply_capped_fraction=best_ep.info.get("episode_supply_capped_fraction"),
                     build_order=best_ep.info.get("episode_build_order"),
                     army_count_series=best_ep.info.get("episode_army_series"),
                     resource_series=best_ep.info.get("episode_resource_series"),
@@ -1147,9 +1083,7 @@ def _maybe_adapt_scale(history, current, sim, window, up, down, mn, mx, enabled,
     elif p < 1 / 5:
         new = max(current * down, mn)
     if new != current:
-        logger.info(
-            "  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)", current, new, p
-        )
+        logger.info("  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)", current, new, p)
     out.append(new)
 
 
@@ -1347,20 +1281,14 @@ def _greedy_loop_cmaes(
                     final_track_progress=last_info.get("track_progress", 0.0),
                     laps_completed=last_info.get("laps_completed", 0),
                     termination_reason=last_info.get("termination_reason"),
-                    finish_time_s=(
-                        last_info.get("elapsed_s")
-                        if last_info.get("finished")
-                        else None
-                    ),
+                    finish_time_s=(last_info.get("elapsed_s") if last_info.get("finished") else None),
                     mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
                     reward_components=last_info.get("episode_reward_components"),
                     action_counts=last_info.get("episode_action_counts"),
                     obs_averages=last_info.get("episode_obs_averages"),
                     xy_hist=last_info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(last_info),
-                    supply_capped_fraction=last_info.get(
-                        "episode_supply_capped_fraction"
-                    ),
+                    supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
                     build_order=last_info.get("episode_build_order"),
                     army_count_series=last_info.get("episode_army_series"),
                     resource_series=last_info.get("episode_resource_series"),
@@ -1476,18 +1404,14 @@ def _greedy_loop_q_learning(
                     final_track_progress=ep.info.get("track_progress", 0.0),
                     laps_completed=ep.info.get("laps_completed", 0),
                     termination_reason=ep.info.get("termination_reason"),
-                    finish_time_s=(
-                        ep.info.get("elapsed_s") if ep.info.get("finished") else None
-                    ),
+                    finish_time_s=(ep.info.get("elapsed_s") if ep.info.get("finished") else None),
                     mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
                     reward_components=ep.info.get("episode_reward_components"),
                     action_counts=ep.info.get("episode_action_counts"),
                     obs_averages=ep.info.get("episode_obs_averages"),
                     xy_hist=ep.info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(ep.info),
-                    supply_capped_fraction=ep.info.get(
-                        "episode_supply_capped_fraction"
-                    ),
+                    supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
                     build_order=ep.info.get("episode_build_order"),
                     army_count_series=ep.info.get("episode_army_series"),
                     resource_series=ep.info.get("episode_resource_series"),
@@ -1569,9 +1493,7 @@ def _greedy_loop_genetic(
         n_generations * pop_size * eval_episodes,
     )
     if full_episode_time_s is None:
-        logger.info(
-            "[Genetic] environment has no adjustable episode time limit; skipping per-generation time scaling."
-        )
+        logger.info("[Genetic] environment has no adjustable episode time limit; skipping per-generation time scaling.")
 
     try:
         best_info_logged: dict = {}
@@ -1663,11 +1585,7 @@ def _greedy_loop_genetic(
 
             # --- adaptive mutation (1/5 success rule over recent window) ---
             improvement_history.append(improved)
-            if (
-                adaptive_mutation
-                and len(improvement_history) == ADAPT_WINDOW
-                and gen % ADAPT_WINDOW == 0
-            ):
+            if adaptive_mutation and len(improvement_history) == ADAPT_WINDOW and gen % ADAPT_WINDOW == 0:
                 p = sum(improvement_history) / ADAPT_WINDOW
                 prev_scale = policy.mutation_scale
                 if p > 1 / 5:
@@ -1698,20 +1616,14 @@ def _greedy_loop_genetic(
                     final_track_progress=last_info.get("track_progress", 0.0),
                     laps_completed=last_info.get("laps_completed", 0),
                     termination_reason=last_info.get("termination_reason"),
-                    finish_time_s=(
-                        last_info.get("elapsed_s")
-                        if last_info.get("finished")
-                        else None
-                    ),
+                    finish_time_s=(last_info.get("elapsed_s") if last_info.get("finished") else None),
                     mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
                     reward_components=last_info.get("episode_reward_components"),
                     action_counts=last_info.get("episode_action_counts"),
                     obs_averages=last_info.get("episode_obs_averages"),
                     xy_hist=last_info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(last_info),
-                    supply_capped_fraction=last_info.get(
-                        "episode_supply_capped_fraction"
-                    ),
+                    supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
                     build_order=last_info.get("episode_build_order"),
                     army_count_series=last_info.get("episode_army_series"),
                     resource_series=last_info.get("episode_resource_series"),
@@ -1801,12 +1713,8 @@ def _maybe_build_evaluator(
         n_workers=n_workers,
         make_env_fn=make_env_fn,
         template_policy=template_policy,
-        worker_start_stagger_s=float(
-            training_params.get("worker_start_stagger_s", 5.0)
-        ),
-        worker_warmup_timeout_s=float(
-            training_params.get("worker_warmup_timeout_s", 90.0)
-        ),
+        worker_start_stagger_s=float(training_params.get("worker_start_stagger_s", 5.0)),
+        worker_warmup_timeout_s=float(training_params.get("worker_warmup_timeout_s", 90.0)),
         per_episode_timeout_s=float(in_game_episode_s),
         base_seed=int(training_params.get("worker_base_seed", 0)),
     )
@@ -1924,16 +1832,11 @@ def train_rl(
         _preflight_cls._validate_params(policy_params)
 
     _will_pretrain = (
-        do_pretrain
-        and policy_type == "hill_climbing"
-        and not os.path.exists(weights_file)
-        and not re_initialize
+        do_pretrain and policy_type == "hill_climbing" and not os.path.exists(weights_file) and not re_initialize
     )
 
     if _will_pretrain and not no_interrupt:
-        input(
-            "\n  [PRE-TRAIN]  Press Enter to connect and start behavior cloning from SimplePolicy..."
-        )
+        input("\n  [PRE-TRAIN]  Press Enter to connect and start behavior cloning from SimplePolicy...")
     elif cold_start and not no_interrupt:
         input("\n  [PROBE PHASE]  Press Enter to connect and start probe runs...")
 
@@ -1972,9 +1875,7 @@ def train_rl(
         t_after_probe = datetime.datetime.now()
 
         if not no_interrupt:
-            input(
-                "\n  [COLD-START SEARCH]  Press Enter to start random-restart search..."
-            )
+            input("\n  [COLD-START SEARCH]  Press Enter to start random-restart search...")
         time.sleep(1)
         cold: ColdStartPhaseResult = _cold_start_search(
             env,
@@ -2043,9 +1944,7 @@ def train_rl(
         from framework.self_play import SelfPlayManager
 
         _sp_mode = str(training_params.get("self_play_mode", "exact"))
-        _sp_mutation_scale = float(
-            training_params.get("self_play_mutation_scale", mutation_scale)
-        )
+        _sp_mutation_scale = float(training_params.get("self_play_mutation_scale", mutation_scale))
         _sp_top_n = int(training_params.get("self_play_top_n", 5))
         _self_play_manager = SelfPlayManager(
             mode=_sp_mode,
@@ -2149,9 +2048,7 @@ def train_rl(
                 **kw,
             )
         else:
-            raise ValueError(
-                f"Unknown LOOP_TYPE on {type(best_policy).__name__}: {loop_type!r}"
-            )
+            raise ValueError(f"Unknown LOOP_TYPE on {type(best_policy).__name__}: {loop_type!r}")
     finally:
         if evaluator is not None:
             evaluator.close()
@@ -2160,9 +2057,7 @@ def train_rl(
     if live_monitor is not None:
         live_monitor.close()
 
-    logger.info(
-        "=== Training complete — best total reward: %+.1f ===", loop.best_reward
-    )
+    logger.info("=== Training complete — best total reward: %+.1f ===", loop.best_reward)
 
     t_end = datetime.datetime.now()
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -2171,11 +2066,7 @@ def train_rl(
         "end": t_end.strftime(fmt),
         "total_s": (t_end - t_start).total_seconds(),
         "probe_s": (t_after_probe - t_start).total_seconds() if t_after_probe else None,
-        "cold_start_s": (
-            (t_after_cold - t_after_probe).total_seconds()
-            if t_after_cold and t_after_probe
-            else None
-        ),
+        "cold_start_s": ((t_after_cold - t_after_probe).total_seconds() if t_after_cold and t_after_probe else None),
         "greedy_s": (t_end - t_greedy_start).total_seconds(),
     }
 

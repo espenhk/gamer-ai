@@ -658,23 +658,21 @@ Champion weights are saved as `<experiment_dir>/weights.npz`. Trainer state (ES 
 ## Behaviour cloning from replays
 
 Offline behaviour cloning (BC) lets you base-train a policy from human (or
-high-level AI) SC2 gameplay before any RL fine-tuning. The planned workflow
-(CLI wired up in issue #353 [4/6]):
+high-level AI) SC2 gameplay before any RL fine-tuning:
 
 ```bash
 # 1. Behaviour-clone from a folder of replays (winner of each game, Terran-only)
-#    NOTE: --bc / --replay-dir / --bc-race are added in issue #353 [4/6].
-#    The commands below will not work until that PR is merged.
 python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race terran
 
 # 2. Fine-tune from the BC weights with whatever policy_type is configured
 python main.py myrun --game sc2
 ```
 
-Once wired up, `--bc` will be SC2-only (rejected with an error for other games).
-The resulting `policy_weights.yaml` (and optional `trainer_state.npz`) are
-written to the standard experiment directory; the normal SC2 training loop
-auto-loads them on the next run, so step 2 is just a regular training run.
+`--bc` is SC2-only (rejected with an error for other games, and mutually
+exclusive with `--play` / `--eval`).  The resulting `policy_weights.yaml`
+(and optional `trainer_state.npz`) are written to the standard experiment
+directory; the normal SC2 training loop auto-loads them on the next run, so
+step 2 is just a regular training run.
 
 ### Getting replay data
 
@@ -737,13 +735,47 @@ and emits `WARNING` log messages when:
 | `--replay-dir DIR` | `bc_replay_dir` | — | Folder of `*.SC2Replay` files |
 | `--bc-player winner\|1\|2` | `bc_player_id` | `winner` | Which player to clone |
 | `--bc-race RACE` | `bc_race` | `any` | Race filter (`terran`, `zerg`, `protoss`, or `any`) |
-| `--bc-target POLICY` | `bc_target` | `sc2_reinforce` | Target policy family for BC fit |
+| `--bc-target POLICY` | `bc_target` | `sc2_reinforce` | Target policy family for BC fit (see table below) |
+| *(config only)* | `bc_max_replays` | *(null)* | Cap number of replays processed; `null` = all |
+| *(config only)* | `bc_step_mul` | `step_mul` | Game ticks per replay step (usually matches `step_mul`) |
+| *(config only)* | `bc_epochs` | `10` | Gradient-descent passes over the dataset (MLP/LSTM targets only) |
+| *(config only)* | `bc_learning_rate` | `0.001` | Step size for gradient updates (MLP/LSTM targets only) |
+| *(config only)* | `bc_batch_size` | `256` | Mini-batch size for gradient updates (MLP/neural_net targets only) |
+| *(config only)* | `bc_ignore_noop` | `true` | Drop `fn_idx=0` (no-op) steps before fitting so the fn head isn't swamped |
+| *(config only)* | `bc_lstm_hidden_size` | `64` | LSTM hidden-state size (`sc2_lstm` target only) |
 
 CLI flags override the corresponding `bc_*` keys in `training_params.yaml`.
 
-**Default target** is `sc2_reinforce` (MLP with cross-entropy fn-head + MSE
-spatial head). Pass `--bc-target sc2_genetic` for a closed-form linear fit into
-`SC2MultiHeadLinearPolicy`.
+### Per-policy warm-start support
+
+All nine SC2-compatible policy types accept a BC warm-start. The fit method
+differs by architecture:
+
+| `bc_target` | Warm-start method | Compatible fine-tune policies |
+|---|---|---|
+| `sc2_reinforce` | Mini-batch gradient descent (CE fn + MSE spatial) | `sc2_reinforce` only |
+| `sc2_genetic` | Closed-form least-squares (`SC2MultiHeadLinearPolicy`) | `sc2_genetic`, `sc2_cmaes` |
+| `sc2_cmaes` | Same lstsq as `sc2_genetic`, then seeds CMA-ES distribution mean | `sc2_cmaes`, `sc2_genetic` |
+| `sc2_neural_net` | Mini-batch MSE regression (logit-transformed fn/x/y targets) | `sc2_neural_net` only |
+| `sc2_neural_dqn` | Pre-fills replay buffer with demo transitions matched to nearest `DISCRETE_ACTIONS` row by L1 | `sc2_neural_dqn` only |
+| `sc2_lstm` | Trains LSTM output head (`W_out`/`b_out`) via CE SGD over episode sequences; gate weights stay frozen | `sc2_lstm` only |
+| `sc2_cnn` | Random obs→FC projection; lstsq for fn and spatial heads; seeds `_champion` and `_mean` | `sc2_cnn` only |
+| `epsilon_greedy` | Seeds Q-table and visit counts from binned demo (state, action) pairs | `epsilon_greedy` only |
+| `ucb_q` | Same as `epsilon_greedy` | `ucb_q` only |
+
+`sc2_genetic` ↔ `sc2_cmaes` are cross-compatible because both use
+`SC2MultiHeadLinearPolicy` as the underlying weight format. All other pairs are
+incompatible — the weight layout differs.
+
+### Coordinate and resolution caveats
+
+The BC dataset encodes spatial coordinates as normalised `[0, 1]` fractions of
+the feature-layer grid used during recording. The coordinates are meaningless
+against a different grid resolution. **Always use the same `screen_size` and
+`minimap_size` for both the `--bc` step and the subsequent fine-tune run.**
+The default is `64 × 64` for both; if you change either in
+`training_params.yaml`, set `bc_step_mul` accordingly and re-run `--bc` to
+rebuild the dataset.
 
 ### Version-matching guidance
 

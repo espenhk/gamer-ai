@@ -38,6 +38,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
   plus O(FC_DIM × S).
 
 ### Added
+- SC2 replay BC documentation pass (issue #355, [6/6]): `games/sc2/README.md`
+  — removed stub text, added full `bc_*` config-key table, per-policy warm-start
+  support table (`sc2_reinforce` / `sc2_genetic` / `sc2_cmaes` / `sc2_neural_net`
+  / `sc2_neural_dqn` / `sc2_lstm` / `sc2_cnn` / tabular families), and
+  coordinate/resolution caveats; `CLAUDE.md` — noted `--bc` mode in the Running
+  section and all `bc_*` keys in the Config knobs table.
 - BC warm-start integration with `grid_search.py` (issue #354, [6/6]): two ways
   to warm-start every combo in a grid search from a behaviour-cloning checkpoint.
   (1) **Post-hoc warm-start** — pass `--bc-warmstart-dir <path>` pointing to an

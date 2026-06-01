@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.20] - 2026-06-01
+
 ### Added
 - **Atari: DQN grid-search template** (`games/atari/config/gs_neural_dqn_template.yaml`, issue #385).
   Sweeps `learning_rate × epsilon_decay_steps` (6 combos) on `Pong-v5` using DQN-paper

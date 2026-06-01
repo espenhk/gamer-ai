@@ -17,7 +17,21 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
+### Changed
+- **SC2 training log: action shares now show function names instead of raw indices** (issue #375).
+  `>> NEW BEST` and `[stats @ sim N]` blocks now display e.g. `Attack_screen=3.0%` instead
+  of `3=3.0%`.  The mapping is supplied by `SC2Env` via the new `episode_action_name_map`
+  info key; other games without a name map continue to show raw keys unchanged.
+- **Per-episode non-improvement log lines demoted to DEBUG** (issue #377).
+  `ep end`, `>> no improvement`, and `[stats @ sim N]` blocks are now `logger.debug` so they
+  are hidden at the default `INFO` log level.  `>> NEW BEST` and its reward breakdown remain
+  at `INFO`.
+- **SC2 feature extraction skips unused preset groups** (issue #379).
+  `SC2Client._timestep_to_obs_info` now gates expensive ladder- and rich-only feature extractors
+  behind `_use_ladder_obs` / `_use_rich_obs` flags computed once at init.  Minigame runs skip
+  score, screen-HP, top-K enemy, and alert extractors; ladder runs additionally skip all
+  rich-only extractors (quadrant counts, per-unit-type enemies, shield/energy, creep, weapon
+  cooldown, etc.), reducing per-step Python overhead for the two most common presets.
 
 ---
 

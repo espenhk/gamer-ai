@@ -318,7 +318,7 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float, truncate
             outcome_s = str(info.get("termination_reason", outcome))
         reward_v = float(raw_reward if raw_reward is not None else 0.0)
         score = float(info.get("score", 0.0))
-        logger.info(
+        logger.debug(
             "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f%s",
             outcome,
             total_reward,
@@ -329,7 +329,7 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float, truncate
             skipped_suffix,
         )
         return
-    logger.info("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
+    logger.debug("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
 
 
 def _episode_skipped_frames(info: dict) -> int | None:
@@ -390,7 +390,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
         if total > 0:
             prev_ac: dict = prev.get("episode_action_counts") or {}
             prev_total = sum(prev_ac.values()) if prev_ac else 0
+            name_map: dict = info.get("episode_action_name_map") or {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                label = name_map.get(fn_idx, str(fn_idx))
                 pct = 100.0 * count / total
                 if prev_total > 0:
                     # Keys are ints from env.step(); str fallback handles any
@@ -399,7 +401,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:
                     cmp_s = ""
-                logger.info("    %s=%.1f%%%s", fn_idx, pct, cmp_s)
+                logger.info("    %s=%.1f%%%s", label, pct, cmp_s)
 
     # 3. Task metrics — adapters populate info["episode_task_metrics"] as a
     #    dict of {label: formatted_string} so framework stays game-agnostic.
@@ -439,12 +441,12 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
 def _log_periodic_stats(info: dict, sim: int) -> None:
     """Log reward component breakdown and action ratios at a periodic sim interval.
 
-    Emitted at INFO level without a prev-comparison (that is reserved for the
+    Emitted at DEBUG level without a prev-comparison (that is reserved for the
     NEW BEST headline in ``_log_new_best_details``).  Enables tracking of how
     the agent's behaviour and reward mix evolve mid-run without waiting for an
     improvement event.
     """
-    logger.info("  [stats @ sim %d]", sim)
+    logger.debug("  [stats @ sim %d]", sim)
 
     rc = info.get("episode_reward_components")
     if rc:
@@ -453,20 +455,22 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
             if k == "terminal":
                 continue
             if abs(v) > 0.001 or k == "score":
-                logger.info("    %s=%+.1f", k, v)
+                logger.debug("    %s=%+.1f", k, v)
         if terminal != 0.0:
             if terminal > 0:
-                logger.info("    win_bonus=%+.1f", terminal)
+                logger.debug("    win_bonus=%+.1f", terminal)
             else:
-                logger.info("    loss_penalty=%+.1f", terminal)
+                logger.debug("    loss_penalty=%+.1f", terminal)
 
     ac = info.get("episode_action_counts")
     if ac:
         total = sum(ac.values())
         if total > 0:
+            name_map: dict = info.get("episode_action_name_map") or {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                label = name_map.get(fn_idx, str(fn_idx))
                 pct = 100.0 * count / total
-                logger.info("    %s=%.1f%%", fn_idx, pct)
+                logger.debug("    %s=%.1f%%", label, pct)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:
@@ -817,7 +821,7 @@ def _greedy_loop(
                     best_info = ep.info
                 else:
                     verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
-                    logger.info("  >> %s", verdict)
+                    logger.debug("  >> %s", verdict)
                     if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                         _log_periodic_stats(ep.info, sim)
                 if self_play_manager is not None:
@@ -967,7 +971,7 @@ def _greedy_loop(
                 verdict = (
                     f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
                 )
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                     _log_periodic_stats(best_ep.info, sim)
 
@@ -1225,7 +1229,7 @@ def _greedy_loop_cmaes(
                     f"  champion={policy.champion_reward:+.1f}"
                     f"  sigma={policy.sigma:.4f}"
                 )
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 
@@ -1327,6 +1331,7 @@ def _greedy_loop_q_learning(
             policy.on_episode_end()
 
             improved = ep.reward > best_reward
+            cfg = policy.to_cfg()
             if improved:
                 prev_best = best_reward
                 best_reward = ep.reward
@@ -1334,15 +1339,14 @@ def _greedy_loop_q_learning(
                 policy.save_trainer_state(_trainer_state_path(weights_file))
                 _try_save_replay(env, weights_file)
                 verdict = f"NEW BEST  {ep.reward:+.1f}  (was {prev_best:+.1f})"
-            else:
-                verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
-            cfg = policy.to_cfg()
-            logger.info("  >> %s  [states visited: %s]", verdict, cfg.get("n_states_visited", "?"))
-            if improved:
+                logger.info("  >> %s  [states visited: %s]", verdict, cfg.get("n_states_visited", "?"))
                 _log_new_best_details(ep.info, best_info_logged)
                 best_info_logged = ep.info
-            elif log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
-                _log_periodic_stats(ep.info, episode)
+            else:
+                verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
+                logger.debug("  >> %s  [states visited: %s]", verdict, cfg.get("n_states_visited", "?"))
+                if log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(ep.info, episode)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1531,7 +1535,7 @@ def _greedy_loop_genetic(
             else:
                 _discard_candidate_replay(_gen_candidate)
                 verdict = f"no improvement  gen_best={gen_best:+.1f}  champion={policy.champion_reward:+.1f}"
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 

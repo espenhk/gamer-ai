@@ -335,7 +335,7 @@ worker mechanics are unit-tested with a dummy env.
 - SC2 summary formatting: scalar `outcome` (`win`/`loss`/`draw`) plus scalar `reward=` and `score=` values
 - `_log_new_best_details` — empty info emits nothing
 - reward components: logs all non-zero components, always includes `score` (even when 0), and explicitly logs `win_bonus`/`loss_penalty` split from terminal reward with previous-best comparison
-- action frequency: one log line per action logged by raw key (no game-specific name lookup); prev comparison shown
+- action frequency: one log line per action; uses `episode_action_name_map` when present (e.g. `Attack_screen=70.0%`), falls back to raw key stringified when absent; prev comparison shown
 - task metrics: generic `episode_task_metrics` dict (pre-formatted strings); progress, lateral offset, finish time only when present; prev comparison for each key (all on one combined line); adapters are responsible for populating and formatting values
 - SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
 - SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison
@@ -556,8 +556,8 @@ have to be covered.
 (`minimap_enemy_cx/cy`) that enables the policy to locate the beacon even
 when it is off the current camera view (beacon-idling fix); the `_action_to_call`
 no-spam fix (blocked Move_screen issues select_army once, then no_op on
-consecutive blocked steps); the 118-entry `FUNCTION_IDS` table and the
-`DISCRETE_ACTIONS` uniform `[command × location]` grid (3 583 rows: every
+consecutive blocked steps); the 116-entry `FUNCTION_IDS` table and the
+`DISCRETE_ACTIONS` uniform `[command × location]` grid (3 455 rows: every
 spatial fn_id gets a full 8×8 = 64-cell block, every non-spatial fn_id gets 1
 row); `SPATIAL_FN_IDS` derivation; race gating (`RACE_FUNCTION_IDS`,
 `fn_ids_for_race()`, pairwise-disjoint race-specific sets); the SC2 reward calculator
@@ -643,6 +643,7 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 ### test_sc2_reward.py — SC2 reward calc
 - defaults; from_yaml; unknown raises; loads bundled config
 - score delta; step penalty only; step penalty n_ticks scaling; win bonus; loss penalty; no-outcome no bonus; economy weight; idle penalty when idle / not when busy
+- idle_worker_penalty (issue #358): fires per idle worker (scaled by count); zero when no idle workers; zero when key absent; disabled by default; n_ticks scaling; appears in components dict
 - idle bonus: uses unit-aware max attack range when available and only fires at 95% inside that range (e.g. 19/20 fires, 20/20 skips); skipped for non-no_op / far enemy / no enemy / no self; disabled by default; n_ticks scaling
 - attack_move_bonus: fires when Attack_screen target is on empty ground with enemies visible; skipped for Move_screen / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
 - click_attack_bonus: fires when Attack_screen target is on/near enemy centroid; skipped when target far from enemy / no enemy; disabled by default; n_ticks scaling; persists across consecutive no_op steps until another non-no_op action is issued
@@ -655,6 +656,8 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - passive_under_fire_penalty: fires on no_op or Move_screen when enemies within attack range; suppressed by Attack_screen; skipped when enemy out of range / no enemy / no self; respects explicit self_attack_range_px; n_ticks scaling; disabled by default; appears in components dict
 - small_selection_bonus: fires on unit-targeted commands when selection is a single unit or less than half of visible friendly units; skipped for non-unit-targeted actions and exactly-half selections; appears in components dict
 - attack_bonus: fires on any Attack_screen (fn_idx 3) regardless of target type; persists across carried attack no_op steps; skipped for pure no_op (no prior attack); disabled by default; appears in components dict
+- new_action_unlock_bonus (issue #360): `_TECH_GATED_FN_IDS` class attribute is non-empty and includes fn_idx 8 (`Build_Barracks_screen`); non-gated fn_ids (0, 1, 2) excluded; bonus fires on first appearance of a tech-gated fn_idx in `available_fn_ids`; does not fire again same episode; fires again after `reset()`; scales with count of newly unlocked fn_ids; non-gated actions do not trigger; disabled when bonus is 0.0; missing `available_fn_ids` key does not crash; components sum equals total
+- resource_banking_penalty (issue #372): disabled by default; default thresholds mineral=300/gas=200; zero when both resources below threshold; zero at exact thresholds; fires proportionally for excess minerals only; fires proportionally for excess gas only; accumulates both resources; n_ticks scaling; zero when info keys absent; appears in components dict; zero in components when disabled; components sum equals total; custom thresholds honoured
 - components sum: new terms included in total (extended sum test)
 
 ### test_sc2_client.py — PySC2 client wrapper
@@ -677,6 +680,9 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - score_features field-name access: named NamedNumpyArray access takes priority over positional; score→score_total rename applied; missing score array → all zeros
 - last_fn_idx property: `_resolve_action` routing → idx=1 when select_army resolved; no_op fallback on blocked PySC2 mask → idx=0; passthrough → requested idx
 - realtime param: default False stored; True stored; forwarded as kwarg to SC2Env constructor
+- deferred-action oscillation fix (#356 H1): deferred `Move_screen` replays directly on step 2 even when army is still empty; `select_army` appears exactly once across both steps (not re-emitted, not re-deferred)
+- owned-buildings accumulation fix (#356 H2): drives real `_timestep_to_obs_info()` with patched `_compute_owned_buildings()` — buildings seen in prior steps remain in `_owned_buildings` after the camera pans away; new buildings are unioned in each step; episode `reset()` clears both `_owned_buildings` and `_owned_buildings_seen`
+- fn_idx_satisfied cache fix (#356 H3): patches `games.sc2.client.fn_idx_satisfied` to count calls — zero new calls on cache hit (identical state); fresh pass triggered when `owned_buildings`, `selected_unit_types`, or the PySC2 candidate set changes
 
 ### test_sc2_env.py — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set

@@ -1097,14 +1097,14 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
 
         old_cache = sc2_client_mod._pysc2_id_to_fn_idx
         try:
-            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 50)
-            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 50}
+            # no_op (0), Build_Barracks_screen (321 -> fn_idx 8), Build_Nexus_screen (882 -> fn_idx 48)
+            sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 48}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
             ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
-            # Build_Nexus (fn_idx=50) is Protoss; race filter drops it.
+            # Build_Nexus (fn_idx=48) is Protoss; race filter drops it.
             self.assertEqual(info["available_fn_ids"], {0, 8})
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
@@ -2003,6 +2003,311 @@ class TestSC2ClientLadderRestart(unittest.TestCase):
         self.assertIs(client._sc2_env, fake_env_new)
         # PySC2's reset() on the new env must have been called.
         fake_env_new.reset.assert_called_once()
+
+
+class TestIssue356DeferredActionOscillation(unittest.TestCase):
+    """Regression tests for issue #356 H1: deferred-action infinite loop.
+
+    Before the fix, _resolve_action() was called again when consuming a
+    deferred action.  With an empty army, select_army is always "available"
+    in PySC2 but never populates a selection, so the agent would emit
+    select_army every step forever.  After the fix, the deferred action is
+    sent directly on step 2 regardless of the current selection state.
+    """
+
+    def setUp(self):
+        from unittest.mock import MagicMock, patch
+
+        patcher_pysc2 = patch.dict(
+            "sys.modules",
+            {
+                "pysc2": _FakePySc2,
+                "pysc2.lib": _FakePySc2.lib,
+                "pysc2.lib.actions": _FakeActionsModule,
+            },
+        )
+        patcher_pysc2.start()
+        self.addCleanup(patcher_pysc2.stop)
+
+        from games.sc2 import client as client_mod
+
+        def _fake_action_to_call(action, screen_size, minimap_size=None):
+            fn_idx = int(action[0])
+            fn_id = {
+                0: _FakeFunctions.no_op.id,
+                1: _FakeFunctions.select_army.id,
+                2: _FakeFunctions.Move_screen.id,
+            }.get(fn_idx, _FakeFunctions.no_op.id)
+            return _FakeFunctionCall(fn_id, [])
+
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_action_to_call)
+        patcher_helper.start()
+        self.addCleanup(patcher_helper.stop)
+
+        from games.sc2.client import SC2Client
+
+        self.client = SC2Client(map_name="MoveToBeacon")
+        fake_ts = MagicMock()
+        fake_ts.last.return_value = False
+        fake_ts.reward = 0.0
+        self.client._sc2_env = MagicMock()
+        self.client._sc2_env.step.return_value = [fake_ts]
+        self.client._timestep_to_obs_info = MagicMock(return_value=(np.zeros(10), {}))
+        self.client._available_actions = None
+        self._calls = []
+        original_atc = self.client._action_to_call
+
+        def _spy(action):
+            self._calls.append(int(action[0]))
+            return original_atc(action)
+
+        self.client._action_to_call = _spy
+
+    def test_deferred_action_replayed_directly_when_army_still_empty(self):
+        """H1 fix: step 2 sends Move_screen directly even if army is still 0."""
+        # Step 1: empty selection → select_army emitted, Move_screen deferred.
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
+        self.assertEqual(self._calls[-1], 1)  # select_army
+        self.assertIsNotNone(self.client._deferred_action)
+        self.assertEqual(int(self.client._deferred_action[0]), 2)
+
+        # Step 2: army STILL empty (select_army found nothing on a ladder map
+        # at game start).  Before the fix this would emit another select_army
+        # and re-defer, looping forever.  After the fix, Move_screen goes out.
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+        self.assertEqual(self._calls[-1], 2)  # Move_screen — NOT another select_army
+        self.assertIsNone(self.client._deferred_action)  # no re-deferral
+
+    def test_no_third_select_army_emitted(self):
+        """Across both steps, select_army appears exactly once (not twice)."""
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([2, 0.4, 0.6, 0], dtype=np.float32))
+
+        self.client._selected_count = 0.0
+        self.client._selected_unit_types = frozenset()
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+
+        select_army_count = self._calls.count(1)
+        self.assertEqual(select_army_count, 1, f"select_army should appear once; got {self._calls}")
+
+
+class TestIssue356OwnedBuildingsAccumulation(unittest.TestCase):
+    """Regression tests for issue #356 H2: buildings vanish when camera moves.
+
+    _compute_owned_buildings() only scans feature_units (the current camera
+    view).  Before the fix, panning away from the base would empty
+    _owned_buildings and block every build/train action whose tech-tree prereq
+    required a structure.  After the fix, _owned_buildings_seen accumulates
+    the union across steps for the entire episode.
+
+    All tests drive the real _timestep_to_obs_info() code path (with
+    _compute_owned_buildings patched to control visibility) rather than
+    directly manipulating the accumulator, so they would catch a regression
+    where the accumulation assignment is removed from _timestep_to_obs_info.
+    """
+
+    def _make_fake_obs(self):
+        return {
+            "player": _NamedArr(
+                {
+                    "minerals": 50,
+                    "vespene": 0,
+                    "food_used": 1,
+                    "food_cap": 15,
+                    "army_count": 0,
+                    "idle_worker_count": 0,
+                    "warp_gate_count": 0,
+                    "larva_count": 0,
+                }
+            ),
+            "single_select": np.zeros((0, 7), dtype=np.int32),
+            "multi_select": np.zeros((0, 7), dtype=np.int32),
+            "feature_screen": np.zeros((17, 64, 64), dtype=np.int32),
+            "score_cumulative": np.array([0]),
+        }
+
+    def _make_client(self):
+        from games.sc2.client import SC2Client
+
+        return SC2Client(map_name="Simple64")
+
+    def test_buildings_persist_after_camera_moves_away(self):
+        """Buildings seen on step 1 remain in _owned_buildings on step 2
+        even when _compute_owned_buildings returns empty (camera moved)."""
+        from unittest.mock import MagicMock
+
+        client = self._make_client()
+        ts = _FakeTimeStep(self._make_fake_obs())
+
+        # Step 1: CommandCenter visible this tick.
+        client._compute_owned_buildings = MagicMock(return_value=frozenset({"CommandCenter"}))
+        client._timestep_to_obs_info(ts)
+        self.assertIn("CommandCenter", client._owned_buildings)
+
+        # Step 2: camera panned away; _compute_owned_buildings returns empty.
+        client._compute_owned_buildings = MagicMock(return_value=frozenset())
+        client._timestep_to_obs_info(ts)
+
+        # The accumulator must keep the CommandCenter seen in step 1.
+        self.assertIn("CommandCenter", client._owned_buildings)
+
+    def test_reset_clears_accumulated_buildings(self):
+        """Episode boundary clears _owned_buildings_seen so old-game buildings
+        don't leak into the next episode."""
+        from unittest.mock import MagicMock
+
+        client = self._make_client()
+        ts = _FakeTimeStep(self._make_fake_obs())
+
+        # Accumulate a building via the real code path.
+        client._compute_owned_buildings = MagicMock(return_value=frozenset({"CommandCenter"}))
+        client._timestep_to_obs_info(ts)
+        self.assertIn("CommandCenter", client._owned_buildings)
+
+        # Now call reset() itself (not manual field assignment) to verify it
+        # clears both _owned_buildings and _owned_buildings_seen.
+        fake_env = MagicMock()
+        fake_ts = MagicMock()
+        fake_ts.last.return_value = False
+        fake_env.reset.return_value = [fake_ts]
+        client._make_sc2_env = MagicMock(return_value=fake_env)
+        # Stub _timestep_to_obs_info for the reset() call so we only test the
+        # field-clearing side of reset(), not obs flattening.
+        client._timestep_to_obs_info = MagicMock(return_value=(np.zeros(10, dtype=np.float32), {}))
+
+        client.reset()
+
+        self.assertEqual(client._owned_buildings, frozenset())
+        self.assertEqual(client._owned_buildings_seen, frozenset())
+
+    def test_new_buildings_added_each_step(self):
+        """Each step's visible buildings are unioned into the accumulator."""
+        from unittest.mock import MagicMock
+
+        client = self._make_client()
+        ts = _FakeTimeStep(self._make_fake_obs())
+
+        # Step 1: CommandCenter visible.
+        client._compute_owned_buildings = MagicMock(return_value=frozenset({"CommandCenter"}))
+        client._timestep_to_obs_info(ts)
+
+        # Step 2: Barracks now visible (camera panned to construction site).
+        client._compute_owned_buildings = MagicMock(return_value=frozenset({"Barracks"}))
+        client._timestep_to_obs_info(ts)
+
+        # Both buildings must be in the accumulator.
+        self.assertIn("CommandCenter", client._owned_buildings)
+        self.assertIn("Barracks", client._owned_buildings)
+
+
+class TestIssue356FnIdxCache(unittest.TestCase):
+    """Regression tests for issue #356 H3: per-step fn_idx_satisfied overhead.
+
+    _compute_available_fn_ids() must skip the fn_idx_satisfied loop when
+    owned_buildings, completed_upgrades, selected_unit_types, and the PySC2
+    candidate set are all unchanged from the previous call.  When any of
+    the four keys changes, the loop must run again.
+    """
+
+    def setUp(self):
+        from games.sc2.client import SC2Client
+
+        self.client = SC2Client(map_name="MoveToBeacon")
+        # Use a fixed race so the candidate set is deterministic (avoids the
+        # _infer_fn_ids_from_units(ob) path which needs a real observation).
+        self.client._agent_race = "terran"
+        # Non-empty lookup enables the tech-tree branch; contents don't matter
+        # because fn_idx_satisfied is patched below.
+        self.client._unit_type_id_to_name = {"1": "SCV"}
+        self.client._available_actions = None  # use the full race candidate set
+
+    def _call(self, patcher):
+        """Call _compute_available_fn_ids with a dummy observation."""
+        return self.client._compute_available_fn_ids(None)
+
+    def test_cache_hit_skips_fn_idx_satisfied(self):
+        """Calling with unchanged state a second time must not invoke
+        fn_idx_satisfied again."""
+        from unittest.mock import patch
+
+        with patch("games.sc2.client.fn_idx_satisfied", return_value=True) as mock_sat:
+            self.client._owned_buildings = frozenset()
+            self.client._completed_upgrades = frozenset()
+            self.client._selected_unit_types = frozenset()
+
+            self.client._compute_available_fn_ids(None)
+            first_call_count = mock_sat.call_count
+            self.assertGreater(first_call_count, 0, "fn_idx_satisfied must be called on first run")
+
+            # Second call with identical state → cache hit → zero new calls.
+            self.client._compute_available_fn_ids(None)
+            self.assertEqual(
+                mock_sat.call_count,
+                first_call_count,
+                "fn_idx_satisfied should not be called on a cache hit",
+            )
+
+    def test_cache_invalidated_when_owned_buildings_changes(self):
+        """Changing owned_buildings must trigger a fresh tech-tree pass."""
+        from unittest.mock import patch
+
+        with patch("games.sc2.client.fn_idx_satisfied", return_value=True) as mock_sat:
+            self.client._owned_buildings = frozenset()
+            self.client._completed_upgrades = frozenset()
+            self.client._selected_unit_types = frozenset()
+
+            self.client._compute_available_fn_ids(None)
+            after_first = mock_sat.call_count
+
+            # Change owned_buildings → cache miss.
+            self.client._owned_buildings = frozenset({"Barracks"})
+            self.client._compute_available_fn_ids(None)
+            self.assertGreater(mock_sat.call_count, after_first)
+
+    def test_cache_invalidated_when_selected_unit_types_changes(self):
+        """Changing selected_unit_types must trigger a fresh tech-tree pass."""
+        from unittest.mock import patch
+
+        with patch("games.sc2.client.fn_idx_satisfied", return_value=True) as mock_sat:
+            self.client._owned_buildings = frozenset()
+            self.client._completed_upgrades = frozenset()
+            self.client._selected_unit_types = frozenset()
+
+            self.client._compute_available_fn_ids(None)
+            after_first = mock_sat.call_count
+
+            self.client._selected_unit_types = frozenset({"Marine"})
+            self.client._compute_available_fn_ids(None)
+            self.assertGreater(mock_sat.call_count, after_first)
+
+    def test_cache_invalidated_when_available_actions_changes(self):
+        """Changing the PySC2 available-actions set (candidate) must trigger a
+        fresh pass even when buildings/upgrades/selection are unchanged."""
+        from unittest.mock import patch
+
+        with patch("games.sc2.client.fn_idx_satisfied", return_value=True) as mock_sat:
+            self.client._owned_buildings = frozenset()
+            self.client._completed_upgrades = frozenset()
+            self.client._selected_unit_types = frozenset()
+
+            # First pass: no PySC2 filter → candidate = full race set.
+            self.client._available_actions = None
+            self.client._compute_available_fn_ids(None)
+            after_first = mock_sat.call_count
+
+            # Shrink the candidate set → cache miss.
+
+            id_map = __import__("games.sc2.client", fromlist=["_get_pysc2_id_to_fn_idx"])._get_pysc2_id_to_fn_idx()
+            if id_map:
+                # Keep only no_op in the PySC2 available set → tiny candidate.
+                self.client._available_actions = {min(id_map.keys())}
+                self.client._compute_available_fn_ids(None)
+                self.assertGreater(mock_sat.call_count, after_first)
 
 
 if __name__ == "__main__":

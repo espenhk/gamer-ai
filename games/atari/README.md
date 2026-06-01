@@ -113,13 +113,16 @@ Results saved to `experiments/atari/genetic/Pong-v5/pong_genetic/results/`.
 
 ### Grid search
 
-Create a YAML file with `game: atari` and list-valued parameters, then run:
+A ready-made DQN template is included:
 
 ```bash
-python grid_search.py my_atari_grid.yaml --game atari
+python grid_search.py games/atari/config/gs_neural_dqn_template.yaml --game atari
 ```
 
-Model the file on `games/torcs/config/grid_search_template.yaml`.
+The template sweeps `learning_rate × epsilon_decay_steps` (6 combos) on
+`Pong-v5` using the DQN-paper conventions (reward clipping, double Q-targets,
+Huber loss).  See the file header for tuning notes and second-pass ablation
+suggestions.
 
 ---
 

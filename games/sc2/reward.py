@@ -15,6 +15,7 @@ from typing import Any
 import yaml
 
 from framework.base_reward import RewardCalculatorBase
+from games.sc2.tech_tree import PRECONDITIONS
 
 
 @dataclass
@@ -39,6 +40,15 @@ class SC2RewardConfig:
     idle_penalty :
         Per-step penalty when ``army_count == 0 and food_used < food_cap``;
         used by ``BuildMarines`` to discourage doing nothing.
+    idle_worker_penalty :
+        Per-step penalty scaled by the number of idle workers reported by
+        PySC2 (``player.idle_worker_count``).  Having idle workers is almost
+        always inefficient in StarCraft 2 — workers should be mining or
+        building.  The penalty fires whenever ``idle_worker_count > 0``; the
+        full penalty is ``idle_worker_penalty × idle_worker_count × n_ticks``.
+        Default ``0.0`` — opt-in.  Recommended for economy maps and ladder
+        runs where worker efficiency matters (e.g. ``-0.05`` to ``-0.5``
+        per idle worker per step).
     idle_bonus :
         Per-step bonus awarded when the agent issues ``no_op`` *and* friendly
         units are within effective attack range of an enemy on the screen
@@ -157,6 +167,38 @@ class SC2RewardConfig:
         Number of episode steps from reset in which
         ``early_random_action_bonus`` may fire. Outside this window the bonus
         is disabled. Default ``250``.
+    new_action_unlock_bonus :
+        One-shot bonus per fn_idx that appears in ``available_fn_ids`` for
+        the first time in an episode, restricted to actions whose tech-tree
+        preconditions include at least one required building.  The bonus fires
+        the first time the action is *fully executable* — meaning the tech-tree
+        prerequisite building exists, the correct unit type is selected, and the
+        action is affordable — not strictly at the moment the prerequisite
+        building completes (e.g. ``Build_Barracks_screen`` first becomes
+        available when a ``SupplyDepot`` exists *and* an SCV is selected and
+        minerals are sufficient).  Selection-only actions (``Move_screen``,
+        ``Attack_screen``, basic training) and always-available actions
+        (``no_op``, ``select_army``) do not trigger the bonus.  The bonus fires
+        once per qualifying fn_idx per episode; each subsequent step where that
+        fn_idx appears earns no additional reward.  Default ``0.0`` — opt-in.
+        Recommended starting range: ``1.0–10.0`` (much larger than per-step
+        shaping terms so the tech-unlock signal is clearly visible to the
+        policy).
+    resource_banking_penalty :
+        Per-step penalty proportional to the total excess resources above
+        ``mineral_banking_threshold`` and ``gas_banking_threshold`` (issue #372).
+        Agents tend to hoard minerals/gas rather than spending them on buildings
+        or units; a small negative coefficient nudges them to invest.
+        Penalty each step = ``resource_banking_penalty × (max(0, minerals −
+        mineral_banking_threshold) + max(0, vespene − gas_banking_threshold))
+        × n_ticks``.  Default ``0.0`` — opt-in.  Recommended range:
+        ``-0.0001`` to ``-0.001``.
+    mineral_banking_threshold :
+        Minerals above this level are considered "banked" for the
+        ``resource_banking_penalty``.  Default ``300.0``.
+    gas_banking_threshold :
+        Vespene above this level is considered "banked" for the
+        ``resource_banking_penalty``.  Default ``200.0``.
     """
 
     score_weight: float = 1.0
@@ -164,6 +206,7 @@ class SC2RewardConfig:
     loss_penalty: float = -100.0
     step_penalty: float = -0.001
     idle_penalty: float = 0.0
+    idle_worker_penalty: float = 0.0
     idle_bonus: float = 0.0
     attack_move_bonus: float = 0.0
     click_attack_bonus: float = 0.0
@@ -182,6 +225,10 @@ class SC2RewardConfig:
     attack_bonus: float = 0.0
     early_random_action_bonus: float = 0.0
     early_random_action_window_steps: int = 250
+    new_action_unlock_bonus: float = 0.0
+    resource_banking_penalty: float = 0.0
+    mineral_banking_threshold: float = 300.0
+    gas_banking_threshold: float = 200.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -208,6 +255,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``minerals``, ``vespene`` — current totals
         ``prev_minerals``, ``prev_vespene`` — previous totals
         ``army_count``, ``food_used``, ``food_cap``
+        ``idle_worker_count`` — idle workers this step (issue #358)
         ``player_outcome`` — None / +1 / -1 (only set on the final step)
         ``action_fn_idx`` — fn_idx of the action issued this step
         ``action_target_x`` / ``action_target_y`` — normalised [0, 1] screen
@@ -260,6 +308,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # likely want to widen friendly-fire detection equally.
     _ATTACK_SELF_RADIUS_FRAC: float = 8.0 / 64.0
 
+    # fn_ids whose PRECONDITIONS include at least one required building —
+    # the only actions for which new_action_unlock_bonus fires.
+    _TECH_GATED_FN_IDS: frozenset[int] = frozenset(
+        fn_idx for fn_idx, prec in PRECONDITIONS.items() if prec.required_buildings
+    )
+
     def __init__(self, config: SC2RewardConfig) -> None:
         self.config = config
         self._last_click_x: float | None = None
@@ -272,6 +326,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # cell -> env step on which the centroid was last seen in that cell.
         self._visited_unit_cells: dict[tuple[int, int], int] = {}
         self._seen_action_fns: set[int] = set()
+        # tech-gated fn_ids seen so far this episode (for new_action_unlock_bonus).
+        self._unlocked_tech_fn_ids: set[int] = set()
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -284,6 +340,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._step_count = 0
         self._visited_unit_cells = {}
         self._seen_action_fns = set()
+        self._unlocked_tech_fn_ids = set()
 
     def compute(
         self,
@@ -316,12 +373,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
 
         ``components`` exposes a per-term breakdown so analytics can
         attribute reward to ``score``, ``economy``, ``idle_penalty``,
-        ``idle_bonus``, ``move_exploration``, ``move_repeat_penalty``,
-        ``move_self_penalty``, ``attack_move_bonus``, ``click_attack_bonus``,
-        ``attack_bonus``, ``attack_friendly_penalty``,
-        ``early_random_action``, ``unit_loss``, ``damage_taken``,
-        ``passive_under_fire``, ``small_selection``, ``step_penalty`` and
-        ``terminal`` separately.
+        ``idle_worker_penalty``, ``idle_bonus``, ``move_exploration``,
+        ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
+        ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
+        ``early_random_action``, ``new_action_unlock``, ``unit_loss``,
+        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
+        ``resource_banking``, ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -364,6 +421,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 idle_pen = cfg.idle_penalty * n_ticks
         components["idle_penalty"] = float(idle_pen)
 
+        # Idle worker penalty (issue #358): penalise each idle worker.
+        idle_worker_pen = 0.0
+        if cfg.idle_worker_penalty != 0.0:
+            idle_workers = float(info.get("idle_worker_count", 0.0))
+            if idle_workers > 0:
+                idle_worker_pen = cfg.idle_worker_penalty * idle_workers * n_ticks
+        components["idle_worker_penalty"] = float(idle_worker_pen)
+
         # Idle bonus (issue #127): reward standing still when units are in
         # effective attack range of an enemy. If the client provides
         # self_attack_range_px, use that unit-aware threshold; otherwise use a
@@ -401,6 +466,20 @@ class SC2RewardCalculator(RewardCalculatorBase):
         if current_fn_idx != 0:
             self._seen_action_fns.add(current_fn_idx)
         components["early_random_action"] = float(early_random_action)
+
+        # New tech-tree unlock bonus: reward once per qualifying fn_idx that
+        # appears for the first time this episode.  Only fn_ids with at least
+        # one required_building in PRECONDITIONS are eligible (selection-only
+        # and always-available actions are excluded).
+        new_action_unlock = 0.0
+        if cfg.new_action_unlock_bonus != 0.0:
+            available = info.get("available_fn_ids") or set()
+            tech_available = available & self._TECH_GATED_FN_IDS
+            newly_unlocked = tech_available - self._unlocked_tech_fn_ids
+            if newly_unlocked:
+                new_action_unlock = cfg.new_action_unlock_bonus * len(newly_unlocked)
+            self._unlocked_tech_fn_ids |= tech_available
+        components["new_action_unlock"] = float(new_action_unlock)
 
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False
@@ -585,6 +664,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist <= self._ATTACK_SELF_RADIUS_FRAC * screen_size:
                     attack_friendly_penalty = cfg.attack_friendly_penalty * n_ticks
         components["attack_friendly_penalty"] = float(attack_friendly_penalty)
+
+        # Resource banking penalty (issue #372): penalise hoarding excess minerals/gas.
+        resource_banking = 0.0
+        if cfg.resource_banking_penalty != 0.0:
+            curr_min = float(info.get("minerals", 0.0))
+            curr_vesp = float(info.get("vespene", 0.0))
+            excess_min = max(0.0, curr_min - cfg.mineral_banking_threshold)
+            excess_vesp = max(0.0, curr_vesp - cfg.gas_banking_threshold)
+            resource_banking = cfg.resource_banking_penalty * (excess_min + excess_vesp) * n_ticks
+        components["resource_banking"] = float(resource_banking)
 
         # Time cost.
         components["step_penalty"] = float(cfg.step_penalty * n_ticks)

@@ -332,7 +332,7 @@ STRUCTURE_NAMES: frozenset[str] = frozenset(
 # Per-fn_idx Preconditions table.
 # ---------------------------------------------------------------------------
 # One Preconditions record per fn_idx in games.sc2.actions.FUNCTION_IDS.
-# Universal actions (no_op, select_*, Move/Attack, Stop, Patrol,
+# Universal actions (no_op, select_*, Move/Attack, Stop,
 # HoldPosition, Rally_*_minimap, ...) have empty preconditions and
 # require no specific selection — they're handled by the surrounding
 # logic in SC2Client (warmup, selection presence, ...).
@@ -411,7 +411,7 @@ def _effect_on(units: frozenset[str], upgrades: frozenset[str] = frozenset()) ->
 
 
 def _any() -> Preconditions:
-    """Move/Attack/Stop/Patrol/Hold helper: any unit selected."""
+    """Move/Attack/Stop/Hold helper: any unit selected."""
     return Preconditions(required_selection=SelectionReq.ANY_UNIT)
 
 
@@ -436,132 +436,130 @@ PRECONDITIONS: dict[int, Preconditions] = {
     10: _train("SCV"),  # Train_SCV_quick
     # movement / combat
     11: _any(),  # Move_minimap
-    12: _any(),  # Patrol_screen
-    13: _any(),  # Patrol_minimap
-    14: _any(),  # HoldPosition_quick
-    15: _any(),  # Stop_quick
-    16: _any(),  # Attack_minimap
+    12: _any(),  # HoldPosition_quick
+    13: _any(),  # Stop_quick
+    14: _any(),  # Attack_minimap
     # selection / logistics
-    17: _none(),  # select_rect
-    18: _effect_on(_BUILDER_PROBES),  # Harvest_Return_quick
-    19: _any(),  # Rally_Units_screen
-    20: _any(),  # Rally_Workers_screen
-    21: _any(),  # Rally_Units_minimap
-    22: _any(),  # Rally_Workers_minimap
+    15: _none(),  # select_rect
+    16: _effect_on(_BUILDER_PROBES),  # Harvest_Return_quick
+    17: _any(),  # Rally_Units_screen
+    18: _any(),  # Rally_Workers_screen
+    19: _any(),  # Rally_Units_minimap
+    20: _any(),  # Rally_Workers_minimap
     # Terran buildings
-    23: _build("CommandCenter"),
-    24: _build("Refinery"),
-    25: _build("EngineeringBay"),
-    26: _build("Factory"),
-    27: _build("Armory"),
-    28: _build("Bunker"),
-    29: _build("MissileTurret"),
-    30: _build("Starport"),
-    31: _build("GhostAcademy"),
-    32: _build("FusionCore"),
-    33: _addon(frozenset({"Barracks", "Factory", "Starport"})),  # Build_TechLab_quick
-    34: _addon(frozenset({"Barracks", "Factory", "Starport"})),  # Build_Reactor_quick
+    21: _build("CommandCenter"),
+    22: _build("Refinery"),
+    23: _build("EngineeringBay"),
+    24: _build("Factory"),
+    25: _build("Armory"),
+    26: _build("Bunker"),
+    27: _build("MissileTurret"),
+    28: _build("Starport"),
+    29: _build("GhostAcademy"),
+    30: _build("FusionCore"),
+    31: _addon(frozenset({"Barracks", "Factory", "Starport"})),  # Build_TechLab_quick
+    32: _addon(frozenset({"Barracks", "Factory", "Starport"})),  # Build_Reactor_quick
     # Terran training
-    35: _train("Marauder", extra_buildings=_and("BarracksTechLab")),
-    36: _train("Ghost", extra_buildings=_and("BarracksTechLab", "GhostAcademy")),
-    37: _train("Hellion"),
-    38: _train("SiegeTank", extra_buildings=_and("FactoryTechLab")),
-    39: _train("Medivac"),
-    40: _train("Viking"),
-    41: _train("Raven", extra_buildings=_and("StarportTechLab")),
-    42: _train("Banshee", extra_buildings=_and("StarportTechLab")),
-    43: _train("Battlecruiser", extra_buildings=_and("StarportTechLab", "FusionCore")),
-    44: _train("Cyclone", extra_buildings=_and("FactoryTechLab")),
-    45: _train("Thor", extra_buildings=_and("FactoryTechLab", "Armory")),
-    46: _train("Liberator"),
+    33: _train("Marauder", extra_buildings=_and("BarracksTechLab")),
+    34: _train("Ghost", extra_buildings=_and("BarracksTechLab", "GhostAcademy")),
+    35: _train("Hellion"),
+    36: _train("SiegeTank", extra_buildings=_and("FactoryTechLab")),
+    37: _train("Medivac"),
+    38: _train("Viking"),
+    39: _train("Raven", extra_buildings=_and("StarportTechLab")),
+    40: _train("Banshee", extra_buildings=_and("StarportTechLab")),
+    41: _train("Battlecruiser", extra_buildings=_and("StarportTechLab", "FusionCore")),
+    42: _train("Cyclone", extra_buildings=_and("FactoryTechLab")),
+    43: _train("Thor", extra_buildings=_and("FactoryTechLab", "Armory")),
+    44: _train("Liberator"),
     # Terran unit abilities
-    47: _effect_on(_ATTACK_INFANTRY, upgrades=frozenset({"Stimpack"})),  # Effect_Stim_quick
+    45: _effect_on(_ATTACK_INFANTRY, upgrades=frozenset({"Stimpack"})),  # Effect_Stim_quick
     # Morph_SiegeMode_quick — SiegeTank → SiegeTankSieged (FactoryTechLab gates it).
-    48: _train("SiegeTankSieged", extra_buildings=_and("FactoryTechLab")),
+    46: _train("SiegeTankSieged", extra_buildings=_and("FactoryTechLab")),
     # Morph_Unsiege_quick — in-place morph of an already-sieged tank.  Kept on
     # _morph_inplace because the "produced" SiegeTank entry in UNIT_PRODUCERS
     # is the Factory-built one, and we want the selection target to be
     # SiegeTankSieged here.
-    49: _morph_inplace("SiegeTankSieged"),
+    47: _morph_inplace("SiegeTankSieged"),
     # Protoss buildings
-    50: _build("Nexus"),
-    51: _build("Pylon"),
-    52: _build("Gateway"),
-    53: _build("Assimilator"),
-    54: _build("CyberneticsCore"),
-    55: _build("Forge"),
-    56: _build("PhotonCannon"),
-    57: _build("RoboticsFacility"),
-    58: _build("Stargate"),
-    59: _build("TwilightCouncil"),
-    60: _build("TemplarArchive"),
-    61: _build("DarkShrine"),
-    62: _build("RoboticsBay"),
-    63: _build("FleetBeacon"),
-    64: _build("ShieldBattery"),
+    48: _build("Nexus"),
+    49: _build("Pylon"),
+    50: _build("Gateway"),
+    51: _build("Assimilator"),
+    52: _build("CyberneticsCore"),
+    53: _build("Forge"),
+    54: _build("PhotonCannon"),
+    55: _build("RoboticsFacility"),
+    56: _build("Stargate"),
+    57: _build("TwilightCouncil"),
+    58: _build("TemplarArchive"),
+    59: _build("DarkShrine"),
+    60: _build("RoboticsBay"),
+    61: _build("FleetBeacon"),
+    62: _build("ShieldBattery"),
     # Protoss training / morphs
-    65: _train("Probe"),
-    66: _train("Zealot"),
-    67: _train("Stalker", extra_buildings=_and("CyberneticsCore")),
-    68: _train("Adept", extra_buildings=_and("CyberneticsCore")),
-    69: _train("HighTemplar", extra_buildings=_and("TemplarArchive")),
-    70: _train("DarkTemplar", extra_buildings=_and("DarkShrine")),
-    71: _train("Sentry", extra_buildings=_and("CyberneticsCore")),
-    72: _train("Phoenix"),
-    73: _train("Carrier", extra_buildings=_and("FleetBeacon")),
-    74: _train("VoidRay"),
-    75: _train("Oracle"),
-    76: _train("Colossus", extra_buildings=_and("RoboticsBay")),
-    77: _train("Immortal"),
-    78: _train("Tempest", extra_buildings=_and("FleetBeacon")),
-    79: _train("Disruptor", extra_buildings=_and("RoboticsBay")),
+    63: _train("Probe"),
+    64: _train("Zealot"),
+    65: _train("Stalker", extra_buildings=_and("CyberneticsCore")),
+    66: _train("Adept", extra_buildings=_and("CyberneticsCore")),
+    67: _train("HighTemplar", extra_buildings=_and("TemplarArchive")),
+    68: _train("DarkTemplar", extra_buildings=_and("DarkShrine")),
+    69: _train("Sentry", extra_buildings=_and("CyberneticsCore")),
+    70: _train("Phoenix"),
+    71: _train("Carrier", extra_buildings=_and("FleetBeacon")),
+    72: _train("VoidRay"),
+    73: _train("Oracle"),
+    74: _train("Colossus", extra_buildings=_and("RoboticsBay")),
+    75: _train("Immortal"),
+    76: _train("Tempest", extra_buildings=_and("FleetBeacon")),
+    77: _train("Disruptor", extra_buildings=_and("RoboticsBay")),
     # Morph_Archon_quick — needs two HighTemplars OR two DarkTemplars.  The
     # selection-type filter only checks the right *type* is selected; the
     # quantity check (≥ 2 templars) is enforced by PySC2 at execution time.
-    80: _train("Archon", extra_buildings=_and("TemplarArchive")),
-    81: _train("Mothership", extra_buildings=_and("FleetBeacon")),
+    78: _train("Archon", extra_buildings=_and("TemplarArchive")),
+    79: _train("Mothership", extra_buildings=_and("FleetBeacon")),
     # Zerg buildings
-    82: _build("Hatchery"),
-    83: _build("SpawningPool"),
-    84: _build("Extractor"),
-    85: _build("EvolutionChamber"),
-    86: _build("HydraliskDen"),
-    87: _build("BanelingNest"),
-    88: _build("RoachWarren"),
-    89: _build("Spire"),
-    90: _build("InfestationPit"),
-    91: _build("UltraliskCavern"),
-    92: Preconditions(  # Build_CreepTumor_screen — Queen ability, not Drone build.
+    80: _build("Hatchery"),
+    81: _build("SpawningPool"),
+    82: _build("Extractor"),
+    83: _build("EvolutionChamber"),
+    84: _build("HydraliskDen"),
+    85: _build("BanelingNest"),
+    86: _build("RoachWarren"),
+    87: _build("Spire"),
+    88: _build("InfestationPit"),
+    89: _build("UltraliskCavern"),
+    90: Preconditions(  # Build_CreepTumor_screen — Queen ability, not Drone build.
         required_selection=SelectionReq.OF_TYPE,
         selection_target=frozenset({"Queen", "CreepTumorBurrowed"}),
     ),
-    93: _build("SpineCrawler"),
-    94: _build("SporeCrawler"),
-    95: _build("NydusNetwork"),
-    96: _build("LurkerDenMP"),
+    91: _build("SpineCrawler"),
+    92: _build("SporeCrawler"),
+    93: _build("NydusNetwork"),
+    94: _build("LurkerDenMP"),
     # Zerg training / morphs
-    97: _train("Drone"),
-    98: _train("Overlord"),
-    99: _train("Zergling", extra_buildings=_and("SpawningPool")),
-    100: _train("Baneling", extra_buildings=_and("BanelingNest")),  # Train_Baneling_quick
-    101: _train("Roach", extra_buildings=_and("RoachWarren")),
-    102: _train("Ravager", extra_buildings=_and("RoachWarren")),  # Train_Ravager_quick
-    103: _train("Hydralisk", extra_buildings=_and("HydraliskDen")),
-    104: _train("Infestor", extra_buildings=_and("InfestationPit")),
-    105: _train("SwarmHost", extra_buildings=_and("InfestationPit")),
-    106: _train("Mutalisk", extra_buildings=_and("Spire")),
-    107: _train("Corruptor", extra_buildings=_and("Spire")),
-    108: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Train_BroodLord_quick
-    109: _train("Viper", extra_buildings=_and("Hive")),
-    110: _train("Ultralisk", extra_buildings=_and("UltraliskCavern")),
-    111: _train("Lurker", extra_buildings=_and("LurkerDenMP")),  # Train_Lurker_quick
-    112: _train("Queen", extra_buildings=_and("SpawningPool")),
-    113: _train("Lair", extra_buildings=_and("SpawningPool")),  # Morph_Lair
-    114: _train("Hive", extra_buildings=_and("InfestationPit")),  # Morph_Hive
+    95: _train("Drone"),
+    96: _train("Overlord"),
+    97: _train("Zergling", extra_buildings=_and("SpawningPool")),
+    98: _train("Baneling", extra_buildings=_and("BanelingNest")),  # Train_Baneling_quick
+    99: _train("Roach", extra_buildings=_and("RoachWarren")),
+    100: _train("Ravager", extra_buildings=_and("RoachWarren")),  # Train_Ravager_quick
+    101: _train("Hydralisk", extra_buildings=_and("HydraliskDen")),
+    102: _train("Infestor", extra_buildings=_and("InfestationPit")),
+    103: _train("SwarmHost", extra_buildings=_and("InfestationPit")),
+    104: _train("Mutalisk", extra_buildings=_and("Spire")),
+    105: _train("Corruptor", extra_buildings=_and("Spire")),
+    106: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Train_BroodLord_quick
+    107: _train("Viper", extra_buildings=_and("Hive")),
+    108: _train("Ultralisk", extra_buildings=_and("UltraliskCavern")),
+    109: _train("Lurker", extra_buildings=_and("LurkerDenMP")),  # Train_Lurker_quick
+    110: _train("Queen", extra_buildings=_and("SpawningPool")),
+    111: _train("Lair", extra_buildings=_and("SpawningPool")),  # Morph_Lair
+    112: _train("Hive", extra_buildings=_and("InfestationPit")),  # Morph_Hive
     # Morph_Overseer — Overlord → Overseer; requires Lair (or Hive).
-    115: _train("Overseer", extra_buildings=(frozenset({"Lair", "Hive"}),)),
-    116: _train("GreaterSpire", extra_buildings=_and("Hive")),  # Morph_GreaterSpire
-    117: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Morph_BroodLord
+    113: _train("Overseer", extra_buildings=(frozenset({"Lair", "Hive"}),)),
+    114: _train("GreaterSpire", extra_buildings=_and("Hive")),  # Morph_GreaterSpire
+    115: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Morph_BroodLord
 }
 
 
@@ -580,103 +578,103 @@ RESOURCE_COSTS: dict[int, tuple[int, int]] = {
     # --- Terran buildings ---
     8: (150, 0),  # Build_Barracks_screen
     9: (100, 0),  # Build_SupplyDepot_screen
-    23: (400, 0),  # Build_CommandCenter_screen
-    24: (75, 0),  # Build_Refinery_screen
-    25: (125, 0),  # Build_EngineeringBay_screen
-    26: (150, 100),  # Build_Factory_screen
-    27: (150, 100),  # Build_Armory_screen
-    28: (100, 0),  # Build_Bunker_screen
-    29: (100, 0),  # Build_MissileTurret_screen
-    30: (150, 100),  # Build_Starport_screen
-    31: (150, 50),  # Build_GhostAcademy_screen
-    32: (150, 150),  # Build_FusionCore_screen
-    33: (50, 25),  # Build_TechLab_quick
-    34: (50, 50),  # Build_Reactor_quick
+    21: (400, 0),  # Build_CommandCenter_screen
+    22: (75, 0),  # Build_Refinery_screen
+    23: (125, 0),  # Build_EngineeringBay_screen
+    24: (150, 100),  # Build_Factory_screen
+    25: (150, 100),  # Build_Armory_screen
+    26: (100, 0),  # Build_Bunker_screen
+    27: (100, 0),  # Build_MissileTurret_screen
+    28: (150, 100),  # Build_Starport_screen
+    29: (150, 50),  # Build_GhostAcademy_screen
+    30: (150, 150),  # Build_FusionCore_screen
+    31: (50, 25),  # Build_TechLab_quick
+    32: (50, 50),  # Build_Reactor_quick
     # --- Terran units ---
     7: (50, 0),  # Train_Marine_quick
     10: (50, 0),  # Train_SCV_quick
-    35: (100, 25),  # Train_Marauder_quick
-    36: (150, 125),  # Train_Ghost_quick
-    37: (100, 0),  # Train_Hellion_quick
-    38: (150, 125),  # Train_SiegeTank_quick
-    39: (100, 100),  # Train_Medivac_quick
-    40: (150, 75),  # Train_Viking_quick
-    41: (100, 200),  # Train_Raven_quick
-    42: (150, 100),  # Train_Banshee_quick
-    43: (400, 300),  # Train_Battlecruiser_quick
-    44: (150, 100),  # Train_Cyclone_quick
-    45: (300, 200),  # Train_Thor_quick
-    46: (150, 150),  # Train_Liberator_quick
+    33: (100, 25),  # Train_Marauder_quick
+    34: (150, 125),  # Train_Ghost_quick
+    35: (100, 0),  # Train_Hellion_quick
+    36: (150, 125),  # Train_SiegeTank_quick
+    37: (100, 100),  # Train_Medivac_quick
+    38: (150, 75),  # Train_Viking_quick
+    39: (100, 200),  # Train_Raven_quick
+    40: (150, 100),  # Train_Banshee_quick
+    41: (400, 300),  # Train_Battlecruiser_quick
+    42: (150, 100),  # Train_Cyclone_quick
+    43: (300, 200),  # Train_Thor_quick
+    44: (150, 150),  # Train_Liberator_quick
     # --- Protoss buildings ---
-    50: (400, 0),  # Build_Nexus_screen
-    51: (100, 0),  # Build_Pylon_screen
-    52: (150, 0),  # Build_Gateway_screen
-    53: (75, 0),  # Build_Assimilator_screen
-    54: (150, 0),  # Build_CyberneticsCore_screen
-    55: (150, 0),  # Build_Forge_screen
-    56: (150, 0),  # Build_PhotonCannon_screen
-    57: (150, 100),  # Build_RoboticsFacility_screen
-    58: (150, 150),  # Build_Stargate_screen
-    59: (150, 100),  # Build_TwilightCouncil_screen
-    60: (150, 200),  # Build_TemplarArchive_screen
-    61: (150, 150),  # Build_DarkShrine_screen
-    62: (150, 150),  # Build_RoboticsBay_screen
-    63: (300, 200),  # Build_FleetBeacon_screen
-    64: (100, 0),  # Build_ShieldBattery_screen
+    48: (400, 0),  # Build_Nexus_screen
+    49: (100, 0),  # Build_Pylon_screen
+    50: (150, 0),  # Build_Gateway_screen
+    51: (75, 0),  # Build_Assimilator_screen
+    52: (150, 0),  # Build_CyberneticsCore_screen
+    53: (150, 0),  # Build_Forge_screen
+    54: (150, 0),  # Build_PhotonCannon_screen
+    55: (150, 100),  # Build_RoboticsFacility_screen
+    56: (150, 150),  # Build_Stargate_screen
+    57: (150, 100),  # Build_TwilightCouncil_screen
+    58: (150, 200),  # Build_TemplarArchive_screen
+    59: (150, 150),  # Build_DarkShrine_screen
+    60: (150, 150),  # Build_RoboticsBay_screen
+    61: (300, 200),  # Build_FleetBeacon_screen
+    62: (100, 0),  # Build_ShieldBattery_screen
     # --- Protoss units ---
-    65: (50, 0),  # Train_Probe_quick
-    66: (100, 0),  # Train_Zealot_quick
-    67: (125, 50),  # Train_Stalker_quick
-    68: (100, 25),  # Train_Adept_quick
-    69: (50, 150),  # Train_HighTemplar_quick
-    70: (125, 125),  # Train_DarkTemplar_quick
-    71: (50, 100),  # Train_Sentry_quick
-    72: (150, 100),  # Train_Phoenix_quick
-    73: (350, 250),  # Train_Carrier_quick
-    74: (250, 150),  # Train_VoidRay_quick
-    75: (150, 150),  # Train_Oracle_quick
-    76: (300, 200),  # Train_Colossus_quick
-    77: (275, 100),  # Train_Immortal_quick
-    78: (250, 175),  # Train_Tempest_quick
-    79: (150, 150),  # Train_Disruptor_quick
-    81: (400, 400),  # Train_Mothership_quick
+    63: (50, 0),  # Train_Probe_quick
+    64: (100, 0),  # Train_Zealot_quick
+    65: (125, 50),  # Train_Stalker_quick
+    66: (100, 25),  # Train_Adept_quick
+    67: (50, 150),  # Train_HighTemplar_quick
+    68: (125, 125),  # Train_DarkTemplar_quick
+    69: (50, 100),  # Train_Sentry_quick
+    70: (150, 100),  # Train_Phoenix_quick
+    71: (350, 250),  # Train_Carrier_quick
+    72: (250, 150),  # Train_VoidRay_quick
+    73: (150, 150),  # Train_Oracle_quick
+    74: (300, 200),  # Train_Colossus_quick
+    75: (275, 100),  # Train_Immortal_quick
+    76: (250, 175),  # Train_Tempest_quick
+    77: (150, 150),  # Train_Disruptor_quick
+    79: (400, 400),  # Train_Mothership_quick
     # --- Zerg buildings ---
-    82: (300, 0),  # Build_Hatchery_screen
-    83: (200, 0),  # Build_SpawningPool_screen
-    84: (25, 0),  # Build_Extractor_screen
-    85: (75, 0),  # Build_EvolutionChamber_screen
-    86: (100, 100),  # Build_HydraliskDen_screen
-    87: (100, 50),  # Build_BanelingNest_screen
-    88: (150, 0),  # Build_RoachWarren_screen
-    89: (200, 200),  # Build_Spire_screen
-    90: (100, 100),  # Build_InfestationPit_screen
-    91: (150, 200),  # Build_UltraliskCavern_screen
-    93: (100, 0),  # Build_SpineCrawler_screen
-    94: (75, 0),  # Build_SporeCrawler_screen
-    95: (150, 200),  # Build_NydusNetwork_screen
-    96: (100, 150),  # Build_LurkerDen_screen
+    80: (300, 0),  # Build_Hatchery_screen
+    81: (200, 0),  # Build_SpawningPool_screen
+    82: (25, 0),  # Build_Extractor_screen
+    83: (75, 0),  # Build_EvolutionChamber_screen
+    84: (100, 100),  # Build_HydraliskDen_screen
+    85: (100, 50),  # Build_BanelingNest_screen
+    86: (150, 0),  # Build_RoachWarren_screen
+    87: (200, 200),  # Build_Spire_screen
+    88: (100, 100),  # Build_InfestationPit_screen
+    89: (150, 200),  # Build_UltraliskCavern_screen
+    91: (100, 0),  # Build_SpineCrawler_screen
+    92: (75, 0),  # Build_SporeCrawler_screen
+    93: (150, 200),  # Build_NydusNetwork_screen
+    94: (100, 150),  # Build_LurkerDen_screen
     # --- Zerg units ---
-    97: (50, 0),  # Train_Drone_quick
-    98: (100, 0),  # Train_Overlord_quick
-    99: (50, 0),  # Train_Zergling_quick  (produces 2 for 50 minerals)
-    100: (25, 25),  # Train_Baneling_quick  (morph cost delta)
-    101: (75, 25),  # Train_Roach_quick
-    102: (25, 75),  # Train_Ravager_quick   (morph cost delta)
-    103: (100, 50),  # Train_Hydralisk_quick
-    104: (100, 150),  # Train_Infestor_quick
-    105: (100, 75),  # Train_SwarmHost_quick
-    106: (100, 100),  # Train_Mutalisk_quick
-    107: (150, 100),  # Train_Corruptor_quick
-    108: (150, 150),  # Train_BroodLord_quick (morph cost delta)
-    109: (100, 200),  # Train_Viper_quick
-    110: (300, 200),  # Train_Ultralisk_quick
-    111: (50, 100),  # Train_Lurker_quick   (morph cost delta)
-    112: (150, 0),  # Train_Queen_quick
-    113: (150, 100),  # Morph_Lair_quick
-    114: (200, 150),  # Morph_Hive_quick
-    115: (50, 50),  # Morph_Overseer_quick
-    116: (100, 150),  # Morph_GreaterSpire_quick
-    117: (150, 150),  # Morph_BroodLord_quick
+    95: (50, 0),  # Train_Drone_quick
+    96: (100, 0),  # Train_Overlord_quick
+    97: (50, 0),  # Train_Zergling_quick  (produces 2 for 50 minerals)
+    98: (25, 25),  # Train_Baneling_quick  (morph cost delta)
+    99: (75, 25),  # Train_Roach_quick
+    100: (25, 75),  # Train_Ravager_quick   (morph cost delta)
+    101: (100, 50),  # Train_Hydralisk_quick
+    102: (100, 150),  # Train_Infestor_quick
+    103: (100, 75),  # Train_SwarmHost_quick
+    104: (100, 100),  # Train_Mutalisk_quick
+    105: (150, 100),  # Train_Corruptor_quick
+    106: (150, 150),  # Train_BroodLord_quick (morph cost delta)
+    107: (100, 200),  # Train_Viper_quick
+    108: (300, 200),  # Train_Ultralisk_quick
+    109: (50, 100),  # Train_Lurker_quick   (morph cost delta)
+    110: (150, 0),  # Train_Queen_quick
+    111: (150, 100),  # Morph_Lair_quick
+    112: (200, 150),  # Morph_Hive_quick
+    113: (50, 50),  # Morph_Overseer_quick
+    114: (100, 150),  # Morph_GreaterSpire_quick
+    115: (150, 150),  # Morph_BroodLord_quick
 }
 
 

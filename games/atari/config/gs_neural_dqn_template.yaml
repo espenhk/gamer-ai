@@ -1,0 +1,91 @@
+# Grid search template: neural_dqn — Atari RAM (Pong-v5)
+#
+# Usage:
+#   python grid_search.py games/atari/config/gs_neural_dqn_template.yaml --game atari
+#
+# Background
+# ----------
+# DQN (Mnih et al. 2015) is the canonical algorithm for the Atari benchmark.
+# This template applies its key conventions to the framework's RAM-based
+# Atari integration.  The observation is the 128-byte console RAM, scaled to
+# [0, 1] — a fixed-size flat vector that every framework policy can consume.
+# Double-DQN targets (van Hasselt et al. 2016) and Huber loss are kept on by
+# default; both are well-established improvements on the original DQN.
+#
+# Budget
+# ------
+# At 60 fps, 120 s per episode ≈ 7 200 env steps.
+# n_sims=200 → ~1 440 000 total env steps across the run.
+# epsilon_decay_steps controls when exploitation takes over:
+#   50 000 → ε hits epsilon_end at ~ep 7  (fast commitment; good for near-
+#             deterministic tasks like Pong where the policy shape matters more
+#             than broad exploration)
+#  200 000 → ε hits epsilon_end at ~ep 28 (balanced; preferred default for
+#             first-pass sweeps where exploration quality is uncertain)
+# Training starts only after min_replay_size transitions are collected;
+# the first ~0.7 episodes are pure random experience collection.
+#
+# Reward clipping (clip_sign)
+# ---------------------------
+# clip_sign: true pins each step's reward to {-1, 0, +1} — the DQN paper
+# convention.  It makes training stable across games with very different raw
+# score magnitudes (Pong ±1/rally is already clipped; Asteroids awards 50+
+# per asteroid; Breakout is ~7 per brick).  Use clip_sign: false if you want
+# to optimise for raw score rather than binary win/loss/idle frames.
+#
+# Sweep axes: learning_rate × epsilon_decay_steps
+# ------------------------------------------------
+# learning_rate is the most sensitive DQN knob: too high → Q-value instability;
+# too low → slow convergence within the step budget.  The range 1e-4–1e-3
+# covers the sweet spot for RAM-based observations (the DQN paper used 2.5e-4
+# for pixel-based inputs; RAM features are pre-normalised, so 5e-4 is a
+# reasonable centre).
+# epsilon_decay_steps separates fast-exploit from balanced-explore schedules.
+#
+# Combos: 3 × 2 = 6 runs.
+#
+# Second-pass ablations to consider after finding the best combo:
+#   dueling: [false, true]     — value + advantage decomposition (changes weight shape)
+#   clip_sign: [true, false]   — raw-score vs. clipped-reward objective
+#   hidden_sizes: [[256, 256], [512, 256], [256, 256, 128]]
+
+base_name: "dqn_atari_v1"
+game: atari
+
+training_params:
+  map_name: Pong-v5           # swap for Breakout-v5, SpaceInvaders-v5, Asteroids-v5, etc.
+  in_game_episode_s: 120.0    # 120 s × 60 fps ≈ 7 200 steps / episode
+  n_sims: 200                 # 200 episodes ≈ 1.44 M env steps total
+  policy_type: neural_dqn
+  adaptive_mutation: false    # not used by DQN; disable to keep logs clean
+  patience: 0
+
+  # --- Search axes ---
+  learning_rate: [0.0001, 0.0005, 0.001]
+  epsilon_decay_steps: [50000, 200000]
+
+  # --- Fixed architecture ---
+  # 128 normalised inputs → two 256-unit hidden layers is ample for RAM-based
+  # Atari.  Increase to [512, 256] if the best combo still clearly underfits.
+  hidden_sizes: [256, 256]
+
+  policy_params:
+    # 128 float32 values/transition × 100 000 entries ≈ 51 MB — comfortable.
+    # Scale up to 500 000 if you have spare RAM and want stronger replay diversity.
+    replay_buffer_size: 100000
+    batch_size: 32            # DQN-paper value; 64 reduces variance with minor speed cost
+    min_replay_size: 5000     # collect this many random transitions before training starts
+    target_update_freq: 1000  # steps between online→target weight syncs
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    gamma: 0.99
+    double_dqn: true          # online net selects action; target net evaluates it (van Hasselt 2016)
+    dueling: false            # value + advantage heads — opt-in; changes weight-file shape
+    huber_loss: true          # smooth-L1 loss; clips gradient for large TD errors
+    huber_kappa: 1.0
+    max_grad_norm: 10.0
+
+reward_params:
+  native_reward_scale: 1.0
+  clip_sign: true             # DQN-paper convention: per-step reward ∈ {-1, 0, +1}
+  step_penalty: 0.0           # set to -0.001 to penalise stalling in games without natural timeout

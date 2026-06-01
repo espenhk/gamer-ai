@@ -122,6 +122,28 @@ unit-tested logic and mocked integration shifts.
 
 ---
 
+## Pre-commit checks
+
+The repository uses [pre-commit](https://pre-commit.com/) to enforce YAML
+validity, merge-conflict markers, end-of-file newlines, trailing whitespace,
+and Ruff lint + format. **All pre-commit checks must pass before committing.**
+
+```bash
+# Install once
+pip install pre-commit
+pre-commit install   # installs the git hook so it runs automatically
+
+# Run manually on all files
+pre-commit run --all-files
+```
+
+Ruff's `--fix` flag auto-corrects most lint issues in-place; run
+`pre-commit run --all-files` a second time after it modifies files to confirm
+everything is clean before staging. **Never use `--no-verify` to skip the
+hook.** Fix the underlying issue instead.
+
+---
+
 ## Changelog
 
 `CHANGELOG.md` is the project's running log of user- and
@@ -1069,6 +1091,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `win_bonus` / `loss_penalty` | `100` / `-100` | Terminal reward on `player_outcome > 0` / `< 0` (ladder maps only). |
 | `step_penalty` | `-0.001` | Per-tick time cost. |
 | `idle_penalty` | `0.0` | Per-step penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps). |
+| `idle_worker_penalty` | `0.0` | Per-step penalty scaled by `idle_worker_count` from PySC2 (issue #358).  Each idle worker subtracts this amount per step — workers should always be mining or building.  Opt-in default `0.0`; recommended range for economy/ladder maps: `-0.05` to `-0.5`. |
 | `idle_bonus` | `0.0` | Per-step bonus when the agent issues `no_op` AND friendly units are within combat range of an enemy on screen.  Issue #127 — opt-in, default `0.0`.  Useful for combat minigames (DefeatRoaches, DefeatZerglingsAndBanelings) where standing still lets units shoot. |
 | `move_exploration_bonus` | `0.01` | Bonus when a `Move_screen` is issued and the friendly-unit centroid is in a currently-unexplored cell of a `move_exploration_grid_size`² screen grid (default 8×8). A cell stays explored while the centroid keeps refreshing it and expires `move_exploration_decay_steps` env steps after the centroid leaves. A stationary centroid never re-triggers (blocks command spam); the decay stops the bonus going permanently silent once the screen is covered (which otherwise makes freezing optimal). |
 | `move_exploration_grid_size` | `8` | Cells per axis of the move-exploration screen grid (higher = finer cells / smaller meaningful relocation). |
@@ -1081,6 +1104,9 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `attack_bonus` | `0.0` | Per-step bonus whenever the agent issues `Attack_screen` (fn_idx 3), regardless of target type (A-move or click-to-attack). Simpler alternative to enabling both `attack_move_bonus` and `click_attack_bonus`. Opt-in. |
 | `attack_friendly_penalty` | `-10.0` | Per-step penalty when an `Attack_screen` target lands on/near the centroid of visible friendly units (ally fire). Penalised heavily; set `0.0` to disable. |
 | `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
+| `resource_banking_penalty` | `0.0` | Per-step penalty proportional to excess minerals/gas above the thresholds (issue #372). Fires when `minerals > mineral_banking_threshold` or `vespene > gas_banking_threshold`. Nudges agent to invest banked resources rather than hoard them. Recommended range for ladder maps: `-0.0001` to `-0.001`. Opt-in. |
+| `mineral_banking_threshold` | `300.0` | Minerals above this level are considered "banked" for `resource_banking_penalty`. |
+| `gas_banking_threshold` | `200.0` | Vespene above this level is considered "banked" for `resource_banking_penalty`. |
 | `unit_loss_penalty` | `0.0` | Penalty per army unit lost this step (army_count drop). Opt-in. |
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |
 | `passive_under_fire_penalty` | `0.0` | Per-step penalty when enemies are within attack range of friendlies and the agent did not issue `Attack_screen`. Opt-in. |

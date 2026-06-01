@@ -45,12 +45,12 @@
 # Good ablation axes: double_dqn × dueling (2×2 = 4 combos) to isolate each
 # upgrade's contribution, or huber_kappa × max_grad_norm for loss/clip tuning.
 
-base_name: "gs_sc2_dqn_v2"
+base_name: "v2"
 game: sc2
 
 training_params:
-  map_name: Simple64
-  in_game_episode_s: 120.0
+  map_name: BuildMarines
+  in_game_episode_s: 600.0
   step_mul: 1
   screen_size: 64
   minimap_size: 64
@@ -62,7 +62,8 @@ training_params:
   enable_belief: true      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: [0.0005, 0.001, 0.01]
   epsilon_decay_steps: [3000, 8000]
-  hidden_sizes: [64, 64]
+  hidden_sizes: [[64, 64], [64, 256, 256, 64]]
+
   policy_params:
     replay_buffer_size: 15000
     batch_size: 64
@@ -76,3 +77,6 @@ training_params:
     huber_loss: true          # smooth-L1 loss for TD-error stability (default on)
     huber_kappa: 1.0          # Huber threshold; lower → more gradient clipping
     max_grad_norm: 10.0       # global-norm clipping; null to disable
+
+reward_params:
+  step_penalty: 0.0

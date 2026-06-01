@@ -324,6 +324,14 @@ class SC2Client:
         # onto self._spec.names to produce the flat ndarray.
         self._spec: ObsSpec = get_spec(map_name, preset=obs_spec_preset)
         self._obs_names = self._spec.names
+        # Preset-gating flags: skip expensive feature extractors whose output
+        # is not present in the active obs spec.  Checked at __init__ time so
+        # there is zero per-step branching overhead beyond a single bool test.
+        _obs_name_set = frozenset(self._obs_names)
+        # Ladder and rich presets include features absent from minigame.
+        self._use_ladder_obs: bool = "food_workers" in _obs_name_set
+        # Rich preset adds per-unit-type counts, quadrants, top-k enemies, etc.
+        self._use_rich_obs: bool = "screen_self_NE_count" in _obs_name_set
         self._cumulative_score: float = 0.0
         self._explored_mask: np.ndarray | None = None
         self._available_actions: set[int] | None = None
@@ -346,10 +354,18 @@ class SC2Client:
         self._unit_type_id_to_attack_range_gu: dict[int, float] | None = None
         # Tech-tree state cached from the latest timestep.
         self._owned_buildings: frozenset[str] = frozenset()
+        # Accumulates every building seen this episode so that buildings that
+        # scroll off-screen don't vanish from the tech-tree mask (issue #356 H2).
+        self._owned_buildings_seen: frozenset[str] = frozenset()
         self._completed_upgrades: frozenset[str] = frozenset()
         # Current resource counts cached from the latest timestep (issue #357).
         self._minerals: float = 0.0
         self._vespene: float = 0.0
+        # Cache for _compute_available_fn_ids() — skip the per-fn_idx tech-tree
+        # loop when owned_buildings / completed_upgrades / selected_unit_types
+        # and the candidate set are all unchanged since last step (issue #356 H3).
+        self._fn_ids_cache_keys: tuple | None = None
+        self._fn_ids_cache_result: set[int] = set()
         # Currently-selected unit-type name (None when nothing selected or
         # the selection is mixed across types).
         # Set of currently-selected unit-type names.  Multi-type
@@ -397,10 +413,13 @@ class SC2Client:
         self._selected_count = 0.0
         self._last_fn_idx = 0
         self._owned_buildings = frozenset()
+        self._owned_buildings_seen = frozenset()
         self._completed_upgrades = frozenset()
         self._selected_unit_types = frozenset()
         self._minerals = 0.0
         self._vespene = 0.0
+        self._fn_ids_cache_keys = None
+        self._fn_ids_cache_result = set()
         self._screen_xy_by_unit_type = {}
         self._deferred_action = None
         self._last_state_log_wall_s = None
@@ -431,13 +450,20 @@ class SC2Client:
            slot for the next step.
         """
         if self._deferred_action is not None:
+            # The selector was already emitted last step; send the original
+            # action directly without re-resolving.  If the selection still
+            # doesn't match, PySC2 will no-op it — but we must not re-defer,
+            # or we get an infinite select_army oscillation (issue #356: H1).
+            # select_army is always "available" in PySC2 even with zero army
+            # units, so without this guard the deferred action would never
+            # actually execute.
             action = self._deferred_action
             self._deferred_action = None
-        elif self._is_extreme_random_phase():
-            action = self._sample_extreme_random_action()
-
-        action, deferred = self._resolve_action(action)
-        self._deferred_action = deferred
+        else:
+            if self._is_extreme_random_phase():
+                action = self._sample_extreme_random_action()
+            action, deferred = self._resolve_action(action)
+            self._deferred_action = deferred
 
         fn_call = self._action_to_call(action)
         if self._self_play and self._opponent_policy is not None:
@@ -821,31 +847,54 @@ class SC2Client:
     def _timestep_to_obs_info(self, timestep: Any) -> tuple[np.ndarray, dict]:
         """Convert a PySC2 TimeStep into ``(flat_obs, info)``.
 
-        The flat observation is built by the module-level
-        :func:`extract_flat_obs` so the live client and the offline replay
-        reader share one code path (issue #350).  Cross-step state
-        (explored-mask accumulation, last-action one-hot, unit-type lookup
-        cache) is threaded in via :class:`_ObsExtractState` and persisted
-        back onto ``self`` afterwards.  The remaining info-dict / side-effect
-        logic stays here because it depends on per-instance training state.
+        Builds a name-indexed feature dict from PySC2 fields then projects
+        onto ``self._spec.names`` to produce the flat observation.  Each
+        feature group has its own extractor so unit tests can target them.
         """
         ob = timestep.observation
-
-        state = _ObsExtractState(
-            last_fn_idx=self._last_fn_idx,
-            explored_mask=self._explored_mask,
-            unit_type_lookup=self._unit_type_id_to_name,
-        )
-        flat, feats = extract_flat_obs(timestep, self._obs_names, state=state)
-        # Persist cross-step state mutated during extraction.
-        self._explored_mask = state.explored_mask
-        self._unit_type_id_to_name = state.unit_type_lookup
-
-        self._selected_count = float(feats.get("selected_count", 0.0))
-        self._update_unit_screen_positions(ob)
-        game_loop = feats["game_loop"]
-
+        feat_screen = self._safe_array(ob, "feature_screen")
         feat_minimap = self._safe_array(ob, "feature_minimap")
+
+        feats: dict[str, float] = {}
+        feats.update(self._player_features(ob))
+        feats.update(self._selected_features(ob))
+        self._selected_count = float(feats.get("selected_count", 0.0))
+        feats.update(self._screen_summary_features(feat_screen))
+        feats.update(self._minimap_summary_features(feat_minimap))
+        # Ladder preset adds economy/minimap/score/HP/topk/alerts features.
+        if self._use_ladder_obs:
+            feats.update(self._score_features(ob))
+            feats.update(self._screen_hp_features(feat_screen))
+            feats.update(self._topk_enemy_features(feat_screen))
+            feats.update(self._alerts_features(ob))
+        # _per_unit_type_features is always needed: info["unit_counts"] drives
+        # build-order tracking in SC2Env regardless of obs preset.
+        feats.update(self._per_unit_type_features(ob))
+        # _update_unit_screen_positions is always needed for action resolution.
+        self._update_unit_screen_positions(ob)
+        # Rich preset adds quadrants, action features, enemy types, etc.
+        if self._use_rich_obs:
+            feats.update(self._quadrant_features(feat_screen))
+            feats.update(self._available_actions_features(ob))
+            feats.update(self._last_action_features())
+            feats.update(self._enemy_unit_type_features(ob))
+            feats.update(self._shield_energy_features(feat_screen))
+            feats.update(self._creep_features(feat_minimap))
+            feats.update(self._economy_pipeline_features(ob))
+            feats.update(self._screen_visibility_features(feat_screen))
+            feats.update(self._screen_antiair_features(feat_screen))
+            feats.update(self._weapon_cooldown_features(ob))
+
+        # game_loop scalar — present on both ladder and rich.
+        game_loop_arr = self._safe_array(ob, "game_loop")
+        game_loop = float(game_loop_arr[0]) if game_loop_arr is not None and game_loop_arr.size > 0 else 0.0
+        feats["game_loop"] = game_loop
+
+        # Project feature dict → ordered ndarray driven by the active spec.
+        flat = np.array(
+            [float(feats.get(name, 0.0)) for name in self._obs_names],
+            dtype=np.float32,
+        )
 
         # Build the info dict — score deltas + reward inputs.
         prev_score = self._cumulative_score
@@ -866,7 +915,8 @@ class SC2Client:
         # Compute the full internal mask: race ∩ PySC2 ∩ tech-tree ∩ selection ∩ resources.
         # Single source of truth — read by extreme-random sampler, policies
         # (via info["available_fn_ids"]), and the deferred-action resolver.
-        self._owned_buildings = self._compute_owned_buildings(ob)
+        self._owned_buildings_seen = self._owned_buildings_seen | self._compute_owned_buildings(ob)
+        self._owned_buildings = self._owned_buildings_seen
         self._completed_upgrades = self._compute_completed_upgrades(ob)
         self._selected_unit_types = self._compute_selected_unit_types(ob)
         self._minerals = feats.get("minerals", 0.0)
@@ -892,6 +942,7 @@ class SC2Client:
             "food_used": feats.get("food_used", 0.0),
             "food_cap": feats.get("food_cap", 0.0),
             "army_count": feats.get("army_count", 0.0),
+            "idle_worker_count": feats.get("idle_worker_count", 0.0),
             "killed_value_units": feats.get("killed_value_units", 0.0),
             "killed_value_structures": feats.get("killed_value_structures", 0.0),
             "player_outcome": player_outcome,
@@ -1255,7 +1306,21 @@ class SC2Client:
         if not self._unit_type_id_to_name:
             return set(candidate)
 
-        return {
+        # Cache: skip the full fn_idx_satisfied loop when the game-state inputs
+        # are unchanged (issue #356 H3).  Minerals and vespene are included
+        # because PR #357 gates build/train actions on affordability.
+        cache_keys = (
+            frozenset(candidate),
+            self._owned_buildings,
+            self._completed_upgrades,
+            self._selected_unit_types,
+            self._minerals,
+            self._vespene,
+        )
+        if cache_keys == self._fn_ids_cache_keys:
+            return set(self._fn_ids_cache_result)
+
+        result = {
             fn_idx
             for fn_idx in candidate
             if fn_idx_satisfied(
@@ -1267,6 +1332,9 @@ class SC2Client:
                 self._vespene,
             )
         }
+        self._fn_ids_cache_keys = cache_keys
+        self._fn_ids_cache_result = result
+        return set(result)
 
     _upgrade_id_to_name_cache: dict[int, str] | None = None
 

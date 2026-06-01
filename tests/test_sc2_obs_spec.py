@@ -35,7 +35,7 @@ class TestSC2ObsSpec(unittest.TestCase):
         self.assertGreater(RICH_OBS_DIM, LADDER_OBS_DIM)
         # Rich spec extended with race-gated available-actions mask, per-unit
         # counts, spatial quadrants, etc. — exact count depends on action space.
-        self.assertEqual(RICH_OBS_DIM, 327)
+        self.assertEqual(RICH_OBS_DIM, 323)
 
     def test_ladder_extends_minigame(self):
         """Ladder spec must contain all minigame names as a prefix."""

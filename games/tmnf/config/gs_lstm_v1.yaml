@@ -22,14 +22,14 @@ track: a03
 
 training_params:
   speed: 5.0
-  n_sims: 50
+  n_sims: 200
   in_game_episode_s: 300.0
   n_lidar_rays: 8
   policy_type: lstm
 
   # --- Search axes ---
   hidden_size: [64, 256, 1024]
-  population_size: [20]
+  population_size: [20, 50]
   initial_sigma: [0.05]
 
 reward_params:

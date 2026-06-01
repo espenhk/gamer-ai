@@ -679,6 +679,7 @@ class TestSC2RewardComponents(unittest.TestCase):
             "score",
             "economy",
             "idle_penalty",
+            "idle_worker_penalty",
             "idle_bonus",
             "move_exploration",
             "move_repeat_penalty",
@@ -1710,6 +1711,364 @@ class TestSC2RewardComponentsExtended(unittest.TestCase):
             info=info,
         )
         self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+
+class TestSC2IdleWorkerPenalty(unittest.TestCase):
+    """Tests for the idle_worker_penalty reward (issue #358)."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg_kwargs = {
+            "score_weight": 0.0,
+            "step_penalty": 0.0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "economy_weight": 0.0,
+        }
+        cfg_kwargs.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg_kwargs))
+
+    def test_penalty_fires_for_each_idle_worker(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 3},
+        )
+        self.assertAlmostEqual(r, -3.0)
+
+    def test_penalty_zero_when_no_idle_workers(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_absent_when_key_missing(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.idle_worker_penalty, 0.0)
+
+    def test_penalty_scales_with_n_ticks(self):
+        calc = self._make_calc(idle_worker_penalty=-1.0)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 2},
+            n_ticks=3,
+        )
+        self.assertAlmostEqual(r, -6.0)  # -1.0 * 2 workers * 3 ticks
+
+    def test_penalty_appears_in_components(self):
+        calc = self._make_calc(idle_worker_penalty=-2.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "idle_worker_count": 4},
+        )
+        self.assertIn("idle_worker_penalty", comp)
+        self.assertAlmostEqual(comp["idle_worker_penalty"], -8.0)
+
+
+class TestNewActionUnlockBonus(unittest.TestCase):
+    """Tests for SC2RewardCalculator.new_action_unlock_bonus (issue #360)."""
+
+    def _base_info(self) -> dict:
+        return {
+            "prev_score": 0.0,
+            "score": 0.0,
+            "prev_minerals": 0.0,
+            "minerals": 0.0,
+            "prev_vespene": 0.0,
+            "vespene": 0.0,
+            "action_fn_idx": 0,
+        }
+
+    def _make_calc(self, bonus: float) -> SC2RewardCalculator:
+        return SC2RewardCalculator(
+            SC2RewardConfig(
+                new_action_unlock_bonus=bonus,
+                score_weight=0.0,
+                step_penalty=0.0,
+                economy_weight=0.0,
+                win_bonus=0.0,
+                loss_penalty=0.0,
+                move_exploration_bonus=0.0,
+            )
+        )
+
+    def test_default_is_zero(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.new_action_unlock_bonus, 0.0)
+
+    def test_tech_gated_fn_ids_nonempty(self):
+        # Verify the class-level precomputed set has at least some entries.
+        # fn_idx 8 = Build_Barracks_screen (requires SupplyDepot) must be included.
+        self.assertIn(8, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_non_gated_fn_ids_excluded(self):
+        # no_op (0), select_army (1), Move_screen (2) have no required_buildings.
+        for fn_idx in (0, 1, 2):
+            self.assertNotIn(fn_idx, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_bonus_fires_on_first_appearance(self):
+        calc = self._make_calc(bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {8}}  # Build_Barracks_screen
+        total, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 5.0)
+        self.assertAlmostEqual(total, 5.0)
+
+    def test_bonus_does_not_fire_again_same_episode(self):
+        calc = self._make_calc(bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {8}}
+        calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        # Second step — same fn_idx still available.
+        _, comp2 = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp2["new_action_unlock"], 0.0)
+
+    def test_bonus_fires_again_after_reset(self):
+        calc = self._make_calc(bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {8}}
+        calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        calc.reset()
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 5.0)
+
+    def test_bonus_scales_with_count(self):
+        # Two tech-gated fn_ids unlocked simultaneously → 2× bonus.
+        calc = self._make_calc(bonus=3.0)
+        # fn_idx 8 = Build_Barracks_screen, fn_idx 26 = Build_Factory_screen
+        # (both are building-gated per PRECONDITIONS)
+        tech_gated = SC2RewardCalculator._TECH_GATED_FN_IDS
+        two_gated = set(list(tech_gated)[:2])
+        info = {**self._base_info(), "available_fn_ids": two_gated}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 3.0 * 2)
+
+    def test_non_gated_actions_do_not_trigger(self):
+        calc = self._make_calc(bonus=5.0)
+        # Only non-gated fn_ids in available_fn_ids.
+        info = {**self._base_info(), "available_fn_ids": {0, 1, 2, 3}}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
+    def test_disabled_when_bonus_is_zero(self):
+        calc = self._make_calc(bonus=0.0)
+        info = {**self._base_info(), "available_fn_ids": {8, 26}}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
+    def test_missing_available_fn_ids_key_no_crash(self):
+        calc = self._make_calc(bonus=5.0)
+        info = self._base_info()  # no "available_fn_ids" key
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._make_calc(bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {8}}
+        total, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+
+class TestSC2ResourceBankingPenalty(unittest.TestCase):
+    """Tests for the resource_banking_penalty reward term (issue #372)."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {
+            "score_weight": 0.0,
+            "step_penalty": 0.0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "economy_weight": 0.0,
+        }
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _info(self, minerals: float = 0.0, vespene: float = 0.0) -> dict:
+        return {"prev_score": 0.0, "score": 0.0, "minerals": minerals, "vespene": vespene}
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.resource_banking_penalty, 0.0)
+
+    def test_default_mineral_threshold(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.mineral_banking_threshold, 300.0)
+
+    def test_default_gas_threshold(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.gas_banking_threshold, 200.0)
+
+    def test_no_penalty_below_thresholds(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=299.0, vespene=199.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_no_penalty_at_exact_threshold(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=300.0, vespene=200.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_fires_for_excess_minerals(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+        )
+        # excess minerals = 100; penalty = -0.001 * 100 = -0.1
+        self.assertAlmostEqual(r, -0.1)
+
+    def test_penalty_fires_for_excess_gas(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=0.0, vespene=300.0),
+        )
+        # excess gas = 100; penalty = -0.001 * 100 = -0.1
+        self.assertAlmostEqual(r, -0.1)
+
+    def test_penalty_accumulates_both_resources(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=500.0, vespene=400.0),
+        )
+        # excess minerals = 200, excess gas = 200, total = 400
+        # penalty = -0.001 * 400 = -0.4
+        self.assertAlmostEqual(r, -0.4)
+
+    def test_penalty_scales_with_n_ticks(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+            n_ticks=4,
+        )
+        # excess = 100; penalty = -0.001 * 100 * 4 = -0.4
+        self.assertAlmostEqual(r, -0.4)
+
+    def test_penalty_zero_when_keys_absent(self):
+        """Missing minerals/vespene keys → treat as 0 (below threshold, no penalty)."""
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+        )
+        self.assertIn("resource_banking", comp)
+        self.assertAlmostEqual(comp["resource_banking"], -0.1)
+
+    def test_component_zero_when_disabled(self):
+        calc = self._make_calc(resource_banking_penalty=0.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=1000.0, vespene=1000.0),
+        )
+        self.assertAlmostEqual(comp["resource_banking"], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        total, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=500.0, vespene=300.0),
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+    def test_custom_thresholds(self):
+        calc = self._make_calc(
+            resource_banking_penalty=-0.01,
+            mineral_banking_threshold=100.0,
+            gas_banking_threshold=50.0,
+        )
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=200.0, vespene=100.0),
+        )
+        # excess minerals = 100, excess gas = 50, total = 150
+        # penalty = -0.01 * 150 = -1.5
+        self.assertAlmostEqual(r, -1.5)
 
 
 if __name__ == "__main__":

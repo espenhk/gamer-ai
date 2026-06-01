@@ -36,6 +36,13 @@ step_penalty: -0.001
 # --- Idle penalty (BuildMarines / economy maps) ---
 idle_penalty: 0.0
 
+# --- Idle worker penalty (issue #358) ---
+# Penalty per idle worker per step (scaled by idle_worker_count from PySC2).
+# Workers should always be mining or building; each step a worker is idle
+# drains this much reward per idle worker.  Set to 0.0 to disable.
+# Recommended range for economy/ladder maps: -0.05 to -0.5.
+idle_worker_penalty: 0.0
+
 # --- Idle bonus (issue #127) ---
 # Per-step bonus when the agent issues no_op AND friendly units are within
 # combat range of an enemy.  Off by default; enable on combat minigames
@@ -129,3 +136,26 @@ small_selection_bonus: 0.0
 # --- Economy delta (mineral + vespene) ---
 # Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
 economy_weight: 0.001
+
+# --- Tech-tree unlock bonus (issue #360) ---
+# One-shot bonus per fn_idx that appears in available_fn_ids for the first time
+# in an episode, restricted to actions whose tech-tree preconditions include at
+# least one required building.  The bonus fires the first time the action is
+# fully executable (prerequisite building exists AND correct unit selected AND
+# affordable) — not strictly at building-completion (e.g. Build_Barracks_screen
+# triggers when a SupplyDepot exists, an SCV is selected, and minerals suffice).
+# Selection-only actions (Move_screen, Attack_screen, Train_Marine_quick) and
+# always-available actions (no_op, select_army) are excluded.
+# Set to 0.0 to disable (default).  Recommended starting range: 1.0–10.0.
+new_action_unlock_bonus: 0.0
+
+# --- Resource banking penalty (issue #372) ---
+# Per-step penalty proportional to excess minerals/gas above the thresholds.
+# Having >300 minerals or >200 gas is a signal the agent should be investing
+# those resources in buildings or units.  Set resource_banking_penalty to a
+# small negative value to enable (e.g. -0.0005); 0.0 = disabled (default).
+# mineral_banking_threshold: minerals above this count as "banked". Default 300.
+# gas_banking_threshold: vespene above this count as "banked". Default 200.
+resource_banking_penalty: 0.0
+mineral_banking_threshold: 300.0
+gas_banking_threshold: 200.0

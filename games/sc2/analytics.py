@@ -74,6 +74,7 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "score": "score_weight",
     "economy": "economy_weight",
     "idle_penalty": "idle_penalty",
+    "idle_worker_penalty": "idle_worker_penalty",
     "idle_bonus": "idle_bonus",
     "move_exploration": "move_exploration_bonus",
     "move_repeat_penalty": "move_repeat_penalty",
@@ -83,9 +84,11 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "attack_bonus": "attack_bonus",
     "attack_friendly_penalty": "attack_friendly_penalty",
     "early_random_action": "early_random_action_bonus",
+    "new_action_unlock": "new_action_unlock_bonus",
     "unit_loss": "unit_loss_penalty",
     "damage_taken": "damage_taken_penalty",
     "passive_under_fire": "passive_under_fire_penalty",
+    "resource_banking": "resource_banking_penalty",
     "step_penalty": "step_penalty",
 }
 _DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())

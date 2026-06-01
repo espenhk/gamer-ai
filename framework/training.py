@@ -235,7 +235,10 @@ def _run_episode(
                 )
         else:
             if _batch_obs(obs):
-                action = np.stack([np.asarray(policy(agent_obs), dtype=np.float32) for agent_obs in obs], axis=0)
+                action = np.stack(
+                    [np.asarray(policy(agent_obs), dtype=np.float32) for agent_obs in obs],
+                    axis=0,
+                )
             else:
                 action = policy(obs)
         next_obs, reward, terminated, truncated, info = env.step(action)
@@ -257,7 +260,14 @@ def _run_episode(
                         info=info,
                     )
             else:
-                policy.update(prev_obs, action, reward, next_obs, terminated or truncated, info=info)
+                policy.update(
+                    prev_obs,
+                    action,
+                    reward,
+                    next_obs,
+                    terminated or truncated,
+                    info=info,
+                )
 
         prev_obs = next_obs
         obs = next_obs
@@ -288,7 +298,12 @@ def _run_episode(
                 _print_action_stats(throttle_counts, turning_steps, steps)
             break
 
-    trace = RunTrace(pos_x=pos_x, pos_z=pos_z, throttle_state=throttle_state, total_reward=total_reward)
+    trace = RunTrace(
+        pos_x=pos_x,
+        pos_z=pos_z,
+        throttle_state=throttle_state,
+        total_reward=total_reward,
+    )
     return EpisodeResult(
         reward=total_reward,
         info=info,
@@ -318,7 +333,7 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float, truncate
             outcome_s = str(info.get("termination_reason", outcome))
         reward_v = float(raw_reward if raw_reward is not None else 0.0)
         score = float(info.get("score", 0.0))
-        logger.info(
+        logger.debug(
             "ep end  %s  r=%+.1f  steps=%d  outcome=%s  reward=%+.1f  score=%+.1f%s",
             outcome,
             total_reward,
@@ -329,7 +344,7 @@ def _print_episode_summary(info: dict, steps: int, total_reward: float, truncate
             skipped_suffix,
         )
         return
-    logger.info("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
+    logger.debug("ep end  %s  r=%+.1f  steps=%d%s", outcome, total_reward, steps, skipped_suffix)
 
 
 def _episode_skipped_frames(info: dict) -> int | None:
@@ -390,7 +405,9 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
         if total > 0:
             prev_ac: dict = prev.get("episode_action_counts") or {}
             prev_total = sum(prev_ac.values()) if prev_ac else 0
+            name_map: dict = info.get("episode_action_name_map") or {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                label = name_map.get(fn_idx, str(fn_idx))
                 pct = 100.0 * count / total
                 if prev_total > 0:
                     # Keys are ints from env.step(); str fallback handles any
@@ -399,7 +416,7 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                     cmp_s = f" (prev {ppct:.1f}%)"
                 else:
                     cmp_s = ""
-                logger.info("    %s=%.1f%%%s", fn_idx, pct, cmp_s)
+                logger.info("    %s=%.1f%%%s", label, pct, cmp_s)
 
     # 3. Task metrics — adapters populate info["episode_task_metrics"] as a
     #    dict of {label: formatted_string} so framework stays game-agnostic.
@@ -422,7 +439,13 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
             cmp_s = f" (prev {prev_kills:.0f})" if prev_kills is not None else ""
             prev_struct = prev.get("episode_killed_value_structures")
             struct_cmp_s = f" (prev {prev_struct:.0f})" if prev_struct is not None else ""
-            logger.info("    kills: units=%d%s  structures=%d%s", int(kills), cmp_s, int(struct_kills), struct_cmp_s)
+            logger.info(
+                "    kills: units=%d%s  structures=%d%s",
+                int(kills),
+                cmp_s,
+                int(struct_kills),
+                struct_cmp_s,
+            )
 
     # 5. Per-game state averages (any key in episode_obs_averages) ---------------
     obs_avgs = info.get("episode_obs_averages")
@@ -464,9 +487,11 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
     if ac:
         total = sum(ac.values())
         if total > 0:
+            name_map: dict = info.get("episode_action_name_map") or {}
             for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                label = name_map.get(fn_idx, str(fn_idx))
                 pct = 100.0 * count / total
-                logger.info("    %s=%.1f%%", fn_idx, pct)
+                logger.info("    %s=%.1f%%", label, pct)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:
@@ -536,7 +561,12 @@ def _run_probes(
             )
             results[i] = ep.reward
             probe_results.append(
-                ProbeResult(action_idx=i, action_name=probe_action.name, reward=ep.reward, trace=ep.trace)
+                ProbeResult(
+                    action_idx=i,
+                    action_name=probe_action.name,
+                    reward=ep.reward,
+                    trace=ep.trace,
+                )
             )
     finally:
         if saved_limit is not None:
@@ -817,7 +847,7 @@ def _greedy_loop(
                     best_info = ep.info
                 else:
                     verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
-                    logger.info("  >> %s", verdict)
+                    logger.debug("  >> %s", verdict)
                     if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                         _log_periodic_stats(ep.info, sim)
                 if self_play_manager is not None:
@@ -852,7 +882,7 @@ def _greedy_loop(
                         laps_completed=ep.info.get("laps_completed", 0),
                         mutation_scale=current_scale,
                         termination_reason=ep.info.get("termination_reason"),
-                        finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
+                        finish_time_s=(ep.info.get("elapsed_s") if ep.info.get("finished") else None),
                         mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
                         reward_components=ep.info.get("episode_reward_components"),
                         action_counts=ep.info.get("episode_action_counts"),
@@ -967,7 +997,7 @@ def _greedy_loop(
                 verdict = (
                     f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
                 )
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
                     _log_periodic_stats(best_ep.info, sim)
 
@@ -985,7 +1015,12 @@ def _greedy_loop(
                 elif p < 1 / 5:
                     current_scale = max(current_scale * ADAPT_DOWN, SCALE_MIN)
                 if current_scale != prev_scale:
-                    logger.info("  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)", prev_scale, current_scale, p)
+                    logger.info(
+                        "  [adaptive] scale %.4f → %.4f  (success_rate=%.2f)",
+                        prev_scale,
+                        current_scale,
+                        p,
+                    )
 
             greedy_sims.append(
                 GreedySimResult(
@@ -1000,7 +1035,7 @@ def _greedy_loop(
                     laps_completed=best_ep.info.get("laps_completed", 0),
                     mutation_scale=current_scale,
                     termination_reason=best_ep.info.get("termination_reason"),
-                    finish_time_s=best_ep.info.get("elapsed_s") if best_ep.info.get("finished") else None,
+                    finish_time_s=(best_ep.info.get("elapsed_s") if best_ep.info.get("finished") else None),
                     mean_abs_lateral_offset=best_ep.info.get("mean_abs_lateral_offset"),
                     reward_components=best_ep.info.get("episode_reward_components"),
                     action_counts=best_ep.info.get("episode_action_counts"),
@@ -1225,7 +1260,7 @@ def _greedy_loop_cmaes(
                     f"  champion={policy.champion_reward:+.1f}"
                     f"  sigma={policy.sigma:.4f}"
                 )
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 
@@ -1246,7 +1281,7 @@ def _greedy_loop_cmaes(
                     final_track_progress=last_info.get("track_progress", 0.0),
                     laps_completed=last_info.get("laps_completed", 0),
                     termination_reason=last_info.get("termination_reason"),
-                    finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
+                    finish_time_s=(last_info.get("elapsed_s") if last_info.get("finished") else None),
                     mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
                     reward_components=last_info.get("episode_reward_components"),
                     action_counts=last_info.get("episode_action_counts"),
@@ -1327,6 +1362,7 @@ def _greedy_loop_q_learning(
             policy.on_episode_end()
 
             improved = ep.reward > best_reward
+            cfg = policy.to_cfg()
             if improved:
                 prev_best = best_reward
                 best_reward = ep.reward
@@ -1334,15 +1370,27 @@ def _greedy_loop_q_learning(
                 policy.save_trainer_state(_trainer_state_path(weights_file))
                 _try_save_replay(env, weights_file)
                 verdict = f"NEW BEST  {ep.reward:+.1f}  (was {prev_best:+.1f})"
-            else:
-                verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
-            cfg = policy.to_cfg()
-            logger.info("  >> %s  [states visited: %s]", verdict, cfg.get("n_states_visited", "?"))
-            if improved:
+                logger.info(
+                    "  >> %s  [states visited: %s]",
+                    verdict,
+                    cfg.get("n_states_visited", "?"),
+                )
                 _log_new_best_details(ep.info, best_info_logged)
                 best_info_logged = ep.info
-            elif log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
-                _log_periodic_stats(ep.info, episode)
+            else:
+                verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
+                logger.debug(
+                    "  >> %s  [states visited: %s]",
+                    verdict,
+                    cfg.get("n_states_visited", "?"),
+                )
+                if log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(ep.info, episode)
+
+            if self_play_manager is not None:
+                _new_opp = self_play_manager.step(policy, improved)
+                if _new_opp is not None:
+                    env.set_opponent_policy(_new_opp)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1361,7 +1409,7 @@ def _greedy_loop_q_learning(
                     final_track_progress=ep.info.get("track_progress", 0.0),
                     laps_completed=ep.info.get("laps_completed", 0),
                     termination_reason=ep.info.get("termination_reason"),
-                    finish_time_s=ep.info.get("elapsed_s") if ep.info.get("finished") else None,
+                    finish_time_s=(ep.info.get("elapsed_s") if ep.info.get("finished") else None),
                     mean_abs_lateral_offset=ep.info.get("mean_abs_lateral_offset"),
                     reward_components=ep.info.get("episode_reward_components"),
                     action_counts=ep.info.get("episode_action_counts"),
@@ -1531,7 +1579,7 @@ def _greedy_loop_genetic(
             else:
                 _discard_candidate_replay(_gen_candidate)
                 verdict = f"no improvement  gen_best={gen_best:+.1f}  champion={policy.champion_reward:+.1f}"
-                logger.info("  >> %s", verdict)
+                logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
                     _log_periodic_stats(last_info, gen)
 
@@ -1573,7 +1621,7 @@ def _greedy_loop_genetic(
                     final_track_progress=last_info.get("track_progress", 0.0),
                     laps_completed=last_info.get("laps_completed", 0),
                     termination_reason=last_info.get("termination_reason"),
-                    finish_time_s=last_info.get("elapsed_s") if last_info.get("finished") else None,
+                    finish_time_s=(last_info.get("elapsed_s") if last_info.get("finished") else None),
                     mean_abs_lateral_offset=last_info.get("mean_abs_lateral_offset"),
                     reward_components=last_info.get("episode_reward_components"),
                     action_counts=last_info.get("episode_action_counts"),
@@ -1805,7 +1853,11 @@ def train_rl(
     if _will_pretrain:
         from rl.pretrain import run as _pretrain_run
 
-        _pretrain_run(env, experiment_dir=os.path.dirname(os.path.abspath(weights_file)), obs_spec=obs_spec)
+        _pretrain_run(
+            env,
+            experiment_dir=os.path.dirname(os.path.abspath(weights_file)),
+            obs_spec=obs_spec,
+        )
         pretrained = True
 
     probe_results: list[ProbeResult] = []
@@ -1867,7 +1919,12 @@ def train_rl(
         speed,
         in_game_episode_s,
     )
-    logger.info("    policy_type=%s  mutation_scale=%s  weights → %s", policy_type, mutation_scale, weights_file)
+    logger.info(
+        "    policy_type=%s  mutation_scale=%s  weights → %s",
+        policy_type,
+        mutation_scale,
+        weights_file,
+    )
 
     if not no_interrupt:
         input("\n  [GREEDY PHASE]  Press Enter to start optimisation...\n")
@@ -2014,7 +2071,7 @@ def train_rl(
         "end": t_end.strftime(fmt),
         "total_s": (t_end - t_start).total_seconds(),
         "probe_s": (t_after_probe - t_start).total_seconds() if t_after_probe else None,
-        "cold_start_s": (t_after_cold - t_after_probe).total_seconds() if t_after_cold and t_after_probe else None,
+        "cold_start_s": ((t_after_cold - t_after_probe).total_seconds() if t_after_cold and t_after_probe else None),
         "greedy_s": (t_end - t_greedy_start).total_seconds(),
     }
 

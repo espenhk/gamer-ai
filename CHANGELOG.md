@@ -168,6 +168,154 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.3.20] - 2026-06-01
+
+### Added
+- **Atari: DQN grid-search template** (`games/atari/config/gs_neural_dqn_template.yaml`, issue #385).
+  Sweeps `learning_rate × epsilon_decay_steps` (6 combos) on `Pong-v5` using DQN-paper
+  conventions: reward clipping (`clip_sign: true`), Double-DQN targets, Huber loss,
+  `replay_buffer_size: 100 000`, and `hidden_sizes: [256, 256]` for the 128-dim RAM
+  observation.  `games/atari/README.md` updated to reference the template.
+
+---
+
+## [0.3.19] - 2026-06-01
+
+### Changed
+- **SC2 training log: action shares now show function names instead of raw indices** (issue #375).
+  `>> NEW BEST` and `[stats @ sim N]` blocks now display e.g. `Attack_screen=3.0%` instead
+  of `3=3.0%`.  The mapping is supplied by `SC2Env` via the new `episode_action_name_map`
+  info key; other games without a name map continue to show raw keys unchanged.
+- **Per-episode non-improvement log lines demoted to DEBUG** (issue #377).
+  `ep end`, `>> no improvement`, and `[stats @ sim N]` blocks are now `logger.debug` so they
+  are hidden at the default `INFO` log level.  `>> NEW BEST` and its reward breakdown remain
+  at `INFO`.
+- **SC2 feature extraction skips unused preset groups** (issue #379).
+  `SC2Client._timestep_to_obs_info` now gates expensive ladder- and rich-only feature extractors
+  behind `_use_ladder_obs` / `_use_rich_obs` flags computed once at init.  Minigame runs skip
+  score, screen-HP, top-K enemy, and alert extractors; ladder runs additionally skip all
+  rich-only extractors (quadrant counts, per-unit-type enemies, shield/energy, creep, weapon
+  cooldown, etc.), reducing per-step Python overhead for the two most common presets.
+
+---
+
+## [0.3.18] - 2026-06-01
+
+---
+
+## [0.3.17] - 2026-06-01
+
+### Added
+- SC2: new `resource_banking_penalty`, `mineral_banking_threshold`, and
+  `gas_banking_threshold` reward config keys (issue #372).  Per-step penalty
+  proportional to minerals above 300 or vespene above 200, nudging the agent
+  to invest banked resources rather than hoard them.  Opt-in (default `0.0`);
+  recommended range for ladder maps: `-0.0001` to `-0.001`.
+
+---
+
+## [0.3.16] - 2026-06-01
+
+### Added
+- SC2: `new_action_unlock_bonus` reward config key (issue #360). Fires a
+  one-shot bonus per episode the first time a tech-tree-gated action appears
+  in `available_fn_ids` (i.e. becomes fully executable — prerequisite building
+  exists, correct unit selected, and affordable). Only actions with at least
+  one `required_buildings` precondition are eligible; selection-only and
+  always-available actions are excluded. Default `0.0` — opt-in. Set in
+  `reward_config.yaml`.
+
+---
+
+## [0.3.15] - 2026-05-31
+
+### Added
+- SC2: new `idle_worker_penalty` reward config key (issue #358).  Per-step
+  penalty scaled by `idle_worker_count` from PySC2 — each idle worker
+  subtracts `idle_worker_penalty` per step per idle worker.  Default `0.0`
+  (opt-in); recommended range for economy/ladder maps: `-0.05` to `-0.5`.
+  The count is now forwarded in the env `info` dict so downstream reward
+  shaping can always read it.
+
+---
+
+## [0.3.14] - 2026-05-31
+
+### Changed
+- **SC2: removed the Patrol commands from the action space (issue #359).**
+  `Patrol_screen` and `Patrol_minimap` (the rarely-useful follow/patrol-unit
+  orders) are dropped from `FUNCTION_IDS`, the race fn-id sets, and the
+  tech-tree `PRECONDITIONS` / `RESOURCE_COSTS` tables.  All following fn_ids
+  shift down by 2 to keep the table contiguous (`FUNCTION_IDS` now has 116
+  entries, `0–115`).  Existing SC2 champion weight files migrate via the
+  standard "missing key → 0.0" path; the fn_idx head is now 2 rows smaller.
+
+---
+
+## [0.3.13] - 2026-05-31
+
+### Fixed
+- SC2 agent no longer freezes on ladder maps (issue #356).  Three bugs
+  introduced by PR #348 (tech-tree preconditions + deferred-action queue)
+  are fixed:
+  - **H1 — infinite select_army oscillation**: `step()` now bypasses
+    `_resolve_action()` when consuming a deferred action.  Previously,
+    re-running the resolver on the replayed action would emit another
+    `select_army` (always "available" in PySC2 even with an empty army)
+    and re-defer indefinitely, stalling the agent for the entire episode.
+  - **H2 — buildings disappear on camera move**: `_owned_buildings` is now
+    accumulated across steps via `_owned_buildings_seen` so structures that
+    scroll off-screen no longer vanish from the tech-tree mask and block
+    build/train actions mid-episode.
+  - **H3 — per-step tech-tree CPU overhead**: `_compute_available_fn_ids()`
+    caches its result and skips the 118-call `fn_idx_satisfied()` loop when
+    `owned_buildings`, `completed_upgrades`, `selected_unit_types`, and the
+    PySC2 candidate set are all unchanged since the previous step.
+
+---
+
+## [0.3.12] - 2026-05-31
+
+### Fixed
+- SC2: build and train actions are now excluded from `available_fn_ids` when
+  the agent cannot afford them (issue #357). The action mask now filters by
+  mineral and vespene cost in addition to the existing tech-tree, building
+  prerequisite, and selection checks. `fn_idx_satisfied()` in
+  `games/sc2/tech_tree.py` accepts optional `minerals` and `vespene`
+  arguments (defaulting to `inf` for backwards compatibility); the client
+  tracks current resource counts each step and passes them to the filter.
+  Costs for every build/train fn_idx with a non-zero mineral or vespene
+  cost across Terran, Protoss, and Zerg are recorded in the new
+  `RESOURCE_COSTS` table in `tech_tree.py`; zero-cost actions (movement,
+  selection, energy abilities, mode-change morphs) have no entry.
+
+---
+
+## [0.3.11] - 2026-05-30
+
+### Added
+- SC2 self-play now supports three opponent-selection modes (issue #345).
+  Set `self_play_mode` in `training_params.yaml` (default `"exact"`):
+  - `"exact"` — opponent is a fresh snapshot of the current champion,
+    refreshed every generation (previously the opponent was set only once
+    at run start and never updated).
+  - `"mutated"` — opponent is a slightly mutated copy of the champion;
+    mutation strength controlled by `self_play_mutation_scale` (default
+    inherits `mutation_scale`).
+  - `"top_n"` — opponent is drawn uniformly at random from a pool of the
+    top-N champions seen so far (pool capacity set by `self_play_top_n`,
+    default 5); weakest pool entry is replaced when a stronger champion
+    arrives.
+  Implemented in `framework/self_play.py` (`SelfPlayManager`); the
+  opponent is refreshed at the end of each generation in all four greedy
+  loops (`hill_climbing`, `q_learning`, `cmaes`, `genetic`).
+
+---
+
+## [0.3.10] - 2026-05-30
+
+---
+
 ## [0.3.9] - 2026-05-29
 
 ### Added

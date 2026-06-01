@@ -1087,6 +1087,9 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `attack_bonus` | `0.0` | Per-step bonus whenever the agent issues `Attack_screen` (fn_idx 3), regardless of target type (A-move or click-to-attack). Simpler alternative to enabling both `attack_move_bonus` and `click_attack_bonus`. Opt-in. |
 | `attack_friendly_penalty` | `-10.0` | Per-step penalty when an `Attack_screen` target lands on/near the centroid of visible friendly units (ally fire). Penalised heavily; set `0.0` to disable. |
 | `economy_weight` | `0.0` | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps. |
+| `resource_banking_penalty` | `0.0` | Per-step penalty proportional to excess minerals/gas above the thresholds (issue #372). Fires when `minerals > mineral_banking_threshold` or `vespene > gas_banking_threshold`. Nudges agent to invest banked resources rather than hoard them. Recommended range for ladder maps: `-0.0001` to `-0.001`. Opt-in. |
+| `mineral_banking_threshold` | `300.0` | Minerals above this level are considered "banked" for `resource_banking_penalty`. |
+| `gas_banking_threshold` | `200.0` | Vespene above this level is considered "banked" for `resource_banking_penalty`. |
 | `unit_loss_penalty` | `0.0` | Penalty per army unit lost this step (army_count drop). Opt-in. |
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |
 | `passive_under_fire_penalty` | `0.0` | Per-step penalty when enemies are within attack range of friendlies and the agent did not issue `Attack_screen`. Opt-in. |

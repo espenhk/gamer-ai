@@ -17,6 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- SC2: new `resource_banking_penalty`, `mineral_banking_threshold`, and
+  `gas_banking_threshold` reward config keys (issue #372).  Per-step penalty
+  proportional to minerals above 300 or vespene above 200, nudging the agent
+  to invest banked resources rather than hoard them.  Opt-in (default `0.0`);
+  recommended range for ladder maps: `-0.0001` to `-0.001`.
 
 ---
 

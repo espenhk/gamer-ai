@@ -184,6 +184,21 @@ class SC2RewardConfig:
         Recommended starting range: ``1.0–10.0`` (much larger than per-step
         shaping terms so the tech-unlock signal is clearly visible to the
         policy).
+    resource_banking_penalty :
+        Per-step penalty proportional to the total excess resources above
+        ``mineral_banking_threshold`` and ``gas_banking_threshold`` (issue #372).
+        Agents tend to hoard minerals/gas rather than spending them on buildings
+        or units; a small negative coefficient nudges them to invest.
+        Penalty each step = ``resource_banking_penalty × (max(0, minerals −
+        mineral_banking_threshold) + max(0, vespene − gas_banking_threshold))
+        × n_ticks``.  Default ``0.0`` — opt-in.  Recommended range:
+        ``-0.0001`` to ``-0.001``.
+    mineral_banking_threshold :
+        Minerals above this level are considered "banked" for the
+        ``resource_banking_penalty``.  Default ``300.0``.
+    gas_banking_threshold :
+        Vespene above this level is considered "banked" for the
+        ``resource_banking_penalty``.  Default ``200.0``.
     """
 
     score_weight: float = 1.0
@@ -211,6 +226,9 @@ class SC2RewardConfig:
     early_random_action_bonus: float = 0.0
     early_random_action_window_steps: int = 250
     new_action_unlock_bonus: float = 0.0
+    resource_banking_penalty: float = 0.0
+    mineral_banking_threshold: float = 300.0
+    gas_banking_threshold: float = 200.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -360,7 +378,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
         ``early_random_action``, ``new_action_unlock``, ``unit_loss``,
         ``damage_taken``, ``passive_under_fire``, ``small_selection``,
-        ``step_penalty`` and ``terminal`` separately.
+        ``resource_banking``, ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -646,6 +664,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 if dist <= self._ATTACK_SELF_RADIUS_FRAC * screen_size:
                     attack_friendly_penalty = cfg.attack_friendly_penalty * n_ticks
         components["attack_friendly_penalty"] = float(attack_friendly_penalty)
+
+        # Resource banking penalty (issue #372): penalise hoarding excess minerals/gas.
+        resource_banking = 0.0
+        if cfg.resource_banking_penalty != 0.0:
+            curr_min = float(info.get("minerals", 0.0))
+            curr_vesp = float(info.get("vespene", 0.0))
+            excess_min = max(0.0, curr_min - cfg.mineral_banking_threshold)
+            excess_vesp = max(0.0, curr_vesp - cfg.gas_banking_threshold)
+            resource_banking = cfg.resource_banking_penalty * (excess_min + excess_vesp) * n_ticks
+        components["resource_banking"] = float(resource_banking)
 
         # Time cost.
         components["step_penalty"] = float(cfg.step_penalty * n_ticks)

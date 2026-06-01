@@ -1906,5 +1906,170 @@ class TestNewActionUnlockBonus(unittest.TestCase):
         self.assertAlmostEqual(total, sum(comp.values()), places=5)
 
 
+class TestSC2ResourceBankingPenalty(unittest.TestCase):
+    """Tests for the resource_banking_penalty reward term (issue #372)."""
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {
+            "score_weight": 0.0,
+            "step_penalty": 0.0,
+            "win_bonus": 0.0,
+            "loss_penalty": 0.0,
+            "economy_weight": 0.0,
+        }
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _info(self, minerals: float = 0.0, vespene: float = 0.0) -> dict:
+        return {"prev_score": 0.0, "score": 0.0, "minerals": minerals, "vespene": vespene}
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.resource_banking_penalty, 0.0)
+
+    def test_default_mineral_threshold(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.mineral_banking_threshold, 300.0)
+
+    def test_default_gas_threshold(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.gas_banking_threshold, 200.0)
+
+    def test_no_penalty_below_thresholds(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=299.0, vespene=199.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_no_penalty_at_exact_threshold(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=300.0, vespene=200.0),
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_penalty_fires_for_excess_minerals(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+        )
+        # excess minerals = 100; penalty = -0.001 * 100 = -0.1
+        self.assertAlmostEqual(r, -0.1)
+
+    def test_penalty_fires_for_excess_gas(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=0.0, vespene=300.0),
+        )
+        # excess gas = 100; penalty = -0.001 * 100 = -0.1
+        self.assertAlmostEqual(r, -0.1)
+
+    def test_penalty_accumulates_both_resources(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=500.0, vespene=400.0),
+        )
+        # excess minerals = 200, excess gas = 200, total = 400
+        # penalty = -0.001 * 400 = -0.4
+        self.assertAlmostEqual(r, -0.4)
+
+    def test_penalty_scales_with_n_ticks(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+            n_ticks=4,
+        )
+        # excess = 100; penalty = -0.001 * 100 * 4 = -0.4
+        self.assertAlmostEqual(r, -0.4)
+
+    def test_penalty_zero_when_keys_absent(self):
+        """Missing minerals/vespene keys → treat as 0 (below threshold, no penalty)."""
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0},
+        )
+        self.assertAlmostEqual(r, 0.0)
+
+    def test_in_components_dict(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=400.0, vespene=0.0),
+        )
+        self.assertIn("resource_banking", comp)
+        self.assertAlmostEqual(comp["resource_banking"], -0.1)
+
+    def test_component_zero_when_disabled(self):
+        calc = self._make_calc(resource_banking_penalty=0.0)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=1000.0, vespene=1000.0),
+        )
+        self.assertAlmostEqual(comp["resource_banking"], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._make_calc(resource_banking_penalty=-0.001)
+        total, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=500.0, vespene=300.0),
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+    def test_custom_thresholds(self):
+        calc = self._make_calc(
+            resource_banking_penalty=-0.01,
+            mineral_banking_threshold=100.0,
+            gas_banking_threshold=50.0,
+        )
+        r = calc.compute(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(minerals=200.0, vespene=100.0),
+        )
+        # excess minerals = 100, excess gas = 50, total = 150
+        # penalty = -0.01 * 150 = -1.5
+        self.assertAlmostEqual(r, -1.5)
+
+
 if __name__ == "__main__":
     unittest.main()

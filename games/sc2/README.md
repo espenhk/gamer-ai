@@ -350,6 +350,9 @@ Configured in `games/sc2/config/reward_config.yaml`:
 | `click_attack_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
 | `click_attack_cooldown_steps` | 8 | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
 | `economy_weight` | 0.0 | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps |
+| `resource_banking_penalty` | 0.0 | Per-step penalty proportional to excess minerals above `mineral_banking_threshold` or vespene above `gas_banking_threshold`. Nudges the agent to spend banked resources. Recommended range: `-0.0001` to `-0.001`. Opt-in. |
+| `mineral_banking_threshold` | 300.0 | Minerals above this level count as "banked" for `resource_banking_penalty`. |
+| `gas_banking_threshold` | 200.0 | Vespene above this level counts as "banked" for `resource_banking_penalty`. |
 | `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands when the active selection is one unit or under 50% of visible friendly units. Opt-in. |
 
 `idle_bonus` uses PySC2 unit IDs plus a curated unit-range table in `games/sc2/client.py`.

@@ -636,6 +636,7 @@ handful of iterations only).
 - small_selection_bonus: fires on unit-targeted commands when selection is a single unit or less than half of visible friendly units; skipped for non-unit-targeted actions and exactly-half selections; appears in components dict
 - attack_bonus: fires on any Attack_screen (fn_idx 3) regardless of target type; persists across carried attack no_op steps; skipped for pure no_op (no prior attack); disabled by default; appears in components dict
 - new_action_unlock_bonus (issue #360): `_TECH_GATED_FN_IDS` class attribute is non-empty and includes fn_idx 8 (`Build_Barracks_screen`); non-gated fn_ids (0, 1, 2) excluded; bonus fires on first appearance of a tech-gated fn_idx in `available_fn_ids`; does not fire again same episode; fires again after `reset()`; scales with count of newly unlocked fn_ids; non-gated actions do not trigger; disabled when bonus is 0.0; missing `available_fn_ids` key does not crash; components sum equals total
+- resource_banking_penalty (issue #372): disabled by default; default thresholds mineral=300/gas=200; zero when both resources below threshold; zero at exact thresholds; fires proportionally for excess minerals only; fires proportionally for excess gas only; accumulates both resources; n_ticks scaling; zero when info keys absent; appears in components dict; zero in components when disabled; components sum equals total; custom thresholds honoured
 - components sum: new terms included in total (extended sum test)
 
 ### test_sc2_client.py — PySC2 client wrapper

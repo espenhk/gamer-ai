@@ -148,3 +148,14 @@ economy_weight: 0.001
 # always-available actions (no_op, select_army) are excluded.
 # Set to 0.0 to disable (default).  Recommended starting range: 1.0–10.0.
 new_action_unlock_bonus: 0.0
+
+# --- Resource banking penalty (issue #372) ---
+# Per-step penalty proportional to excess minerals/gas above the thresholds.
+# Having >300 minerals or >200 gas is a signal the agent should be investing
+# those resources in buildings or units.  Set resource_banking_penalty to a
+# small negative value to enable (e.g. -0.0005); 0.0 = disabled (default).
+# mineral_banking_threshold: minerals above this count as "banked". Default 300.
+# gas_banking_threshold: vespene above this count as "banked". Default 200.
+resource_banking_penalty: 0.0
+mineral_banking_threshold: 300.0
+gas_banking_threshold: 200.0

@@ -63,6 +63,7 @@
   - [test\_sc2\_cmaes\_policy.py — `SC2CMAESPolicy` (CMA-ES over multi-head linear policy)](#test_sc2_cmaes_policypy--sc2cmaespolicy-cma-es-over-multi-head-linear-policy)
   - [test\_sc2\_lstm\_policy.py — `SC2LSTMPolicy` + `SC2LSTMEvolutionPolicy` (thin framework subclass)](#test_sc2_lstm_policypy--sc2lstmpolicy--sc2lstmevolutionpolicy-thin-framework-subclass)
   - [test\_sc2\_genetic\_policy.py — `SC2MultiHeadLinearPolicy` + genetic trainer](#test_sc2_genetic_policypy--sc2multiheadlinearpolicy--genetic-trainer)
+  - [test\_sc2\_hierarchical\_policy.py — `SC2HierarchicalLinearPolicy` + `SC2HierarchicalGeneticPolicy` (issue #388)](#test_sc2_hierarchical_policypy--sc2hierarchicallinearpolicy--sc2hierarchicalgeneticpolicy-issue-388)
   - [test\_sc2\_neural\_net\_policy.py — hill-climbing MLP policy for SC2](#test_sc2_neural_net_policypy--hill-climbing-mlp-policy-for-sc2)
   - [test\_sc2\_neural\_dqn\_policy.py — masked DQN for SC2](#test_sc2_neural_dqn_policypy--masked-dqn-for-sc2)
   - [test\_sc2\_cnn\_policy.py — CNN feature extractor + CMA-ES variant](#test_sc2_cnn_policypy--cnn-feature-extractor--cma-es-variant)
@@ -720,6 +721,16 @@ handful of iterations only).
 - Save: yaml / champion lossless / cfg policy_type=sc2_genetic / from_cfg roundtrip / restores champion / no champion key OK
 - Call: 4-vec after init / raises before init
 - Available-actions masking: no-mask selects highest fn / None by default / masking blocks unavailable fn / selects best available / on_episode_start caches ids / no key clears mask / None info clears mask / update caches ids / no key in update leaves unchanged / mask applied after on_episode_start / mask applied after update / empty set falls back to no_op
+
+### test_sc2_hierarchical_policy.py — `SC2HierarchicalLinearPolicy` + `SC2HierarchicalGeneticPolicy` (issue #388)
+- Categories: all fn_ids covered / no fn_id in multiple categories / names match keys / N_CATEGORIES correct / inverse map complete / inverse map consistent / sentinel members in correct categories
+- Init: meta/fn/spatial/queue weight shapes (minigame + ladder) / default race=random
+- Call: output shape (4,) / dtype float32 / fn_idx in valid range / spatial in unit square / queue is 0 or 1 / positive logit → queue=1 / negative logit → queue=0 / respects availability mask / meta scores route to correct category / empty category falls back / selected fn_idx always in chosen category
+- Serialisation: to_cfg has meta + queue keys / cfg round-trip / save+load round-trip / missing keys default zero
+- Flat: length = (N_CATEGORIES + N_FUNCTION_IDS + N_SPATIAL_ROWS + N_QUEUE_ROWS) × obs_dim / round-trip / mutated differs / same shape after mutation
+- Genetic: policy_type=sc2_hierarchical / compatible with sc2 / incompatible with tmnf / initialize_random + call / save champion + reload / from_cfg round-trip
+
+**Not tested:** actual two-player SC2 binary execution, multi-generation evolution convergence.
 
 ### test_sc2_neural_net_policy.py — hill-climbing MLP policy for SC2
 - Action: shape (4,) / fn_idx range / x+y unit square / queue binary

@@ -309,7 +309,7 @@ make it `copy.deepcopy`-able) and drop it from
 | Discrete control with a mature on-policy SB3 baseline | `ppo` | Strong first choice when you want a standard library implementation instead of the pure-numpy policies. |
 | Tiny discrete state space after coarse binning | `epsilon_greedy` or `ucb_q` | Tabular methods are only practical when `n_bins` stays small enough that the table is still visitable. |
 | Cloneable deterministic simulator and you explicitly want planning | `alphazero_mcts` | Only appropriate when the env can be cloned cheaply; all currently supported games are gated off today. |
-| Any SC2 run | `sc2_genetic`, `sc2_cmaes`, `sc2_reinforce`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, or `sc2_neural_net` | The generic continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`, `cmaes`, `neural_dqn`, `reinforce`, `lstm`) and all SB3 policies are structurally incompatible with SC2's `[fn_idx, x, y, queue]` action encoding. Only the SC2-native wrappers (plus tabular `epsilon_greedy` / `ucb_q`) should be considered there. |
+| Any SC2 run | `sc2_genetic`, `sc2_hierarchical`, `sc2_cmaes`, `sc2_reinforce`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, or `sc2_neural_net` | The generic continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`, `cmaes`, `neural_dqn`, `reinforce`, `lstm`) and all SB3 policies are structurally incompatible with SC2's `[fn_idx, x, y, queue]` action encoding. Only the SC2-native wrappers (plus tabular `epsilon_greedy` / `ucb_q`) should be considered there. |
 
 ### Sizing a run
 
@@ -1056,6 +1056,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
 | `sc2_genetic` | Evolutionary (population of `SC2MultiHeadLinearPolicy`) | Default; recommended. Separate fn_idx (6×obs_dim) and sigmoid spatial (2×obs_dim) heads. |
+| `sc2_hierarchical` | Evolutionary (population of `SC2HierarchicalLinearPolicy`) | Hierarchical action space (issue #388): first selects meta-category (move/attack/build/train/upgrade), then fn_idx within it, then spatial + queue. |
 | `sc2_reinforce` | Two-head REINFORCE MLP (softmax fn + sigmoid spatial) | `games/sc2/sc2_policies.py`; gradient-trained per episode |
 | `sc2_cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2MultiHeadLinearPolicy` flat weights | `games/sc2/sc2_policies.py` |
 | `sc2_lstm` | LSTM with SC2-native action encoding, trained by isotropic ES | `games/sc2/sc2_policies.py` |

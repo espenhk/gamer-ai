@@ -17,6 +17,18 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **SC2 hierarchical action space** (issue #388): actions are now grouped into
+  five meta-categories (`move`, `attack`, `build`, `train`, `upgrade`).
+  `ACTION_CATEGORIES`, `CATEGORY_NAMES`, `N_CATEGORIES`, and
+  `FN_IDX_TO_CATEGORY` exported from `games.sc2.actions`.
+- `SC2HierarchicalLinearPolicy`: two-stage linear policy that first selects a
+  meta-category via one weight head, then selects a specific action within that
+  category via a second head.  Also adds a learned `queue` head so orders can
+  be queued or issued immediately.
+- `SC2HierarchicalGeneticPolicy` (`policy_type: sc2_hierarchical`): evolutionary
+  search over `SC2HierarchicalLinearPolicy` individuals; drop-in replacement for
+  `sc2_genetic` with the narrowed action-selection structure.
 
 ---
 

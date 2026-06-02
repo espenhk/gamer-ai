@@ -17,6 +17,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Framework-level behaviour-cloning seam (issue #393, parent #392). New
+  modules `framework/bc.py` (`BCAdapter` Protocol + `run()` orchestrator)
+  and `framework/bc_io.py` (`load_dataset`, `save_summary`) lift the
+  game-agnostic parts of the SC2 BC pipeline into the framework. The
+  `demos.npz` schema is byte-compatible with what `games/sc2/replay_bc.py`
+  has been writing since #351, so existing datasets load unchanged. The
+  `GameAdapter` Protocol gains an optional `bc: BCAdapter | None`
+  attribute. No game wires this seam yet — SC2 BC still runs through its
+  existing path. Phase 2 (#394) ports SC2 onto the new seam; phase 3
+  (#395) adds TMNF.
 
 ---
 

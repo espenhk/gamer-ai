@@ -9,7 +9,7 @@
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
@@ -64,13 +64,13 @@ poetry install
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/<name>/config/reward_config.yaml`:
+Configured in `games/<name>/config/reward_config.yaml`.
 
-| Parameter | Value | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `step_penalty` | −0.1 | Per-step time cost |
+| `step_penalty` | −0.1 | Per-step time cost. |
 
 ---
 

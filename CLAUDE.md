@@ -23,6 +23,19 @@ config, observation/action space, reward, and supported policies. This file
 is the architecture overview — defer to those per-game READMEs for
 game-specific specifics.
 
+**Per-game reward documentation convention.** Every game README must contain
+a `## Rewards` section (plural) with a Markdown table — columns
+`Parameter | Default | Description` — covering every key in the game's
+`reward_config.yaml`. This is where formulas, interaction effects, tuning
+notes, and preset recommendations live. The YAML file itself should be a
+clean list of `key: value` pairs with a single one-line header comment
+pointing to the README (`# Reward configuration for <GAME>. See
+games/<name>/README.md for full documentation.`). Avoid paragraph-style
+explanations or multi-line comment blocks inside the YAML. Short inline
+hints (e.g. `# "none" | "icm" | "rnd"` for an enum value) are acceptable
+when the valid options are not obvious from context. The
+`games/_template/` files show the expected pattern for new games.
+
 The framework-side protocols a contributor implements to ship a game or a
 policy are documented one file per protocol under
 [`docs/framework/`](docs/framework/README.md): `GameAdapter`, the

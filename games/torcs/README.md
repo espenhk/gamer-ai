@@ -10,7 +10,7 @@ TORCS (The Open Racing Car Simulator) integration for the tmnf-ai reinforcement 
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
@@ -113,22 +113,22 @@ Discrete policies use a 25-cell grid: {full brake, half brake, coast, half accel
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/torcs/config/reward_config.yaml`:
+Configured in `games/torcs/config/reward_config.yaml`.
 
-| Parameter | Value | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `progress_weight` | 10.0 | Reward per unit of lap progress |
-| `centerline_weight` | −0.5 | Penalty for lateral deviation |
-| `centerline_exp` | 2.0 | Exponent for centerline penalty (quadratic) |
-| `speed_weight` | 0.05 | Small bonus for higher speed |
-| `step_penalty` | −0.01 | Per-step time cost |
-| `finish_bonus` | 100.0 | One-time reward for completing the lap |
-| `finish_time_weight` | −0.1 | Penalty proportional to lap time above par |
-| `par_time_s` | 120.0 | Par lap time in seconds |
-| `accel_bonus` | 0.5 | Bonus for applying throttle |
-| `crash_threshold_m` | 8.0 | Lateral offset (m) that terminates the episode |
+| `progress_weight` | 10.0 | Multiplied by the lap-progress delta each step. Primary signal — driving further is always beneficial. |
+| `centerline_weight` | −0.5 | Coefficient of the centerline penalty: `centerline_weight × |lateral_offset_m|^centerline_exp`. Negative — larger offsets cost more reward. |
+| `centerline_exp` | 2.0 | Exponent for the centerline penalty. 2.0 = quadratic — small offsets are tolerated, large ones punished heavily. |
+| `speed_weight` | 0.05 | Per-step bonus proportional to vehicle speed. Small enough to act as a tie-breaker rather than the primary signal. |
+| `step_penalty` | −0.01 | Flat per-step time cost. Discourages looping or spinning in place. |
+| `finish_bonus` | 100.0 | One-time reward for completing the lap. |
+| `finish_time_weight` | −0.1 | Multiplied by `(elapsed_s − par_time_s)`. Negative means being slower than par costs reward; faster earns a bonus. |
+| `par_time_s` | 120.0 | Reference lap time in seconds used by `finish_time_weight`. |
+| `accel_bonus` | 0.5 | Flat bonus per step when the throttle is pressed. Discourages coasting. |
+| `crash_threshold_m` | 8.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. TORCS tracks are narrower than TMNF, so this is lower than the 25.0 used by most other games. |
 
 ---
 

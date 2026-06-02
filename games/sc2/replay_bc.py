@@ -58,15 +58,10 @@ from typing import Any, Iterator
 
 import numpy as np
 
-from framework.bc_io import load_dataset  # re-exported for backward-compat
+from framework.bc_io import load_dataset  # noqa: F401  (re-exported)
 from framework.obs_spec import ObsSpec
 
 logger = logging.getLogger(__name__)
-
-# Silence "imported but unused" — load_dataset is re-exported from this module
-# so existing callers (notebooks, third-party imports) keep working after the
-# canonical definition moved to framework.bc_io (issue #393).
-_ = load_dataset
 
 _WINNER_SENTINEL = "winner"
 

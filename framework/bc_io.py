@@ -14,7 +14,9 @@ A BC dataset NPZ contains six keys::
     episode_starts   int64[E]          — start index of each episode in obs/actions
     episode_lengths  int64[E]          — length of each episode
     episode_id       int64[N]          — per-sample episode index ∈ [0, E)
-    meta             0-d bytes         — JSON-encoded metadata dict
+    meta             0-d unicode str   — JSON-encoded metadata dict (numpy
+                                          stores as `<U…`; ``np.load`` yields
+                                          a 0-d ``str_``)
 
 The exact shape of ``actions`` is game-specific (SC2 uses
 ``[fn_idx, x, y, queue]``; TMNF uses ``[steer, accel, brake]``).  The

@@ -416,16 +416,23 @@ def _run_bc(adapter, args: argparse.Namespace) -> None:
     if getattr(args, "bc_player", None):
         p = dict(p, bc_player_id=args.bc_player)
 
-    bc_run(
-        bc_adapter,
-        replay_dir,
-        experiment_dir,
-        obs_spec=obs_spec,
-        target=target,
-        training_params=p,
-        race=race,
-        max_replays=p.get("bc_max_replays"),
-    )
+    try:
+        bc_run(
+            bc_adapter,
+            replay_dir,
+            experiment_dir,
+            obs_spec=obs_spec,
+            target=target,
+            training_params=p,
+            race=race,
+            max_replays=p.get("bc_max_replays"),
+        )
+    except ValueError as exc:
+        # Adapter/orchestrator validation errors (missing --replay-dir,
+        # unsupported target, empty replay directory, race filter dropped
+        # all replays, ...) should exit cleanly with the message rather
+        # than dump a traceback at the user.
+        raise SystemExit(str(exc)) from exc
     logger.info(
         "BC complete — run 'python main.py %s --game %s' to fine-tune from pre-trained weights.",
         args.experiment,

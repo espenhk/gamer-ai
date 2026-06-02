@@ -56,8 +56,9 @@ class BCAdapter(Protocol):
     name :
         Game identifier, matching the ``GameAdapter.name`` of the same game.
     supported_targets :
-        ``policy_type`` strings this adapter knows how to BC into.  The CLI
-        ``--bc-target`` choices list is derived from this.
+        ``policy_type`` strings this adapter knows how to BC into.  The
+        framework :func:`run` orchestrator validates ``target`` against this
+        tuple before dispatching to :meth:`fit_bc`.
     default_target :
         Default value when neither CLI nor config specifies ``bc_target``.
         Must appear in :attr:`supported_targets`.
@@ -265,7 +266,7 @@ def run(
         "bc_target": target,
         "n_episodes": int(meta.get("n_episodes", 0)),
         "n_pairs": int(meta.get("n_steps", 0)),
-        "bc_race": race if race else "any",
+        "bc_race": race_filter or "any",
         "final_bc_loss": float(bc_loss),
         "extras": extras,
     }

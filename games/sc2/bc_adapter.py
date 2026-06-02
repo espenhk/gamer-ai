@@ -96,7 +96,9 @@ class SC2BCAdapter:
             "n_replays_kept": int(meta.get("n_episodes", 0)),
             "n_replays_skipped_race": int(meta.get("n_replays_skipped_race", 0)),
             "fn_idx_histogram": fn_histogram,
-            "bc_player_id": str(_resolve_player_id(training_params)),
+            # Preserve the resolved type ("winner" / 1 / 2) so consumers that
+            # distinguish "1" from 1 see the same value as the legacy summary.
+            "bc_player_id": _resolve_player_id(training_params),
         }
 
     def fit_bc(

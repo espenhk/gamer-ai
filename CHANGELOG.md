@@ -17,6 +17,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **SC2 `new_action_usage_bonus` reward component** (issue #400).  New opt-in
+  reward that fires each time the agent *issues* a tech-gated fn_idx that has
+  already been unlocked this episode, up to a configurable cap
+  (`new_action_usage_max_uses`, default 50 uses per fn_idx per episode).
+  Complements the existing `new_action_unlock_bonus` (issue #360): unlocking
+  a tech earns one large reward; using it consistently earns additional shaping.
+  Both bonuses are independent and can be enabled together or separately.
+  New `reward_config.yaml` keys: `new_action_usage_bonus` (default `0.0`) and
+  `new_action_usage_max_uses` (default `50`).  Emitted as
+  `components["new_action_usage"]` in the reward breakdown.
 
 ---
 

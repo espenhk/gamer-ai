@@ -149,6 +149,20 @@ economy_weight: 0.001
 # Set to 0.0 to disable (default).  Recommended starting range: 1.0–10.0.
 new_action_unlock_bonus: 0.0
 
+# --- New-action usage bonus (issue #400) ---
+# Complements new_action_unlock_bonus: rewards the agent for actually *issuing*
+# a tech-gated action after it has been unlocked.  Fires per step, up to
+# new_action_usage_max_uses times per fn_idx per episode, then goes silent for
+# that action for the rest of the episode.  Only tech-gated actions (those with
+# at least one required building in the tech tree) qualify — no_op, Move_screen,
+# Attack_screen, and always-available actions are excluded.
+# Can be enabled independently of new_action_unlock_bonus.
+# Set to 0.0 to disable (default).  Recommended starting range: 0.1–2.0
+# (keep smaller than new_action_unlock_bonus since it fires many times).
+new_action_usage_bonus: 0.0
+# Maximum uses per fn_idx per episode before the bonus is silenced.
+new_action_usage_max_uses: 50
+
 # --- Resource banking penalty (issue #372) ---
 # Per-step penalty proportional to excess minerals/gas above the thresholds.
 # Having >300 minerals or >200 gas is a signal the agent should be investing

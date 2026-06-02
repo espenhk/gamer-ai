@@ -1634,7 +1634,10 @@ class SC2Client:
         # selected_unit_types, so the tech filter would drop everything
         # that requires a specific selection.  Fall back to race ∩ PySC2.
         if not self._unit_type_id_to_name:
-            return set(candidate)
+            out = set(candidate)
+            if WORKER_NAMES & self._selected_unit_types:
+                out.discard(4)
+            return out
 
         # Cache: skip the full fn_idx_satisfied loop when the game-state inputs
         # are unchanged (issue #356 H3).  Minerals and vespene are included

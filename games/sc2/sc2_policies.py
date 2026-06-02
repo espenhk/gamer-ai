@@ -41,7 +41,15 @@ from framework.policies import BasePolicy, GeneticPolicy, register_policy, train
 from framework.reinforce import (  # noqa: F401 — _GradEntry re-exported for test compatibility
     TwoHeadREINFORCEPolicy as _FrameworkTwoHeadREINFORCE,
 )
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS, build_available_actions_mask, fn_ids_for_race
+from games.sc2.actions import (
+    ACTION_CATEGORIES,
+    CATEGORY_NAMES,
+    DISCRETE_ACTIONS,
+    FUNCTION_IDS,
+    N_CATEGORIES,
+    build_available_actions_mask,
+    fn_ids_for_race,
+)
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
 logger = logging.getLogger(__name__)
@@ -67,6 +75,13 @@ N_GRID_CELLS: int = N_SPATIAL_ROWS
 _FN_HEAD_NAMES: list[str] = [f"fn_idx_{i}" for i in range(N_FUNCTION_IDS)]
 _SPATIAL_HEAD_NAMES: list[str] = ["x", "y"]
 _ALL_ROW_NAMES: list[str] = _FN_HEAD_NAMES + _SPATIAL_HEAD_NAMES
+
+# Head names for SC2HierarchicalLinearPolicy (issue #388).
+_META_HEAD_NAMES: list[str] = [f"meta_{i}" for i in range(N_CATEGORIES)]
+_QUEUE_HEAD_NAME: str = "queue"
+_ALL_HIERARCHICAL_ROW_NAMES: list[str] = _META_HEAD_NAMES + _FN_HEAD_NAMES + _SPATIAL_HEAD_NAMES + [_QUEUE_HEAD_NAME]
+#: Number of queue output rows (one sigmoid logit).
+N_QUEUE_ROWS: int = 1
 
 
 def _sigmoid(x: float) -> float:
@@ -492,6 +507,403 @@ class SC2GeneticPolicy(GeneticPolicy):
         else:
             policy.initialize_random()
             logger.info("[SC2GeneticPolicy] random population of %d", policy._pop_size)
+        return policy
+
+
+# ---------------------------------------------------------------------------
+# SC2HierarchicalLinearPolicy (issue #388)
+# ---------------------------------------------------------------------------
+
+
+class SC2HierarchicalLinearPolicy:
+    """Hierarchical multi-head linear policy for StarCraft 2 (issue #388).
+
+    Selects actions in four sequential stages:
+
+    1. **Meta-category** — ``meta_weights @ obs`` → argmax over
+       :data:`games.sc2.actions.N_CATEGORIES` scores selects one of
+       ``move``, ``attack``, ``build``, ``train``, or ``upgrade``.
+       Categories whose fn_ids are all unavailable are masked to ``-inf``
+       so the agent never gets stuck in an empty tier.
+    2. **fn_idx** — ``fn_weights @ obs`` → masked argmax within the
+       selected category's fn_ids (intersected with race + availability
+       masks) gives the concrete function ID.
+    3. **Spatial** — ``spatial_weights @ obs`` → sigmoid →
+       ``(x, y) ∈ [0, 1]²`` screen coordinates (continuous; used for
+       all ``_screen`` / ``_minimap`` actions).
+    4. **Queue** — ``queue_weights @ obs`` → sign → ``queue ∈ {0, 1}``.
+       Positive logit queues the order; negative or zero issues it
+       immediately.
+
+    YAML serialisation uses one ``{head}_{row}_weights`` key per matrix
+    row so :meth:`framework.policies.GeneticPolicy._crossover` works
+    without modification.
+    """
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec,
+        meta_weights: np.ndarray | None = None,
+        fn_weights: np.ndarray | None = None,
+        spatial_weights: np.ndarray | None = None,
+        queue_weights: np.ndarray | None = None,
+        race: str = "random",
+    ) -> None:
+        self._obs_spec = obs_spec
+        obs_dim = obs_spec.dim
+        rng = np.random.default_rng()
+
+        self._meta_weights: np.ndarray = (
+            meta_weights.astype(np.float32)
+            if meta_weights is not None
+            else rng.standard_normal((N_CATEGORIES, obs_dim)).astype(np.float32)
+        )
+        self._fn_weights: np.ndarray = (
+            fn_weights.astype(np.float32)
+            if fn_weights is not None
+            else rng.standard_normal((N_FUNCTION_IDS, obs_dim)).astype(np.float32)
+        )
+        self._sp_weights: np.ndarray = (
+            spatial_weights.astype(np.float32)
+            if spatial_weights is not None
+            else rng.standard_normal((N_SPATIAL_ROWS, obs_dim)).astype(np.float32)
+        )
+        self._q_weights: np.ndarray = (
+            queue_weights.astype(np.float32)
+            if queue_weights is not None
+            else rng.standard_normal((N_QUEUE_ROWS, obs_dim)).astype(np.float32)
+        )
+
+        self._race: str = race
+        self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
+        self._available_fn_ids: set[int] | None = None
+
+    # ------------------------------------------------------------------
+    # Callable interface
+    # ------------------------------------------------------------------
+
+    def __call__(self, obs: np.ndarray) -> np.ndarray:
+        """Select action via hierarchical two-stage fn_idx selection.
+
+        Returns
+        -------
+        np.ndarray
+            4-vector ``[fn_idx, x, y, queue]`` compatible with ``SC2Env``.
+        """
+        norm_obs = obs / self._obs_spec.scales
+
+        # Effective fn_ids: permanent race mask ∩ per-step availability.
+        effective_fn_ids: frozenset[int] | set[int] = self._race_fn_ids
+        if self._available_fn_ids is not None:
+            effective_fn_ids = self._race_fn_ids & self._available_fn_ids
+
+        # Stage 1: select meta-category.
+        meta_scores = self._meta_weights @ norm_obs  # (N_CATEGORIES,)
+        for cat_i, cat_name in enumerate(CATEGORY_NAMES):
+            if not any(f in effective_fn_ids for f in ACTION_CATEGORIES[cat_name]):
+                meta_scores[cat_i] = -np.inf
+        if not np.any(np.isfinite(meta_scores)):
+            # move always contains no_op so this branch is unreachable in
+            # a correctly configured env, but guard anyway.
+            meta_scores[0] = 0.0
+        meta_idx = int(np.argmax(meta_scores))
+        selected_category = CATEGORY_NAMES[meta_idx]
+        category_fn_ids = set(ACTION_CATEGORIES[selected_category])
+
+        # Stage 2: select fn_idx within category.
+        fn_scores = self._fn_weights @ norm_obs  # (N_FUNCTION_IDS,)
+        for i in range(N_FUNCTION_IDS):
+            if i not in category_fn_ids or i not in effective_fn_ids:
+                fn_scores[i] = -np.inf
+        if not np.any(np.isfinite(fn_scores)):
+            fn_scores[0] = 0.0  # no_op fallback
+        fn_idx = int(np.argmax(fn_scores))
+
+        # Stage 3: continuous spatial target.
+        sp_scores = self._sp_weights @ norm_obs  # (2,)
+        x = _sigmoid(float(sp_scores[0]))
+        y = _sigmoid(float(sp_scores[1]))
+
+        # Stage 4: queue decision.
+        q_score = float((self._q_weights @ norm_obs)[0])
+        queue = 1.0 if q_score > 0.0 else 0.0
+
+        return np.array([fn_idx, x, y, queue], dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Serialisation
+    # ------------------------------------------------------------------
+
+    def to_cfg(self) -> dict:
+        """Return a YAML-serialisable dict.
+
+        Format::
+
+            meta_0_weights: {obs_name: float, ...}
+            ...
+            meta_4_weights: {...}
+            fn_idx_0_weights: {...}
+            ...
+            fn_idx_115_weights: {...}
+            x_weights: {...}
+            y_weights: {...}
+            queue_weights: {...}
+        """
+        names = self._obs_spec.names
+        cfg: dict = {}
+        for i, row_name in enumerate(_META_HEAD_NAMES):
+            cfg[f"{row_name}_weights"] = {n: float(self._meta_weights[i, j]) for j, n in enumerate(names)}
+        for i, row_name in enumerate(_FN_HEAD_NAMES):
+            cfg[f"{row_name}_weights"] = {n: float(self._fn_weights[i, j]) for j, n in enumerate(names)}
+        for i, row_name in enumerate(_SPATIAL_HEAD_NAMES):
+            cfg[f"{row_name}_weights"] = {n: float(self._sp_weights[i, j]) for j, n in enumerate(names)}
+        cfg[f"{_QUEUE_HEAD_NAME}_weights"] = {n: float(self._q_weights[0, j]) for j, n in enumerate(names)}
+        return cfg
+
+    def save(self, path: str) -> None:
+        """Write ``to_cfg()`` to YAML at *path*."""
+        with open(path, "w") as f:
+            yaml.dump(self.to_cfg(), f, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_cfg(
+        cls,
+        cfg: dict,
+        obs_spec: ObsSpec,
+        race: str = "random",
+    ) -> "SC2HierarchicalLinearPolicy":
+        """Reconstruct from a ``to_cfg()`` dict.
+
+        Unknown keys and missing observation features default to 0.0,
+        matching the same migration behaviour as ``SC2MultiHeadLinearPolicy``.
+        """
+        names = obs_spec.names
+        obs_dim = obs_spec.dim
+
+        meta_weights = np.zeros((N_CATEGORIES, obs_dim), dtype=np.float32)
+        fn_weights = np.zeros((N_FUNCTION_IDS, obs_dim), dtype=np.float32)
+        sp_weights = np.zeros((N_SPATIAL_ROWS, obs_dim), dtype=np.float32)
+        q_weights = np.zeros((N_QUEUE_ROWS, obs_dim), dtype=np.float32)
+
+        for i, row_name in enumerate(_META_HEAD_NAMES):
+            row_cfg = cfg.get(f"{row_name}_weights", {})
+            for j, n in enumerate(names):
+                meta_weights[i, j] = float(row_cfg.get(n, 0.0))
+
+        for i, row_name in enumerate(_FN_HEAD_NAMES):
+            row_cfg = cfg.get(f"{row_name}_weights", {})
+            for j, n in enumerate(names):
+                fn_weights[i, j] = float(row_cfg.get(n, 0.0))
+
+        for i, row_name in enumerate(_SPATIAL_HEAD_NAMES):
+            row_cfg = cfg.get(f"{row_name}_weights", {})
+            for j, n in enumerate(names):
+                sp_weights[i, j] = float(row_cfg.get(n, 0.0))
+
+        row_cfg = cfg.get(f"{_QUEUE_HEAD_NAME}_weights", {})
+        for j, n in enumerate(names):
+            q_weights[0, j] = float(row_cfg.get(n, 0.0))
+
+        return cls(
+            obs_spec,
+            meta_weights=meta_weights,
+            fn_weights=fn_weights,
+            spatial_weights=sp_weights,
+            queue_weights=q_weights,
+            race=race,
+        )
+
+    @classmethod
+    def load(cls, path: str, obs_spec: ObsSpec, race: str = "random") -> "SC2HierarchicalLinearPolicy":
+        """Load from a YAML file written by :meth:`save`."""
+        with open(path) as f:
+            cfg = yaml.safe_load(f) or {}
+        return cls.from_cfg(cfg, obs_spec, race=race)
+
+    # ------------------------------------------------------------------
+    # Flat-weight interface (CMA-ES / mutation)
+    # ------------------------------------------------------------------
+
+    def to_flat(self) -> np.ndarray:
+        """Return all weights as a single ``float32`` vector.
+
+        Layout: ``[meta | fn | spatial | queue]``.
+        Total: ``(N_CATEGORIES + N_FUNCTION_IDS + N_SPATIAL_ROWS + N_QUEUE_ROWS) × obs_dim``.
+        """
+        return np.concatenate(
+            [
+                self._meta_weights.ravel(),
+                self._fn_weights.ravel(),
+                self._sp_weights.ravel(),
+                self._q_weights.ravel(),
+            ]
+        ).astype(np.float32)
+
+    def with_flat(self, flat: np.ndarray) -> "SC2HierarchicalLinearPolicy":
+        """Return a new policy from a flat weight vector."""
+        obs_dim = self._obs_spec.dim
+        meta_size = N_CATEGORIES * obs_dim
+        fn_size = N_FUNCTION_IDS * obs_dim
+        sp_size = N_SPATIAL_ROWS * obs_dim
+        q_size = N_QUEUE_ROWS * obs_dim
+        i0, i1 = 0, meta_size
+        meta_w = flat[i0:i1].reshape(N_CATEGORIES, obs_dim).astype(np.float32)
+        i0, i1 = i1, i1 + fn_size
+        fn_w = flat[i0:i1].reshape(N_FUNCTION_IDS, obs_dim).astype(np.float32)
+        i0, i1 = i1, i1 + sp_size
+        sp_w = flat[i0:i1].reshape(N_SPATIAL_ROWS, obs_dim).astype(np.float32)
+        i0, i1 = i1, i1 + q_size
+        q_w = flat[i0:i1].reshape(N_QUEUE_ROWS, obs_dim).astype(np.float32)
+        return SC2HierarchicalLinearPolicy(self._obs_spec, meta_w, fn_w, sp_w, q_w, race=self._race)
+
+    # ------------------------------------------------------------------
+    # Mutation
+    # ------------------------------------------------------------------
+
+    def mutated(self, scale: float = 0.1, share: float = 1.0) -> "SC2HierarchicalLinearPolicy":
+        """Return a new policy with Gaussian perturbation on a random weight subset."""
+        rng = np.random.default_rng()
+        flat = self.to_flat()
+        new_flat = flat.copy()
+        if share >= 1.0:
+            new_flat += rng.normal(0.0, scale, len(flat)).astype(np.float32)
+        else:
+            mask = rng.random(len(flat)) < share
+            idx = np.where(mask)[0]
+            if len(idx) > 0:
+                new_flat[idx] += rng.normal(0.0, scale, len(idx)).astype(np.float32)
+        return self.with_flat(new_flat)
+
+    # ------------------------------------------------------------------
+    # Framework compatibility shims
+    # ------------------------------------------------------------------
+
+    def on_episode_start(self, **kwargs) -> None:
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        self._available_fn_ids = set(available) if available is not None else None
+
+    def update(
+        self, obs: np.ndarray, action: np.ndarray, reward: float, next_obs: np.ndarray, done: bool, **kwargs
+    ) -> None:
+        info = kwargs.get("info") or {}
+        available = info.get("available_fn_ids")
+        self._available_fn_ids = set(available) if available is not None else None
+
+
+# ---------------------------------------------------------------------------
+# SC2HierarchicalGeneticPolicy
+# ---------------------------------------------------------------------------
+
+
+@register_policy
+class SC2HierarchicalGeneticPolicy(GeneticPolicy):
+    """SC2 genetic policy using the hierarchical two-stage action selection (issue #388).
+
+    Each individual is an :class:`SC2HierarchicalLinearPolicy` — the agent
+    first selects a meta-category (``move`` / ``attack`` / ``build`` /
+    ``train`` / ``upgrade``), then selects a specific action within that
+    category, then picks spatial coordinates and a queue flag.
+
+    Evolutionary mechanics (uniform crossover, Gaussian mutation, elite
+    selection, champion tracking) are unchanged from
+    :class:`SC2GeneticPolicy`.
+
+    Register as ``sc2_hierarchical``.
+    """
+
+    POLICY_TYPE = "sc2_hierarchical"
+    LOOP_TYPE = "genetic"
+    VALID_POLICY_PARAMS = frozenset(
+        {
+            "population_size",
+            "elite_k",
+            "mutation_scale",
+            "mutation_share",
+            "eval_episodes",
+        }
+    )
+
+    @classmethod
+    def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
+        if game_name != "sc2":
+            return False, "This policy is SC2-specific; use game='sc2'."
+        return True, None
+
+    def __init__(
+        self,
+        obs_spec: ObsSpec = SC2_MINIGAME_OBS_SPEC,
+        population_size: int = 30,
+        elite_k: int = 5,
+        mutation_scale: float = 0.1,
+        mutation_share: float = 0.3,
+        eval_episodes: int = 2,
+        race: str = "random",
+    ) -> None:
+        super().__init__(
+            obs_spec=obs_spec,
+            head_names=_ALL_HIERARCHICAL_ROW_NAMES,
+            population_size=population_size,
+            elite_k=elite_k,
+            mutation_scale=mutation_scale,
+            mutation_share=mutation_share,
+            eval_episodes=eval_episodes,
+        )
+        self._race = race
+
+    def _make_member(self, cfg: dict) -> SC2HierarchicalLinearPolicy:  # type: ignore[override]
+        return SC2HierarchicalLinearPolicy.from_cfg(cfg, self._obs_spec, race=self._race)
+
+    def initialize_from_file(self, path: str) -> None:
+        champion = SC2HierarchicalLinearPolicy.load(path, self._obs_spec, race=self._race)
+        self.initialize_from_champion(champion)
+        logger.info("[SC2HierarchicalGeneticPolicy] seeded population from champion at %s", path)
+
+    def to_cfg(self) -> dict:
+        cfg = super().to_cfg()
+        cfg["policy_type"] = "sc2_hierarchical"
+        return cfg
+
+    def save(self, path: str) -> None:
+        if self._champion is not None:
+            self._champion.save(path)
+
+    @classmethod
+    def from_cfg(cls, cfg: dict, obs_spec: ObsSpec = SC2_MINIGAME_OBS_SPEC) -> "SC2HierarchicalGeneticPolicy":
+        policy = cls(
+            obs_spec=obs_spec,
+            population_size=cfg.get("population_size", 30),
+            elite_k=cfg.get("elite_k", 5),
+            mutation_scale=float(cfg.get("mutation_scale", 0.1)),
+            mutation_share=float(cfg.get("mutation_share", 0.3)),
+            eval_episodes=int(cfg.get("eval_episodes", 2)),
+            race=cfg.get("race", "random"),
+        )
+        champion_cfg = cfg.get("champion_weights")
+        if champion_cfg and isinstance(champion_cfg, dict):
+            policy._champion = SC2HierarchicalLinearPolicy.from_cfg(champion_cfg, obs_spec, race=policy._race)
+            policy._champion_reward = float(cfg.get("champion_reward", float("-inf")))
+        return policy
+
+    @classmethod
+    def _construct_or_resume(
+        cls, *, obs_spec, head_names, discrete_actions, weights_file, policy_params, re_initialize
+    ):
+        pp = policy_params
+        policy = cls(
+            obs_spec=obs_spec,
+            population_size=pp.get("population_size", 30),
+            elite_k=pp.get("elite_k", 5),
+            mutation_scale=float(pp.get("mutation_scale", 0.1)),
+            mutation_share=float(pp.get("mutation_share", 0.3)),
+            eval_episodes=int(pp.get("eval_episodes", 2)),
+            race=pp.get("_agent_race", "random"),
+        )
+        if os.path.exists(weights_file) and not re_initialize:
+            policy.initialize_from_file(weights_file)
+        else:
+            policy.initialize_random()
+            logger.info("[SC2HierarchicalGeneticPolicy] random population of %d", policy._pop_size)
         return policy
 
 

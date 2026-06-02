@@ -57,6 +57,8 @@ learning that a Terran cannot build a Hatchery.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from framework.run_config import ProbeAction
@@ -443,6 +445,160 @@ def discrete_action_to_fn_id(cell_idx: int) -> int:
     return int(DISCRETE_ACTIONS[cell_idx, 0])
 
 
+# ---------------------------------------------------------------------------
+# Meta-action categories (issue #388) — hierarchical action space
+# ---------------------------------------------------------------------------
+# Actions are grouped into five logical tiers so a hierarchical policy can
+# first choose a category, then a specific action within it.  Every fn_idx
+# in FUNCTION_IDS belongs to exactly one category.
+
+ACTION_CATEGORIES: dict[str, list[int]] = {
+    "move": [
+        0,  # no_op
+        1,  # select_army
+        2,  # Move_screen
+        4,  # select_idle_worker
+        5,  # Harvest_Gather_screen
+        6,  # select_point
+        11,  # Move_minimap
+        12,  # HoldPosition_quick
+        13,  # Stop_quick
+        15,  # select_rect
+        46,  # Morph_SiegeMode_quick — positional combat stance
+        47,  # Morph_Unsiege_quick
+        16,  # Harvest_Return_quick
+        17,  # Rally_Units_screen
+        18,  # Rally_Workers_screen
+        19,  # Rally_Units_minimap
+        20,  # Rally_Workers_minimap
+    ],
+    "attack": [
+        3,  # Attack_screen
+        14,  # Attack_minimap
+        45,  # Effect_Stim_quick
+    ],
+    "build": [
+        # Terran buildings + addons
+        8,
+        9,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        # Protoss buildings
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        # Zerg buildings
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+    ],
+    "train": [
+        # Terran units
+        7,
+        10,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        # Protoss units
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,  # Morph_Archon_quick — produces a new unit type
+        79,
+        # Zerg units
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+    ],
+    "upgrade": [
+        # Zerg building and unit morphs
+        111,  # Morph_Lair_quick
+        112,  # Morph_Hive_quick
+        113,  # Morph_Overseer_quick
+        114,  # Morph_GreaterSpire_quick
+        115,  # Morph_BroodLord_quick
+    ],
+}
+
+#: Canonical ordering of category names for weight-matrix row indices.
+CATEGORY_NAMES: list[str] = ["move", "attack", "build", "train", "upgrade"]
+
+#: Total number of meta-action categories.
+N_CATEGORIES: int = len(CATEGORY_NAMES)
+
+#: Inverse map: fn_idx → category name.  Every fn_idx in FUNCTION_IDS has
+#: exactly one entry.
+FN_IDX_TO_CATEGORY: dict[int, str] = {fn_idx: cat for cat, fn_idxs in ACTION_CATEGORIES.items() for fn_idx in fn_idxs}
+
+
 def pysc2_ids_to_internal_fn_idx(pysc2_available_ids: set[int]) -> set[int]:
     """Convert a set of raw PySC2 function IDs to internal fn_idx values.
 
@@ -551,3 +707,121 @@ def action_to_function_call(action: np.ndarray, screen_size: int, minimap_size: 
     # Covers Move_screen/minimap, Attack_screen/minimap,
     # Harvest_Gather_screen, all Build_*_screen, Rally_*_screen/minimap, etc.
     return actions.FunctionCall(fn_id, [[queue], [sx, sy]])
+
+
+def _fc_arg_scalar(arguments: list, idx: int) -> int:
+    """Extract an integer scalar (e.g. the ``queued`` flag) from arg ``idx``.
+
+    PySC2 args are length-1 lists like ``[queue]``; tolerate bare scalars and
+    missing args by returning ``0``.
+    """
+    if idx >= len(arguments):
+        return 0
+    arg = arguments[idx]
+    try:
+        return int(arg[0])
+    except (TypeError, IndexError, ValueError):
+        try:
+            return int(arg)
+        except (TypeError, ValueError):
+            return 0
+
+
+def _fc_arg_xy(arguments: list, idx: int) -> tuple[int, int] | None:
+    """Extract a ``(sx, sy)`` screen/minimap coordinate from arg ``idx``.
+
+    Returns ``None`` when the argument is absent or malformed.
+    """
+    if idx >= len(arguments):
+        return None
+    arg = arguments[idx]
+    try:
+        return int(arg[0]), int(arg[1])
+    except (TypeError, IndexError, ValueError):
+        return None
+
+
+def function_call_to_action(
+    function_call: Any,
+    screen_size: int,
+    minimap_size: int | None = None,
+) -> np.ndarray | None:
+    """Inverse of :func:`action_to_function_call`.
+
+    Convert a PySC2 ``FunctionCall`` back into the framework's
+    ``[fn_idx, x, y, queue]`` action vector.  This is the primitive the
+    offline replay reader uses to recover the action a human/bot issued on
+    each frame (issue #350).
+
+    Parameters
+    ----------
+    function_call :
+        A ``pysc2.lib.actions.FunctionCall`` — or any object exposing
+        ``.function`` (the raw PySC2 function id) and ``.arguments`` (the
+        per-arg value lists).
+    screen_size :
+        Screen feature-layer size used to normalise ``*_screen`` /
+        ``select_point`` / ``select_rect`` coordinates back to ``[0, 1]``.
+    minimap_size :
+        Minimap feature-layer size used to normalise ``*_minimap``
+        coordinates.  Defaults to ``screen_size``.
+
+    Returns
+    -------
+    np.ndarray | None
+        ``[fn_idx, x, y, queue]`` (float32).  Non-spatial actions report the
+        centre coordinate ``x = y = 0.5``.  Returns ``None`` — the skip
+        sentinel — when the PySC2 function id maps to no framework ``fn_idx``
+        (an action outside :data:`FUNCTION_IDS`); callers skip such frames
+        rather than raising.
+
+    Notes
+    -----
+    The PySC2-id → ``fn_idx`` mapping is sourced from
+    ``games.sc2.client._get_pysc2_id_to_fn_idx`` (imported lazily to avoid a
+    circular import and to keep this module importable without PySC2), so the
+    forward and inverse directions stay in lockstep.
+    """
+    from games.sc2.client import _get_pysc2_id_to_fn_idx
+
+    fn_id = int(function_call.function)
+    fn_idx = _get_pysc2_id_to_fn_idx().get(fn_id)
+    if fn_idx is None:
+        return None
+
+    name = FUNCTION_IDS.get(fn_idx, "no_op")
+    arguments = list(getattr(function_call, "arguments", None) or [])
+    minimap = screen_size if minimap_size is None else minimap_size
+    target_size = minimap if name.endswith("_minimap") else screen_size
+
+    queue = 0
+    coord: tuple[int, int] | None = None
+    if name == "no_op":
+        pass
+    elif name in ("select_army", "select_idle_worker"):
+        pass
+    elif name == "select_point":
+        # FunctionCall(fn_id, [[select_act], [sx, sy]]) — coords in arg 1.
+        coord = _fc_arg_xy(arguments, 1)
+    elif name == "select_rect":
+        # FunctionCall(fn_id, [[select_add], [sx, sy], [sx, sy]]) — first corner.
+        coord = _fc_arg_xy(arguments, 1)
+    elif name.endswith("_quick"):
+        queue = _fc_arg_scalar(arguments, 0)
+    else:
+        # Spatial: FunctionCall(fn_id, [[queue], [sx, sy]]).
+        queue = _fc_arg_scalar(arguments, 0)
+        coord = _fc_arg_xy(arguments, 1)
+
+    if coord is None:
+        x_norm, y_norm = 0.5, 0.5
+    else:
+        denom = max(target_size - 1, 1)
+        # Clamp to [0, 1] — mirrors action_to_function_call's coordinate
+        # clipping so the action vector stays invariant even when a malformed
+        # replay/action stream carries out-of-range or unexpected arg values.
+        x_norm = float(np.clip(coord[0] / denom, 0.0, 1.0))
+        y_norm = float(np.clip(coord[1] / denom, 0.0, 1.0))
+
+    queue = int(np.clip(queue, 0, 1))
+    return np.array([float(fn_idx), x_norm, y_norm, float(queue)], dtype=np.float32)

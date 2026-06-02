@@ -309,7 +309,7 @@ make it `copy.deepcopy`-able) and drop it from
 | Discrete control with a mature on-policy SB3 baseline | `ppo` | Strong first choice when you want a standard library implementation instead of the pure-numpy policies. |
 | Tiny discrete state space after coarse binning | `epsilon_greedy` or `ucb_q` | Tabular methods are only practical when `n_bins` stays small enough that the table is still visitable. |
 | Cloneable deterministic simulator and you explicitly want planning | `alphazero_mcts` | Only appropriate when the env can be cloned cheaply; all currently supported games are gated off today. |
-| Any SC2 run | `sc2_genetic`, `sc2_cmaes`, `sc2_reinforce`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, or `sc2_neural_net` | The generic continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`, `cmaes`, `neural_dqn`, `reinforce`, `lstm`) and all SB3 policies are structurally incompatible with SC2's `[fn_idx, x, y, queue]` action encoding. Only the SC2-native wrappers (plus tabular `epsilon_greedy` / `ucb_q`) should be considered there. |
+| Any SC2 run | `sc2_genetic`, `sc2_hierarchical`, `sc2_cmaes`, `sc2_reinforce`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, or `sc2_neural_net` | The generic continuous-action framework policies (`hill_climbing`, `neural_net`, `genetic`, `cmaes`, `neural_dqn`, `reinforce`, `lstm`) and all SB3 policies are structurally incompatible with SC2's `[fn_idx, x, y, queue]` action encoding. Only the SC2-native wrappers (plus tabular `epsilon_greedy` / `ucb_q`) should be considered there. |
 
 ### Sizing a run
 
@@ -1017,6 +1017,10 @@ python main.py myrun --game sc2 --play
 # Evaluation: replay the champion against the bot for N episodes and report
 # aggregate win rate / avg score / avg game length (no weight updates):
 python main.py myrun --game sc2 --eval --num-episodes 10
+
+# Behaviour cloning from replays (pre-train weights, then fine-tune):
+python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race terran
+python main.py myrun --game sc2   # fine-tune from BC weights
 ```
 
 The first run creates `experiments/sc2_<map>/<name>/` and copies both master configs in. Edit the experiment-local copies to tune without affecting other runs.
@@ -1024,6 +1028,8 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 `--play` launches a two-player PySC2 session; you control one side via the SC2 UI while the trained champion policy drives the other. No weight updates occur.
 
 `--eval` (SC2 only) loads the champion and runs it against the AI bot for `--num-episodes` episodes, reporting aggregate statistics. `--bot-difficulty` overrides the opponent difficulty and `--eval-speed` overrides `step_mul` for the eval run.
+
+`--bc` (SC2 only) runs offline behaviour cloning from `.SC2Replay` files. Writes `policy_weights.yaml` (+ optional `trainer_state.npz` and `bc_summary.json`) into the experiment directory. Mutually exclusive with `--play` and `--eval`. See the StarCraft 2 `games/sc2/README.md` for the full workflow, dataset sourcing, per-policy warm-start table, and coordinate/resolution caveats.
 
 ### Config knobs
 
@@ -1044,6 +1050,17 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 | `max_apm` | *(null)* | APM cap using a rolling token-bucket limiter measured in **game time** (`game_loop / 22.4`). `max_apm=300` means exactly 300 in-game actions per in-game minute regardless of training speed. Leave unset for no limit. |
 | `apm_burst_s` | `2.0` | Token-bucket burst window in seconds. |
 | `enable_belief` | `false` | Activate the fog-of-war belief + info-gain observation extension (adds ~192 dims for an 8×8 grid). |
+| `bc_replay_dir` | *(null)* | Directory of `.SC2Replay` files for `--bc` mode. Also settable via `--replay-dir`. |
+| `bc_player_id` | `winner` | Which player to clone: `winner`, `1`, or `2`. |
+| `bc_race` | `any` | Race filter: `terran`, `zerg`, `protoss`, or `any`. |
+| `bc_target` | `sc2_reinforce` | Policy architecture to pre-train. Supported: `sc2_reinforce`, `sc2_genetic`, `sc2_cmaes`, `sc2_neural_net`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`, `epsilon_greedy`, `ucb_q`. |
+| `bc_max_replays` | *(null)* | Cap on how many replays to process; `null` = all. |
+| `bc_step_mul` | `step_mul` | Game ticks per replay step (should match the training `step_mul`). |
+| `bc_epochs` | `10` | Gradient-descent passes (MLP/LSTM BC targets only). |
+| `bc_learning_rate` | `0.001` | Learning rate for gradient BC targets. |
+| `bc_batch_size` | `256` | Mini-batch size for gradient BC targets. |
+| `bc_ignore_noop` | `true` | Drop `fn_idx=0` (no-op) steps before fitting. |
+| `bc_lstm_hidden_size` | `64` | LSTM hidden-state size (`sc2_lstm` BC target only). |
 
 ### Supported policies
 
@@ -1056,6 +1073,7 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
 | `sc2_genetic` | Evolutionary (population of `SC2MultiHeadLinearPolicy`) | Default; recommended. Separate fn_idx (6×obs_dim) and sigmoid spatial (2×obs_dim) heads. |
+| `sc2_hierarchical` | Evolutionary (population of `SC2HierarchicalLinearPolicy`) | Hierarchical action space (issue #388): first selects meta-category (move/attack/build/train/upgrade), then fn_idx within it, then spatial + queue. |
 | `sc2_reinforce` | Two-head REINFORCE MLP (softmax fn + sigmoid spatial) | `games/sc2/sc2_policies.py`; gradient-trained per episode |
 | `sc2_cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2MultiHeadLinearPolicy` flat weights | `games/sc2/sc2_policies.py` |
 | `sc2_lstm` | LSTM with SC2-native action encoding, trained by isotropic ES | `games/sc2/sc2_policies.py` |

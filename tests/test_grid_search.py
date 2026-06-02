@@ -12,8 +12,10 @@ import yaml
 
 from grid_search import (
     _ABBREV,
+    _BC_COMPATIBLE_POLICY_TYPES,
     _POLICY_PARAM_MAP,
     _build_policy_params,
+    _copy_bc_weights,
     _expand_grid,
     _fmt_value,
     _launch_local_workers,
@@ -22,6 +24,7 @@ from grid_search import (
     _parse_non_negative_int,
     _split_grid_run_name,
     _stop_local_workers,
+    _validate_bc_warmstart_combos,
 )
 
 
@@ -218,7 +221,7 @@ class TestLoadGridConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"base_name": "test", "training_params": {"n_sims": 10}}, f)
             f.flush()
-            base_name, game, track, t, r, d = _load_grid_config(f.name)
+            base_name, game, track, t, r, d, bc = _load_grid_config(f.name)
         os.unlink(f.name)
         assert game == "tmnf"
 
@@ -226,7 +229,7 @@ class TestLoadGridConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"base_name": "test", "game": "torcs", "training_params": {"n_sims": 10}}, f)
             f.flush()
-            base_name, game, track, t, r, d = _load_grid_config(f.name)
+            base_name, game, track, t, r, d, bc = _load_grid_config(f.name)
         os.unlink(f.name)
         assert game == "torcs"
 
@@ -234,7 +237,7 @@ class TestLoadGridConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"base_name": "test", "track": "aalborg", "training_params": {"n_sims": 10}}, f)
             f.flush()
-            base_name, game, track, t, r, d = _load_grid_config(f.name)
+            base_name, game, track, t, r, d, bc = _load_grid_config(f.name)
         os.unlink(f.name)
         assert track == "aalborg"
 
@@ -242,7 +245,7 @@ class TestLoadGridConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({"base_name": "test", "training_params": {"n_sims": 10}}, f)
             f.flush()
-            base_name, game, track, t, r, d = _load_grid_config(f.name)
+            base_name, game, track, t, r, d, bc = _load_grid_config(f.name)
         os.unlink(f.name)
         assert track is None
 
@@ -259,7 +262,7 @@ class TestLoadGridConfig:
                 f,
             )
             f.flush()
-            _, _, _, t, r, _ = _load_grid_config(f.name)
+            _, _, _, t, r, _, _ = _load_grid_config(f.name)
         os.unlink(f.name)
         combos, varied = _expand_grid(t, r)
         assert len(combos) == 2
@@ -526,3 +529,212 @@ class TestSc2NeuralNetTemplate:
         reward = data.get("reward_params") or {}
         assert reward.get("early_random_action_bonus") == 10.0
         assert reward.get("early_random_action_window_steps") == 300
+
+
+class TestLoadGridConfigBcSection:
+    """_load_grid_config returns bc_cfg as the 7th element."""
+
+    def test_no_bc_section_returns_empty_dict(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "training_params": {}}, f)
+            f.flush()
+            *_, bc = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert bc == {}
+
+    def test_bc_section_is_returned(self):
+        cfg = {
+            "base_name": "test",
+            "training_params": {},
+            "bc": {"replay_dir": "/replays", "bc_target": "sc2_genetic"},
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(cfg, f)
+            f.flush()
+            *_, bc = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert bc["replay_dir"] == "/replays"
+        assert bc["bc_target"] == "sc2_genetic"
+
+    def test_existing_six_element_destructuring_still_works(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump({"base_name": "test", "game": "sc2", "training_params": {}}, f)
+            f.flush()
+            base_name, game, track, t, r, d, bc = _load_grid_config(f.name)
+        os.unlink(f.name)
+        assert base_name == "test"
+        assert game == "sc2"
+        assert bc == {}
+
+
+class TestBcCompatiblePolicyTypes:
+    """_BC_COMPATIBLE_POLICY_TYPES encodes the correct cross-compatibility."""
+
+    def test_sc2_genetic_and_sc2_cmaes_are_cross_compatible(self):
+        assert "sc2_cmaes" in _BC_COMPATIBLE_POLICY_TYPES["sc2_genetic"]
+        assert "sc2_genetic" in _BC_COMPATIBLE_POLICY_TYPES["sc2_cmaes"]
+
+    def test_sc2_reinforce_only_compatible_with_itself(self):
+        assert _BC_COMPATIBLE_POLICY_TYPES["sc2_reinforce"] == frozenset({"sc2_reinforce"})
+
+    def test_tabular_policies_only_compatible_with_themselves(self):
+        assert _BC_COMPATIBLE_POLICY_TYPES["epsilon_greedy"] == frozenset({"epsilon_greedy"})
+        assert _BC_COMPATIBLE_POLICY_TYPES["ucb_q"] == frozenset({"ucb_q"})
+
+    def test_all_supported_bc_targets_are_keys(self):
+        expected = {
+            "sc2_genetic",
+            "sc2_cmaes",
+            "sc2_reinforce",
+            "sc2_neural_net",
+            "sc2_neural_dqn",
+            "sc2_lstm",
+            "sc2_cnn",
+            "epsilon_greedy",
+            "ucb_q",
+        }
+        assert set(_BC_COMPATIBLE_POLICY_TYPES.keys()) == expected
+
+
+class TestValidateBcWarmstartCombos:
+    """_validate_bc_warmstart_combos raises ValueError on incompatibility."""
+
+    def _make_bc_dir(self, tmp_dir: str, bc_target: str) -> str:
+        import json
+
+        bc_dir = os.path.join(tmp_dir, "bc_warmstart")
+        os.makedirs(bc_dir, exist_ok=True)
+        with open(os.path.join(bc_dir, "bc_summary.json"), "w") as f:
+            json.dump({"bc_target": bc_target, "final_bc_loss": 0.5}, f)
+        open(os.path.join(bc_dir, "policy_weights.yaml"), "w").close()
+        return bc_dir
+
+    def _make_combos(self, policy_type: str) -> tuple[list, list]:
+        combos = [{"training_params": {"policy_type": policy_type}, "reward_params": {}}]
+        names = [f"gs__{policy_type}"]
+        return combos, names
+
+    def test_compatible_target_passes(self, tmp_path):
+        bc_dir = self._make_bc_dir(str(tmp_path), "sc2_genetic")
+        combos, names = self._make_combos("sc2_genetic")
+        result = _validate_bc_warmstart_combos(str(bc_dir), combos, names)
+        assert result == "sc2_genetic"
+
+    def test_sc2_genetic_warmstarts_sc2_cmaes(self, tmp_path):
+        bc_dir = self._make_bc_dir(str(tmp_path), "sc2_genetic")
+        combos, names = self._make_combos("sc2_cmaes")
+        result = _validate_bc_warmstart_combos(str(bc_dir), combos, names)
+        assert result == "sc2_genetic"
+
+    def test_incompatible_target_raises(self, tmp_path):
+        bc_dir = self._make_bc_dir(str(tmp_path), "sc2_reinforce")
+        combos, names = self._make_combos("sc2_genetic")
+        with pytest.raises(ValueError, match="incompatible"):
+            _validate_bc_warmstart_combos(str(bc_dir), combos, names)
+
+    def test_error_message_lists_all_incompatible_combos(self, tmp_path):
+        bc_dir = self._make_bc_dir(str(tmp_path), "sc2_reinforce")
+        combos = [
+            {"training_params": {"policy_type": "sc2_genetic"}, "reward_params": {}},
+            {"training_params": {"policy_type": "sc2_reinforce"}, "reward_params": {}},
+            {"training_params": {"policy_type": "sc2_neural_net"}, "reward_params": {}},
+        ]
+        names = ["gs__pt_genetic", "gs__pt_reinforce", "gs__pt_neural_net"]
+        with pytest.raises(ValueError) as exc_info:
+            _validate_bc_warmstart_combos(str(bc_dir), combos, names)
+        msg = str(exc_info.value)
+        assert "gs__pt_genetic" in msg
+        assert "gs__pt_neural_net" in msg
+        # sc2_reinforce combo should NOT appear in the error
+        assert "gs__pt_reinforce" not in msg
+
+    def test_missing_bc_summary_raises(self, tmp_path):
+        bc_dir = str(tmp_path / "empty_bc")
+        os.makedirs(bc_dir)
+        combos, names = self._make_combos("sc2_genetic")
+        with pytest.raises(ValueError, match="bc_summary.json"):
+            _validate_bc_warmstart_combos(bc_dir, combos, names)
+
+    def test_missing_bc_target_field_raises(self, tmp_path):
+        import json
+
+        bc_dir = str(tmp_path / "bad_bc")
+        os.makedirs(bc_dir)
+        with open(os.path.join(bc_dir, "bc_summary.json"), "w") as f:
+            json.dump({"final_bc_loss": 0.1}, f)  # no bc_target key
+        combos, names = self._make_combos("sc2_genetic")
+        with pytest.raises(ValueError, match="bc_target"):
+            _validate_bc_warmstart_combos(bc_dir, combos, names)
+
+
+class TestCopyBcWeights:
+    """_copy_bc_weights copies the correct files."""
+
+    def test_copies_weights_yaml(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.yaml").write_text("weights: {}")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert (dst_dir / "policy_weights.yaml").exists()
+
+    def test_copies_trainer_state_when_present(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.yaml").write_text("weights: {}")
+        (src_dir / "trainer_state.npz").write_bytes(b"\x93NUMPY")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert (dst_dir / "trainer_state.npz").exists()
+
+    def test_copies_qtable_pkl_when_present(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.yaml").write_text("weights: {}")
+        (src_dir / "policy_weights_qtable.pkl").write_bytes(b"PK")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert (dst_dir / "policy_weights_qtable.pkl").exists()
+
+    def test_skips_missing_optional_files(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.yaml").write_text("weights: {}")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert not (dst_dir / "trainer_state.npz").exists()
+        assert not (dst_dir / "policy_weights_qtable.pkl").exists()
+
+    def test_copies_weights_npz_for_cnn(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.npz").write_bytes(b"\x93NUMPY")
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert (dst_dir / "policy_weights.npz").exists()
+
+    def test_raises_when_no_weight_files(self, tmp_path):
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="policy_weights"):
+            _copy_bc_weights(str(src_dir), str(dst_dir))
+
+    def test_does_not_copy_bc_summary(self, tmp_path):
+        import json
+
+        src_dir = tmp_path / "bc"
+        dst_dir = tmp_path / "combo"
+        src_dir.mkdir()
+        dst_dir.mkdir()
+        (src_dir / "policy_weights.yaml").write_text("weights: {}")
+        with open(src_dir / "bc_summary.json", "w") as f:
+            json.dump({"bc_target": "sc2_genetic"}, f)
+        _copy_bc_weights(str(src_dir), str(dst_dir))
+        assert not (dst_dir / "bc_summary.json").exists()

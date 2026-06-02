@@ -222,6 +222,33 @@ class TestPlotActionFrequency(unittest.TestCase):
             plot_action_frequency(data, d)
             self.assertIn("action_frequency.png", os.listdir(d))
 
+    def test_no_op_only_skips_plot(self):
+        """Issue #382: all-no_op action counts → nothing to plot → file not written."""
+        sims = [_make_sim(1, action_counts={0: 500})]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_action_frequency(data, d)
+            self.assertNotIn("action_frequency.png", os.listdir(d))
+
+    def test_no_op_excluded_from_plot(self):
+        """Issue #382: no_op (fn_idx 0) counts are stripped before rendering."""
+        sims = [_make_sim(1, action_counts={0: 9000, 2: 100})]
+        data = _make_experiment(sims)
+        captured: dict = {}
+
+        def _capture(fig, _path):
+            # The legend labels of the stacked bar (panel 1) must not include no_op.
+            ax = fig.axes[0]
+            legend_texts = [t.get_text() for t in ax.get_legend().get_texts()]
+            captured["labels"] = legend_texts
+
+        with mock.patch.object(sc2_analytics, "_save", side_effect=_capture):
+            plot_action_frequency(data, "/tmp")
+
+        self.assertIn("labels", captured)
+        self.assertNotIn("no_op", captured["labels"])
+        self.assertIn("Move_screen", captured["labels"])
+
 
 # ---------------------------------------------------------------------------
 # plot_obs_averages

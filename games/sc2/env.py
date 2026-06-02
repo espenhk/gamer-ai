@@ -401,9 +401,12 @@ class SC2Env(BaseGameEnv):
             self._ep_reward_components[k] = self._ep_reward_components.get(k, 0.0) + float(v)
         info["episode_reward_components"] = dict(self._ep_reward_components)
 
-        # Track per-episode action counts (analytics 2a) using the executed
-        # action for consistency with reward shaping and debug metadata.
-        self._ep_action_counts[_executed_fn_idx] = self._ep_action_counts.get(_executed_fn_idx, 0) + 1
+        # Track per-episode action counts (analytics 2a) using the policy-
+        # requested fn_idx so the chart reflects intent rather than the
+        # intermediate select_* injected by the deferred-action resolver
+        # (issue #383).  Reward shaping and debug metadata still use the
+        # executed fn_idx via info["action_fn_idx"].
+        self._ep_action_counts[_fn_idx_requested] = self._ep_action_counts.get(_fn_idx_requested, 0) + 1
         # Track 8×8 spatial-target histogram (analytics 2d).
         if len(action) >= 3:
             _xi = min(7, int(float(np.clip(action[1], 0.0, 1.0)) * 8))

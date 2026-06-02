@@ -118,6 +118,10 @@ def plot_action_frequency(data: ExperimentData, results_dir: str) -> None:
     - Top: stacked vertical bars, one bar per greedy sim, coloured by fn_idx.
     - Middle: aggregate total-count bar chart across all sims.
     - Bottom: action-entropy per sim H = -Σ pᵢ log₂ pᵢ over unique fn_idx values.
+
+    ``no_op`` (fn_idx 0) is excluded from all panels — it typically dominates
+    by count but carries no policy signal, and its bulk makes the bars for
+    every other action unreadably thin.
     """
     if not _HAS_MPL:
         return
@@ -125,15 +129,19 @@ def plot_action_frequency(data: ExperimentData, results_dir: str) -> None:
     if not sims:
         return
 
-    # Collect all fn_idx keys that appear in any sim.
+    # Collect all fn_idx keys that appear in any sim, excluding no_op (fn_idx 0).
     all_fn: list[int] = []
     seen: set[int] = set()
     for s in sims:
         for k in s.action_counts:
-            if k not in seen:
+            if k not in seen and k != 0:
                 all_fn.append(k)
                 seen.add(k)
     all_fn.sort()
+
+    if not all_fn:
+        # Every action was no_op — nothing meaningful to plot.
+        return
 
     labels = [_action_label(k) for k in all_fn]
     xs = [s.sim for s in sims]
@@ -169,7 +177,7 @@ def plot_action_frequency(data: ExperimentData, results_dir: str) -> None:
         left += vals
     ax1.set_xlim(min(xs) - 0.5, max(xs) + 0.5)
     ax1.set_ylim(0, 1)
-    ax1.set_title(f"{data.experiment_name} — Action Distribution per Sim (fraction)")
+    ax1.set_title(f"{data.experiment_name} — Action Distribution per Sim (fraction, no_op excluded)")
     ax1.set_xlabel("Simulation")
     ax1.set_ylabel("Fraction")
     ax1.legend(fontsize=8, loc="upper right", ncol=max(1, n_fns // 3))
@@ -178,7 +186,7 @@ def plot_action_frequency(data: ExperimentData, results_dir: str) -> None:
     ax2 = axes[1]
     bar_colors = [cm.tab10(i / max(n_fns - 1, 1)) for i in range(n_fns)]
     ax2.bar(labels, agg_counts, color=bar_colors, edgecolor="white")
-    ax2.set_title("Aggregate Action Counts (all sims)")
+    ax2.set_title("Aggregate Action Counts (all sims, no_op excluded)")
     ax2.set_ylabel("Total steps")
     ax2.tick_params(axis="x", rotation=20)
     for j, v in enumerate(agg_counts):

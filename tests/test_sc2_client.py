@@ -1109,6 +1109,32 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
         finally:
             sc2_client_mod._pysc2_id_to_fn_idx = old_cache
 
+    def test_select_idle_worker_suppressed_when_worker_selected(self):
+        """Issue #383: select_idle_worker (fn_idx=4) must not appear in
+        available_fn_ids when a worker is already selected — re-selecting
+        while a worker is already in focus wastes a step."""
+        client = SC2Client(map_name="MoveToBeacon")
+        # Inject a worker into the selection.
+        client._selected_unit_types = frozenset({"SCV"})
+        result = client._compute_available_fn_ids({})
+        self.assertNotIn(4, result, "select_idle_worker should be suppressed when SCV selected")
+
+    def test_select_idle_worker_present_when_no_worker_selected(self):
+        """Issue #383: select_idle_worker must remain available when nothing
+        useful is selected, so the policy can pick a worker before building."""
+        client = SC2Client(map_name="MoveToBeacon")
+        client._selected_unit_types = frozenset()
+        result = client._compute_available_fn_ids({})
+        self.assertIn(4, result, "select_idle_worker should be available when no worker is selected")
+
+    def test_select_idle_worker_suppressed_for_all_worker_races(self):
+        """Issue #383: suppression covers Probe (Protoss) and Drone (Zerg) too."""
+        for worker in ("Probe", "Drone"):
+            client = SC2Client(map_name="MoveToBeacon")
+            client._selected_unit_types = frozenset({worker})
+            result = client._compute_available_fn_ids({})
+            self.assertNotIn(4, result, f"select_idle_worker should be suppressed when {worker} selected")
+
 
 # ---------------------------------------------------------------------------
 # Issue #135: new rich-preset feature extractors

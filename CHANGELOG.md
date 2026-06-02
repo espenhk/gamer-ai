@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.21] - 2026-06-02
+
 ### Added
 - **SC2 hierarchical action space** (issue #388): actions are now grouped into
   five meta-categories (`move`, `attack`, `build`, `train`, `upgrade`).

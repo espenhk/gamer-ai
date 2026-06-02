@@ -126,10 +126,10 @@ policy_params:
 # bc_replay_dir: path/to/replays/    # directory of .SC2Replay files; also --replay-dir
 bc_player_id: winner                 # which player to clone: winner | 1 | 2
 bc_race: any                         # race filter: terran | protoss | zerg | any
-bc_target: sc2_reinforce             # policy to pre-train: sc2_reinforce | sc2_genetic
+bc_target: sc2_reinforce             # policy to pre-train: sc2_reinforce | sc2_genetic | sc2_cmaes | sc2_neural_net | sc2_neural_dqn | sc2_lstm | sc2_cnn | epsilon_greedy | ucb_q
 # bc_max_replays: 100                # cap on how many replays to process (null = all)
 bc_step_mul: 1                       # game ticks per replay step (usually matches step_mul)
-bc_epochs: 10                        # gradient-descent passes over dataset (MLP only)
-bc_learning_rate: 0.001              # step size for MLP gradient updates
-bc_batch_size: 256                   # mini-batch size (MLP only)
+bc_epochs: 10                        # gradient-descent passes over dataset (MLP/LSTM targets: sc2_reinforce, sc2_neural_net, sc2_neural_dqn, sc2_lstm, sc2_cnn)
+bc_learning_rate: 0.001              # step size for gradient updates (MLP/LSTM targets only)
+bc_batch_size: 256                   # mini-batch size (MLP/LSTM targets only)
 bc_ignore_noop: true                 # drop no-op steps so fn head isn't swamped

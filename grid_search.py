@@ -333,7 +333,12 @@ def _validate_bc_warmstart_combos(
     bc_target = summary.get("bc_target")
     if not bc_target:
         raise ValueError(f"bc_summary.json in {bc_warmstart_dir!r} is missing the 'bc_target' field.")
-    compatible = _BC_COMPATIBLE_POLICY_TYPES.get(bc_target, frozenset())
+    if bc_target not in _BC_COMPATIBLE_POLICY_TYPES:
+        raise ValueError(
+            f"bc_summary.json in {bc_warmstart_dir!r} contains unrecognised bc_target={bc_target!r}. "
+            f"Known targets: {sorted(_BC_COMPATIBLE_POLICY_TYPES)}"
+        )
+    compatible = _BC_COMPATIBLE_POLICY_TYPES[bc_target]
     errors = []
     for name, combo in zip(names, combos):
         t = combo["training_params"]

@@ -1392,11 +1392,6 @@ def _greedy_loop_q_learning(
                 if _new_opp is not None:
                     env.set_opponent_policy(_new_opp)
 
-            if self_play_manager is not None:
-                _new_opp = self_play_manager.step(policy, improved)
-                if _new_opp is not None:
-                    env.set_opponent_policy(_new_opp)
-
             greedy_sims.append(
                 GreedySimResult(
                     sim=episode,

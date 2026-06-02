@@ -73,6 +73,7 @@
   - [test\_sc2\_simple64\_training.py — Simple64 ladder integration](#test_sc2_simple64_trainingpy--simple64-ladder-integration)
   - [test\_sc2\_self\_play.py — `SelfPlayManager` (three self-play opponent modes)](#test_sc2_self_playpy--selfplaymanager-three-self-play-opponent-modes)
   - [test\_sc2\_analytics.py — SC2-specific analytics plots and flags](#test_sc2_analyticspy--sc2-specific-analytics-plots-and-flags)
+  - [test\_sc2\_replay\_bc.py — SC2 replay BC: dataset, fit, run, and `--bc` CLI (issues #351–#354)](#test_sc2_replay_bcpy--sc2-replay-bc-dataset-fit-run-and---bc-cli-issues-351354)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
   - [test\_rocket\_league\_reward.py — Rocket League reward calc](#test_rocket_league_rewardpy--rocket-league-reward-calc)
@@ -287,6 +288,10 @@ worker mechanics are unit-tested with a dummy env.
 - promoted-keys: no params returns empty / lstm hidden_size / reinforce baseline / genetic mutation_scale + mutation_share / keys in map with correct names
 - format helpers: int / float strips zeros / negative float / string
 - `--game` flag: default tmnf / honoured / track field / track none / unaffected by game field
+- BC config section: no `bc:` key returns empty dict / `bc:` contents returned verbatim / 7-tuple unpacking still valid
+- BC compatible policy types: `sc2_genetic`↔`sc2_cmaes` cross-compatible / `sc2_reinforce` self-only / tabular policies self-only / all nine targets are keys
+- BC warmstart validation (`_validate_bc_warmstart_combos`): passing compatible target returns `bc_target` string / `sc2_genetic` warmstart accepted by `sc2_cmaes` combo / incompatible target raises `ValueError` mentioning "incompatible" / error lists all failing combos but not passing ones / missing `bc_summary.json` raises / missing `bc_target` field in summary raises
+- BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `policy_weights.npz` (sc2_cnn) / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
 
 ### test_info_gain.py — staleness-based intrinsic reward
 - initial staleness all 1; never-observed = max; just-observed near zero; grows linearly
@@ -588,11 +593,26 @@ feature averages, spatial heatmap, outcome breakdown, and the full
 and `SelfPlayManager` — all three opponent modes (`exact`, `mutated`, `top_n`),
 pool growth/eviction semantics, and wiring through `train_rl`.
 
+The offline replay-reader and BC fit modules (`games/sc2/replay_bc.py`, issues
+#351–#354) are covered in `test_sc2_replay_bc.py`: the full PySC2 replay API
+(run_config, controller, features) is replaced by lightweight fakes injected
+into `sys.modules` before import, so the suite runs with no SC2 binary or
+PySC2 package installed. `validate_replay_dir` (issue #352) is tested against
+real temp-dir fixtures — no fakes needed since it only touches the filesystem.
+`fit_bc` (MLP and linear paths), `run` (full pipeline), and the `main.py --bc`
+entry point are all unit-tested with synthetic numpy datasets and mocked
+pipeline helpers (issue #353).  The policy-agnostic warm-start extension
+(issue #354) adds round-trip tests for all SC2-compatible policy families:
+`sc2_cmaes`, `sc2_neural_net`, `sc2_neural_dqn`, `sc2_lstm`, `sc2_cnn`,
+`epsilon_greedy`, and `ucb_q`, plus error-path tests for SB3 targets and
+unknown target names.
+
 **Not tested.** PySC2 against the actual Blizzard SC2 binary; real
 1v1 games against the built-in bot; minimap rendering; the deferred
 fog-of-war belief machinery beyond the standalone `test_belief.py`
 encoder; long-horizon RL convergence on Simple64 (loops are run for a
-handful of iterations only).
+handful of iterations only); reading real `.SC2Replay` files end-to-end
+(no integration test exists yet for `replay_bc`).
 
 ### test_sc2_obs_spec.py — SC2 obs spec
 - minigame dim (15); ladder dim (46); rich dim (103 = exact breakdown); ladder extends minigame; default = minigame; get_spec for minigame / ladder; minigame count; obs_names match dims
@@ -609,6 +629,7 @@ handful of iterations only).
 - SPATIAL_FN_IDS contains exactly the fn_ids whose names end in `_screen` or `_minimap`
 - `TestRaceGating` (9 tests): all four race keys exist in RACE_FUNCTION_IDS; each race's ids are a subset of FUNCTION_IDS; random race = all fn_ids; race-specific sets (_TERRAN / _PROTOSS / _ZERG) are pairwise disjoint; unknown race falls back to all fn_ids; Terran has Build_Barracks_screen (8) not Build_Nexus_screen (50); Protoss has Build_Nexus_screen (50) not Build_Barracks_screen (8); Zerg has Build_Hatchery_screen (82) not Build_Barracks_screen (8); all three named races include Move_screen (2) and no_op (0)
 - `TestActionToFunctionCall`: fake PySC2 module validates encoding branches — `_quick` emits queue-only args, `select_point` and `select_rect` emit screen coords, `_minimap` actions scale with `minimap_size` (not `screen_size`), and `_screen` actions keep using `screen_size`
+- `TestFunctionCallToAction` (#350): `function_call_to_action` (the inverse of `action_to_function_call`) round-trips `[fn_idx, x, y, queue]` for non-spatial (`no_op` / `select_army` / `select_idle_worker` → centre coords 0.5,0.5), `_quick` (queue preserved), `select_point` / `select_rect`, `_screen` (queue preserved), and `_minimap` (coords scale with `minimap_size`) actions; grid-aligned coords round-trip exactly (incl. odd `screen_size` 0.5 midpoint); an explicit mid-screen `FunctionCall` normalises coords into the unit square; unknown PySC2 function ids return `None` (skip sentinel, no exception). The id→fn_idx cache is reset inside the faked-PySC2 context per round-trip.
 
 ### test_sc2_tech_tree.py — hardcoded tech-tree preconditions (issue #346)
 - `TestBuildingPrereqsMet`: no-prereq buildings always buildable; Terran chain (Barracks needs SupplyDepot; FusionCore needs Starport); Zerg OR-set semantics (Spire requires Lair OR Hive)
@@ -642,6 +663,7 @@ handful of iterations only).
 
 ### test_sc2_client.py — PySC2 client wrapper
 - minigame flat obs shape; score-delta threading; player_relative centroid; terminal outcome recorded
+- shared obs extraction (#350): the per-block extractors (`_player_features`, `_score_features`, …) and `_timestep_to_obs_info`'s flat-obs half are now thin wrappers over the module-level `extract_flat_obs` / free extractor functions in `games/sc2/client.py` (single code path shared with the offline replay reader). These tests exercise the instance-method API unchanged, so they also cover the module-level functions by delegation; flat-obs values and info-dict contents are asserted identical to before the refactor.
 - ladder flat obs shape; visibility tracking; fogged ≠ visible; ladder terminal outcome; non-terminal = None
 - info dict includes unit-aware `self_attack_range_px` derived from visible friendly `feature_units` (uses max friendly range from curated PySC2 unit-range table)
 - `total_self_hp`: info dict sums visible friendly health+shield from `feature_units`; also exposes `visible_self_unit_count`; helper returns 0 for no-self / missing `feature_units` / short rows
@@ -808,6 +830,77 @@ handful of iterations only).
 - `save_experiment_results` now also writes `reward_component_breakdown.png` (regression-guarded in `test_writes_sc2_plots`)
 - `save_grid_summary`: forwards config-normalized rewards **and per-component contributions** using `v / max(abs(weight), 1.0)` — weights ≥ 1.0 are divided (making large-weight components comparable across grid-search runs), weights < 1.0 use the raw value (which already encodes the weight, so dividing would amplify by ×1000); wires SC2 extra-plot hook into framework summary generation; covers no-components fallback, multi-sim normalization, malformed YAML fallback, non-mapping YAML fallback, non-numeric weight fallback, allow-listed `scout` component (no unmapped-key warning), step_penalty with sub-1.0 weight passes through raw (-0.5 not -500), idle_penalty with sub-1.0 weight passes through raw, any sub-1.0 weight (0.0001 or 0.001) both use scale=1.0, the new `unit_loss` / `damage_taken` / `passive_under_fire` components normalize through their config weights without unmapped-key warnings, realistic positive reward stays positive after normalization (313.5 ✓), and emits SC2 cross-run charts + summary links; passes `task_metric_fn`, `task_metric_fmt` (percentage formatter) to framework; `attack_bonus` mapped to `attack_bonus` config key in normalisation
 - `_sc2_task_metric`: empty sims → 0.0; win+finish counted as success; loss/timeout/None/other not counted; all-wins → 1.0; `_GS_SUCCESS_REASONS` constant contains win+finish, excludes loss+timeout
+
+### test_sc2_replay_bc.py — SC2 replay BC: dataset, fit, run, and `--bc` CLI (issues #351–#354)
+- `TestValidateReplayDir`: nonexistent folder raises `ValueError`; file path raises `ValueError`; empty
+  folder raises with "No .SC2Replay files found"; returns only `.SC2Replay` files sorted; race filter warning
+  emitted when race is non-null/non-"any"; no warning for `race="any"` or `race=None`; version mismatch
+  warning emitted when filenames don't contain the version string; no warning when all filenames match;
+  partial mismatch warning includes count ratio (e.g. "1/2")
+- `TestIterReplays`: finds only `.SC2Replay` files; sorted order; empty folder returns `[]`
+- `TestParseReplayInfo`: winner + races parsed correctly; winner is player 2; undecided returns `(0, {})`;
+  race integer mapping (1=terran, 2=zerg, 3=protoss, 4=random); unknown race falls back to `"random"`
+- `TestResolvePlayerId`: `"winner"` resolves to winner pid; fallback to 1 when winner=0; explicit int id;
+  explicit int id with zero winner
+- `TestPickBestAction`: empty returns None; `"first"` returns first even if no_op; `"first_non_noop"` skips
+  no_op; fallback to first when all no_op; single action returned regardless of strategy
+- `TestReplayObservations`: obs shape matches spec (float32, `[D]`); action shape+dtype `([4], float32)`;
+  fn_idx preserved in action vector; temporal order preserved via monotonically increasing x-coord;
+  steps with no actions skipped; `[no_op, Move_screen]` → `Move_screen` selected; unknown PySC2 fn_id
+  skipped; `winner_id=0` falls back to player 1; explicit `player_id=2` overrides winner; `controller.step()`
+  called once per step including no-action steps; unknown fn_id still calls `step()`
+- `TestReadOneReplay`: race match returns `(True, player_race, pairs)`; race mismatch returns `(False, ..., [])`;
+  no race filter processes all; race filter drops replay → `start_replay` not called; `player_race` always
+  returned even when filter drops replay
+- `TestBuildDataset` (mocks `_read_one_replay`): single replay writes correct NPZ with `n_episodes=1`;
+  `obs`/`actions` shapes correct; episode boundaries for two replays (`episode_starts`, `episode_lengths`,
+  `episode_id`); temporal order preserved within episode; meta JSON round-trip (`player_id`, `step_mul`,
+  `screen_size`, `source_filenames`); all replays dropped by race filter raises `ValueError` with race name
+  in message; no replay files raises `ValueError`; `race="any"` keeps all; `source_filenames` recorded
+  in meta; `episode_id` covers all rows
+- `TestLoadDataset`: flat load returns all expected keys; correct shapes; `as_episodes=True` yields correct
+  per-episode shapes; episode `episode_starts` partitions correctly; temporal order preserved per episode;
+  `meta` parsed as dict in `as_episodes` mode; round-trip save+load preserves obs+action values
+- `TestFitBCMLP` (issue #353): loss decreases over more epochs on a separable dataset; saved weights
+  load back as `SC2REINFORCEPolicy` via `from_cfg`; all-noop dataset raises `ValueError` when
+  `bc_ignore_noop=True`; `bc_ignore_noop=False` keeps all steps; pairwise accuracy > 80%
+  (logit of correct fn_idx class exceeds logit of the alternative class) after 20 epochs with a
+  linear model (`hidden_sizes=[]`) on a linearly-separable two-class dataset; accepts a `Path`
+  argument in place of a dict dataset
+- `TestFitBCLinear` (issue #353): returns a loadable `SC2MultiHeadLinearPolicy`; saved weights load back
+  via `sc2_genetic` path; `fn_weights` shape is `(N_FUNCTION_IDS, obs_dim)`; `sp_weights` shape is
+  `(2, obs_dim)` for spatial fn_idx actions; when no spatial steps are present `sp_weights` are all zero
+- `TestRunBC` (issue #353, mocks `validate_replay_dir`/`build_dataset`/`load_dataset`): writes
+  `policy_weights.yaml`; writes `bc_summary.json` with all required keys (`n_replays_kept`,
+  `n_replays_skipped_race`, `n_episodes`, `n_pairs`, `fn_idx_histogram`, `bc_player_id`, `bc_race`,
+  `bc_target`, `final_bc_loss`); `fn_idx_histogram` covers all actions from the synthetic dataset;
+  writes `trainer_state.npz` for the MLP target; linear target writes `policy_weights.yaml` without
+  trainer state; `winner` player id and passed race filter appear in summary
+- `TestBCCLIMain` (issue #353): `--bc` flag is parsed; default player is `None` (config fallback);
+  `winner`/`1`/`2` are valid `--bc-player` choices; all four race choices accepted for `--bc-race`;
+  `sc2_reinforce`/`sc2_genetic` accepted for `--bc-target`; `--bc` with `--game != sc2` raises
+  `SystemExit`; `--bc` and `--play` are mutually exclusive; `--bc` and `--eval` are mutually exclusive
+- `TestFitBCCMAES` (issue #354): returns `SC2CMAESPolicy`; `_champion` is set after fit; distribution
+  mean equals `champion.to_flat()`; champion callable → `(4,)` action
+- `TestFitBCNeuralNet` (issue #354): returns `SC2NeuralNetPolicy`; layer weight shapes match
+  `[obs_dim, hidden, 4]`; callable → `(4,)` action after fit; loss decreases over more epochs; round-trip
+  save+reload via `SC2NeuralNetPolicy.from_cfg`
+- `TestFitBCDQN` (issue #354): returns `SC2NeuralDQNPolicy`; replay buffer has transitions after fill;
+  `bc_loss` equals fill fraction `len(replay) / capacity`; episode boundary steps marked done
+- `TestFitBCLSTM` (issue #354): returns `SC2LSTMEvolutionPolicy`; `_champion` is set; champion callable;
+  loss is finite and non-negative; `_mean` equals `champion.to_flat()`; round-trip save+reload via
+  `SC2LSTMPolicy.from_cfg`
+- `TestFitBCCNN` (issue #354): returns `SC2CNNEvolutionPolicy`; `_champion` is set; `_mean` equals
+  `champion.to_flat()`; `W1`/`W2` (conv layers) are zeroed; obs-portion of `W3` is non-zero
+- `TestFitBCTabular` (issue #354): `epsilon_greedy` returns `EpsilonGreedyPolicy`; `ucb_q` returns
+  `UCBQPolicy`; Q-table populated after seeding; `_n_sa` populated; Q-values normalised by visit count
+  in `[0, 1]`; `epsilon_greedy` callable → `(4,)` action
+- `TestFitBCUnknownTarget` (issue #354): SB3 targets (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`,
+  `recurrent_ppo`) each raise `ValueError` mentioning "SB3"; completely unknown targets raise
+  `ValueError` with the target name in the message; error message lists supported targets
+- `TestBugFixes354`: tabular Q-values sum to exactly 1.0 per state (not per-action count-divided);
+  DQN terminal transitions store a zero-vector `next_obs` (not the next episode's first obs);
+  `sc2_lstm` raises `ValueError` with "episode_starts" in the message when those keys are absent
 
 ## Rocket League
 

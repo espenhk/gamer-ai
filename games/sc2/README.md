@@ -26,6 +26,11 @@ StarCraft II (PySC2) integration for the tmnf-ai reinforcement learning framewor
 - [Supported policies](#supported-policies)
   - [`sc2_genetic` — SC2GeneticPolicy](#sc2_genetic--sc2geneticpolicy)
   - [`sc2_cnn` — SC2CNNEvolutionPolicy](#sc2_cnn--sc2cnnevolutionpolicy)
+- [Behaviour cloning from replays](#behaviour-cloning-from-replays)
+  - [Getting replay data](#getting-replay-data)
+  - [Validating a replay directory](#validating-a-replay-directory)
+  - [Running behaviour cloning](#running-behaviour-cloning)
+  - [Version-matching guidance](#version-matching-guidance)
 - [Analytics output](#analytics-output)
   - [Files written per experiment](#files-written-per-experiment)
   - [Plot reference](#plot-reference)
@@ -651,6 +656,152 @@ python grid_search.py games/sc2/config/gs_sc2_cnn_template.yaml --game sc2
 The provided template sweeps `population_size ∈ {10, 20}`, `initial_sigma ∈ {0.005, 0.01}`, and `idle_bonus ∈ {0.0, 0.5}` on DefeatRoaches with the minigame flat-obs preset and two screen channels (`player_relative` + `unit_hit_points`). That is 2 × 2 × 2 = 8 combinations, each running 40 generations.
 
 Champion weights are saved as `<experiment_dir>/weights.npz`. Trainer state (ES mean vector and current σ) is saved as `<experiment_dir>/trainer_state.npz` and is reloaded automatically on restart.
+
+---
+
+## Behaviour cloning from replays
+
+Offline behaviour cloning (BC) lets you base-train a policy from human (or
+high-level AI) SC2 gameplay before any RL fine-tuning:
+
+```bash
+# 1. Behaviour-clone from a folder of replays (winner of each game, Terran-only)
+python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race terran
+
+# 2. Fine-tune from the BC weights with whatever policy_type is configured
+python main.py myrun --game sc2
+```
+
+`--bc` is SC2-only (rejected with an error for other games, and mutually
+exclusive with `--play` / `--eval`).  The resulting `policy_weights.yaml`
+(and optional `trainer_state.npz`) are written to the standard experiment
+directory; the normal SC2 training loop auto-loads them on the next run, so
+step 2 is just a regular training run.
+
+### Getting replay data
+
+**Blizzard official replay packs** are the recommended source. They are the
+same packs DeepMind's AlphaStar was trained on (via
+[`google-deepmind/alphastar`](https://github.com/google-deepmind/alphastar)).
+
+1. Clone the Blizzard [`s2client-proto`](https://github.com/Blizzard/s2client-proto) repo.
+2. Accept the **Blizzard AI & ML License** (found in the repo root). The
+   replay files are password-protected behind this license; you must agree to
+   it before downloading.
+3. Run the provided download helper to fetch `.SC2Replay` files grouped by
+   game version:
+
+   ```bash
+   python samples/replay-api/download_replays.py \
+       --key <your-api-key> \
+       --version 4.9.3 \
+       --save-dir /data/sc2_replays
+   ```
+
+4. Unzip the downloaded archives; the resulting `*.SC2Replay` files are what
+   `--replay-dir` / `bc_replay_dir` expects.
+
+> **License note.** The replay packs may **not** be redistributed or bundled
+> with this project. Always fetch them directly from Blizzard under the terms
+> of the AI & ML License. Tests in this repository use only synthetic mocked
+> replays — no real `.SC2Replay` files are included.
+
+### Validating a replay directory
+
+Use `validate_replay_dir()` in `games/sc2/replay_bc` to check a folder before
+kicking off a potentially slow `build_dataset` run:
+
+```python
+from games.sc2.replay_bc import validate_replay_dir
+
+replays = validate_replay_dir(
+    "/data/sc2_replays",
+    race="terran",      # warn if cross-race replays will be dropped
+    version="4.9.3",    # warn if filenames suggest a different SC2 build
+)
+print(f"Found {len(replays)} replay(s)")
+```
+
+`validate_replay_dir` raises `ValueError` if the directory is missing or empty,
+and emits `WARNING` log messages when:
+
+- `race` is non-null and non-`"any"` (cross-race replays will be silently
+  skipped by `build_dataset`).
+- `version` is provided but one or more filenames do not contain the version
+  string (Blizzard packs encode the SC2 build in filenames, e.g.
+  `4.9.3.77379`; a mismatch means replays may fail to load against your binary).
+
+### Running behaviour cloning
+
+| CLI flag | Config key | Default | Description |
+|---|---|---|---|
+| `--bc` | *(mode flag)* | — | Enable BC mode (SC2 only) |
+| `--replay-dir DIR` | `bc_replay_dir` | — | Folder of `*.SC2Replay` files |
+| `--bc-player winner\|1\|2` | `bc_player_id` | `winner` | Which player to clone |
+| `--bc-race RACE` | `bc_race` | `any` | Race filter (`terran`, `zerg`, `protoss`, or `any`) |
+| `--bc-target POLICY` | `bc_target` | `sc2_reinforce` | Target policy family for BC fit (see table below) |
+| *(config only)* | `bc_max_replays` | *(null)* | Cap number of replays processed; `null` = all |
+| *(config only)* | `bc_step_mul` | `step_mul` | Game ticks per replay step (usually matches `step_mul`) |
+| *(config only)* | `bc_epochs` | `10` | Gradient-descent passes over the dataset (MLP/LSTM targets only) |
+| *(config only)* | `bc_learning_rate` | `0.001` | Step size for gradient updates (MLP/LSTM targets only) |
+| *(config only)* | `bc_batch_size` | `256` | Mini-batch size for gradient updates (MLP/neural_net targets only) |
+| *(config only)* | `bc_ignore_noop` | `true` | Drop `fn_idx=0` (no-op) steps before fitting so the fn head isn't swamped |
+| *(config only)* | `bc_lstm_hidden_size` | `64` | LSTM hidden-state size (`sc2_lstm` target only) |
+
+CLI flags override the corresponding `bc_*` keys in `training_params.yaml`.
+
+### Per-policy warm-start support
+
+All nine SC2-compatible policy types accept a BC warm-start. The fit method
+differs by architecture:
+
+| `bc_target` | Warm-start method | Compatible fine-tune policies |
+|---|---|---|
+| `sc2_reinforce` | Mini-batch gradient descent (CE fn + MSE spatial) | `sc2_reinforce` only |
+| `sc2_genetic` | Closed-form least-squares (`SC2MultiHeadLinearPolicy`) | `sc2_genetic`, `sc2_cmaes` |
+| `sc2_cmaes` | Same lstsq as `sc2_genetic`, then seeds CMA-ES distribution mean | `sc2_cmaes`, `sc2_genetic` |
+| `sc2_neural_net` | Mini-batch MSE regression (logit-transformed fn/x/y targets) | `sc2_neural_net` only |
+| `sc2_neural_dqn` | Pre-fills replay buffer with demo transitions matched to nearest `DISCRETE_ACTIONS` row by L1 | `sc2_neural_dqn` only |
+| `sc2_lstm` | Trains LSTM output head (`W_out`/`b_out`) via CE SGD over episode sequences; gate weights stay frozen | `sc2_lstm` only |
+| `sc2_cnn` | Random obs→FC projection; lstsq for fn and spatial heads; seeds `_champion` and `_mean` | `sc2_cnn` only |
+| `epsilon_greedy` | Seeds Q-table and visit counts from binned demo (state, action) pairs | `epsilon_greedy` only |
+| `ucb_q` | Same as `epsilon_greedy` | `ucb_q` only |
+
+`sc2_genetic` ↔ `sc2_cmaes` are cross-compatible because both use
+`SC2MultiHeadLinearPolicy` as the underlying weight format. All other pairs are
+incompatible — the weight layout differs.
+
+### Coordinate and resolution caveats
+
+The BC dataset encodes spatial coordinates as normalised `[0, 1]` fractions of
+the feature-layer grid used during recording. The coordinates are meaningless
+against a different grid resolution. **Always use the same `screen_size` and
+`minimap_size` for both the `--bc` step and the subsequent fine-tune run.**
+The default is `64 × 64` for both; if you change either in
+`training_params.yaml`, set `bc_step_mul` accordingly and re-run `--bc` to
+rebuild the dataset.
+
+### Version-matching guidance
+
+Replays are tied to the SC2 build they were recorded on. If you replay a
+`4.9.3` replay against a `5.0.x` binary, PySC2 may fail to start the replay
+or produce garbled observations.
+
+Practical steps to ensure alignment:
+
+1. Check the version string encoded in the replay filename (e.g.
+   `4.9.3.77379` → build `4.9.3`).
+2. Confirm your SC2 binary is on the same version. On Linux:
+   ```bash
+   SC2PATH/Versions/BaseXXXXX/SC2_x64 --version
+   ```
+3. Alternatively, download the pack version that matches your binary.
+4. Use `validate_replay_dir(..., version="4.9.3")` to get a warning for any
+   replays whose filename does not contain that string.
+
+Mixed-version folders are not rejected outright — PySC2 will attempt to load
+each replay and log a warning if it fails; `build_dataset` skips failed
+replays and continues.
 
 ---
 

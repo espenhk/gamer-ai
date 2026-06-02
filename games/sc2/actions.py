@@ -57,6 +57,8 @@ learning that a Terran cannot build a Hatchery.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 from framework.run_config import ProbeAction
@@ -705,3 +707,121 @@ def action_to_function_call(action: np.ndarray, screen_size: int, minimap_size: 
     # Covers Move_screen/minimap, Attack_screen/minimap,
     # Harvest_Gather_screen, all Build_*_screen, Rally_*_screen/minimap, etc.
     return actions.FunctionCall(fn_id, [[queue], [sx, sy]])
+
+
+def _fc_arg_scalar(arguments: list, idx: int) -> int:
+    """Extract an integer scalar (e.g. the ``queued`` flag) from arg ``idx``.
+
+    PySC2 args are length-1 lists like ``[queue]``; tolerate bare scalars and
+    missing args by returning ``0``.
+    """
+    if idx >= len(arguments):
+        return 0
+    arg = arguments[idx]
+    try:
+        return int(arg[0])
+    except (TypeError, IndexError, ValueError):
+        try:
+            return int(arg)
+        except (TypeError, ValueError):
+            return 0
+
+
+def _fc_arg_xy(arguments: list, idx: int) -> tuple[int, int] | None:
+    """Extract a ``(sx, sy)`` screen/minimap coordinate from arg ``idx``.
+
+    Returns ``None`` when the argument is absent or malformed.
+    """
+    if idx >= len(arguments):
+        return None
+    arg = arguments[idx]
+    try:
+        return int(arg[0]), int(arg[1])
+    except (TypeError, IndexError, ValueError):
+        return None
+
+
+def function_call_to_action(
+    function_call: Any,
+    screen_size: int,
+    minimap_size: int | None = None,
+) -> np.ndarray | None:
+    """Inverse of :func:`action_to_function_call`.
+
+    Convert a PySC2 ``FunctionCall`` back into the framework's
+    ``[fn_idx, x, y, queue]`` action vector.  This is the primitive the
+    offline replay reader uses to recover the action a human/bot issued on
+    each frame (issue #350).
+
+    Parameters
+    ----------
+    function_call :
+        A ``pysc2.lib.actions.FunctionCall`` — or any object exposing
+        ``.function`` (the raw PySC2 function id) and ``.arguments`` (the
+        per-arg value lists).
+    screen_size :
+        Screen feature-layer size used to normalise ``*_screen`` /
+        ``select_point`` / ``select_rect`` coordinates back to ``[0, 1]``.
+    minimap_size :
+        Minimap feature-layer size used to normalise ``*_minimap``
+        coordinates.  Defaults to ``screen_size``.
+
+    Returns
+    -------
+    np.ndarray | None
+        ``[fn_idx, x, y, queue]`` (float32).  Non-spatial actions report the
+        centre coordinate ``x = y = 0.5``.  Returns ``None`` — the skip
+        sentinel — when the PySC2 function id maps to no framework ``fn_idx``
+        (an action outside :data:`FUNCTION_IDS`); callers skip such frames
+        rather than raising.
+
+    Notes
+    -----
+    The PySC2-id → ``fn_idx`` mapping is sourced from
+    ``games.sc2.client._get_pysc2_id_to_fn_idx`` (imported lazily to avoid a
+    circular import and to keep this module importable without PySC2), so the
+    forward and inverse directions stay in lockstep.
+    """
+    from games.sc2.client import _get_pysc2_id_to_fn_idx
+
+    fn_id = int(function_call.function)
+    fn_idx = _get_pysc2_id_to_fn_idx().get(fn_id)
+    if fn_idx is None:
+        return None
+
+    name = FUNCTION_IDS.get(fn_idx, "no_op")
+    arguments = list(getattr(function_call, "arguments", None) or [])
+    minimap = screen_size if minimap_size is None else minimap_size
+    target_size = minimap if name.endswith("_minimap") else screen_size
+
+    queue = 0
+    coord: tuple[int, int] | None = None
+    if name == "no_op":
+        pass
+    elif name in ("select_army", "select_idle_worker"):
+        pass
+    elif name == "select_point":
+        # FunctionCall(fn_id, [[select_act], [sx, sy]]) — coords in arg 1.
+        coord = _fc_arg_xy(arguments, 1)
+    elif name == "select_rect":
+        # FunctionCall(fn_id, [[select_add], [sx, sy], [sx, sy]]) — first corner.
+        coord = _fc_arg_xy(arguments, 1)
+    elif name.endswith("_quick"):
+        queue = _fc_arg_scalar(arguments, 0)
+    else:
+        # Spatial: FunctionCall(fn_id, [[queue], [sx, sy]]).
+        queue = _fc_arg_scalar(arguments, 0)
+        coord = _fc_arg_xy(arguments, 1)
+
+    if coord is None:
+        x_norm, y_norm = 0.5, 0.5
+    else:
+        denom = max(target_size - 1, 1)
+        # Clamp to [0, 1] — mirrors action_to_function_call's coordinate
+        # clipping so the action vector stays invariant even when a malformed
+        # replay/action stream carries out-of-range or unexpected arg values.
+        x_norm = float(np.clip(coord[0] / denom, 0.0, 1.0))
+        y_norm = float(np.clip(coord[1] / denom, 0.0, 1.0))
+
+    queue = int(np.clip(queue, 0, 1))
+    return np.array([float(fn_idx), x_norm, y_norm, float(queue)], dtype=np.float32)

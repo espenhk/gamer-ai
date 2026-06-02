@@ -17,6 +17,112 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- `_fit_bc_tabular()` Q-normalization bug (issue #354): Q-values are now
+  divided by the total state-visit count `_n_s[state]` to produce a proper
+  action-frequency distribution summing to 1.0 per state, rather than dividing
+  each `q[s,a]` by its own `_n_sa[s,a]` (which always yielded 1.0).
+- `_fit_bc_dqn()` terminal transition bug (issue #354): transitions at episode
+  boundaries now store a zero-vector as `next_obs` instead of leaking the first
+  observation of the following episode, which would corrupt the Bellman target.
+- `fit_bc(target="sc2_lstm")` now raises a descriptive `ValueError` listing the
+  missing keys when `episode_starts` / `episode_lengths` are absent from the
+  dataset, rather than propagating a bare `KeyError` from `_iter_episodes_from_dataset`.
+- `_copy_bc_weights()` in `grid_search.py` now also copies `policy_weights.npz`
+  (the `sc2_cnn` weight format) alongside `policy_weights.yaml`, fixing the
+  CNN warm-start path that previously silently left the experiment without weights.
+- `_fit_bc_cnn()` spatial-head OOM (issue #354): replaced the dense
+  `(N × _N_SPATIAL_CELLS)` distance and one-hot matrices with batched distance
+  computation (4096-row chunks) and scatter-add normal equations
+  `(H^T H) W = H^T Y`, reducing peak memory from O(N × S) to O(N × FC_DIM)
+  plus O(FC_DIM × S).
+
+### Added
+- SC2 replay BC documentation pass (issue #355, [6/6]): `games/sc2/README.md`
+  — removed stub text, added full `bc_*` config-key table, per-policy warm-start
+  support table (`sc2_reinforce` / `sc2_genetic` / `sc2_cmaes` / `sc2_neural_net`
+  / `sc2_neural_dqn` / `sc2_lstm` / `sc2_cnn` / tabular families), and
+  coordinate/resolution caveats; `CLAUDE.md` — noted `--bc` mode in the Running
+  section and all `bc_*` keys in the Config knobs table.
+- BC warm-start integration with `grid_search.py` (issue #354, [6/6]): two ways
+  to warm-start every combo in a grid search from a behaviour-cloning checkpoint.
+  (1) **Post-hoc warm-start** — pass `--bc-warmstart-dir <path>` pointing to an
+  existing BC experiment directory (one that contains `policy_weights.yaml` +
+  `bc_summary.json`).  Before any combo runs, a policy-compatibility check reads
+  `bc_target` from `bc_summary.json` and validates it against every combo's
+  `policy_type` via `_BC_COMPATIBLE_POLICY_TYPES` (cross-compatibility:
+  `sc2_genetic` ↔ `sc2_cmaes`; all others self-only).  Weight files
+  (`policy_weights.yaml`, `trainer_state.npz`, `policy_weights_qtable.pkl`) are
+  copied into each combo's experiment directory before `train_rl` is called.
+  (2) **Inline BC** — add a `bc:` section to the grid config YAML with at
+  minimum `replay_dir` and optionally `bc_target`, `player_id`, `race`,
+  `bc_epochs`, `bc_learning_rate`, and all other BC knobs.  `grid_search.py`
+  runs BC once into a shared `<base_name>__bc_warmstart/` directory, skips re-run
+  if `policy_weights.yaml` + `bc_summary.json` already exist, then validates
+  compatibility and copies weights into every combo directory.  If both
+  `--bc-warmstart-dir` and an inline `bc:` section are present,
+  `--bc-warmstart-dir` takes precedence with a warning.
+  `_load_grid_config` now returns a 7-tuple including `bc_cfg`.
+  New abbreviated entries added to `_ABBREV` for all `bc_*` config keys.
+- SC2 BC warm-start for all policy families (issue #354, [5/6]): `fit_bc` now
+  accepts seven additional targets beyond the original `sc2_reinforce` /
+  `sc2_genetic` pair.  `sc2_cmaes` — linear least-squares fit into
+  `SC2MultiHeadLinearPolicy`, then seeds `SC2CMAESPolicy.initialize_from_champion`
+  so the CMA-ES distribution mean starts at the fitted weights.  `sc2_neural_net`
+  — mini-batch MSE regression (logit-transformed fn_idx / x / y targets) into
+  `SC2NeuralNetPolicy`.  `sc2_neural_dqn` — pre-fills the `MaskedReplayBuffer`
+  with demo transitions matched to the nearest `DISCRETE_ACTIONS` row by L1
+  distance; BC "loss" is reported as fill fraction.  `sc2_lstm` — collects LSTM
+  hidden states via a full episode-sequence forward pass (with proper h/c resets
+  at episode boundaries), then trains only the output head (`W_out`/`b_out`) via
+  cross-entropy SGD, and seeds `SC2LSTMEvolutionPolicy.initialize_from_champion`.
+  `sc2_cnn` — zeroes the two conv layers and fits a random projection from
+  obs → FC_DIM, then solves for the fn and spatial output heads via closed-form
+  least squares, seeding `SC2CNNEvolutionPolicy._champion` and `_mean`.
+  `epsilon_greedy` / `ucb_q` — seeds `_q_table`, `_n_sa`, and `_n_s` from
+  binned demo (state, action_idx) visits; Q-values are normalised by visit count.
+  SB3 targets raise `ValueError` with an explicit "SB3" message.  New `fit_bc`
+  params: `n_channels` (CNN), `n_bins` (tabular), `bc_lstm_hidden_size` (LSTM).
+  `run()` forwards all new params through to `fit_bc`.
+- SC2 behaviour-cloning core fit + `--bc` entry point (issue #353, [4/6]):
+  `fit_bc(dataset, obs_spec, *, target, ...)` in `games/sc2/replay_bc.py`
+  pre-trains a policy from a demonstration NPZ: `target="sc2_reinforce"`
+  trains a two-head REINFORCE MLP via mini-batch gradient descent (cross-entropy
+  on fn_idx, MSE on spatial coords); `target="sc2_genetic"` fits a
+  `SC2MultiHeadLinearPolicy` via closed-form least squares.  `run(replay_dir,
+  experiment_dir, obs_spec, **opts)` wires the full pipeline
+  (replay → dataset → fit → save `policy_weights.yaml` + trainer state +
+  `bc_summary.json`).  New `main.py --bc` mode (SC2-only, mutually exclusive
+  with `--play`/`--eval`) and matching config keys in
+  `games/sc2/config/training_params.yaml` (`bc_player_id`, `bc_race`,
+  `bc_target`, `bc_epochs`, `bc_learning_rate`, `bc_batch_size`,
+  `bc_ignore_noop`, `bc_step_mul`, `bc_max_replays`).
+- SC2 replay BC dataset builder at `games/sc2/replay_bc.py` (issue #351,
+  [2/6]): reads `.SC2Replay` files via the PySC2 replay API and produces
+  sequence-aware NPZ demonstration datasets (`obs`, `actions`,
+  `episode_starts`, `episode_lengths`, `episode_id`, `meta`).  Public API:
+  `iter_replays(folder)`, `replay_observations(path, ...)` (generator),
+  `build_dataset(folder, save_path, ...)`, and `load_dataset(path, ...)`.
+  Supports race filtering, winner/explicit player selection, configurable
+  `step_mul`, and a `multi_action_strategy` knob (`"first"` /
+  `"first_non_noop"`) for steps with multiple simultaneous actions.  All
+  PySC2 imports are lazy (inside function bodies) so the module is
+  importable without PySC2 installed.
+- SC2 behaviour-cloning primitives (issue #350, part 1 of #349): a new
+  `function_call_to_action()` in `games/sc2/actions.py` inverts
+  `action_to_function_call`, converting a PySC2 `FunctionCall` back into the
+  framework's `[fn_idx, x, y, queue]` vector (spatial coords renormalised to
+  `[0, 1]`, non-spatial actions report centre coords `0.5, 0.5`, unknown
+  function ids return `None` as a skip sentinel). A module-level
+  `extract_flat_obs()` in `games/sc2/client.py` is now the single source of
+  truth for PySC2-TimeStep → flat-observation projection, so the live client
+  and the upcoming offline replay reader share one code path with no drift.
+
+### Changed
+- `SC2Client._timestep_to_obs_info` and its per-block feature extractors are
+  refactored into thin wrappers over the new shared module-level functions.
+  No runtime behaviour change — flat observations and info dicts are
+  identical (existing SC2 tests unchanged and passing).
 
 ---
 

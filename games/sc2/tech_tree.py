@@ -725,7 +725,7 @@ def fn_idx_satisfied(
         return True
 
     # Resource cost check (issue #357): mask actions whose mineral or
-    # vespene cost exceeds current supply.
+    # vespene cost exceeds current resources.
     cost = RESOURCE_COSTS.get(fn_idx)
     if cost is not None:
         min_cost, gas_cost = cost

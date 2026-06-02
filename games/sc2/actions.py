@@ -443,6 +443,160 @@ def discrete_action_to_fn_id(cell_idx: int) -> int:
     return int(DISCRETE_ACTIONS[cell_idx, 0])
 
 
+# ---------------------------------------------------------------------------
+# Meta-action categories (issue #388) — hierarchical action space
+# ---------------------------------------------------------------------------
+# Actions are grouped into five logical tiers so a hierarchical policy can
+# first choose a category, then a specific action within it.  Every fn_idx
+# in FUNCTION_IDS belongs to exactly one category.
+
+ACTION_CATEGORIES: dict[str, list[int]] = {
+    "move": [
+        0,  # no_op
+        1,  # select_army
+        2,  # Move_screen
+        4,  # select_idle_worker
+        5,  # Harvest_Gather_screen
+        6,  # select_point
+        11,  # Move_minimap
+        12,  # HoldPosition_quick
+        13,  # Stop_quick
+        15,  # select_rect
+        46,  # Morph_SiegeMode_quick — positional combat stance
+        47,  # Morph_Unsiege_quick
+        16,  # Harvest_Return_quick
+        17,  # Rally_Units_screen
+        18,  # Rally_Workers_screen
+        19,  # Rally_Units_minimap
+        20,  # Rally_Workers_minimap
+    ],
+    "attack": [
+        3,  # Attack_screen
+        14,  # Attack_minimap
+        45,  # Effect_Stim_quick
+    ],
+    "build": [
+        # Terran buildings + addons
+        8,
+        9,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        # Protoss buildings
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        # Zerg buildings
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+    ],
+    "train": [
+        # Terran units
+        7,
+        10,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        # Protoss units
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,  # Morph_Archon_quick — produces a new unit type
+        79,
+        # Zerg units
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+    ],
+    "upgrade": [
+        # Zerg building and unit morphs
+        111,  # Morph_Lair_quick
+        112,  # Morph_Hive_quick
+        113,  # Morph_Overseer_quick
+        114,  # Morph_GreaterSpire_quick
+        115,  # Morph_BroodLord_quick
+    ],
+}
+
+#: Canonical ordering of category names for weight-matrix row indices.
+CATEGORY_NAMES: list[str] = ["move", "attack", "build", "train", "upgrade"]
+
+#: Total number of meta-action categories.
+N_CATEGORIES: int = len(CATEGORY_NAMES)
+
+#: Inverse map: fn_idx → category name.  Every fn_idx in FUNCTION_IDS has
+#: exactly one entry.
+FN_IDX_TO_CATEGORY: dict[int, str] = {fn_idx: cat for cat, fn_idxs in ACTION_CATEGORIES.items() for fn_idx in fn_idxs}
+
+
 def pysc2_ids_to_internal_fn_idx(pysc2_available_ids: set[int]) -> set[int]:
     """Convert a set of raw PySC2 function IDs to internal fn_idx values.
 

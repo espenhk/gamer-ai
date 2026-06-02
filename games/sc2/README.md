@@ -425,6 +425,7 @@ SC2-compatible policies are listed below. The framework's generic `hill_climbing
 | `policy_type` | Algorithm | Notes |
 |---|---|---|
 | `sc2_genetic` | Population of `SC2MultiHeadLinearPolicy`, evolutionary crossover+mutation | **Recommended default.** SC2-native multi-head individuals; separate fn_idx (6×obs_dim) and sigmoid spatial (2×obs_dim) heads |
+| `sc2_hierarchical` | Population of `SC2HierarchicalLinearPolicy`, same evolutionary mechanics | **Hierarchical action space (issue #388).** First selects a meta-category (move/attack/build/train/upgrade), then a specific fn_idx within it; also learns a queue flag. Narrower effective action space at each stage. |
 | `sc2_neural_net` | TMNF-style hill-climbing MLP | Uses `hidden_sizes` list (e.g. `[16, 64, 64, 16]`); outputs SC2-native `[fn_idx, x, y, queue]` |
 | `sc2_reinforce` | Two-head REINFORCE MLP (softmax fn + sigmoid spatial) | Gradient-trained; recommended over legacy `reinforce` for SC2 |
 | `sc2_cmaes` | (μ/μ_w, λ)-CMA-ES over `SC2MultiHeadLinearPolicy` flat weights | Recommended over legacy `cmaes` for SC2 |

@@ -1,5 +1,8 @@
 # Reward configuration for Atari. See games/atari/README.md for full documentation.
 
+# native signal
 native_reward_scale: 1.0
 clip_sign: false
+
+# time
 step_penalty: 0.0

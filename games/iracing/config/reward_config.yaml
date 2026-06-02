@@ -1,11 +1,22 @@
 # Reward configuration for iRacing. See games/iracing/README.md for full documentation.
 
+# progress
 progress_weight: 10000.0
+
+# centerline
 centerline_weight: -0.1
 centerline_exp: 2.0
+
+# speed / time
 speed_weight: 0.05
 step_penalty: -0.05
+
+# finish
 finish_bonus: 5000.0
+
+# shaping
 off_track_penalty: -10.0
 lap_time_improvement_bonus: 100.0
+
+# termination
 crash_threshold_m: 25.0

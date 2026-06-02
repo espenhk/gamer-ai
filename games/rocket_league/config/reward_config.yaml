@@ -1,8 +1,13 @@
 # Reward configuration for Rocket League. See games/rocket_league/README.md for full documentation.
 
+# dense
 vel_to_ball_weight: 0.01
 boost_weight: 0.0
+
+# sparse
 touch_bonus: 1.0
 goal_weight: 10.0
 concede_penalty: 5.0
+
+# time
 step_penalty: -0.001

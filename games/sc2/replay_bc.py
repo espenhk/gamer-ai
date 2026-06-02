@@ -1257,9 +1257,7 @@ def _fit_bc_cnn(
     sp_indices = np.empty(N, dtype=np.intp)
     for _s in range(0, N, _DIST_BATCH):
         _e = min(_s + _DIST_BATCH, N)
-        _d = np.sum(
-            (xy_arr[_s:_e, np.newaxis, :] - grid_xy[np.newaxis, :, :]) ** 2, axis=2
-        )
+        _d = np.sum((xy_arr[_s:_e, np.newaxis, :] - grid_xy[np.newaxis, :, :]) ** 2, axis=2)
         sp_indices[_s:_e] = np.argmin(_d, axis=1)
     # Normal equations: (H^T H) W_sp = H^T Y_sp
     # H^T Y_sp[j, c] = sum_{t: sp_indices[t]==c} H[t, j]; use scatter-add on H^T Y_sp.T

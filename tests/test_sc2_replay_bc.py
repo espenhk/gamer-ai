@@ -2242,8 +2242,7 @@ class TestBugFixes354(unittest.TestCase):
             seed=0,
         )
         for state, q in policy._q_table.items():
-            self.assertAlmostEqual(float(q.sum()), 1.0, places=5,
-                                   msg=f"Q sums to {q.sum():.6f} for state {state}")
+            self.assertAlmostEqual(float(q.sum()), 1.0, places=5, msg=f"Q sums to {q.sum():.6f} for state {state}")
 
     # --- Fix 2: DQN terminal transitions have zero next_obs ---
 
@@ -2280,7 +2279,8 @@ class TestBugFixes354(unittest.TestCase):
             next_obs, done = entry[3], entry[4]
             if done:
                 np.testing.assert_array_equal(
-                    next_obs, np.zeros_like(next_obs),
+                    next_obs,
+                    np.zeros_like(next_obs),
                     err_msg="next_obs should be zeros for terminal transitions",
                 )
 

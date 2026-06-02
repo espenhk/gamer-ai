@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.23] - 2026-06-02
+
 ### Fixed
 - `_fit_bc_tabular()` Q-normalization bug (issue #354): Q-values are now
   divided by the total state-visit count `_n_s[state]` to produce a proper

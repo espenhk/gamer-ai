@@ -58,9 +58,15 @@ from typing import Any, Iterator
 
 import numpy as np
 
+from framework.bc_io import load_dataset  # re-exported for backward-compat
 from framework.obs_spec import ObsSpec
 
 logger = logging.getLogger(__name__)
+
+# Silence "imported but unused" — load_dataset is re-exported from this module
+# so existing callers (notebooks, third-party imports) keep working after the
+# canonical definition moved to framework.bc_io (issue #393).
+_ = load_dataset
 
 _WINNER_SENTINEL = "winner"
 
@@ -646,58 +652,6 @@ def build_dataset(
 # ---------------------------------------------------------------------------
 # Dataset loader
 # ---------------------------------------------------------------------------
-
-
-def load_dataset(
-    path: str | pathlib.Path,
-    *,
-    as_episodes: bool = False,
-) -> dict | list[tuple[np.ndarray, np.ndarray]]:
-    """Load a ``demos.npz`` dataset saved by :func:`build_dataset`.
-
-    Parameters
-    ----------
-    path:
-        Path to the ``.npz`` file.
-    as_episodes:
-        ``False`` (default) — return a dict with keys ``obs``, ``actions``,
-        ``episode_starts``, ``episode_lengths``, ``episode_id``, and ``meta``
-        (parsed JSON).  Suitable for memoryless policies that sample
-        individual (obs, action) pairs.
-
-        ``True`` — return a list of ``(obs_seq, act_seq)`` tuples, one per
-        episode, preserving temporal order within each episode.  Suitable for
-        recurrent policies that consume whole ordered sequences with
-        hidden-state carry-over.
-
-    Returns
-    -------
-    dict or list of (obs_seq, act_seq)
-    """
-    data = np.load(str(path), allow_pickle=False)
-    obs = data["obs"]
-    actions = data["actions"]
-    episode_starts = data["episode_starts"]
-    episode_lengths = data["episode_lengths"]
-    episode_id = data["episode_id"]
-    meta = json.loads(str(data["meta"]))
-
-    if not as_episodes:
-        return {
-            "obs": obs,
-            "actions": actions,
-            "episode_starts": episode_starts,
-            "episode_lengths": episode_lengths,
-            "episode_id": episode_id,
-            "meta": meta,
-        }
-
-    episodes: list[tuple[np.ndarray, np.ndarray]] = []
-    for start, length in zip(episode_starts.tolist(), episode_lengths.tolist()):
-        ep_obs = obs[start : start + length]
-        ep_act = actions[start : start + length]
-        episodes.append((ep_obs, ep_act))
-    return episodes
 
 
 # ---------------------------------------------------------------------------
@@ -1552,7 +1506,11 @@ def fit_bc(
 
 
 # ---------------------------------------------------------------------------
-# run — full pipeline: replays → dataset → fit → save
+# run — backward-compat shim
+#
+# The canonical orchestrator is now :func:`framework.bc.run`, driven by an
+# :class:`games.sc2.bc_adapter.SC2BCAdapter`.  This shim preserves the old
+# call signature for external scripts and the SC2 test suite.
 # ---------------------------------------------------------------------------
 
 
@@ -1578,57 +1536,28 @@ def run(
     n_bins: int = 3,
     bc_lstm_hidden_size: int = 64,
 ) -> dict:
-    """Orchestrate replay reading, BC fitting, and saving of weights + summary.
+    """Drive an SC2 BC run end to end.
 
-    Workflow:
-
-    1. :func:`validate_replay_dir` and optionally cap at *max_replays*.
-    2. :func:`build_dataset` — parse replays → NPZ demonstration dataset.
-    3. :func:`fit_bc` — pre-train the policy on the dataset.
-    4. Save ``policy_weights.yaml`` (+ ``trainer_state.npz`` for MLP targets)
-       and ``bc_summary.json`` into *experiment_dir*.
-
-    Parameters
-    ----------
-    replay_dir :
-        Directory containing ``.SC2Replay`` files.
-    experiment_dir :
-        Destination directory for ``policy_weights.yaml``,
-        ``trainer_state.npz``, and ``bc_summary.json``.
-    obs_spec :
-        Observation spec — built from ``training_params.yaml`` by the caller.
-    target, player_id, race, max_replays, step_mul, screen_size,
-    minimap_size, hidden_sizes, bc_epochs, bc_learning_rate,
-    bc_batch_size, bc_ignore_noop, seed, n_channels, n_bins,
-    bc_lstm_hidden_size :
-        Forwarded to :func:`build_dataset` and/or :func:`fit_bc`.
-
-    Returns
-    -------
-    dict
-        BC summary dict (same content written to ``bc_summary.json``).
-
-    Raises
-    ------
-    ValueError
-        If the replay directory is empty, race filter drops all replays, or
-        the filtered dataset has no steps.
+    Implementation mirrors :func:`framework.bc.run`, but resolves
+    ``validate_replay_dir``, ``build_dataset``, and ``load_dataset`` through
+    this module's namespace so tests that ``patch.multiple("games.sc2.replay_bc",
+    ...)`` continue to work after the canonical names moved to
+    :mod:`framework`.
     """
     import tempfile
 
+    from framework.bc_io import save_summary
     from framework.policies import BasePolicy, trainer_state_path
 
     experiment_dir = pathlib.Path(experiment_dir)
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
-    # Normalise race: "any"/empty → None (no filter in build_dataset)
     race_filter: str | None = None
     if race and race.lower() not in ("", "any"):
         race_filter = race.lower()
 
     validate_replay_dir(replay_dir, race=race_filter)
 
-    # Build dataset in a temporary file
     with tempfile.TemporaryDirectory() as tmp:
         demos_path = pathlib.Path(tmp) / "demos.npz"
         meta = build_dataset(
@@ -1644,7 +1573,6 @@ def run(
         )
         dataset = load_dataset(demos_path)
 
-    # Fit BC
     policy, bc_loss = fit_bc(
         dataset,
         obs_spec,
@@ -1660,30 +1588,22 @@ def run(
         bc_lstm_hidden_size=bc_lstm_hidden_size,
     )
 
-    # Save policy weights.
-    # For champion-based policies whose save() writes metadata only (e.g.
-    # SC2CMAESPolicy), save the champion directly in the linear YAML format so
-    # _construct_or_resume can reload it on the next run.
     weights_path = str(experiment_dir / "policy_weights.yaml")
     champion = getattr(policy, "_champion", None)
     if champion is not None and hasattr(champion, "save") and callable(champion.save):
         champion.save(weights_path)
     else:
         policy.save(weights_path)
-    # SC2CNNEvolutionPolicy.save() redirects .yaml → .npz; log whichever exists.
     _npz = weights_path.replace(".yaml", ".npz")
     _logged = _npz if not pathlib.Path(weights_path).exists() and pathlib.Path(_npz).exists() else weights_path
     logger.info("BC: saved weights → %s", _logged)
 
-    # Save trainer state for policies that carry one (e.g. SC2REINFORCEPolicy)
     if isinstance(policy, BasePolicy):
         ts_path = trainer_state_path(weights_path)
         policy.save_trainer_state(ts_path)
         logger.info("BC: saved trainer state → %s", ts_path)
 
-    # Build fn_idx histogram from the raw (unfiltered) dataset
-    act_arr_all = dataset["actions"]
-    fn_idx_all = act_arr_all[:, 0].astype(int)
+    fn_idx_all = dataset["actions"][:, 0].astype(int)
     unique_fns, counts = np.unique(fn_idx_all, return_counts=True)
     fn_histogram = {int(k): int(v) for k, v in zip(unique_fns, counts)}
 
@@ -1698,10 +1618,6 @@ def run(
         "bc_target": target,
         "final_bc_loss": float(bc_loss),
     }
-
-    summary_path = experiment_dir / "bc_summary.json"
-    with open(summary_path, "w") as f:
-        json.dump(summary, f, indent=2)
-    logger.info("BC summary written → %s", summary_path)
-
+    save_summary(experiment_dir, summary)
+    logger.info("BC summary written → %s", experiment_dir / "bc_summary.json")
     return summary

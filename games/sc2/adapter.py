@@ -74,6 +74,11 @@ class SC2Adapter:
     name = "sc2"
     config_dir = "games/sc2/config"
 
+    def __init__(self) -> None:
+        from games.sc2.bc_adapter import SC2BCAdapter
+
+        self.bc = SC2BCAdapter()
+
     def _map_name(self, training_params: dict, track_override: str | None) -> str:
         if track_override:
             return track_override

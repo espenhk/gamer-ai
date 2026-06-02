@@ -127,6 +127,23 @@ class BCAdapter(Protocol):
         """
         ...
 
+    def summary_extras(
+        self,
+        dataset: dict,
+        meta: dict,
+        *,
+        target: str,
+        training_params: dict,
+    ) -> dict:
+        """Optional: per-game stats merged into ``bc_summary.json["extras"]``.
+
+        Called by the orchestrator after :meth:`fit_bc` has returned, with
+        the full loaded dataset still in scope.  Default implementation
+        returns an empty dict — implement when your game wants to record
+        game-specific stats (e.g. SC2's ``fn_idx_histogram``).
+        """
+        return {}
+
 
 def run(
     bc_adapter: BCAdapter,
@@ -235,6 +252,14 @@ def run(
         policy.save_trainer_state(ts_path)
         logger.info("BC: saved trainer state → %s", ts_path)
 
+    extras: dict = dict(meta.get("summary_extras", {}))
+    # Optional post-fit hook: lets the adapter compute stats that need the
+    # loaded dataset (e.g. SC2's fn_idx_histogram).  Adapters that don't
+    # implement it inherit the no-op default from the Protocol.
+    extras_hook = getattr(bc_adapter, "summary_extras", None)
+    if callable(extras_hook):
+        extras.update(extras_hook(dataset, meta, target=target, training_params=training_params))
+
     summary = {
         "game": bc_adapter.name,
         "bc_target": target,
@@ -242,7 +267,7 @@ def run(
         "n_pairs": int(meta.get("n_steps", 0)),
         "bc_race": race if race else "any",
         "final_bc_loss": float(bc_loss),
-        "extras": meta.get("summary_extras", {}),
+        "extras": extras,
     }
 
     save_summary(experiment_dir, summary)

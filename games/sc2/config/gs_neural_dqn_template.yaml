@@ -59,10 +59,14 @@ training_params:
   n_sims: 200                 # 200 episodes; ~48 000 env steps total
   policy_type: sc2_neural_dqn
   obs_spec_preset: rich
-  enable_belief: true      # false: obs only; true: obs+192 belief dims + scout reward
-  learning_rate: [0.0005, 0.001, 0.01]
-  epsilon_decay_steps: [3000, 8000]
-  hidden_sizes: [[64, 64], [64, 256, 256, 64]]
+  enable_belief: false      # false: obs only; true: obs+192 belief dims + scout reward
+  learning_rate: 0.01
+  #learning_rate: [0.001, 0.01]
+  epsilon_decay_steps: 3000
+  #epsilon_decay_steps: 8000
+  hidden_sizes: [[64, 256, 256, 64]]
+  #hidden_sizes: [[64, 64], [64, 256, 256, 64]]
+  initial_extreme_random_fraction: [0.0, 0.25]  # fraction of initial runs forced to random valid actions (set 0 to disable)
 
   policy_params:
     replay_buffer_size: 15000

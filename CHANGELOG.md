@@ -17,6 +17,23 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Framework-level behaviour-cloning seam (issue #393, parent #392). New
+  modules `framework/bc.py` (`BCAdapter` Protocol + `run()` orchestrator)
+  and `framework/bc_io.py` (`load_dataset`, `save_summary`) lift the
+  game-agnostic parts of the SC2 BC pipeline into the framework. The
+  `demos.npz` schema is byte-compatible with what `games/sc2/replay_bc.py`
+  has been writing since #351, so existing datasets load unchanged. The
+  `GameAdapter` Protocol gains an optional `bc: BCAdapter | None`
+  attribute.
+- SC2 BC ported onto the framework seam (issue #394, parent #392). New
+  `games/sc2/bc_adapter.py` implements `BCAdapter` for SC2 and is wired
+  on `SC2Adapter.bc`. `--bc` is now game-agnostic at the CLI level
+  (`_run_bc(adapter, args)` in `main.py`); games without a wired
+  `BCAdapter` exit with a clear error. `games/sc2/replay_bc.py` still
+  owns the replay parser and per-target fitters, and its `run()` remains
+  as a backward-compat shim with the legacy summary shape — external
+  scripts and `tests/test_sc2_replay_bc.py` keep working unchanged.
 
 ---
 

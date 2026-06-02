@@ -662,6 +662,7 @@ handful of iterations only).
 - deferred-action oscillation fix (#356 H1): deferred `Move_screen` replays directly on step 2 even when army is still empty; `select_army` appears exactly once across both steps (not re-emitted, not re-deferred)
 - owned-buildings accumulation fix (#356 H2): drives real `_timestep_to_obs_info()` with patched `_compute_owned_buildings()` — buildings seen in prior steps remain in `_owned_buildings` after the camera pans away; new buildings are unioned in each step; episode `reset()` clears both `_owned_buildings` and `_owned_buildings_seen`
 - fn_idx_satisfied cache fix (#356 H3): patches `games.sc2.client.fn_idx_satisfied` to count calls — zero new calls on cache hit (identical state); fresh pass triggered when `owned_buildings`, `selected_unit_types`, or the PySC2 candidate set changes
+- select_idle_worker suppression (issue #383): fn_idx 4 removed from available set when SCV is selected; present when no worker selected; suppression covers all three races (SCV / Probe / Drone)
 
 ### test_sc2_env.py — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
@@ -792,7 +793,7 @@ handful of iterations only).
 - `SUPPORTS_THROTTLE=False` / `SUPPORTS_PATH=False` flags
 - `GreedySimResult` new fields: `action_counts` / `obs_averages` / `xy_hist` / `skipped_frames` — default None; stored correctly
 - `GreedySimResult` end-screen fields: `supply_capped_fraction` / `build_order` / `army_count_series` / `resource_series` — default None; stored correctly
-- `plot_action_frequency`: renders to file / skips when no data / skips when no sims / single fn_idx
+- `plot_action_frequency`: renders to file / skips when no data / skips when no sims / single fn_idx / no_op (fn_idx 0) excluded from all panels (issue #382) / all-no_op input → no file written (early return)
 - `plot_obs_averages`: renders to file / skips when no data / skips when all-zero / unknown feature key safe
 - `plot_spatial_heatmap`: renders to file / skips when no data / skips all-zero hist / partial None sims ignored
 - `plot_outcome_breakdown`: renders to file / skips when all None / skips when no sims / win+loss ladder

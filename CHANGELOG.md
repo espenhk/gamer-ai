@@ -17,6 +17,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- **SC2 analytics: no_op excluded from action-frequency plot** (issue #382).
+  `plot_action_frequency()` now strips `fn_idx=0` (no_op) from all three panels — per-sim
+  stacked bars, aggregate counts, and entropy — so the remaining actions are legible.  When
+  every recorded action is no_op the function returns early and writes no file.
+- **SC2 select_idle_worker spam suppressed** (issue #383).
+  `SC2Client._compute_available_fn_ids()` now removes `select_idle_worker` (fn_idx 4) from the
+  available set when a worker (SCV / Probe / Drone) is already in the current selection,
+  preventing the policy from issuing a redundant re-selection.  `SC2Env` also switches
+  `action_counts` tracking from the executed fn_idx to the policy-requested fn_idx so the
+  analytics chart reflects policy intent rather than auto-injected intermediate selects.
 
 ---
 

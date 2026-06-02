@@ -1648,23 +1648,31 @@ class SC2Client:
             self._vespene,
         )
         if cache_keys == self._fn_ids_cache_keys:
-            return set(self._fn_ids_cache_result)
+            out = set(self._fn_ids_cache_result)
+        else:
+            result = {
+                fn_idx
+                for fn_idx in candidate
+                if fn_idx_satisfied(
+                    fn_idx,
+                    self._owned_buildings,
+                    self._completed_upgrades,
+                    self._selected_unit_types,
+                    self._minerals,
+                    self._vespene,
+                )
+            }
+            self._fn_ids_cache_keys = cache_keys
+            self._fn_ids_cache_result = result
+            out = set(result)
 
-        result = {
-            fn_idx
-            for fn_idx in candidate
-            if fn_idx_satisfied(
-                fn_idx,
-                self._owned_buildings,
-                self._completed_upgrades,
-                self._selected_unit_types,
-                self._minerals,
-                self._vespene,
-            )
-        }
-        self._fn_ids_cache_keys = cache_keys
-        self._fn_ids_cache_result = result
-        return set(result)
+        # Issue #383: suppress select_idle_worker (fn_idx 4) when a worker is
+        # already in the current selection.  The policy would otherwise waste
+        # steps re-selecting an idle worker it already has, preventing it from
+        # acting on the build/harvest actions that are already unblocked.
+        if WORKER_NAMES & self._selected_unit_types:
+            out.discard(4)
+        return out
 
     _upgrade_id_to_name_cache: dict[int, str] | None = None
 

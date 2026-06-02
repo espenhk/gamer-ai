@@ -126,48 +126,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
-## [0.3.12] - 2026-05-31
-
-### Fixed
-- SC2: build and train actions are now excluded from `available_fn_ids` when
-  the agent cannot afford them (issue #357). The action mask now filters by
-  mineral and vespene cost in addition to the existing tech-tree, building
-  prerequisite, and selection checks. `fn_idx_satisfied()` in
-  `games/sc2/tech_tree.py` accepts optional `minerals` and `vespene`
-  arguments (defaulting to `inf` for backwards compatibility); the client
-  tracks current resource counts each step and passes them to the filter.
-  Costs for every build/train fn_idx with a non-zero mineral or vespene
-  cost across Terran, Protoss, and Zerg are recorded in the new
-  `RESOURCE_COSTS` table in `tech_tree.py`; zero-cost actions (movement,
-  selection, energy abilities, mode-change morphs) have no entry.
-
----
-
-## [0.3.11] - 2026-05-30
-
-### Added
-- SC2 self-play now supports three opponent-selection modes (issue #345).
-  Set `self_play_mode` in `training_params.yaml` (default `"exact"`):
-  - `"exact"` — opponent is a fresh snapshot of the current champion,
-    refreshed every generation (previously the opponent was set only once
-    at run start and never updated).
-  - `"mutated"` — opponent is a slightly mutated copy of the champion;
-    mutation strength controlled by `self_play_mutation_scale` (default
-    inherits `mutation_scale`).
-  - `"top_n"` — opponent is drawn uniformly at random from a pool of the
-    top-N champions seen so far (pool capacity set by `self_play_top_n`,
-    default 5); weakest pool entry is replaced when a stronger champion
-    arrives.
-  Implemented in `framework/self_play.py` (`SelfPlayManager`); the
-  opponent is refreshed at the end of each generation in all four greedy
-  loops (`hill_climbing`, `q_learning`, `cmaes`, `genetic`).
-
----
-
-## [0.3.10] - 2026-05-30
-
----
-
 ## [0.3.20] - 2026-06-01
 
 ### Added

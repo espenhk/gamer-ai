@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.4.0] - 2026-06-02
+
 ### Added
 - **SC2 `new_action_usage_bonus` reward component** (issue #400).  New opt-in
   reward that fires each time the agent *issues* a tech-gated fn_idx that has

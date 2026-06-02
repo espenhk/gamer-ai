@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.3.22] - 2026-06-02
+
 ### Fixed
 - **SC2 analytics: no_op excluded from action-frequency plot** (issue #382).
   `plot_action_frequency()` now strips `fn_idx=0` (no_op) from all three panels — per-sim

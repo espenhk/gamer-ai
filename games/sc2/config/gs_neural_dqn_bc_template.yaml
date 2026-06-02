@@ -1,0 +1,88 @@
+# Grid search template: sc2_neural_dqn with BC warm-start — Simple64
+#
+# Usage:
+#   python grid_search.py games/sc2/config/gs_neural_dqn_bc_template.yaml --game sc2
+#
+# BC pre-training runs ONCE into a shared <base_name>__bc_warmstart directory.
+# If that directory already contains policy_weights.yaml and bc_summary.json the
+# BC step is skipped automatically, so interrupted runs are cheap to restart.
+# Each grid-search combo then gets the BC weights copied in as its starting point.
+#
+# The bc: section mirrors the --bc CLI flags; replay_dir is required.  Set it to
+# the local path of your .SC2Replay files (e.g. from the AlphaStar dataset).
+#
+# Grid axes (same as gs_neural_dqn_template.yaml):
+#   learning_rate          × epsilon_decay_steps (primary tuning axes)
+#   hidden_sizes                                  (capacity axis)
+#
+# At step_mul=1 a 600 s episode yields ~13 440 steps (22.4 ticks/s × 600 s).
+# n_sims=200 gives ~2 688 000 total steps across a run; set epsilon_decay_steps
+# to cover 25–75 % of that budget.
+#
+# BC target note
+# --------------
+# bc_target must be sc2_neural_dqn — the only policy type compatible with the
+# sc2_neural_dqn training loop (see _BC_COMPATIBLE_POLICY_TYPES in grid_search.py).
+# The hidden_sizes used for BC should match (or be smaller than) the training
+# hidden_sizes so the copied weights load cleanly; the DQN policy pads missing
+# weights with zero when the grid hidden_sizes are larger.
+
+base_name: "dqn_bc_v1"
+game: sc2
+
+# ---------------------------------------------------------------------------
+# BC pre-training — runs once, shared across all grid combos
+# ---------------------------------------------------------------------------
+bc:
+  replay_dir: /path/to/replays     # REQUIRED: directory of .SC2Replay files
+  bc_target: sc2_neural_dqn
+  player_id: winner                # clone the winning side
+  race: any                        # no race filter — clone all replays
+  max_replays: null                # null = process all replays in replay_dir
+  bc_epochs: 10
+  bc_learning_rate: 0.001
+  bc_batch_size: 256
+  bc_ignore_noop: true             # drop no-op steps before fitting
+
+# ---------------------------------------------------------------------------
+# Grid search — each combo starts from the shared BC weights
+# ---------------------------------------------------------------------------
+training_params:
+  map_name: Simple64
+  in_game_episode_s: 600.0
+  step_mul: 1
+  screen_size: 64
+  minimap_size: 64
+  max_apm: 300
+  agent_race: terran
+  bot_difficulty: very_easy
+  n_sims: 200
+  policy_type: sc2_neural_dqn
+  obs_spec_preset: ladder
+  enable_belief: false
+
+  # Search axes — lists trigger a sweep; scalars are fixed across all combos.
+  learning_rate: [0.0005, 0.001, 0.01]
+  epsilon_decay_steps: [3000, 8000]
+  hidden_sizes: [[64, 64], [64, 256, 256, 64]]
+
+  policy_params:
+    replay_buffer_size: 15000
+    batch_size: 64
+    min_replay_size: 500
+    target_update_freq: 200
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    gamma: 0.99
+    double_dqn: true
+    dueling: false
+    huber_loss: true
+    huber_kappa: 1.0
+    max_grad_norm: 10.0
+
+reward_params:
+  score_weight: 0.0
+  win_bonus: 100.0
+  loss_penalty: -100.0
+  step_penalty: -0.001
+  economy_weight: 0.001

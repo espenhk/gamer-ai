@@ -7,7 +7,7 @@ Atari 2600 integration via [ale-py](https://github.com/Farama-Foundation/Arcade-
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
 - [Supported policies](#supported-policies)
 - [Licensing note](#licensing-note)
@@ -89,15 +89,15 @@ The integration accepts a 1-D action vector and maps it to the underlying ALE `D
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/atari/config/reward_config.yaml`:
+Configured in `games/atari/config/reward_config.yaml`.
 
-| Parameter | Default | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `native_reward_scale` | `1.0` | Multiplies the per-step ALE score delta. |
-| `clip_sign` | `false` | When `true`, clips per-step reward to `{-1, 0, 1}` (DQN-paper convention). |
-| `step_penalty` | `0.0` | Flat per-step cost. |
+| `native_reward_scale` | 1.0 | Multiplier applied to the raw per-step ALE score delta. The native signal is game-specific — in Pong it is +1 for a point scored and −1 for a point conceded; in Breakout it is the brick-break score. |
+| `clip_sign` | `false` | When `true`, clips the per-step reward to {−1, 0, +1} before applying `native_reward_scale`. This is the DQN-paper convention for stabilising training across games with wildly different score magnitudes. |
+| `step_penalty` | 0.0 | Flat per-step cost added to the (optionally clipped, scaled) native reward. Disabled by default — the native signal already provides temporal pressure in most Atari games. |
 
 ---
 

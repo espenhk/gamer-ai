@@ -1,4 +1,4 @@
-# Reward configuration for CarRacing RL training.
+# Reward configuration for CarRacing. See games/car_racing/README.md for full documentation.
 
 native_reward_scale: 1.0
 step_penalty: -0.1

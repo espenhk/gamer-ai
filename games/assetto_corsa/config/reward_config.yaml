@@ -1,6 +1,4 @@
-# Assetto Corsa reward configuration.
-# Mirrors the TMNF reward layout but with AC-friendly defaults
-# (longer par_time_s, no airborne / lidar terms).
+# Reward configuration for Assetto Corsa. See games/assetto_corsa/README.md for full documentation.
 
 progress_weight:    1000.0
 centerline_weight:  -0.5

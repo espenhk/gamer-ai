@@ -1,5 +1,5 @@
-# Reward configuration for Atari RL training.
+# Reward configuration for Atari. See games/atari/README.md for full documentation.
 
 native_reward_scale: 1.0
-clip_sign: false             # set true to clip per-step reward to {-1, 0, 1}
+clip_sign: false
 step_penalty: 0.0

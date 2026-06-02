@@ -15,7 +15,7 @@ iRacing simulator.
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
 - [Supported policies](#supported-policies)
 
@@ -180,21 +180,21 @@ computed by the policy but discarded.  In **live** mode
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/iracing/config/reward_config.yaml`:
+Configured in `games/iracing/config/reward_config.yaml`.
 
-| Parameter | Default | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `progress_weight` | 10000.0 | Proportional to track progress delta |
-| `centerline_weight` | −0.1 | Lateral offset penalty coefficient |
-| `centerline_exp` | 2.0 | Exponent for centerline penalty |
-| `speed_weight` | 0.05 | Bonus per m/s |
-| `step_penalty` | −0.05 | Per-tick time cost |
-| `finish_bonus` | 5000.0 | One-time bonus at lap completion |
-| `off_track_penalty` | −10.0 | Penalty when iRacing reports off-track |
-| `lap_time_improvement_bonus` | 100.0 | Bonus for improving on best lap time |
-| `crash_threshold_m` | 25.0 | Terminates episode on large lateral offset |
+| `progress_weight` | 10000.0 | Multiplied by the track-progress delta each step. Dominates the reward. |
+| `centerline_weight` | −0.1 | Coefficient of the centerline penalty: `centerline_weight × |lateral_offset_m|^centerline_exp`. Negative — larger offsets cost more reward. |
+| `centerline_exp` | 2.0 | Exponent for the centerline penalty. 2.0 = quadratic — small offsets are tolerated, large ones punished heavily. |
+| `speed_weight` | 0.05 | Per-step bonus proportional to vehicle speed. Small tie-breaker. |
+| `step_penalty` | −0.05 | Flat per-step time cost. |
+| `finish_bonus` | 5000.0 | One-time reward at lap completion. |
+| `off_track_penalty` | −10.0 | Applied each step when iRacing telemetry reports the car as off-track (`OnPitRoad` or `OffTrack` flag). Complements the centerline penalty for sharp track limits. |
+| `lap_time_improvement_bonus` | 100.0 | One-time bonus awarded when the current lap time beats the session best (`best_lap_time_s` from telemetry). Encourages consistent lap-by-lap improvement. |
+| `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
 
 ---
 

@@ -385,7 +385,9 @@ def _train(
     )
 
 
-def _morph_inplace(parent_name: str, extra_buildings: tuple[frozenset[str], ...] = ()) -> Preconditions:
+def _morph_inplace(
+    parent_name: str, extra_buildings: tuple[frozenset[str], ...] = ()
+) -> Preconditions:
     """In-place state morph (the unit transforms without consuming itself).
 
     Used for SiegeMode/Unsiege where the *parent* and the result are
@@ -401,7 +403,9 @@ def _morph_inplace(parent_name: str, extra_buildings: tuple[frozenset[str], ...]
     )
 
 
-def _effect_on(units: frozenset[str], upgrades: frozenset[str] = frozenset()) -> Preconditions:
+def _effect_on(
+    units: frozenset[str], upgrades: frozenset[str] = frozenset()
+) -> Preconditions:
     """Effect_X_quick helper: one of `units` selected, optional research."""
     return Preconditions(
         required_upgrades=upgrades,
@@ -473,7 +477,9 @@ PRECONDITIONS: dict[int, Preconditions] = {
     43: _train("Thor", extra_buildings=_and("FactoryTechLab", "Armory")),
     44: _train("Liberator"),
     # Terran unit abilities
-    45: _effect_on(_ATTACK_INFANTRY, upgrades=frozenset({"Stimpack"})),  # Effect_Stim_quick
+    45: _effect_on(
+        _ATTACK_INFANTRY, upgrades=frozenset({"Stimpack"})
+    ),  # Effect_Stim_quick
     # Morph_SiegeMode_quick — SiegeTank → SiegeTankSieged (FactoryTechLab gates it).
     46: _train("SiegeTankSieged", extra_buildings=_and("FactoryTechLab")),
     # Morph_Unsiege_quick — in-place morph of an already-sieged tank.  Kept on
@@ -541,7 +547,9 @@ PRECONDITIONS: dict[int, Preconditions] = {
     95: _train("Drone"),
     96: _train("Overlord"),
     97: _train("Zergling", extra_buildings=_and("SpawningPool")),
-    98: _train("Baneling", extra_buildings=_and("BanelingNest")),  # Train_Baneling_quick
+    98: _train(
+        "Baneling", extra_buildings=_and("BanelingNest")
+    ),  # Train_Baneling_quick
     99: _train("Roach", extra_buildings=_and("RoachWarren")),
     100: _train("Ravager", extra_buildings=_and("RoachWarren")),  # Train_Ravager_quick
     101: _train("Hydralisk", extra_buildings=_and("HydraliskDen")),
@@ -549,7 +557,9 @@ PRECONDITIONS: dict[int, Preconditions] = {
     103: _train("SwarmHost", extra_buildings=_and("InfestationPit")),
     104: _train("Mutalisk", extra_buildings=_and("Spire")),
     105: _train("Corruptor", extra_buildings=_and("Spire")),
-    106: _train("BroodLord", extra_buildings=_and("GreaterSpire")),  # Train_BroodLord_quick
+    106: _train(
+        "BroodLord", extra_buildings=_and("GreaterSpire")
+    ),  # Train_BroodLord_quick
     107: _train("Viper", extra_buildings=_and("Hive")),
     108: _train("Ultralisk", extra_buildings=_and("UltraliskCavern")),
     109: _train("Lurker", extra_buildings=_and("LurkerDenMP")),  # Train_Lurker_quick

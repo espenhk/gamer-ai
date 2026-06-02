@@ -1668,10 +1668,12 @@ def run(
     champion = getattr(policy, "_champion", None)
     if champion is not None and hasattr(champion, "save") and callable(champion.save):
         champion.save(weights_path)
-        logger.info("BC: saved champion weights → %s", weights_path)
     else:
         policy.save(weights_path)
-        logger.info("BC: saved policy weights → %s", weights_path)
+    # SC2CNNEvolutionPolicy.save() redirects .yaml → .npz; log whichever exists.
+    _npz = weights_path.replace(".yaml", ".npz")
+    _logged = _npz if not pathlib.Path(weights_path).exists() and pathlib.Path(_npz).exists() else weights_path
+    logger.info("BC: saved weights → %s", _logged)
 
     # Save trainer state for policies that carry one (e.g. SC2REINFORCEPolicy)
     if isinstance(policy, BasePolicy):

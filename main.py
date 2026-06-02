@@ -147,7 +147,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bc-target",
         default=None,
-        choices=["sc2_reinforce", "sc2_genetic"],
+        choices=[
+            "sc2_reinforce",
+            "sc2_genetic",
+            "sc2_cmaes",
+            "sc2_neural_net",
+            "sc2_neural_dqn",
+            "sc2_lstm",
+            "sc2_cnn",
+            "epsilon_greedy",
+            "ucb_q",
+        ],
         help="Policy type to pre-train (default: sc2_reinforce).  Overrides bc_target in config.",
     )
 

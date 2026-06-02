@@ -394,7 +394,8 @@ def _run_inline_bc(
 
     Creates a shared ``<base_name>__bc_warmstart`` experiment directory
     adjacent to the grid experiments.  If that directory already contains
-    ``policy_weights.yaml`` and ``bc_summary.json`` the BC step is skipped,
+    ``policy_weights.yaml`` (or ``policy_weights.npz`` for ``sc2_cnn``) and
+    ``bc_summary.json`` the BC step is skipped,
     so restarting a grid run after an interruption is cheap.
 
     Returns the path to the BC experiment directory.
@@ -428,10 +429,12 @@ def _run_inline_bc(
     bc_dir = os.path.join(summary_root, f"{base_name}__bc_warmstart")
     os.makedirs(bc_dir, exist_ok=True)
 
-    # Skip if already completed.
+    # Skip if already completed.  sc2_cnn saves policy_weights.npz instead of
+    # policy_weights.yaml, so accept either file alongside bc_summary.json.
     bc_summary_path = os.path.join(bc_dir, "bc_summary.json")
-    weights_path = os.path.join(bc_dir, "policy_weights.yaml")
-    if os.path.exists(bc_summary_path) and os.path.exists(weights_path):
+    weights_yaml = os.path.join(bc_dir, "policy_weights.yaml")
+    weights_npz = os.path.join(bc_dir, "policy_weights.npz")
+    if os.path.exists(bc_summary_path) and (os.path.exists(weights_yaml) or os.path.exists(weights_npz)):
         logger.info(
             "BC warm-start already exists at %s — skipping re-run. Delete %s to force a fresh BC run.",
             bc_dir,

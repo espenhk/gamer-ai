@@ -184,6 +184,26 @@ class SC2RewardConfig:
         Recommended starting range: ``1.0–10.0`` (much larger than per-step
         shaping terms so the tech-unlock signal is clearly visible to the
         policy).
+    new_action_usage_bonus :
+        Per-step bonus when the agent actually *issues* a tech-gated fn_idx
+        that has already been unlocked this episode (i.e. appeared in
+        ``available_fn_ids`` at least once).  The bonus fires for the first
+        ``new_action_usage_max_uses`` uses of each qualifying fn_idx per
+        episode and is then silenced for the rest of that episode.  This
+        complements ``new_action_unlock_bonus``: unlocking a tech earns one
+        large reward; then using it consistently earns smaller shaping rewards
+        that encourage following through on the investment.  The same fn_idx
+        filter applies — only tech-gated (building-prerequisite) actions
+        qualify; ``no_op``, selection-only, and always-available actions are
+        excluded.  Can be enabled independently of ``new_action_unlock_bonus``.
+        Default ``0.0`` — opt-in.  Recommended starting range: ``0.1–2.0``
+        (keep smaller than ``new_action_unlock_bonus`` since it fires many
+        times).
+    new_action_usage_max_uses :
+        Maximum number of times per fn_idx per episode that
+        ``new_action_usage_bonus`` fires.  After this many uses the bonus is
+        silenced for that fn_idx for the remainder of the episode, so the usage
+        shaping does not dominate the reward indefinitely.  Default ``50``.
     resource_banking_penalty :
         Per-step penalty proportional to the total excess resources above
         ``mineral_banking_threshold`` and ``gas_banking_threshold`` (issue #372).
@@ -226,6 +246,8 @@ class SC2RewardConfig:
     early_random_action_bonus: float = 0.0
     early_random_action_window_steps: int = 250
     new_action_unlock_bonus: float = 0.0
+    new_action_usage_bonus: float = 0.0
+    new_action_usage_max_uses: int = 50
     resource_banking_penalty: float = 0.0
     mineral_banking_threshold: float = 300.0
     gas_banking_threshold: float = 200.0
@@ -326,8 +348,11 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # cell -> env step on which the centroid was last seen in that cell.
         self._visited_unit_cells: dict[tuple[int, int], int] = {}
         self._seen_action_fns: set[int] = set()
-        # tech-gated fn_ids seen so far this episode (for new_action_unlock_bonus).
+        # tech-gated fn_ids seen so far this episode (for new_action_unlock_bonus
+        # and new_action_usage_bonus).
         self._unlocked_tech_fn_ids: set[int] = set()
+        # fn_idx -> number of times issued after being unlocked this episode.
+        self._new_action_usage_counts: dict[int, int] = {}
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -341,6 +366,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._visited_unit_cells = {}
         self._seen_action_fns = set()
         self._unlocked_tech_fn_ids = set()
+        self._new_action_usage_counts = {}
 
     def compute(
         self,
@@ -376,9 +402,10 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``idle_worker_penalty``, ``idle_bonus``, ``move_exploration``,
         ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
         ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
-        ``early_random_action``, ``new_action_unlock``, ``unit_loss``,
-        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
-        ``resource_banking``, ``step_penalty`` and ``terminal`` separately.
+        ``early_random_action``, ``new_action_unlock``, ``new_action_usage``,
+        ``unit_loss``, ``damage_taken``, ``passive_under_fire``,
+        ``small_selection``, ``resource_banking``, ``step_penalty`` and
+        ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -471,15 +498,30 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # appears for the first time this episode.  Only fn_ids with at least
         # one required_building in PRECONDITIONS are eligible (selection-only
         # and always-available actions are excluded).
+        # _unlocked_tech_fn_ids is also needed by new_action_usage_bonus, so
+        # update it whenever either bonus is active.
         new_action_unlock = 0.0
-        if cfg.new_action_unlock_bonus != 0.0:
+        if cfg.new_action_unlock_bonus != 0.0 or cfg.new_action_usage_bonus != 0.0:
             available = info.get("available_fn_ids") or set()
             tech_available = available & self._TECH_GATED_FN_IDS
             newly_unlocked = tech_available - self._unlocked_tech_fn_ids
-            if newly_unlocked:
+            if newly_unlocked and cfg.new_action_unlock_bonus != 0.0:
                 new_action_unlock = cfg.new_action_unlock_bonus * len(newly_unlocked)
             self._unlocked_tech_fn_ids |= tech_available
         components["new_action_unlock"] = float(new_action_unlock)
+
+        # New action usage bonus: reward the agent for actually issuing a
+        # tech-gated action up to new_action_usage_max_uses times per episode.
+        new_action_usage = 0.0
+        if cfg.new_action_usage_bonus != 0.0:
+            used_fn_idx = int(info.get("action_fn_idx", 0))
+            if used_fn_idx != 0 and used_fn_idx in self._unlocked_tech_fn_ids:
+                max_uses = max(0, int(cfg.new_action_usage_max_uses))
+                count = self._new_action_usage_counts.get(used_fn_idx, 0)
+                if count < max_uses:
+                    new_action_usage = cfg.new_action_usage_bonus * n_ticks
+                    self._new_action_usage_counts[used_fn_idx] = count + 1
+        components["new_action_usage"] = float(new_action_usage)
 
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False

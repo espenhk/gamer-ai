@@ -1112,6 +1112,9 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |
 | `passive_under_fire_penalty` | `0.0` | Per-step penalty when enemies are within attack range of friendlies and the agent did not issue `Attack_screen`. Opt-in. |
 | `small_selection_bonus` | `0.0` | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. Opt-in. |
+| `new_action_unlock_bonus` | `0.0` | One-shot bonus per tech-gated fn_idx that appears in `available_fn_ids` for the first time in an episode (issue #360). Selection-only and always-available actions excluded. Recommended range: `1.0–10.0`. Opt-in. |
+| `new_action_usage_bonus` | `0.0` | Per-step bonus when the agent issues a tech-gated fn_idx that has already been unlocked this episode (issue #400). Fires up to `new_action_usage_max_uses` times per fn_idx per episode. Complements `new_action_unlock_bonus`. Recommended range: `0.1–2.0`. Opt-in. |
+| `new_action_usage_max_uses` | `50` | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
 
 For ladder maps (`Simple64` etc.) the recommended preset is:
 

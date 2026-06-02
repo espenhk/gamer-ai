@@ -199,6 +199,70 @@ class SC2RewardConfig:
     gas_banking_threshold :
         Vespene above this level is considered "banked" for the
         ``resource_banking_penalty``.  Default ``200.0``.
+    new_action_usage_bonus :
+        Per-step bonus when the agent *issues* a tech-gated fn_idx that has
+        already been unlocked this episode (issue #400), within the first
+        ``new_action_usage_max_uses`` uses of that fn_idx.  Complements
+        ``new_action_unlock_bonus`` (which fires once when the action becomes
+        available): the unlock bonus rewards building the prerequisite, the
+        usage bonus rewards actually *following through* and producing from it.
+        Same tech-gated filter as the unlock bonus (``_TECH_GATED_FN_IDS``).
+        Fires independently of ``new_action_unlock_bonus`` — either or both may
+        be enabled.  Default ``0.0`` — opt-in.  Recommended range ``0.1–2.0``.
+    new_action_usage_max_uses :
+        Maximum number of rewarded uses per fn_idx per episode for
+        ``new_action_usage_bonus``.  After this many uses the bonus is silenced
+        for that fn_idx for the rest of the episode so it cannot swamp the
+        primary task reward.  Default ``50``.
+    supply_block_penalty :
+        Per-step penalty applied while the agent is supply-blocked — i.e.
+        ``food_used >= food_cap`` and ``food_cap < 200`` (not yet at the hard
+        cap).  Being supply-blocked is the single most common macro failure in
+        ladder play: production halts until more supply is built.  Default
+        ``0.0`` — opt-in.  Recommended range ``-0.05`` to ``-0.5``.
+    supply_growth_bonus :
+        Bonus per point of ``food_cap`` increase between steps.  Rewards
+        building supply structures (SupplyDepot / Overlord / Pylon) *and*
+        expanding to a new base (a new town hall also raises the supply cap),
+        so it is the primary dense progression signal for the macro economy.
+        Only increases are rewarded (cap loss from a destroyed structure is not
+        penalised here).  Default ``0.0`` — opt-in.  Recommended range
+        ``0.5–3.0`` per supply point.
+    worker_growth_bonus :
+        Bonus per point of ``food_workers`` increase between steps.  Rewards
+        training workers to grow the economy.  Pairs naturally with
+        ``idle_worker_penalty`` (build workers, then keep them busy).  Only
+        increases are rewarded.  Default ``0.0`` — opt-in.  Recommended range
+        ``0.5–3.0`` per worker.
+    army_growth_bonus :
+        Bonus per point of ``food_army`` increase between steps.  Rewards
+        building army supply (producing combat units).  Only increases are
+        rewarded — losing army is handled by ``unit_loss_penalty``.  Default
+        ``0.0`` — opt-in.  Recommended range ``0.5–3.0`` per army-supply point.
+    tech_building_bonus :
+        One-shot bonus the first time each friendly structure *type* is seen
+        this episode (from ``owned_building_names``).  Rewards climbing the
+        build tree — every new building (Barracks, Factory, Stargate, …)
+        unlocks new units/tech, so seeing one for the first time is real macro
+        progress.  Fires once per structure type per episode.  Default ``0.0``
+        — opt-in.  Recommended range ``2.0–10.0``.
+    expansion_bonus :
+        One-shot bonus each time the number of friendly town halls
+        (``townhall_count``) reaches a new episode maximum — i.e. an expansion
+        completed.  Taking additional bases is the canonical ladder macro skill
+        and nothing else rewards it directly.  Counted from currently-visible
+        town halls, so a base built fully off-camera may be missed; the running
+        maximum makes the signal monotonic (the starting base is never
+        rewarded).  Default ``0.0`` — opt-in.  Recommended range ``5.0–25.0``
+        per expansion.
+    scout_bonus :
+        Bonus proportional to the increase in ``minimap_explored_frac`` between
+        steps — i.e. revealing previously-unseen map.  Rewards scouting and map
+        vision, which screen-local shaping (``move_exploration_bonus``) cannot
+        capture on a full ladder map.  Reward each step =
+        ``scout_bonus × max(0, explored_frac − prev_explored_frac)`` where the
+        fractions are in ``[0, 1]``.  Default ``0.0`` — opt-in.  Recommended
+        range ``5.0–50.0`` (the per-step fraction delta is small).
     """
 
     score_weight: float = 1.0
@@ -229,6 +293,15 @@ class SC2RewardConfig:
     resource_banking_penalty: float = 0.0
     mineral_banking_threshold: float = 300.0
     gas_banking_threshold: float = 200.0
+    new_action_usage_bonus: float = 0.0
+    new_action_usage_max_uses: int = 50
+    supply_block_penalty: float = 0.0
+    supply_growth_bonus: float = 0.0
+    worker_growth_bonus: float = 0.0
+    army_growth_bonus: float = 0.0
+    tech_building_bonus: float = 0.0
+    expansion_bonus: float = 0.0
+    scout_bonus: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -278,6 +351,16 @@ class SC2RewardCalculator(RewardCalculatorBase):
             SC2Client / SC2Env)
         ``selected_count`` / ``visible_self_unit_count`` — active selection
             size and visible friendly unit count for the small-selection bonus
+        ``food_used`` / ``food_cap`` — supply used / cap, for the supply-block
+            penalty and supply-growth bonus
+        ``food_workers`` / ``food_army`` — worker / army supply, for the
+            worker-growth and army-growth bonuses
+        ``owned_building_names`` — cumulative set of friendly structure type
+            names seen this episode, for the tech-building bonus
+        ``townhall_count`` — number of currently-visible friendly town halls,
+            for the expansion bonus
+        ``minimap_explored_frac`` — fraction of the minimap explored, for the
+            scout bonus
     """
 
     # Fallback max attack range (fraction of screen) when unit-specific range
@@ -328,6 +411,18 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._seen_action_fns: set[int] = set()
         # tech-gated fn_ids seen so far this episode (for new_action_unlock_bonus).
         self._unlocked_tech_fn_ids: set[int] = set()
+        # tech-gated fn_idx -> rewarded use count this episode (issue #400).
+        self._new_action_usage_counts: dict[int, int] = {}
+        # Progression trackers: previous supply / worker / army / explored
+        # values, ``None`` until the first step so the baseline is never
+        # rewarded.  Cumulative structure types seen and the running max town
+        # hall count drive the one-shot tech-building / expansion bonuses.
+        self._prev_food_cap: float | None = None
+        self._prev_food_workers: float | None = None
+        self._prev_food_army: float | None = None
+        self._prev_explored_frac: float | None = None
+        self._seen_structures: set[str] = set()
+        self._max_townhalls: int | None = None
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -341,6 +436,13 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._visited_unit_cells = {}
         self._seen_action_fns = set()
         self._unlocked_tech_fn_ids = set()
+        self._new_action_usage_counts = {}
+        self._prev_food_cap = None
+        self._prev_food_workers = None
+        self._prev_food_army = None
+        self._prev_explored_frac = None
+        self._seen_structures = set()
+        self._max_townhalls = None
 
     def compute(
         self,
@@ -376,9 +478,12 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``idle_worker_penalty``, ``idle_bonus``, ``move_exploration``,
         ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
         ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
-        ``early_random_action``, ``new_action_unlock``, ``unit_loss``,
-        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
-        ``resource_banking``, ``step_penalty`` and ``terminal`` separately.
+        ``early_random_action``, ``new_action_unlock``, ``new_action_usage``,
+        ``unit_loss``, ``damage_taken``, ``passive_under_fire``,
+        ``small_selection``, ``resource_banking``, ``supply_block``,
+        ``supply_growth``, ``worker_growth``, ``army_growth``,
+        ``tech_building``, ``expansion``, ``scout``, ``step_penalty`` and
+        ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -472,14 +577,89 @@ class SC2RewardCalculator(RewardCalculatorBase):
         # one required_building in PRECONDITIONS are eligible (selection-only
         # and always-available actions are excluded).
         new_action_unlock = 0.0
-        if cfg.new_action_unlock_bonus != 0.0:
+        if cfg.new_action_unlock_bonus != 0.0 or cfg.new_action_usage_bonus != 0.0:
             available = info.get("available_fn_ids") or set()
             tech_available = available & self._TECH_GATED_FN_IDS
             newly_unlocked = tech_available - self._unlocked_tech_fn_ids
-            if newly_unlocked:
+            if newly_unlocked and cfg.new_action_unlock_bonus != 0.0:
                 new_action_unlock = cfg.new_action_unlock_bonus * len(newly_unlocked)
             self._unlocked_tech_fn_ids |= tech_available
         components["new_action_unlock"] = float(new_action_unlock)
+
+        # New action usage bonus (issue #400): reward issuing a tech-gated
+        # action that has already been unlocked this episode, for its first
+        # ``new_action_usage_max_uses`` uses.  Independent of the unlock bonus.
+        new_action_usage = 0.0
+        if cfg.new_action_usage_bonus != 0.0:
+            used_fn_idx = int(info.get("action_fn_idx", 0))
+            if used_fn_idx in self._TECH_GATED_FN_IDS and used_fn_idx in self._unlocked_tech_fn_ids:
+                uses = self._new_action_usage_counts.get(used_fn_idx, 0)
+                if uses < max(0, int(cfg.new_action_usage_max_uses)):
+                    new_action_usage = cfg.new_action_usage_bonus * n_ticks
+                    self._new_action_usage_counts[used_fn_idx] = uses + 1
+        components["new_action_usage"] = float(new_action_usage)
+
+        # --- Progression shaping (macro economy / tech / map control) ---
+        food_used = float(info.get("food_used", 0.0))
+        food_cap = float(info.get("food_cap", 0.0))
+        food_workers = float(info.get("food_workers", 0.0))
+        food_army = float(info.get("food_army", 0.0))
+
+        # Supply-block penalty: production stalls when capped (but not at 200).
+        supply_block = 0.0
+        if cfg.supply_block_penalty != 0.0 and food_cap > 0.0 and food_cap < 200.0 and food_used >= food_cap:
+            supply_block = cfg.supply_block_penalty * n_ticks
+        components["supply_block"] = float(supply_block)
+
+        # Supply-growth bonus: reward raising the supply cap (depots / expansions).
+        supply_growth = 0.0
+        if cfg.supply_growth_bonus != 0.0 and self._prev_food_cap is not None:
+            supply_growth = cfg.supply_growth_bonus * max(0.0, food_cap - self._prev_food_cap)
+        self._prev_food_cap = food_cap
+        components["supply_growth"] = float(supply_growth)
+
+        # Worker-growth bonus: reward training workers (economy).
+        worker_growth = 0.0
+        if cfg.worker_growth_bonus != 0.0 and self._prev_food_workers is not None:
+            worker_growth = cfg.worker_growth_bonus * max(0.0, food_workers - self._prev_food_workers)
+        self._prev_food_workers = food_workers
+        components["worker_growth"] = float(worker_growth)
+
+        # Army-growth bonus: reward producing combat units.
+        army_growth = 0.0
+        if cfg.army_growth_bonus != 0.0 and self._prev_food_army is not None:
+            army_growth = cfg.army_growth_bonus * max(0.0, food_army - self._prev_food_army)
+        self._prev_food_army = food_army
+        components["army_growth"] = float(army_growth)
+
+        # Tech-building bonus: one-shot per newly-seen friendly structure type.
+        tech_building = 0.0
+        if cfg.tech_building_bonus != 0.0:
+            owned = info.get("owned_building_names") or set()
+            newly_seen = set(owned) - self._seen_structures
+            if newly_seen:
+                tech_building = cfg.tech_building_bonus * len(newly_seen)
+            self._seen_structures |= set(owned)
+        components["tech_building"] = float(tech_building)
+
+        # Expansion bonus: one-shot when town-hall count reaches a new max.
+        expansion = 0.0
+        townhall_count = int(info.get("townhall_count", 0))
+        if cfg.expansion_bonus != 0.0 and self._max_townhalls is not None and townhall_count > self._max_townhalls:
+            expansion = cfg.expansion_bonus * (townhall_count - self._max_townhalls)
+        if self._max_townhalls is None:
+            self._max_townhalls = townhall_count
+        else:
+            self._max_townhalls = max(self._max_townhalls, townhall_count)
+        components["expansion"] = float(expansion)
+
+        # Scout bonus: reward revealing previously-unseen map (explored delta).
+        scout = 0.0
+        explored_frac = float(info.get("minimap_explored_frac", 0.0))
+        if cfg.scout_bonus != 0.0 and self._prev_explored_frac is not None:
+            scout = cfg.scout_bonus * max(0.0, explored_frac - self._prev_explored_frac)
+        self._prev_explored_frac = explored_frac
+        components["scout"] = float(scout)
 
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False

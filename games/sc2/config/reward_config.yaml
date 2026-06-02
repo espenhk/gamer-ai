@@ -12,26 +12,35 @@
 #   - BuildMarines                                  → score_weight=1.0,
 #       idle_penalty=-0.05 (push away from doing nothing)
 #
-# 1v1 ladder preset (Simple64 / any ladder map):
-#   Set score_weight: 0.0 and economy_weight: 0.001 for ladder play so the
-#   agent is guided by economy growth during the game and win/loss at episode
-#   end.  The win_bonus and loss_penalty below are always active for ladder
-#   maps regardless of score_weight.
+# =============================================================================
+# This file ships tuned for 1v1 LADDER play (Simple64 / any ladder map): the
+# agent is driven by the terminal win/loss outcome, dense macro-progression
+# shaping (supply / workers / army / tech / expansions / scouting), and small
+# combat/movement nudges.  PySC2's cumulative `score` is intentionally OFF
+# (score_weight: 0.0) because its per-step deltas are large and spiky enough to
+# swamp the win/loss signal over a 10-minute game.
+#
+# For a combat MINIGAME instead (DefeatRoaches etc.), set score_weight back to
+# ~0.05–1.0, zero out the macro-progression block, and lean on idle_bonus /
+# attack bonuses.  See the per-minigame presets noted above.
 
 # --- Primary signal ---
-# Kept large relative to the shaping terms below so task score dominates the
-# reward and movement/attack bonuses only nudge exploration.
-score_weight: 100.0
+# Ladder: 0.0 (outcome-driven, see header).  Minigames: 0.05–1.0 depending on
+# the map's raw score scale.
+score_weight: 0.0
 
 # --- Terminal outcome (ladder maps) ---
 # These are applied whenever player_outcome != None (terminal ladder step).
 # For minigames player_outcome is always None, so these have no effect.
-win_bonus: 1000.0
+# Kept commensurate with the accumulated shaping over a full game so the
+# win/loss outcome remains the dominant signal.
+win_bonus: 100.0
 loss_penalty: -100.0
 
 
 # --- Time cost ---
-step_penalty: -0.001
+# Slightly stronger than the minigame default so a 10-minute game isn't "free".
+step_penalty: -0.002
 
 # --- Idle penalty (BuildMarines / economy maps) ---
 idle_penalty: 0.0
@@ -41,14 +50,14 @@ idle_penalty: 0.0
 # Workers should always be mining or building; each step a worker is idle
 # drains this much reward per idle worker.  Set to 0.0 to disable.
 # Recommended range for economy/ladder maps: -0.05 to -0.5.
-idle_worker_penalty: 0.0
+idle_worker_penalty: -0.1
 
 # --- Idle bonus (issue #127) ---
 # Per-step bonus when the agent issues no_op AND friendly units are within
-# combat range of an enemy.  Off by default; enable on combat minigames
-# (DefeatRoaches, DefeatZerglingsAndBanelings) to make "stand still and shoot"
-# learnable rather than only discoverable through luck.
-idle_bonus: 0.5
+# combat range of an enemy.  Off for ladder (this is a combat-minigame tactic);
+# enable on DefeatRoaches / DefeatZerglingsAndBanelings to make "stand still
+# and shoot" learnable rather than only discoverable through luck.
+idle_bonus: 0.0
 
 # --- Move exploration / anti-hyperfixation ---
 # move_exploration_bonus: per-step bonus when a Move_screen command is issued
@@ -70,17 +79,21 @@ idle_bonus: 0.5
 # move_self_penalty: per-step penalty when a Move_screen command targets the
 #   centroid of currently-visible friendly units (discourages "move where we
 #   already are").
-move_exploration_bonus: 0.15
+# On a full ladder map, screen-cell coverage is a weak proxy for useful
+# movement, so these are kept small; they matter far more on movement minigames.
+move_exploration_bonus: 0.02
 move_exploration_grid_size: 8
-move_exploration_decay_steps: 120
-move_repeat_penalty: -0.05
-move_self_penalty: -0.1
+move_exploration_decay_steps: 50
+move_repeat_penalty: -0.02
+move_self_penalty: -0.02
 
 # --- Attack bonuses ---
 # attack_move_bonus: per-step bonus when the agent issues Attack_screen
 #   (fn_idx 3) with the target on empty ground while enemies are visible.
 #   Encourages A-move behaviour over plain Move_screen so units fight back.
-attack_move_bonus: 0.5
+#   On ladder we fold combat shaping into the single attack_bonus below to keep
+#   per-step combat reward small relative to the win/loss outcome.
+attack_move_bonus: 0.0
 
 # click_attack_bonus: per-step bonus when the agent issues Attack_screen
 #   with the target directly on (or very close to) a visible enemy unit.
@@ -88,14 +101,15 @@ attack_move_bonus: 0.5
 #   Rapid switching between different enemy targets is not rewarded — a new
 #   target must be either the same unit OR the agent must wait
 #   click_attack_cooldown_steps before the bonus fires again.
-click_attack_bonus: 1.0
+click_attack_bonus: 0.0
 
 # attack_bonus: per-step bonus whenever the agent issues Attack_screen
 #   (fn_idx 3), regardless of whether the target is an enemy unit (click-to-
 #   attack) or open ground (A-move).  A simpler alternative to enabling both
 #   attack_move_bonus and click_attack_bonus separately; all three can be
-#   active simultaneously.  Set to 0.0 to disable.
-attack_bonus: 0.5
+#   active simultaneously.  Kept small on ladder so it only nudges the agent
+#   to engage rather than dominating the return.  Set to 0.0 to disable.
+attack_bonus: 0.1
 
 # Minimum env steps between rewarded target switches for click_attack_bonus.
 # Clicking repeatedly on the same unit passes immediately; changing target
@@ -111,14 +125,16 @@ attack_friendly_penalty: -10.0
 
 # --- Unit-loss penalty ---
 # Penalty per army unit lost this step (army_count drop).  Two units dying
-# at once yields 2× the penalty.  Set to 0.0 to disable.
-unit_loss_penalty: -3.0
+# at once yields 2× the penalty.  Accumulates over a full game, so kept
+# moderate on ladder.  Set to 0.0 to disable.
+unit_loss_penalty: -1.0
 
 # --- Damage-taken penalty ---
 # Penalty per raw HP+shield point lost across visible friendly units.
-# Only on-screen units count (feature_units limitation) — keep the weight
-# small to tolerate noise when units walk off-camera.
-damage_taken_penalty: -0.05
+# Only on-screen units count (feature_units limitation), so on a full ladder
+# map (camera covers little of the field) this is too noisy — off by default
+# for ladder; enable on combat minigames where the whole fight is on screen.
+damage_taken_penalty: 0.0
 
 # --- Passive-under-fire penalty ---
 # Per-step penalty when enemy units are within attack range of friendly
@@ -146,16 +162,72 @@ economy_weight: 0.001
 # triggers when a SupplyDepot exists, an SCV is selected, and minerals suffice).
 # Selection-only actions (Move_screen, Attack_screen, Train_Marine_quick) and
 # always-available actions (no_op, select_army) are excluded.
-# Set to 0.0 to disable (default).  Recommended starting range: 1.0–10.0.
-new_action_unlock_bonus: 0.0
+# Set to 0.0 to disable.  Recommended starting range: 1.0–10.0.
+new_action_unlock_bonus: 5.0
+
+# --- New-action usage bonus (issue #400) ---
+# Per-step bonus when the agent ISSUES a tech-gated action that has already been
+# unlocked this episode, for its first new_action_usage_max_uses uses.  Where
+# new_action_unlock_bonus rewards building the prerequisite, this rewards
+# following through and actually producing from it.  Independent of the unlock
+# bonus; both can be on at once.  Set to 0.0 to disable.  Range: 0.1–2.0.
+new_action_usage_bonus: 0.5
+new_action_usage_max_uses: 50
 
 # --- Resource banking penalty (issue #372) ---
 # Per-step penalty proportional to excess minerals/gas above the thresholds.
 # Having >300 minerals or >200 gas is a signal the agent should be investing
 # those resources in buildings or units.  Set resource_banking_penalty to a
-# small negative value to enable (e.g. -0.0005); 0.0 = disabled (default).
+# small negative value to enable (e.g. -0.0005); 0.0 = disabled.
 # mineral_banking_threshold: minerals above this count as "banked". Default 300.
 # gas_banking_threshold: vespene above this count as "banked". Default 200.
-resource_banking_penalty: 0.0
+resource_banking_penalty: -0.0005
 mineral_banking_threshold: 300.0
 gas_banking_threshold: 200.0
+
+# =============================================================================
+# Macro-progression shaping (dense ladder guidance toward a real build order).
+# These fill the long gap between "economy growing" and the terminal win/loss
+# signal: grow supply, workers and army, climb the tech tree, expand, and scout.
+# All are opt-in (0.0 default in code); the values below are tuned for ladder.
+
+# --- Supply-block penalty ---
+# Per-step penalty while supply-blocked (food_used >= food_cap and food_cap <
+# 200).  Being capped halts all production — the most common macro failure.
+# Recommended range: -0.05 to -0.5.
+supply_block_penalty: -0.1
+
+# --- Supply-growth bonus ---
+# Bonus per point of food_cap increase (build SupplyDepot/Overlord/Pylon, or
+# expand — a new base also raises the cap).  Only increases are rewarded.
+# Recommended range: 0.5–3.0 per supply point.
+supply_growth_bonus: 1.0
+
+# --- Worker-growth bonus ---
+# Bonus per point of food_workers increase (train workers).  Pairs with
+# idle_worker_penalty: build workers, then keep them busy.  Range: 0.5–3.0.
+worker_growth_bonus: 1.0
+
+# --- Army-growth bonus ---
+# Bonus per point of food_army increase (produce combat units).  Only increases
+# are rewarded; losing army is handled by unit_loss_penalty.  Range: 0.5–3.0.
+army_growth_bonus: 1.0
+
+# --- Tech-building bonus ---
+# One-shot bonus the first time each friendly structure TYPE is seen this
+# episode (Barracks, Factory, Stargate, …) — i.e. climbing the build tree.
+# Fires once per structure type per episode.  Range: 2.0–10.0.
+tech_building_bonus: 5.0
+
+# --- Expansion bonus ---
+# One-shot bonus each time the friendly town-hall count reaches a new episode
+# maximum (an expansion completed).  Counted from visible town halls, so a base
+# built fully off-camera may be missed; the running max keeps it monotonic and
+# never rewards the starting base.  Range: 5.0–25.0 per expansion.
+expansion_bonus: 15.0
+
+# --- Scout bonus ---
+# Bonus proportional to the increase in minimap_explored_frac (revealing new
+# map).  Captures scouting that screen-local move_exploration_bonus cannot.
+# The per-step fraction delta is tiny, so the weight is large.  Range: 5.0–50.0.
+scout_bonus: 20.0

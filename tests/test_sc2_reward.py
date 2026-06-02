@@ -2071,5 +2071,285 @@ class TestSC2ResourceBankingPenalty(unittest.TestCase):
         self.assertAlmostEqual(r, -1.5)
 
 
+class TestNewActionUsageBonus(unittest.TestCase):
+    """Tests for SC2RewardCalculator.new_action_usage_bonus (issue #400)."""
+
+    def _quiet(self, **kwargs) -> SC2RewardConfig:
+        base = dict(
+            score_weight=0.0,
+            step_penalty=0.0,
+            economy_weight=0.0,
+            win_bonus=0.0,
+            loss_penalty=0.0,
+            move_exploration_bonus=0.0,
+        )
+        base.update(kwargs)
+        return SC2RewardConfig(**base)
+
+    def _info(self, fn_idx: int, available=None) -> dict:
+        return {
+            "prev_score": 0.0,
+            "score": 0.0,
+            "action_fn_idx": fn_idx,
+            "available_fn_ids": available if available is not None else set(),
+        }
+
+    def test_default_is_zero(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.new_action_usage_bonus, 0.0)
+        self.assertEqual(cfg.new_action_usage_max_uses, 50)
+
+    def test_disabled_component_always_zero(self):
+        calc = SC2RewardCalculator(self._quiet())
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available={8}),
+        )
+        self.assertEqual(comp["new_action_usage"], 0.0)
+
+    def test_fires_for_unlocked_tech_action(self):
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=0.5))
+        # Step 1: action becomes available (unlocked) and is issued.
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available={8}),
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.5)
+
+    def test_does_not_fire_before_unlock(self):
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=0.5))
+        # fn_idx 8 issued but never appeared in available_fn_ids → not unlocked.
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available=set()),
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_independent_of_unlock_bonus(self):
+        # Usage bonus works even when unlock bonus is off.
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=0.5, new_action_unlock_bonus=0.0))
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available={8}),
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.5)
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
+    def test_capped_at_max_uses(self):
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=1.0, new_action_usage_max_uses=3))
+        rewarded = 0
+        for _ in range(6):
+            _, comp = calc.compute_with_components(
+                prev_state=None,
+                curr_state=None,
+                finished=False,
+                elapsed_s=1.0,
+                info=self._info(fn_idx=8, available={8}),
+            )
+            if comp["new_action_usage"] > 0:
+                rewarded += 1
+        self.assertEqual(rewarded, 3)
+
+    def test_non_gated_action_does_not_fire(self):
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=0.5))
+        # Move_screen (fn_idx 2) is not tech-gated.
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=2, available={2}),
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_counts_reset_after_reset(self):
+        calc = SC2RewardCalculator(self._quiet(new_action_usage_bonus=1.0, new_action_usage_max_uses=1))
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available={8}),
+        )
+        calc.reset()
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info=self._info(fn_idx=8, available={8}),
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 1.0)
+
+
+class TestMacroProgressionRewards(unittest.TestCase):
+    """Supply / worker / army growth, supply-block, tech-building, expansion, scout."""
+
+    def _quiet(self, **kwargs) -> SC2RewardCalculator:
+        base = dict(
+            score_weight=0.0,
+            step_penalty=0.0,
+            economy_weight=0.0,
+            win_bonus=0.0,
+            loss_penalty=0.0,
+            move_exploration_bonus=0.0,
+        )
+        base.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**base))
+
+    def _step(self, calc, **info):
+        base = {"prev_score": 0.0, "score": 0.0, "action_fn_idx": 0}
+        base.update(info)
+        return calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=base)
+
+    # --- supply-block ---
+    def test_supply_block_fires_when_capped(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=15.0, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_block"], -0.1)
+
+    def test_supply_block_not_at_hard_cap(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=200.0, food_cap=200.0)
+        self.assertAlmostEqual(comp["supply_block"], 0.0)
+
+    def test_supply_block_not_when_room(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=10.0, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_block"], 0.0)
+
+    # --- supply / worker / army growth (delta-based, first step is baseline) ---
+    def test_supply_growth_rewards_cap_increase(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        self._step(calc, food_cap=15.0)  # baseline
+        _, comp = self._step(calc, food_cap=23.0)
+        self.assertAlmostEqual(comp["supply_growth"], 8.0)
+
+    def test_supply_growth_no_baseline_reward(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        _, comp = self._step(calc, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_growth"], 0.0)
+
+    def test_supply_growth_ignores_decrease(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        self._step(calc, food_cap=23.0)
+        _, comp = self._step(calc, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_growth"], 0.0)
+
+    def test_worker_growth_rewards_increase(self):
+        calc = self._quiet(worker_growth_bonus=1.0)
+        self._step(calc, food_workers=12.0)
+        _, comp = self._step(calc, food_workers=14.0)
+        self.assertAlmostEqual(comp["worker_growth"], 2.0)
+
+    def test_army_growth_rewards_increase(self):
+        calc = self._quiet(army_growth_bonus=2.0)
+        self._step(calc, food_army=0.0)
+        _, comp = self._step(calc, food_army=3.0)
+        self.assertAlmostEqual(comp["army_growth"], 6.0)
+
+    # --- tech-building (one-shot per new structure type) ---
+    def test_tech_building_fires_on_new_type(self):
+        calc = self._quiet(tech_building_bonus=5.0)
+        _, comp = self._step(calc, owned_building_names={"CommandCenter", "Barracks"})
+        self.assertAlmostEqual(comp["tech_building"], 10.0)
+
+    def test_tech_building_only_new_types(self):
+        calc = self._quiet(tech_building_bonus=5.0)
+        self._step(calc, owned_building_names={"CommandCenter"})
+        _, comp = self._step(calc, owned_building_names={"CommandCenter", "Barracks"})
+        self.assertAlmostEqual(comp["tech_building"], 5.0)
+
+    # --- expansion (running-max town-hall count) ---
+    def test_expansion_fires_on_new_max(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=1)  # starting base — baseline
+        _, comp = self._step(calc, townhall_count=2)
+        self.assertAlmostEqual(comp["expansion"], 15.0)
+
+    def test_expansion_no_reward_for_starting_base(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        _, comp = self._step(calc, townhall_count=1)
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    def test_expansion_not_rewarded_twice_for_same_count(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=1)
+        self._step(calc, townhall_count=2)
+        _, comp = self._step(calc, townhall_count=2)
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    def test_expansion_ignores_temporary_drop(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=2)  # baseline at 2
+        _, comp = self._step(calc, townhall_count=1)  # lost vision / base
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    # --- scout (explored-fraction delta) ---
+    def test_scout_rewards_exploration(self):
+        calc = self._quiet(scout_bonus=20.0)
+        self._step(calc, minimap_explored_frac=0.10)
+        _, comp = self._step(calc, minimap_explored_frac=0.15)
+        self.assertAlmostEqual(comp["scout"], 1.0)  # 20 * 0.05
+
+    def test_scout_ignores_decrease(self):
+        calc = self._quiet(scout_bonus=20.0)
+        self._step(calc, minimap_explored_frac=0.20)
+        _, comp = self._step(calc, minimap_explored_frac=0.10)
+        self.assertAlmostEqual(comp["scout"], 0.0)
+
+    # --- safety: missing keys, components sum, all present when disabled ---
+    def test_new_components_present_when_disabled(self):
+        calc = self._quiet()
+        _, comp = self._step(calc)
+        for key in (
+            "new_action_usage",
+            "supply_block",
+            "supply_growth",
+            "worker_growth",
+            "army_growth",
+            "tech_building",
+            "expansion",
+            "scout",
+        ):
+            self.assertIn(key, comp)
+            self.assertEqual(comp[key], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._quiet(
+            supply_growth_bonus=1.0,
+            worker_growth_bonus=1.0,
+            army_growth_bonus=1.0,
+            tech_building_bonus=5.0,
+            expansion_bonus=15.0,
+            scout_bonus=20.0,
+            supply_block_penalty=-0.1,
+        )
+        self._step(calc, food_cap=15.0, food_workers=12.0, food_army=0.0, townhall_count=1, minimap_explored_frac=0.1)
+        total, comp = self._step(
+            calc,
+            food_cap=23.0,
+            food_workers=14.0,
+            food_army=3.0,
+            food_used=23.0,
+            townhall_count=2,
+            minimap_explored_frac=0.15,
+            owned_building_names={"CommandCenter", "Barracks"},
+        )
+        self.assertAlmostEqual(total, sum(comp.values()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -92,6 +92,15 @@ class TestActionCategories(unittest.TestCase):
     def test_morph_lair_in_upgrade(self):
         self.assertIn(111, ACTION_CATEGORIES["upgrade"])
 
+    def test_siege_mode_in_move(self):
+        self.assertIn(46, ACTION_CATEGORIES["move"])
+
+    def test_unsiege_in_move(self):
+        self.assertIn(47, ACTION_CATEGORIES["move"])
+
+    def test_archon_in_train(self):
+        self.assertIn(78, ACTION_CATEGORIES["train"])
+
 
 # ---------------------------------------------------------------------------
 # SC2HierarchicalLinearPolicy — init / shape

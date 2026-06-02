@@ -462,6 +462,8 @@ ACTION_CATEGORIES: dict[str, list[int]] = {
         12,  # HoldPosition_quick
         13,  # Stop_quick
         15,  # select_rect
+        46,  # Morph_SiegeMode_quick — positional combat stance
+        47,  # Morph_Unsiege_quick
         16,  # Harvest_Return_quick
         17,  # Rally_Units_screen
         18,  # Rally_Workers_screen
@@ -538,7 +540,7 @@ ACTION_CATEGORIES: dict[str, list[int]] = {
         42,
         43,
         44,
-        # Protoss units + Archon-producing morph omitted (in upgrade)
+        # Protoss units
         63,
         64,
         65,
@@ -554,6 +556,7 @@ ACTION_CATEGORIES: dict[str, list[int]] = {
         75,
         76,
         77,
+        78,  # Morph_Archon_quick — produces a new unit type
         79,
         # Zerg units
         95,
@@ -574,11 +577,6 @@ ACTION_CATEGORIES: dict[str, list[int]] = {
         110,
     ],
     "upgrade": [
-        # Terran unit-state morphs
-        46,  # Morph_SiegeMode_quick
-        47,  # Morph_Unsiege_quick
-        # Protoss unit merge
-        78,  # Morph_Archon_quick
         # Zerg building and unit morphs
         111,  # Morph_Lair_quick
         112,  # Morph_Hive_quick

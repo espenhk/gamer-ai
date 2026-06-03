@@ -11,6 +11,7 @@ numpy = ">=1.26"
 gymnasium = ">=0.29"
 pyyaml = ">=6.0"
 matplotlib = ">=3.8"
+graphifyy = "^0.8.28"
 
 [tool.poetry.group.tmnf.dependencies]
 pandas = ">=2.0"

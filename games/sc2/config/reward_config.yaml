@@ -1,53 +1,166 @@
-# Reward configuration for SC2. See games/sc2/README.md for full documentation.
+# Reward configuration for SC2 RL training.
+# Edit these values freely — no code changes required.
+# See games/sc2/reward.py for full documentation of each parameter.
 #
-# Ships tuned for 1v1 LADDER play: outcome-driven (score_weight 0) with a dense
-# macro-progression block (supply / workers / army / tech / expansion / scout).
-# For a combat MINIGAME, raise score_weight (~0.05-1.0) and zero the progression
-# block — see README -> Rewards -> Recommended presets.
+# MoveToBeacon (default): score_weight=1.0, win_bonus/loss_penalty unused.
+#
+# Other minigame presets:
+#   - CollectMineralShards / CollectMineralsAndGas → score_weight=1.0,
+#       optionally economy_weight≈0.001 (already double-counts via score)
+#   - DefeatRoaches / DefeatZerglingsAndBanelings   → score_weight=0.05
+#       (raw kill score is large), idle_penalty=0
+#   - BuildMarines                                  → score_weight=1.0,
+#       idle_penalty=-0.05 (push away from doing nothing)
+#
+# 1v1 ladder preset (Simple64 / any ladder map):
+#   Set score_weight: 0.0 and economy_weight: 0.001 for ladder play so the
+#   agent is guided by economy growth during the game and win/loss at episode
+#   end.  The win_bonus and loss_penalty below are always active for ladder
+#   maps regardless of score_weight.
 
-# primary
+# --- Primary signal ---
+# Kept large relative to the shaping terms below so task score dominates the
+# reward and movement/attack bonuses only nudge exploration.
+
+# --- Terminal outcome (ladder maps) ---
+# These are applied whenever player_outcome != None (terminal ladder step).
+# For minigames player_outcome is always None, so these have no effect.
+
+
+# --- Time cost ---
+
+# --- Idle penalty (BuildMarines / economy maps) ---
+
+# --- Idle worker penalty (issue #358) ---
+# Penalty per idle worker per step (scaled by idle_worker_count from PySC2).
+# Workers should always be mining or building; each step a worker is idle
+# drains this much reward per idle worker.  Set to 0.0 to disable.
+# Recommended range for economy/ladder maps: -0.05 to -0.5.
+
+# --- Idle bonus (issue #127) ---
+# Per-step bonus when the agent issues no_op AND friendly units are within
+# combat range of an enemy.  Off by default; enable on combat minigames
+# (DefeatRoaches, DefeatZerglingsAndBanelings) to make "stand still and shoot"
+# learnable rather than only discoverable through luck.
+
+# --- Move exploration / anti-hyperfixation ---
+# move_exploration_bonus: per-step bonus when a Move_screen command is issued
+#   and the friendly-unit centroid is in a screen grid cell that is currently
+#   unexplored.  The screen is cut into a move_exploration_grid_size square grid
+#   (default 8×8 → cells ~1/8 of the screen wide); a cell is marked explored
+#   whenever the centroid is in it and expires move_exploration_decay_steps env
+#   steps after the centroid last left it.  A stationary centroid keeps
+#   refreshing its own cell, so spamming moves from one spot earns nothing,
+#   while the decay keeps the bonus alive once the screen is covered so units
+#   don't learn to freeze in place.
+# move_exploration_grid_size: cells per axis for the grid above (higher = finer).
+# move_exploration_decay_steps: env steps before an explored cell may be
+#   rewarded again on a return visit.  0 = never expire (once per cell per
+#   episode); larger keeps an area "explored" longer.
+# move_repeat_penalty: per-step penalty when a Move_screen command targets a
+#   point less than _MOVE_MIN_MEANINGFUL_FRAC from the previous move target
+#   (covers both exact repeats and tiny stutter steps).
+# move_self_penalty: per-step penalty when a Move_screen command targets the
+#   centroid of currently-visible friendly units (discourages "move where we
+#   already are").
+
+# --- Attack bonuses ---
+# attack_move_bonus: per-step bonus when the agent issues Attack_screen
+#   (fn_idx 3) with the target on empty ground while enemies are visible.
+#   Encourages A-move behaviour over plain Move_screen so units fight back.
+
+# click_attack_bonus: per-step bonus when the agent issues Attack_screen
+#   with the target directly on (or very close to) a visible enemy unit.
+#   Set slightly higher than attack_move_bonus to favour precision targeting.
+#   Rapid switching between different enemy targets is not rewarded — a new
+#   target must be either the same unit OR the agent must wait
+#   click_attack_cooldown_steps before the bonus fires again.
+
+# attack_bonus: per-step bonus whenever the agent issues Attack_screen
+#   (fn_idx 3), regardless of whether the target is an enemy unit (click-to-
+#   attack) or open ground (A-move).  A simpler alternative to enabling both
+#   attack_move_bonus and click_attack_bonus separately; all three can be
+#   active simultaneously.  Set to 0.0 to disable.
+
+# Minimum env steps between rewarded target switches for click_attack_bonus.
+# Clicking repeatedly on the same unit passes immediately; changing target
+# rapidly is withheld until this many steps have elapsed since the last switch.
+
+# --- Friendly-fire penalty ---
+# Per-step penalty when the agent issues Attack_screen (fn_idx 3) and the
+# click target lands on or near the centroid of visible friendly units.
+# This causes ally units to shoot team-mates — penalise it heavily.
+# Set to 0.0 to disable.
+
+# --- Unit-loss penalty ---
+# Penalty per army unit lost this step (army_count drop).  Two units dying
+# at once yields 2× the penalty.  Set to 0.0 to disable.
+
+# --- Damage-taken penalty ---
+# Penalty per raw HP+shield point lost across visible friendly units.
+# Only on-screen units count (feature_units limitation) — keep the weight
+# small to tolerate noise when units walk off-camera.
+
+# --- Passive-under-fire penalty ---
+# Per-step penalty when enemy units are within attack range of friendly
+# units and the agent did NOT issue Attack_screen.  Discourages running
+# away or idling while taking damage.  Keep this disabled in the shared
+# default config because discrete SC2 policies cannot issue Attack_screen.
+#passive_under_fire_penalty: -0.01
+
+# --- Small-selection bonus ---
+# Per-step bonus for unit-targeted commands (Move_screen / Attack_screen /
+# Harvest_Gather_screen) when the active selection is one unit or less than
+# 50% of visible friendly units. Encourages micro over full-army commands.
+
+# --- Economy delta (mineral + vespene) ---
+# Recommended: 0.001 for ladder maps (Simple64), 0.0 for minigames.
+
+# --- Tech-tree unlock bonus (issue #360) ---
+# One-shot bonus per fn_idx that appears in available_fn_ids for the first time
+# in an episode, restricted to actions whose tech-tree preconditions include at
+# least one required building.  The bonus fires the first time the action is
+# fully executable (prerequisite building exists AND correct unit selected AND
+# affordable) — not strictly at building-completion (e.g. Build_Barracks_screen
+# triggers when a SupplyDepot exists, an SCV is selected, and minerals suffice).
+# Selection-only actions (Move_screen, Attack_screen, Train_Marine_quick) and
+# always-available actions (no_op, select_army) are excluded.
+# Set to 0.0 to disable (default).  Recommended starting range: 1.0–10.0.
+
+# --- Resource banking penalty (issue #372) ---
+# Per-step penalty proportional to excess minerals/gas above the thresholds.
+# Having >300 minerals or >200 gas is a signal the agent should be investing
+# those resources in buildings or units.  Set resource_banking_penalty to a
+# small negative value to enable (e.g. -0.0005); 0.0 = disabled (default).
+# mineral_banking_threshold: minerals above this count as "banked". Default 300.
+# gas_banking_threshold: vespene above this count as "banked". Default 200.
 score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
-
-# time / idle
 step_penalty: -0.002
-idle_penalty: 0.0
-idle_worker_penalty: -0.1
-idle_bonus: 0.0
 
-# movement
-move_exploration_bonus: 0.02
-move_exploration_grid_size: 8
-move_exploration_decay_steps: 50
-move_repeat_penalty: -0.02
-move_self_penalty: -0.02
-
-# combat
-attack_move_bonus: 0.0
-click_attack_bonus: 0.0
-attack_bonus: 0.1
-click_attack_cooldown_steps: 8
-attack_friendly_penalty: -10.0
-unit_loss_penalty: -1.0
-damage_taken_penalty: 0.0
-passive_under_fire_penalty: 0.0
-small_selection_bonus: 0.0
-
-# economy
-economy_weight: 0.001
-new_action_unlock_bonus: 5.0
-new_action_usage_bonus: 0.5
-new_action_usage_max_uses: 50
-resource_banking_penalty: -0.0005
+economy_weight: 0.01
+resource_banking_penalty: -0.00001
 mineral_banking_threshold: 300.0
 gas_banking_threshold: 200.0
+idle_worker_penalty: -0.1
 
-# progression (macro: supply / workers / army / tech / expansion / scouting)
-supply_block_penalty: -0.1
-supply_growth_bonus: 1.0
-worker_growth_bonus: 1.0
-army_growth_bonus: 1.0
-tech_building_bonus: 5.0
-expansion_bonus: 15.0
-scout_bonus: 20.0
+new_action_unlock_bonus: 10.0
+
+attack_bonus: 0.1
+attack_move_bonus: 0.0
+click_attack_bonus: 0.0
+attack_friendly_penalty: -50.0
+unit_loss_penalty: -1.0
+damage_taken_penalty: 0.0
+
+move_exploration_bonus: 0.02
+move_repeat_penalty: -0.02
+move_self_penalty: -0.02
+idle_bonus: 0.0
+idle_penalty: 0.0
+
+move_exploration_grid_size: 8
+move_exploration_decay_steps: 120
+click_attack_cooldown_steps: 8
+small_selection_bonus: 0.1

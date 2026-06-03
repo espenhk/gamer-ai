@@ -1906,6 +1906,280 @@ class TestNewActionUnlockBonus(unittest.TestCase):
         self.assertAlmostEqual(total, sum(comp.values()), places=5)
 
 
+class TestNewActionUsageBonus(unittest.TestCase):
+    """Tests for SC2RewardCalculator.new_action_usage_bonus (issue #400)."""
+
+    def _base_info(self) -> dict:
+        return {
+            "prev_score": 0.0,
+            "score": 0.0,
+            "prev_minerals": 0.0,
+            "minerals": 0.0,
+            "prev_vespene": 0.0,
+            "vespene": 0.0,
+            "action_fn_idx": 0,
+        }
+
+    def _make_calc(self, usage_bonus: float, max_uses: int = 50, unlock_bonus: float = 0.0) -> SC2RewardCalculator:
+        return SC2RewardCalculator(
+            SC2RewardConfig(
+                new_action_usage_bonus=usage_bonus,
+                new_action_usage_max_uses=max_uses,
+                new_action_unlock_bonus=unlock_bonus,
+                score_weight=0.0,
+                step_penalty=0.0,
+                economy_weight=0.0,
+                win_bonus=0.0,
+                loss_penalty=0.0,
+                move_exploration_bonus=0.0,
+            )
+        )
+
+    def _tech_fn_idx(self) -> int:
+        return next(iter(SC2RewardCalculator._TECH_GATED_FN_IDS))
+
+    def test_default_is_zero(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.new_action_usage_bonus, 0.0)
+
+    def test_default_max_uses(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.new_action_usage_max_uses, 50)
+
+    def test_disabled_when_bonus_is_zero(self):
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=0.0)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_no_bonus_before_unlock(self):
+        # Issuing a tech fn_idx before it appears in available_fn_ids yields no bonus.
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.0)
+        info = {**self._base_info(), "action_fn_idx": fn_idx}  # no available_fn_ids
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_bonus_fires_when_action_used_after_unlock(self):
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=2.0)
+        # Step 1: unlock (action_fn_idx=0 so no usage this step).
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}},
+        )
+        # Step 2: issue the action.
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx},
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 2.0)
+
+    def test_bonus_fires_on_same_step_as_unlock(self):
+        # If the action appears in available_fn_ids AND is issued in the same step,
+        # the unlock updates _unlocked_tech_fn_ids first, so the usage bonus also fires.
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.5)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 1.5)
+
+    def test_bonus_fires_repeatedly_up_to_max_uses(self):
+        fn_idx = self._tech_fn_idx()
+        max_uses = 3
+        calc = self._make_calc(usage_bonus=1.0, max_uses=max_uses)
+        # Unlock first.
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}},
+        )
+        usage_info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        bonuses = []
+        for _ in range(max_uses + 2):
+            _, comp = calc.compute_with_components(
+                prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=usage_info
+            )
+            bonuses.append(comp["new_action_usage"])
+        self.assertEqual(bonuses[:max_uses], [1.0] * max_uses)
+        self.assertEqual(bonuses[max_uses:], [0.0, 0.0])
+
+    def test_no_bonus_after_max_uses_reached(self):
+        fn_idx = self._tech_fn_idx()
+        max_uses = 2
+        calc = self._make_calc(usage_bonus=1.0, max_uses=max_uses)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        for _ in range(max_uses):
+            calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_counts_reset_after_episode_reset(self):
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.0, max_uses=1)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info)
+        # Should be exhausted — no bonus.
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+        # After reset, count resets.
+        calc.reset()
+        _, comp2 = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp2["new_action_usage"], 1.0)
+
+    def test_noop_does_not_trigger_bonus(self):
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.0)
+        # Unlock the action.
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}},
+        )
+        # Issue no_op (fn_idx 0).
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": 0},
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_non_tech_action_does_not_trigger_bonus(self):
+        # fn_idx 2 = Move_screen — not tech-gated.
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.0)
+        # "Unlock" a tech action to populate _unlocked_tech_fn_ids.
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}},
+        )
+        # Issue Move_screen (fn_idx 2) — not tech-gated.
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": 2},
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+    def test_independent_counts_per_fn_idx(self):
+        # Two different tech-gated fn_ids have independent use counts.
+        tech_gated = SC2RewardCalculator._TECH_GATED_FN_IDS
+        fn_a, fn_b = list(tech_gated)[:2]
+        max_uses = 2
+        calc = self._make_calc(usage_bonus=1.0, max_uses=max_uses)
+        # Unlock both.
+        calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_a, fn_b}},
+        )
+        # Exhaust fn_a.
+        for _ in range(max_uses):
+            calc.compute_with_components(
+                prev_state=None,
+                curr_state=None,
+                finished=False,
+                elapsed_s=1.0,
+                info={**self._base_info(), "available_fn_ids": {fn_a, fn_b}, "action_fn_idx": fn_a},
+            )
+        # fn_a exhausted, fn_b still has budget.
+        _, comp_a = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_a, fn_b}, "action_fn_idx": fn_a},
+        )
+        _, comp_b = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={**self._base_info(), "available_fn_ids": {fn_a, fn_b}, "action_fn_idx": fn_b},
+        )
+        self.assertAlmostEqual(comp_a["new_action_usage"], 0.0)
+        self.assertAlmostEqual(comp_b["new_action_usage"], 1.0)
+
+    def test_works_without_unlock_bonus(self):
+        # Usage bonus works independently even when unlock_bonus is disabled.
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=3.0, unlock_bonus=0.0)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_usage"], 3.0)
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
+    def test_both_bonuses_fire_independently(self):
+        # When both bonuses are enabled, unlock fires once and usage fires per use.
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=1.0, unlock_bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        # First step: both fire.
+        _, comp1 = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp1["new_action_unlock"], 5.0)
+        self.assertAlmostEqual(comp1["new_action_usage"], 1.0)
+        # Second step: only usage fires (unlock already consumed).
+        _, comp2 = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp2["new_action_unlock"], 0.0)
+        self.assertAlmostEqual(comp2["new_action_usage"], 1.0)
+
+    def test_components_sum_equals_total(self):
+        fn_idx = self._tech_fn_idx()
+        calc = self._make_calc(usage_bonus=2.0, unlock_bonus=5.0)
+        info = {**self._base_info(), "available_fn_ids": {fn_idx}, "action_fn_idx": fn_idx}
+        total, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(total, sum(comp.values()), places=5)
+
+    def test_component_present_when_disabled(self):
+        calc = self._make_calc(usage_bonus=0.0)
+        info = self._base_info()
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertIn("new_action_usage", comp)
+        self.assertAlmostEqual(comp["new_action_usage"], 0.0)
+
+
 class TestSC2ResourceBankingPenalty(unittest.TestCase):
     """Tests for the resource_banking_penalty reward term (issue #372)."""
 
@@ -2069,6 +2343,163 @@ class TestSC2ResourceBankingPenalty(unittest.TestCase):
         # excess minerals = 100, excess gas = 50, total = 150
         # penalty = -0.01 * 150 = -1.5
         self.assertAlmostEqual(r, -1.5)
+
+
+class TestMacroProgressionRewards(unittest.TestCase):
+    """Supply / worker / army growth, supply-block, tech-building, expansion, scout."""
+
+    def _quiet(self, **kwargs) -> SC2RewardCalculator:
+        base = dict(
+            score_weight=0.0,
+            step_penalty=0.0,
+            economy_weight=0.0,
+            win_bonus=0.0,
+            loss_penalty=0.0,
+            move_exploration_bonus=0.0,
+        )
+        base.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**base))
+
+    def _step(self, calc, **info):
+        base = {"prev_score": 0.0, "score": 0.0, "action_fn_idx": 0}
+        base.update(info)
+        return calc.compute_with_components(prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=base)
+
+    # --- supply-block ---
+    def test_supply_block_fires_when_capped(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=15.0, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_block"], -0.1)
+
+    def test_supply_block_not_at_hard_cap(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=200.0, food_cap=200.0)
+        self.assertAlmostEqual(comp["supply_block"], 0.0)
+
+    def test_supply_block_not_when_room(self):
+        calc = self._quiet(supply_block_penalty=-0.1)
+        _, comp = self._step(calc, food_used=10.0, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_block"], 0.0)
+
+    # --- supply / worker / army growth (delta-based, first step is baseline) ---
+    def test_supply_growth_rewards_cap_increase(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        self._step(calc, food_cap=15.0)  # baseline
+        _, comp = self._step(calc, food_cap=23.0)
+        self.assertAlmostEqual(comp["supply_growth"], 8.0)
+
+    def test_supply_growth_no_baseline_reward(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        _, comp = self._step(calc, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_growth"], 0.0)
+
+    def test_supply_growth_ignores_decrease(self):
+        calc = self._quiet(supply_growth_bonus=1.0)
+        self._step(calc, food_cap=23.0)
+        _, comp = self._step(calc, food_cap=15.0)
+        self.assertAlmostEqual(comp["supply_growth"], 0.0)
+
+    def test_worker_growth_rewards_increase(self):
+        calc = self._quiet(worker_growth_bonus=1.0)
+        self._step(calc, food_workers=12.0)
+        _, comp = self._step(calc, food_workers=14.0)
+        self.assertAlmostEqual(comp["worker_growth"], 2.0)
+
+    def test_army_growth_rewards_increase(self):
+        calc = self._quiet(army_growth_bonus=2.0)
+        self._step(calc, food_army=0.0)
+        _, comp = self._step(calc, food_army=3.0)
+        self.assertAlmostEqual(comp["army_growth"], 6.0)
+
+    # --- tech-building (one-shot per new structure type) ---
+    def test_tech_building_fires_on_new_type(self):
+        calc = self._quiet(tech_building_bonus=5.0)
+        _, comp = self._step(calc, owned_building_names={"CommandCenter", "Barracks"})
+        self.assertAlmostEqual(comp["tech_building"], 10.0)
+
+    def test_tech_building_only_new_types(self):
+        calc = self._quiet(tech_building_bonus=5.0)
+        self._step(calc, owned_building_names={"CommandCenter"})
+        _, comp = self._step(calc, owned_building_names={"CommandCenter", "Barracks"})
+        self.assertAlmostEqual(comp["tech_building"], 5.0)
+
+    # --- expansion (running-max town-hall count) ---
+    def test_expansion_fires_on_new_max(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=1)  # starting base — baseline
+        _, comp = self._step(calc, townhall_count=2)
+        self.assertAlmostEqual(comp["expansion"], 15.0)
+
+    def test_expansion_no_reward_for_starting_base(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        _, comp = self._step(calc, townhall_count=1)
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    def test_expansion_not_rewarded_twice_for_same_count(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=1)
+        self._step(calc, townhall_count=2)
+        _, comp = self._step(calc, townhall_count=2)
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    def test_expansion_ignores_temporary_drop(self):
+        calc = self._quiet(expansion_bonus=15.0)
+        self._step(calc, townhall_count=2)  # baseline at 2
+        _, comp = self._step(calc, townhall_count=1)  # lost vision / base
+        self.assertAlmostEqual(comp["expansion"], 0.0)
+
+    # --- scout_explore (explored-fraction delta) ---
+    def test_scout_rewards_exploration(self):
+        calc = self._quiet(scout_bonus=20.0)
+        self._step(calc, minimap_explored_frac=0.10)
+        _, comp = self._step(calc, minimap_explored_frac=0.15)
+        self.assertAlmostEqual(comp["scout_explore"], 1.0)  # 20 * 0.05
+
+    def test_scout_ignores_decrease(self):
+        calc = self._quiet(scout_bonus=20.0)
+        self._step(calc, minimap_explored_frac=0.20)
+        _, comp = self._step(calc, minimap_explored_frac=0.10)
+        self.assertAlmostEqual(comp["scout_explore"], 0.0)
+
+    # --- safety: missing keys, components sum, all present when disabled ---
+    def test_new_components_present_when_disabled(self):
+        calc = self._quiet()
+        _, comp = self._step(calc)
+        for key in (
+            "new_action_usage",
+            "supply_block",
+            "supply_growth",
+            "worker_growth",
+            "army_growth",
+            "tech_building",
+            "expansion",
+            "scout_explore",
+        ):
+            self.assertIn(key, comp)
+            self.assertEqual(comp[key], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._quiet(
+            supply_growth_bonus=1.0,
+            worker_growth_bonus=1.0,
+            army_growth_bonus=1.0,
+            tech_building_bonus=5.0,
+            expansion_bonus=15.0,
+            scout_bonus=20.0,
+            supply_block_penalty=-0.1,
+        )
+        self._step(calc, food_cap=15.0, food_workers=12.0, food_army=0.0, townhall_count=1, minimap_explored_frac=0.1)
+        total, comp = self._step(
+            calc,
+            food_cap=23.0,
+            food_workers=14.0,
+            food_army=3.0,
+            food_used=23.0,
+            townhall_count=2,
+            minimap_explored_frac=0.15,
+            owned_building_names={"CommandCenter", "Barracks"},
+        )
+        self.assertAlmostEqual(total, sum(comp.values()))
 
 
 if __name__ == "__main__":

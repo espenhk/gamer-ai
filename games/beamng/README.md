@@ -9,7 +9,7 @@ BeamNG.drive integration for the tmnf-ai reinforcement learning framework. Uses 
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
@@ -93,22 +93,22 @@ Discrete policies use a 9-cell grid: {brake, coast, accel} × {left, straight, r
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/beamng/config/reward_config.yaml`:
+Configured in `games/beamng/config/reward_config.yaml`.
 
-| Parameter | Value | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `progress_weight` | 10000.0 | Reward per unit of lap progress |
-| `centerline_weight` | −0.1 | Penalty for lateral deviation |
-| `centerline_exp` | 2.0 | Exponent for centerline penalty (quadratic) |
-| `speed_weight` | 0.05 | Small bonus for higher speed |
-| `step_penalty` | −0.05 | Per-step time cost |
-| `finish_bonus` | 5000.0 | One-time reward for completing the lap |
-| `finish_time_weight` | −5.0 | Penalty proportional to lap time above par |
-| `par_time_s` | 120.0 | Par lap time in seconds |
-| `accel_bonus` | 0.5 | Bonus for applying throttle |
-| `crash_threshold_m` | 25.0 | Lateral offset (m) that terminates the episode |
+| `progress_weight` | 10000.0 | Multiplied by the lap-progress delta each step. Dominates the reward — completing more of the track is always beneficial. |
+| `centerline_weight` | −0.1 | Coefficient of the centerline penalty: `centerline_weight × |lateral_offset_m|^centerline_exp`. Negative — larger offsets cost more reward. |
+| `centerline_exp` | 2.0 | Exponent for the centerline penalty. 2.0 = quadratic — small offsets are tolerated, large ones punished heavily. |
+| `speed_weight` | 0.05 | Per-step bonus proportional to vehicle speed. Small tie-breaker between otherwise equal trajectories. |
+| `step_penalty` | −0.05 | Flat per-step time cost. Discourages looping or spinning in place. |
+| `finish_bonus` | 5000.0 | One-time reward for completing the lap. |
+| `finish_time_weight` | −5.0 | Multiplied by `(elapsed_s − par_time_s)`. Negative means being slower than par costs reward; faster earns a bonus. |
+| `par_time_s` | 120.0 | Reference lap time in seconds used by `finish_time_weight`. |
+| `accel_bonus` | 0.5 | Flat bonus per step when the throttle is pressed. Discourages coasting. |
+| `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
 
 ---
 

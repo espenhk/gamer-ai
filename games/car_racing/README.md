@@ -9,7 +9,7 @@ Gymnasium `CarRacing-v2` integration for the tmnf-ai reinforcement learning fram
 - [Configuration](#configuration)
 - [Observation space](#observation-space)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
@@ -85,16 +85,16 @@ Discrete policies use a 9-cell grid: {brake, coast, accel} × {left, straight, r
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/car_racing/config/reward_config.yaml`:
+Configured in `games/car_racing/config/reward_config.yaml`.
 
-| Parameter | Value | Effect |
+| Parameter | Default | Description |
 |---|---|---|
-| `native_reward_scale` | 1.0 | Scales the raw gymnasium reward signal |
-| `step_penalty` | −0.1 | Per-step time cost |
-| `finish_bonus` | 100.0 | One-time reward for completing the track |
-| `crash_threshold_m` | 25.0 | Lateral offset (m) that terminates the episode |
+| `native_reward_scale` | 1.0 | Multiplier applied to the raw per-step reward from Gymnasium's `CarRacing-v2`. The native signal is positive for track tiles driven over and turns negative if the episode ends without completing the track. |
+| `step_penalty` | −0.1 | Flat per-step time cost added on top of the scaled native reward. Encourages faster completion. |
+| `finish_bonus` | 100.0 | One-time reward when all track tiles have been visited. |
+| `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
 
 ---
 

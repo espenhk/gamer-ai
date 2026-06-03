@@ -85,14 +85,26 @@ _REWARD_COMPONENT_TO_CFG_KEY: dict[str, str] = {
     "attack_friendly_penalty": "attack_friendly_penalty",
     "early_random_action": "early_random_action_bonus",
     "new_action_unlock": "new_action_unlock_bonus",
+    "new_action_usage": "new_action_usage_bonus",
     "unit_loss": "unit_loss_penalty",
     "damage_taken": "damage_taken_penalty",
     "passive_under_fire": "passive_under_fire_penalty",
+    "small_selection": "small_selection_bonus",
     "resource_banking": "resource_banking_penalty",
+    "supply_block": "supply_block_penalty",
+    "supply_growth": "supply_growth_bonus",
+    "worker_growth": "worker_growth_bonus",
+    "army_growth": "army_growth_bonus",
+    "tech_building": "tech_building_bonus",
+    "expansion": "expansion_bonus",
+    "scout_explore": "scout_bonus",
     "step_penalty": "step_penalty",
 }
 _DEFAULT_REWARD_CFG: dict[str, float | int] = dataclasses.asdict(SC2RewardConfig())
-# Components that are inherently scale-free and pass through unscaled.
+# Components that are inherently scale-free and pass through unscaled.  "scout"
+# is the belief system's intrinsic scouting reward (SC2Env, weighted by
+# belief_config's scout_drive_weight, not an SC2RewardConfig key).  The reward
+# calculator's map-exploration term is "scout_explore" and is scaled normally.
 _NO_SCALE_COMPONENT_KEYS: set[str] = {"scout"}
 _WARNED_NON_NUMERIC_WEIGHT: bool = False
 

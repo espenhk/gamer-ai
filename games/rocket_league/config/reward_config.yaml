@@ -1,8 +1,13 @@
-# Reward configuration for Rocket League RL training.
+# Reward configuration for Rocket League. See games/rocket_league/README.md for full documentation.
 
-vel_to_ball_weight: 0.01    # reward proportional to velocity towards ball
-boost_weight: 0.0           # per-step bonus for boosting (set negative to penalise waste)
-touch_bonus: 1.0            # one-time bonus for touching ball in an episode
-goal_weight: 10.0           # sparse reward for scoring a goal
-concede_penalty: 5.0        # sparse penalty for conceding a goal
-step_penalty: -0.001        # per-step time cost
+# dense
+vel_to_ball_weight: 0.01
+boost_weight: 0.0
+
+# sparse
+touch_bonus: 1.0
+goal_weight: 10.0
+concede_penalty: 5.0
+
+# time
+step_penalty: -0.001

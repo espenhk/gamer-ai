@@ -1,29 +1,22 @@
-# Reward configuration for iRacing RL training.
-# Edit these values freely — no code changes required.
-# See games/iracing/reward.py for full documentation of each parameter.
+# Reward configuration for iRacing. See games/iracing/README.md for full documentation.
 
-# --- Progress ---
+# progress
 progress_weight: 10000.0
 
-# --- Centerline adherence ---
-# penalty = centerline_weight * |lateral_offset_m| ^ centerline_exp
+# centerline
 centerline_weight: -0.1
 centerline_exp: 2.0
 
-# --- Speed ---
+# speed / time
 speed_weight: 0.05
-
-# --- Time cost ---
 step_penalty: -0.05
 
-# --- Finish rewards ---
+# finish
 finish_bonus: 5000.0
 
-# --- Off-track penalty (from iRacing safety rating) ---
+# shaping
 off_track_penalty: -10.0
-
-# --- Lap time improvement ---
 lap_time_improvement_bonus: 100.0
 
-# --- Episode termination ---
+# termination
 crash_threshold_m: 25.0

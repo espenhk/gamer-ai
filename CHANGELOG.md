@@ -42,16 +42,32 @@ formatting, internal refactors with no behaviour change — can be skipped.
   on `TMNFAdapter.bc`, so `python main.py <experiment> --game tmnf
   --bc` is the supported way to reproduce the legacy `do_pretrain`
   warm-start.  `.Replay.Gbx` ingest is tracked separately in #396.
+- BC refactor — Phase 4: docs, polish, and dead-code cleanup (issue #397,
+  parent #392).  New `docs/framework/bc_adapter.md` documents the
+  `BCAdapter` Protocol, `demos.npz` dataset schema, `bc_summary.json`
+  schema, and a worked example of adding BC to a new game.
+  `docs/framework/README.md` updated to list the new page.  `CLAUDE.md`
+  gains a game-agnostic `--bc` section under **Running** (alongside
+  `--play` / `--eval`); the SC2 `--bc` paragraph now cross-links to the
+  framework doc.  `games/tmnf/README.md` updated: `.Replay.Gbx` note
+  changed from "tracked in #396" to "not currently supported".
+  `games/sc2/README.md` BC intro cross-links framework doc.  Stale
+  `#396` / phase-3 references removed from `games/tmnf/bc_adapter.py`
+  and `main.py`.
 
 ### Breaking
-- The `do_pretrain: true` training-params key and its `rl/pretrain.py`
-  landing pad have been removed (issue #395, parent #392).  Replace any
-  remaining `do_pretrain: true` in your `training_params.yaml` with a
-  one-off `python main.py <experiment> --game tmnf --bc` step before
-  the regular training run; the BC output is byte-compatible with what
-  `do_pretrain` produced.  Stale `do_pretrain` keys are silently
-  ignored by `RunConfig.from_training_params`, so legacy configs
-  continue to load.
+- **Migration: `do_pretrain: true` → `--bc`.**  The `do_pretrain: true`
+  training-params key and its `rl/pretrain.py` landing pad were removed
+  in issue #395 (parent #392).  To reproduce the old warm-start
+  behaviour, run a one-off BC step before the regular training run:
+  ```bash
+  python main.py <experiment> --game tmnf --bc   # produces policy_weights.yaml
+  python main.py <experiment> --game tmnf        # fine-tunes from BC weights
+  ```
+  The BC output is byte-compatible with what `do_pretrain` produced.
+  Stale `do_pretrain: true` keys in existing `training_params.yaml`
+  files are silently ignored by `RunConfig.from_training_params`, so
+  legacy configs continue to load without error.
 
 ---
 

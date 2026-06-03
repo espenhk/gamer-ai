@@ -27,10 +27,10 @@ The framework-side protocols a contributor implements to ship a game or a
 policy are documented one file per protocol under
 [`docs/framework/`](docs/framework/README.md): `GameAdapter`, the
 `GameSpec` / `RunConfig` / `ProbeSpec` / `WarmupSpec` / `PolicyExtras`
-config bundles, `BaseGameEnv`, `RewardCalculatorBase`, `BasePolicy`, and
-`ObsSpec`. The sections below describe how these are configured and
-combined; the `docs/framework/` pages give the per-protocol method
-contracts and worked examples.
+config bundles, `BaseGameEnv`, `RewardCalculatorBase`, `BasePolicy`,
+`ObsSpec`, and `BCAdapter`. The sections below describe how these are
+configured and combined; the `docs/framework/` pages give the
+per-protocol method contracts and worked examples.
 
 ---
 
@@ -64,7 +64,7 @@ gamer-ai/
 │   ├── iracing/            # iRacing telemetry via pyirsdk (+ optional vJoy injection)
 │   └── atari/              # Atari 2600 via ale-py (RAM observation, Discrete actions)
 ├── clients/                # Backward-compat shim → games/tmnf/clients
-├── rl/                     # Backward-compat shim + pretrain (behaviour-cloning) experiments
+├── rl/                     # Backward-compat shim (legacy; BC now lives in framework/bc.py)
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
 ├── infrastructure/         # Terraform: auth, remote_state, environment (Azure VMs)
 ├── experiments/            # Per-experiment results (git-ignored)
@@ -108,6 +108,27 @@ Other useful flags: `--track <name>` overrides the config's track/map
 verbosity (`DEBUG` / `INFO` / `WARNING` / `ERROR`, default `INFO`).
 SC2-only modes `--play` and `--eval` are covered in the StarCraft 2
 section.
+
+**Behaviour cloning (`--bc`).** Any game whose `GameAdapter` exposes a
+`BCAdapter` can pre-train a policy from demonstration data before the RL
+loop:
+
+```bash
+# SC2 — clone from replay files, then fine-tune
+python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race terran
+python main.py myrun --game sc2
+
+# TMNF — drive SimplePolicy live for 3 laps, then fine-tune
+python main.py myrun --game tmnf --bc
+python main.py myrun --game tmnf
+```
+
+`--bc` writes `policy_weights.yaml` (+ optional `trainer_state.npz`) and
+`bc_summary.json` into the experiment directory; the normal training run
+picks them up automatically.  Mutually exclusive with `--play` and `--eval`.
+See [`docs/framework/bc_adapter.md`](docs/framework/bc_adapter.md) for the
+per-game extension contract, and the per-game READMEs for game-specific
+workflow details.
 
 ---
 
@@ -1029,18 +1050,11 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 
 `--eval` (SC2 only) loads the champion and runs it against the AI bot for `--num-episodes` episodes, reporting aggregate statistics. `--bot-difficulty` overrides the opponent difficulty and `--eval-speed` overrides `step_mul` for the eval run.
 
-`--bc` runs offline behaviour cloning into the experiment directory.  It is
-game-agnostic: any game whose `GameAdapter` exposes a `BCAdapter` can use
-it.  SC2 reads `.SC2Replay` files (with `--replay-dir`, `--bc-race`,
-`--bc-player`); TMNF runs the in-game `SimplePolicy` for `bc_n_demo_laps`
-laps and least-squares-fits a `WeightedLinearPolicy` (no `--replay-dir`
-needed) — replacing the legacy `do_pretrain: true` knob.  `.Replay.Gbx`
-ingest for TMNF is tracked in #396.  The mode flag is mutually exclusive
-with `--play` and `--eval`.  Writes `policy_weights.yaml` (+ optional
-`trainer_state.npz`) and `bc_summary.json` into the experiment
-directory.  See `framework/bc.py` for the per-game extension contract,
-and the per-game READMEs (`games/sc2/README.md`, `games/tmnf/README.md`)
-for game-specific workflow details.
+`--bc` runs SC2 offline behaviour cloning into the experiment directory.
+SC2 reads `.SC2Replay` files (with `--replay-dir`, `--bc-race`,
+`--bc-player`).  The framework BC contract and TMNF details are in the
+game-agnostic `--bc` section under **Running** above and in
+[`docs/framework/bc_adapter.md`](docs/framework/bc_adapter.md).
 
 ### Config knobs
 

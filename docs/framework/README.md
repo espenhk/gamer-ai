@@ -20,6 +20,7 @@ SC2 action names), but correctness does not depend on them.
 | [`reward.md`](reward.md) | `RewardCalculatorBase` (+ `RewardConfig` convention) | `framework/base_reward.py` | `games/<name>/reward.py` |
 | [`policies.md`](policies.md) | `BasePolicy` | `framework/policies.py` | `framework/policies.py` or `games/<name>/` |
 | [`obs_spec.md`](obs_spec.md) | `ObsSpec`, `ObsDim` | `framework/obs_spec.py` | `games/<name>/obs_spec.py` |
+| [`bc_adapter.md`](bc_adapter.md) | `BCAdapter` | `framework/bc.py`, `framework/bc_io.py` | `games/<name>/bc_adapter.py` |
 
 ## How the pieces fit together
 

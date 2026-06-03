@@ -926,7 +926,10 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 ## Framework BC seam
 
 `framework/bc.py` and `framework/bc_io.py` — game-agnostic BC orchestrator
-introduced in issue #393.
+(issue #393, parent #392).  Two game-specific implementations are wired
+on top: `games/sc2/bc_adapter.py` (issue #394) and
+`games/tmnf/bc_adapter.py` (issue #395).  See
+`docs/framework/bc_adapter.md` for the full protocol contract.
 
 **Tested.** `BCAdapter` Protocol conformance via a fake adapter, the
 generic `run()` orchestrator's validate → build → fit → save flow, NPZ
@@ -960,7 +963,7 @@ shape.  These tests do not touch any game.
 
 `games/tmnf/bc_adapter.py` — TMNF implementation of the framework BC seam
 introduced in issue #395.  Uses the in-game `SimplePolicy` as the
-demonstration source (replay-file ingest tracked in #396).
+demonstration source (`.Replay.Gbx` replay-file ingest not currently supported).
 
 **Tested.** Protocol surface, lstsq fit recovers a synthetic target
 policy, full pipeline through `framework.bc.run` with a stubbed env, and
@@ -975,8 +978,8 @@ episodes.
 - `validate_replay_dir(None)` returns a synthetic
   `"<simple-policy-live-demos>"` marker
 - `validate_replay_dir(<dir with .Replay.Gbx>)` raises `ValueError`
-  pointing to #396; `build_dataset` with a non-None `replay_dir` raises
-  the same way
+  with "not currently supported"; `build_dataset` with a non-None
+  `replay_dir` raises the same way
 - `fit_weighted_linear` recovers a synthetic target weight vector via
   lstsq (tolerance `1e-4`) when the training signal is noiseless
 - `fit_bc` returns `(policy, loss)` where `loss` matches

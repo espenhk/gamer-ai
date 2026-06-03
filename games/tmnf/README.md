@@ -106,10 +106,12 @@ python main.py my_experiment --game tmnf
 ```
 
 This replaces the legacy `do_pretrain: true` config knob (removed in
-issue #395).  `.Replay.Gbx` replay-file ingest is tracked in #396.
+issue #395).  `.Replay.Gbx` replay-file ingest is not currently
+supported — running without `--replay-dir` (SimplePolicy source) is
+the only BC mode available for TMNF today.
 
 Tune via `bc_n_demo_laps: <N>` in `training_params.yaml`; only
-`bc_target: hill_climbing` is supported today.
+`bc_target: hill_climbing` is supported.
 
 ### Grid search
 

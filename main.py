@@ -463,9 +463,8 @@ def _run_bc(adapter, args: argparse.Namespace) -> None:
 def _build_bc_obs_spec(game: str, training_params: dict):
     """Build the active observation spec for a BC run.
 
-    Each game decides its own obs_spec wiring.  The CLI doesn't try to be
-    clever — it asks the game module directly.  When phase 3 (#395) lands,
-    TMNF and other games will plug into this same dispatch.
+    Each game decides its own obs_spec wiring.  The CLI asks the game
+    module directly; new games add a branch here when they wire a BCAdapter.
     """
     if game == "sc2":
         from games.sc2.adapter import _get_obs_spec

@@ -7,8 +7,8 @@ path.  This suite covers:
 - Protocol surface (``name``, ``supported_targets``, ``default_target``,
   required methods).
 - ``validate_replay_dir`` synthetic-marker behaviour for the SimplePolicy
-  source, and the explicit ``#396`` defer when a ``.Replay.Gbx``
-  directory is passed.
+  source, and the explicit "not currently supported" error when a
+  ``.Replay.Gbx`` directory is passed.
 - ``fit_bc`` lstsq round-trip on synthetic demos — verifies parity with
   the historical ``rl/pretrain.fit_weighted_linear`` (which produced
   exactly the same numerical fit).
@@ -118,17 +118,17 @@ def test_validate_replay_dir_none_returns_marker():
     assert "simple-policy" in result
 
 
-def test_validate_replay_dir_with_gbx_defers_to_396(tmp_path):
+def test_validate_replay_dir_with_gbx_raises(tmp_path):
     (tmp_path / "a.Replay.Gbx").touch()
     (tmp_path / "b.Replay.Gbx").touch()
     a = TMNFBCAdapter()
-    with pytest.raises(ValueError, match="#396"):
+    with pytest.raises(ValueError, match="not currently supported"):
         a.validate_replay_dir(tmp_path)
 
 
-def test_build_dataset_with_replay_dir_defers_to_396(tmp_path):
+def test_build_dataset_with_replay_dir_raises(tmp_path):
     a = TMNFBCAdapter()
-    with pytest.raises(ValueError, match="#396"):
+    with pytest.raises(ValueError, match="not currently supported"):
         a.build_dataset(
             tmp_path,
             tmp_path / "demos.npz",

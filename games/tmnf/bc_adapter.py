@@ -8,7 +8,7 @@ on the demos.  This is the same logic that the now-removed
 ``rl/pretrain.py`` ran under ``do_pretrain: true``; here it is exposed
 through the framework BC pipeline instead.
 
-Replay-file ingest (``*.Replay.Gbx``) is tracked separately as #396.
+Replay-file ingest (``*.Replay.Gbx``) is not currently supported.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ class TMNFBCAdapter:
       be reachable — i.e. running the BC mode binds to the live game
       just like a normal training run does.
     * ``replay_dir`` set to a directory of ``*.Replay.Gbx`` files —
-      not yet supported (#396).  Raises with a clear pointer.
+      not currently supported.  Raises with a clear error message.
     """
 
     name = "tmnf"
@@ -59,14 +59,14 @@ class TMNFBCAdapter:
             # synthetic marker so logs read sensibly.
             return "<simple-policy-live-demos>"
 
-        # .Gbx ingest is in scope for #396, not this phase.
+        # .Replay.Gbx replay-file ingest is not currently implemented.
         path = pathlib.Path(replay_dir)
         gbx = sorted(path.glob("*.Replay.Gbx")) if path.is_dir() else []
         raise ValueError(
-            f".Replay.Gbx ingest is not yet implemented for TMNF BC (tracked in "
-            f"#396).  Found {len(gbx)} .Replay.Gbx file(s) in {replay_dir!r}.  "
-            f"For now, run without --replay-dir to use the SimplePolicy live "
-            f"demonstration source."
+            f".Replay.Gbx ingest is not currently supported for TMNF BC.  "
+            f"Found {len(gbx)} .Replay.Gbx file(s) in {replay_dir!r}.  "
+            f"Run without --replay-dir to use the SimplePolicy live "
+            f"demonstration source instead."
         )
 
     def build_dataset(
@@ -83,7 +83,7 @@ class TMNFBCAdapter:
             # Caller skipped validate_replay_dir or framework re-entered with
             # a replay path — defend the same boundary.
             raise ValueError(
-                ".Replay.Gbx ingest is not yet implemented for TMNF BC (#396); "
+                ".Replay.Gbx ingest is not currently supported for TMNF BC; "
                 "run without --replay-dir to use SimplePolicy demonstrations."
             )
 

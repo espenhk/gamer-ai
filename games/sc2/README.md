@@ -672,16 +672,17 @@ python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race ter
 python main.py myrun --game sc2
 ```
 
-`--bc` is now game-agnostic — any game whose `GameAdapter` exposes a
-`BCAdapter` can use it (currently SC2; TMNF lands in issue #395).  The
-mode flag is still mutually exclusive with `--play` / `--eval`.  The
-resulting `policy_weights.yaml` (and optional `trainer_state.npz`) are
-written to the standard experiment directory; the normal SC2 training
-loop auto-loads them on the next run, so step 2 is just a regular
-training run.  The orchestration lives in `framework/bc.py` and the
-SC2-specific implementation in `games/sc2/bc_adapter.py` —
-`games/sc2/replay_bc.py` still owns the replay parser and per-target
-fitters.
+`--bc` is game-agnostic — any game whose `GameAdapter` exposes a
+`BCAdapter` can use it.  The mode flag is mutually exclusive with
+`--play` / `--eval`.  The resulting `policy_weights.yaml` (and optional
+`trainer_state.npz`) are written to the standard experiment directory;
+the normal SC2 training loop auto-loads them on the next run, so step 2
+is just a regular training run.  The orchestration lives in
+`framework/bc.py` (see
+[`docs/framework/bc_adapter.md`](../../docs/framework/bc_adapter.md)
+for the full contract) and the SC2-specific implementation in
+`games/sc2/bc_adapter.py` — `games/sc2/replay_bc.py` still owns the
+replay parser and per-target fitters.
 
 ### Getting replay data
 

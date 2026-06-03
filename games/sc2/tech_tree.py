@@ -73,6 +73,20 @@ class Preconditions:
 # ---------------------------------------------------------------------------
 WORKER_NAMES: frozenset[str] = frozenset({"SCV", "Probe", "Drone"})
 
+# Town-hall structures (and their morphs) per race.  Used by the expansion
+# reward to count friendly bases — each additional town hall is an expansion.
+TOWNHALL_NAMES: frozenset[str] = frozenset(
+    {
+        "CommandCenter",
+        "OrbitalCommand",
+        "PlanetaryFortress",
+        "Nexus",
+        "Hatchery",
+        "Lair",
+        "Hive",
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Building prerequisites (per race).
 # ---------------------------------------------------------------------------

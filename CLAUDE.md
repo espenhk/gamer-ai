@@ -1128,14 +1128,27 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `new_action_unlock_bonus` | `0.0` | One-shot bonus per tech-gated fn_idx that appears in `available_fn_ids` for the first time in an episode (issue #360). Selection-only and always-available actions excluded. Recommended range: `1.0–10.0`. Opt-in. |
 | `new_action_usage_bonus` | `0.0` | Per-step bonus when the agent issues a tech-gated fn_idx that has already been unlocked this episode (issue #400). Fires up to `new_action_usage_max_uses` times per fn_idx per episode. Complements `new_action_unlock_bonus`. Recommended range: `0.1–2.0`. Opt-in. |
 | `new_action_usage_max_uses` | `50` | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
+| `supply_block_penalty` | `0.0` | Per-step penalty while supply-blocked (`food_used >= food_cap` and `food_cap < 200`). Production halts when capped — the most common macro failure. Range `-0.05` to `-0.5`. Opt-in. |
+| `supply_growth_bonus` | `0.0` | Bonus per point of `food_cap` increase (build supply structures / expand). Only increases rewarded. Range `0.5–3.0`. Opt-in. |
+| `worker_growth_bonus` | `0.0` | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Range `0.5–3.0`. Opt-in. |
+| `army_growth_bonus` | `0.0` | Bonus per point of `food_army` increase (produce combat units). Only increases rewarded (losses → `unit_loss_penalty`). Range `0.5–3.0`. Opt-in. |
+| `tech_building_bonus` | `0.0` | One-shot bonus the first time each friendly structure *type* is seen this episode (climbing the build tree). Range `2.0–10.0`. Opt-in. |
+| `expansion_bonus` | `0.0` | One-shot bonus each time the friendly town-hall count reaches a new episode max (an expansion). Counted from visible town halls; running max keeps it monotonic and never rewards the starting base. Range `5.0–25.0`. Opt-in. |
+| `scout_bonus` | `0.0` | Bonus proportional to the increase in `minimap_explored_frac` (revealing new map). Captures scouting beyond the screen. Per-step delta is tiny, so the weight is large. Range `5.0–50.0`. Opt-in. |
 
-For ladder maps (`Simple64` etc.) the recommended preset is:
+The bundled `reward_config.yaml` ships **tuned for 1v1 ladder play**:
+`score_weight: 0.0` (PySC2's spiky cumulative score would swamp the win/loss
+outcome over a full game), outcome-driven `win_bonus`/`loss_penalty`, and the
+macro-progression block (supply / worker / army growth, supply-block, tech
+unlock + usage, tech-building, expansion, scouting) enabled. Combat/movement
+shaping is dialled down from the combat-minigame values. The minimal ladder
+essentials are:
 
 ```yaml
 score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
-step_penalty: -0.001
+step_penalty: -0.002
 economy_weight: 0.001
 ```
 

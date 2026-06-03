@@ -25,6 +25,7 @@ from games.sc2.obs_spec import get_spec
 from games.sc2.tech_tree import (
     PRECONDITIONS,
     STRUCTURE_NAMES,
+    TOWNHALL_NAMES,
     WORKER_NAMES,
     SelectionReq,
     fn_idx_satisfied,
@@ -941,8 +942,14 @@ class SC2Client:
             "prev_vespene": 0.0,
             "food_used": feats.get("food_used", 0.0),
             "food_cap": feats.get("food_cap", 0.0),
+            "food_workers": feats.get("food_workers", 0.0),
+            "food_army": feats.get("food_army", 0.0),
             "army_count": feats.get("army_count", 0.0),
             "idle_worker_count": feats.get("idle_worker_count", 0.0),
+            # Progression-reward inputs (supply/economy growth, tech, scouting).
+            "minimap_explored_frac": feats.get("minimap_explored_frac", 0.0),
+            "owned_building_names": self._owned_buildings,
+            "townhall_count": self._townhall_count(ob),
             "killed_value_units": feats.get("killed_value_units", 0.0),
             "killed_value_structures": feats.get("killed_value_structures", 0.0),
             "player_outcome": player_outcome,
@@ -1211,6 +1218,31 @@ class SC2Client:
             if name is not None and name in STRUCTURE_NAMES:
                 names.add(name)
         return frozenset(names)
+
+    def _townhall_count(self, ob: Any) -> int:
+        """Return the number of currently-visible friendly town halls.
+
+        Counts friendly ``feature_units`` whose type name is a town hall
+        (CommandCenter / Nexus / Hatchery and their morphs).  Used by the
+        expansion reward; only on-screen units are visible, so a base built
+        fully off-camera may be undercounted — the reward tracks a running
+        maximum to keep the expansion signal monotonic.
+        """
+        feat_units = self._safe_array(ob, "feature_units")
+        if feat_units is None or feat_units.size == 0:
+            return 0
+        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+            return 0
+        if self._unit_type_id_to_name is None:
+            self._unit_type_id_to_name = self._build_unit_type_lookup()
+        count = 0
+        for row in feat_units:
+            if int(row[1]) != 1:
+                continue
+            name = self._unit_type_id_to_name.get(int(row[0]))
+            if name is not None and name in TOWNHALL_NAMES:
+                count += 1
+        return count
 
     def _compute_completed_upgrades(self, ob: Any) -> frozenset[str]:
         """Return the set of completed upgrade/research names this step.

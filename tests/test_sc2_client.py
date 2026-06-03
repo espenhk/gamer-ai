@@ -1566,6 +1566,43 @@ class TestSC2ClientRichExtractors(unittest.TestCase):
             self.assertIn(name, RICH_OBS_NAMES, f"{name!r} missing from rich spec")
 
 
+class TestSC2ClientTownhallCount(unittest.TestCase):
+    """Tests for SC2Client._townhall_count (expansion reward input)."""
+
+    def setUp(self):
+        self.client = SC2Client(map_name="Simple64")
+        self.client._unit_type_id_to_name = {
+            1: "CommandCenter",
+            2: "Marine",
+            3: "Nexus",
+            4: "Hatchery",
+        }
+
+    def test_counts_friendly_townhalls_only(self):
+        # cols [unit_type, alliance]; alliance 1 = self, 4 = enemy.
+        feat_units = np.array(
+            [
+                [1, 1],  # friendly CommandCenter → count
+                [2, 1],  # friendly Marine → not a town hall
+                [4, 1],  # friendly Hatchery → count
+                [3, 4],  # enemy Nexus → skip (not friendly)
+            ],
+            dtype=np.int32,
+        )
+        self.assertEqual(self.client._townhall_count({"feature_units": feat_units}), 2)
+
+    def test_zero_when_no_townhalls(self):
+        feat_units = np.array([[2, 1]], dtype=np.int32)  # friendly Marine only
+        self.assertEqual(self.client._townhall_count({"feature_units": feat_units}), 0)
+
+    def test_zero_when_missing_feature_units(self):
+        self.assertEqual(self.client._townhall_count({}), 0)
+
+    def test_zero_when_short_rows(self):
+        feat_units = np.array([[1]], dtype=np.int32)  # only one column
+        self.assertEqual(self.client._townhall_count({"feature_units": feat_units}), 0)
+
+
 # ---------------------------------------------------------------------------
 # Issue #140: action-mask caching benchmark / regression
 # ---------------------------------------------------------------------------

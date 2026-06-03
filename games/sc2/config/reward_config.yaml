@@ -1,39 +1,53 @@
 # Reward configuration for SC2. See games/sc2/README.md for full documentation.
+#
+# Ships tuned for 1v1 LADDER play: outcome-driven (score_weight 0) with a dense
+# macro-progression block (supply / workers / army / tech / expansion / scout).
+# For a combat MINIGAME, raise score_weight (~0.05-1.0) and zero the progression
+# block — see README -> Rewards -> Recommended presets.
 
 # primary
-score_weight: 100.0
-win_bonus: 1000.0
+score_weight: 0.0
+win_bonus: 100.0
 loss_penalty: -100.0
 
 # time / idle
-step_penalty: -0.001
+step_penalty: -0.002
 idle_penalty: 0.0
-idle_worker_penalty: 0.0
-idle_bonus: 0.5
+idle_worker_penalty: -0.1
+idle_bonus: 0.0
 
 # movement
-move_exploration_bonus: 0.15
+move_exploration_bonus: 0.02
 move_exploration_grid_size: 8
-move_exploration_decay_steps: 120
-move_repeat_penalty: -0.05
-move_self_penalty: -0.1
+move_exploration_decay_steps: 50
+move_repeat_penalty: -0.02
+move_self_penalty: -0.02
 
 # combat
-attack_move_bonus: 0.5
-click_attack_bonus: 1.0
-attack_bonus: 0.5
+attack_move_bonus: 0.0
+click_attack_bonus: 0.0
+attack_bonus: 0.1
 click_attack_cooldown_steps: 8
 attack_friendly_penalty: -10.0
-unit_loss_penalty: -3.0
-damage_taken_penalty: -0.05
+unit_loss_penalty: -1.0
+damage_taken_penalty: 0.0
 passive_under_fire_penalty: 0.0
 small_selection_bonus: 0.0
 
 # economy
 economy_weight: 0.001
-new_action_unlock_bonus: 0.0
-new_action_usage_bonus: 0.0
+new_action_unlock_bonus: 5.0
+new_action_usage_bonus: 0.5
 new_action_usage_max_uses: 50
-resource_banking_penalty: 0.0
+resource_banking_penalty: -0.0005
 mineral_banking_threshold: 300.0
 gas_banking_threshold: 200.0
+
+# progression (macro: supply / workers / army / tech / expansion / scouting)
+supply_block_penalty: -0.1
+supply_growth_bonus: 1.0
+worker_growth_bonus: 1.0
+army_growth_bonus: 1.0
+tech_building_bonus: 5.0
+expansion_bonus: 15.0
+scout_bonus: 20.0

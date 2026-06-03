@@ -221,3 +221,5 @@ backend.conf
 
 # big data files
 experiment_data.json
+
+graphify-out/

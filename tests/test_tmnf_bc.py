@@ -201,11 +201,15 @@ def test_fit_bc_rejects_unsupported_target():
 
 def test_collect_demos_finishes_requested_laps():
     env = _FakeTMNFEnv(obs_dim=6, ep_steps=5)
-    obs, acts = collect_demos(env, n_laps=2)
+    obs, acts, ep_lengths = collect_demos(env, n_laps=2)
     assert obs.shape == (10, 6)  # 2 laps × 5 steps
     assert acts.shape == (10, 3)
     assert obs.dtype == np.float32
     assert acts.dtype == np.float32
+    # Each env episode (between resets) is recorded as its own entry, and the
+    # fake env terminates with finished=True every ep_steps.
+    assert ep_lengths == [5, 5]
+    assert sum(ep_lengths) == obs.shape[0]
 
 
 def test_build_dataset_writes_framework_compatible_npz(tmp_path):
@@ -227,13 +231,28 @@ def test_build_dataset_writes_framework_compatible_npz(tmp_path):
     assert meta["n_steps"] == 6
     assert meta["bc_n_demo_laps"] == 2
 
-    # Loadable via the framework loader.
+    # Loadable via the framework loader; episode bookkeeping internally
+    # consistent with meta — one env episode per lap completion.
     data = load_dataset(save_path)
     assert data["obs"].shape == (6, obs_spec.dim)
     assert data["actions"].shape == (6, 3)
-    # SimplePolicy demos are written as a single contiguous "episode".
-    assert data["episode_starts"].tolist() == [0]
-    assert data["episode_lengths"].tolist() == [6]
+    assert data["episode_starts"].tolist() == [0, 3]
+    assert data["episode_lengths"].tolist() == [3, 3]
+    assert data["episode_id"].tolist() == [0, 0, 0, 1, 1, 1]
+    # Per-episode reload path used by recurrent BC targets round-trips too.
+    episodes = load_dataset(save_path, as_episodes=True)
+    assert len(episodes) == 2
+    assert episodes[0][0].shape == (3, obs_spec.dim)
+    assert episodes[1][0].shape == (3, obs_spec.dim)
+
+
+def test_make_tmnf_env_requires_bc_experiment_dir():
+    """Without _bc_experiment_dir in training_params, the env factory must
+    raise a clear ValueError rather than silently falling back to '.'."""
+    from games.tmnf.bc_adapter import _make_tmnf_env
+
+    with pytest.raises(ValueError, match="_bc_experiment_dir"):
+        _make_tmnf_env({"speed": 1.0, "in_game_episode_s": 10.0})
 
 
 def test_build_dataset_default_n_demo_laps_matches_historical_constant(tmp_path):

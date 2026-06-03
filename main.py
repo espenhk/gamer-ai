@@ -395,14 +395,30 @@ def _run_bc(adapter, args: argparse.Namespace) -> None:
 
     experiment_dir = adapter.experiment_dir(args.experiment, master_p, args.track)
     training_params_file = f"{experiment_dir}/training_params.yaml"
+    reward_cfg_file = f"{experiment_dir}/reward_config.yaml"
 
     os.makedirs(experiment_dir, exist_ok=True)
+    # Mirror _run_one for the master-config copy step.  Some games (e.g. TMNF)
+    # build an env during BC and need reward_config.yaml on disk too.
+    master_reward_cfg = os.path.join(adapter.config_dir, "reward_config.yaml")
+    if not os.path.exists(reward_cfg_file) and os.path.exists(master_reward_cfg):
+        shutil.copy(master_reward_cfg, reward_cfg_file)
+        logger.info("Copied master reward config → %s", reward_cfg_file)
     if not os.path.exists(training_params_file):
         shutil.copy(master_cfg, training_params_file)
         logger.info("Copied master training params → %s", training_params_file)
 
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
+
+    # Apply game-specific reward-config decoration (e.g. TMNF centerline_path)
+    # so the BC-driven env constructs cleanly.
+    if os.path.exists(reward_cfg_file):
+        with open(reward_cfg_file) as f:
+            reward_cfg = yaml.safe_load(f) or {}
+        adapter.decorate_reward_cfg(reward_cfg, p, args.track)
+        with open(reward_cfg_file, "w") as f:
+            yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
 
     obs_spec = _build_bc_obs_spec(args.game, p)
 
@@ -415,6 +431,10 @@ def _run_bc(adapter, args: argparse.Namespace) -> None:
     # the BCAdapter will read.  Other games can ignore the key.
     if getattr(args, "bc_player", None):
         p = dict(p, bc_player_id=args.bc_player)
+
+    # Pass the resolved experiment directory through so adapters that build
+    # an env during BC (e.g. TMNF) can find reward_config.yaml on disk.
+    p = dict(p, _bc_experiment_dir=experiment_dir)
 
     try:
         bc_run(

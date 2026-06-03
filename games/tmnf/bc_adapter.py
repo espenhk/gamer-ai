@@ -96,7 +96,7 @@ class TMNFBCAdapter:
 
         env = _make_tmnf_env(training_params)
         try:
-            obs_arr, act_arr = collect_demos(env, n_laps)
+            obs_arr, act_arr, episode_lengths = collect_demos(env, n_laps)
         finally:
             close = getattr(env, "close", None)
             if callable(close):
@@ -110,12 +110,12 @@ class TMNFBCAdapter:
 
         meta = {
             "source": "simple_policy",
-            "n_episodes": int(n_laps),
+            "n_episodes": int(len(episode_lengths)),
             "n_steps": int(obs_arr.shape[0]),
             "obs_dim": int(obs_arr.shape[1]),
             "bc_n_demo_laps": int(n_laps),
         }
-        _save_dataset_npz(save_path, obs_arr, act_arr, meta)
+        _save_dataset_npz(save_path, obs_arr, act_arr, episode_lengths, meta)
         return meta
 
     def fit_bc(
@@ -146,27 +146,46 @@ class TMNFBCAdapter:
 # ---------------------------------------------------------------------------
 
 
-def collect_demos(env, n_laps: int) -> tuple[np.ndarray, np.ndarray]:
-    """Drive *n_laps* with :class:`SimplePolicy`; return ``(obs, actions)``."""
+def collect_demos(env, n_laps: int) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """Drive *n_laps* with :class:`SimplePolicy`.
+
+    Returns
+    -------
+    (obs, actions, episode_lengths)
+        ``obs`` and ``actions`` are the concatenated trajectory arrays.
+        ``episode_lengths`` is one entry per env episode between resets —
+        which may be more than *n_laps* if the agent crashed or got
+        truncated before finishing.  ``sum(episode_lengths) == len(obs)``.
+    """
     from games.tmnf.simple_policy import SimplePolicy
 
     expert = SimplePolicy()
     obs, _ = env.reset()
     obs_list: list[np.ndarray] = []
     act_list: list[np.ndarray] = []
+    episode_lengths: list[int] = []
     laps_done = 0
+    steps_in_episode = 0
     while laps_done < n_laps:
         action = expert(obs)
         obs_list.append(obs.copy())
         act_list.append(action.copy())
+        steps_in_episode += 1
         obs, _, terminated, truncated, info = env.step(action)
         if (terminated or truncated) and info.get("finished", False):
             laps_done += 1
         if terminated or truncated:
-            obs, _ = env.reset()
+            episode_lengths.append(steps_in_episode)
+            steps_in_episode = 0
+            if laps_done < n_laps:
+                obs, _ = env.reset()
+    # Trailing in-flight partial episode (if any) — flush it.
+    if steps_in_episode:
+        episode_lengths.append(steps_in_episode)
     return (
         np.asarray(obs_list, dtype=np.float32),
         np.asarray(act_list, dtype=np.float32),
+        episode_lengths,
     )
 
 
@@ -214,12 +233,27 @@ def _bc_residual_loss(obs_matrix, act_matrix, obs_spec: ObsSpec) -> float:
 
 
 def _make_tmnf_env(training_params: dict):
-    """Build a TMNF env using the same factory the training loop uses."""
-    from games.tmnf.env import make_env
+    """Build a TMNF env using the same factory the training loop uses.
+
+    Requires the caller (typically ``main._run_bc``) to have stashed the
+    resolved experiment directory in ``training_params['_bc_experiment_dir']``
+    so :func:`games.tmnf.env.make_env` can find the experiment-local
+    ``reward_config.yaml`` it loads at construction time.
+    """
+    experiment_dir = training_params.get("_bc_experiment_dir")
+    if not experiment_dir:
+        raise ValueError(
+            "TMNF BC adapter needs the experiment directory in "
+            "training_params['_bc_experiment_dir'] so make_env() can find "
+            "reward_config.yaml.  This is normally set by main._run_bc — "
+            "callers driving the adapter directly must set it themselves."
+        )
+
+    from games.tmnf.env import make_env  # deferred — needs TMInterface
 
     n_lidar_rays = training_params.get("n_lidar_rays", 0)
     return make_env(
-        experiment_dir=training_params.get("_bc_experiment_dir", "."),
+        experiment_dir=experiment_dir,
         speed=training_params.get("speed", 1.0),
         in_game_episode_s=training_params.get("in_game_episode_s", 30.0),
         n_lidar_rays=n_lidar_rays,
@@ -232,24 +266,29 @@ def _save_dataset_npz(
     save_path: str | pathlib.Path,
     obs_arr: np.ndarray,
     act_arr: np.ndarray,
+    episode_lengths: list[int],
     meta: dict,
 ) -> None:
     """Write a ``demos.npz`` matching the framework BC dataset schema.
 
-    A SimplePolicy run records one continuous episode (laps glued together
-    by ``collect_demos``'s reset loop), so ``episode_starts=[0]``,
-    ``episode_lengths=[N]``, ``episode_id=[0..0]``.
+    ``episode_starts`` and ``episode_id`` are derived from
+    ``episode_lengths`` so the on-disk file is internally consistent
+    (``sum(episode_lengths) == len(obs)``) and round-trips through
+    :func:`framework.bc_io.load_dataset` (including the
+    ``as_episodes=True`` path used by recurrent BC targets).
     """
     import json
 
-    n = obs_arr.shape[0]
+    ep_lengths_arr = np.asarray(episode_lengths, dtype=np.int64)
+    ep_starts_arr = np.concatenate(([0], np.cumsum(ep_lengths_arr[:-1]))).astype(np.int64)
+    ep_id_arr = np.repeat(np.arange(len(ep_lengths_arr), dtype=np.int64), ep_lengths_arr)
     np.savez_compressed(
         str(save_path),
         obs=obs_arr.astype(np.float32),
         actions=act_arr.astype(np.float32),
-        episode_starts=np.array([0], dtype=np.int64),
-        episode_lengths=np.array([n], dtype=np.int64),
-        episode_id=np.zeros(n, dtype=np.int64),
+        episode_starts=ep_starts_arr,
+        episode_lengths=ep_lengths_arr,
+        episode_id=ep_id_arr,
         meta=np.array(json.dumps(meta)),
     )
 

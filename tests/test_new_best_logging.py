@@ -91,35 +91,38 @@ class TestLogNewBestDetails(unittest.TestCase):
     def test_reward_components_logged(self):
         info = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.2}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        # score and idle_bonus + explicit win/loss terms
-        self.assertEqual(len(lines), 4)
+        # score and idle_bonus — no terminal event so win/loss not shown
+        self.assertEqual(len(lines), 2)
         all_text = "\n".join(lines)
         self.assertIn("score=", all_text)
         self.assertIn("idle_bonus=", all_text)
-        self.assertIn("win_bonus=", all_text)
-        self.assertIn("loss_penalty=", all_text)
+        self.assertNotIn("win_bonus=", all_text)
+        self.assertNotIn("loss_penalty=", all_text)
 
     def test_reward_components_zero_omitted(self):
         info = {"episode_reward_components": {"score": 5.0, "economy": 0.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 3)
+        # score only — economy=0 and no terminal event suppress the rest
+        self.assertEqual(len(lines), 1)
         self.assertNotIn("economy", lines[0])
 
     def test_reward_components_prev_comparison(self):
         info = {"episode_reward_components": {"score": 10.0, "idle_bonus": 2.0, "terminal": 0.0}}
         prev = {"episode_reward_components": {"score": 5.0, "idle_bonus": 1.0, "terminal": 0.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
-        self.assertEqual(len(lines), 4)
+        # terminal=0 in both episodes → win/loss both 0 → neither shown
+        self.assertEqual(len(lines), 2)
         all_text = "\n".join(lines)
         self.assertIn("score=+10.0 (prev +5.0)", all_text)
         self.assertIn("idle_bonus=+2.0 (prev +1.0)", all_text)
-        self.assertIn("win_bonus=+0.0 (prev +0.0)", all_text)
-        self.assertIn("loss_penalty=+0.0 (prev +0.0)", all_text)
+        self.assertNotIn("win_bonus=", all_text)
+        self.assertNotIn("loss_penalty=", all_text)
 
     def test_reward_components_no_prev_no_comparison(self):
         info = {"episode_reward_components": {"score": 10.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        self.assertEqual(len(lines), 3)
+        # score only — no terminal event so win/loss not shown
+        self.assertEqual(len(lines), 1)
         self.assertIn("score=+10.0", lines[0])
 
     def test_score_zero_is_still_logged(self):
@@ -140,8 +143,30 @@ class TestLogNewBestDetails(unittest.TestCase):
         lines = _capture_training_logs(lambda: _log_new_best_details(info, prev))
         all_text = "\n".join(lines)
         self.assertIn("score=+10.0 (prev +5.0)", all_text)
+        # Current episode is a win (terminal=100) → win_bonus shown; loss_penalty=0 → not shown
         self.assertIn("win_bonus=+100.0 (prev +0.0)", all_text)
-        self.assertIn("loss_penalty=+0.0 (prev -100.0)", all_text)
+        self.assertNotIn("loss_penalty=", all_text)
+
+    def test_win_bonus_shown_only_when_positive(self):
+        info = {"episode_reward_components": {"score": 5.0, "terminal": 100.0}}
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        all_text = "\n".join(lines)
+        self.assertIn("win_bonus=+100.0", all_text)
+        self.assertNotIn("loss_penalty=", all_text)
+
+    def test_loss_penalty_shown_only_when_negative(self):
+        info = {"episode_reward_components": {"score": 0.0, "terminal": -100.0}}
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        all_text = "\n".join(lines)
+        self.assertIn("loss_penalty=-100.0", all_text)
+        self.assertNotIn("win_bonus=", all_text)
+
+    def test_no_terminal_hides_win_and_loss(self):
+        info = {"episode_reward_components": {"score": 8.0, "terminal": 0.0}}
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        all_text = "\n".join(lines)
+        self.assertNotIn("win_bonus=", all_text)
+        self.assertNotIn("loss_penalty=", all_text)
 
     def test_action_counts_logged(self):
         info = {"episode_action_counts": {0: 30, 1: 10, 2: 60}}
@@ -268,8 +293,9 @@ class TestLogNewBestDetails(unittest.TestCase):
             "episode_obs_averages": {"army_count": 3.0},
         }
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
-        # 2 reward components + explicit win/loss + 2 actions + 1 task metric + 1 kills + 1 game-state = 9
-        self.assertEqual(len(lines), 9)
+        # 2 reward components + 2 actions + 1 task metric + 1 kills + 1 game-state = 7
+        # (no terminal event → win/loss both 0 → not shown)
+        self.assertEqual(len(lines), 7)
 
 
 if __name__ == "__main__":

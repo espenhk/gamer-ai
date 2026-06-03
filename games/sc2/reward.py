@@ -475,8 +475,8 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``unit_loss``, ``damage_taken``, ``passive_under_fire``,
         ``small_selection``, ``resource_banking``, ``supply_block``,
         ``supply_growth``, ``worker_growth``, ``army_growth``,
-        ``tech_building``, ``expansion``, ``scout``, ``step_penalty`` and
-        ``terminal`` separately.
+        ``tech_building``, ``expansion``, ``scout_explore``, ``step_penalty``
+        and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -843,12 +843,14 @@ class SC2RewardCalculator(RewardCalculatorBase):
         components["expansion"] = float(expansion)
 
         # Scout bonus: reward revealing previously-unseen map (explored delta).
+        # Emitted as "scout_explore" to avoid colliding with the belief
+        # system's intrinsic "scout" component accumulated in SC2Env.
         scout = 0.0
         explored_frac = float(info.get("minimap_explored_frac", 0.0))
         if cfg.scout_bonus != 0.0 and self._prev_explored_frac is not None:
             scout = cfg.scout_bonus * max(0.0, explored_frac - self._prev_explored_frac)
         self._prev_explored_frac = explored_frac
-        components["scout"] = float(scout)
+        components["scout_explore"] = float(scout)
 
         # Time cost.
         components["step_penalty"] = float(cfg.step_penalty * n_ticks)

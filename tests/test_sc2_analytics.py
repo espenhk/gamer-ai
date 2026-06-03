@@ -652,6 +652,21 @@ class TestSaveGridSummary(unittest.TestCase):
 
             self.assertTrue(all("unmapped reward component" not in str(call.args[0]) for call in warn.call_args_list))
 
+    def test_scout_explore_component_does_not_emit_unmapped_warning(self):
+        # The reward calculator's map-exploration term ("scout_explore") is a
+        # distinct, normally-scaled component from the belief "scout" reward.
+        with tempfile.TemporaryDirectory() as d:
+            sim = _make_sim(sim=1, reward=2.0, reward_components={"scout_explore": 2.0})
+            data = _make_experiment([sim], name="exp_g2")
+
+            with (
+                mock.patch.object(sc2_analytics, "_framework_save_grid_summary"),
+                mock.patch.object(sc2_analytics.logger, "warning") as warn,
+            ):
+                save_grid_summary([("exp_g2", data)], [], d, "gs_test")
+
+            self.assertTrue(all("unmapped reward component" not in str(call.args[0]) for call in warn.call_args_list))
+
     def test_step_penalty_with_weight_below_1_passes_through_raw(self):
         """step_penalty weight < 1.0 → scale=1.0 → raw value passes through unchanged.
 

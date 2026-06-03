@@ -2448,18 +2448,18 @@ class TestMacroProgressionRewards(unittest.TestCase):
         _, comp = self._step(calc, townhall_count=1)  # lost vision / base
         self.assertAlmostEqual(comp["expansion"], 0.0)
 
-    # --- scout (explored-fraction delta) ---
+    # --- scout_explore (explored-fraction delta) ---
     def test_scout_rewards_exploration(self):
         calc = self._quiet(scout_bonus=20.0)
         self._step(calc, minimap_explored_frac=0.10)
         _, comp = self._step(calc, minimap_explored_frac=0.15)
-        self.assertAlmostEqual(comp["scout"], 1.0)  # 20 * 0.05
+        self.assertAlmostEqual(comp["scout_explore"], 1.0)  # 20 * 0.05
 
     def test_scout_ignores_decrease(self):
         calc = self._quiet(scout_bonus=20.0)
         self._step(calc, minimap_explored_frac=0.20)
         _, comp = self._step(calc, minimap_explored_frac=0.10)
-        self.assertAlmostEqual(comp["scout"], 0.0)
+        self.assertAlmostEqual(comp["scout_explore"], 0.0)
 
     # --- safety: missing keys, components sum, all present when disabled ---
     def test_new_components_present_when_disabled(self):
@@ -2473,7 +2473,7 @@ class TestMacroProgressionRewards(unittest.TestCase):
             "army_growth",
             "tech_building",
             "expansion",
-            "scout",
+            "scout_explore",
         ):
             self.assertIn(key, comp)
             self.assertEqual(comp[key], 0.0)

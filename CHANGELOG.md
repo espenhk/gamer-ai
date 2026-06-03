@@ -17,42 +17,28 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- **Atari: `neural_dqn` (and `reinforce`, `lstm`) policy registration** (issue #399).
+  `games/atari/adapter.py` never imported `games.atari.policies`, so Atari-specific
+  policy types were never registered in `POLICY_REGISTRY`, causing
+  `ValueError: Unknown policy_type: 'neural_dqn'` when running any Atari grid search.
+  Fixed by adding `import games.atari.policies` as a side-effect import in
+  `build_game_spec()`, matching the pattern already used by the TMNF and SC2 adapters.
+
+### Added
+- **Atari: `reinforce` and `lstm` policy thin wrappers** (issue #399).
+  `games/atari/policies.py` now also registers `REINFORCEPolicy` (Monte Carlo
+  policy gradient, softmax over 18 actions) and `LSTMEvolutionPolicy` (LSTM +
+  isotropic ES), both gated with the same duplicate-registration guards as
+  `NeuralDQNPolicy`.
+- **Atari grid search templates** (issue #399): `gs_genetic_template.yaml` and
+  `gs_reinforce_template.yaml` under `games/atari/config/`, joining the existing
+  `gs_neural_dqn_template.yaml`.  All three templates include budget notes,
+  sweep-axis rationale, and second-pass ablation suggestions.
 
 ---
 
 ## [0.4.2] - 2026-06-03
-
-### Added
-- SC2 macro-progression reward shaping for ladder 1v1 play. New opt-in
-  `reward_config.yaml` keys (all `0.0` default in code): `supply_block_penalty`,
-  `supply_growth_bonus`, `worker_growth_bonus`, `army_growth_bonus`,
-  `tech_building_bonus`, `expansion_bonus`, and `scout_bonus`. Each is surfaced
-  as its own `reward_components` entry and mapped in the SC2 analytics
-  normalisation table. These complement the existing `new_action_unlock_bonus`
-  (#360) and `new_action_usage_bonus` (#400) to give the agent a dense path from
-  economy growth to the terminal win/loss signal.
-- `SC2Client` now surfaces `food_workers`, `food_army`, `minimap_explored_frac`,
-  `owned_building_names`, and `townhall_count` in `info` for the new reward
-  terms; `TOWNHALL_NAMES` added to `games/sc2/tech_tree.py`.
-
-### Changed
-- The bundled `games/sc2/config/reward_config.yaml` is now tuned for 1v1 ladder
-  play: `score_weight` 100→0 (PySC2's cumulative score deltas otherwise swamp
-  the win/loss outcome), `win_bonus` 1000→100, `step_penalty` -0.001→-0.002,
-  combat/movement shaping dialled down, `idle_worker_penalty`,
-  `new_action_unlock_bonus`, `new_action_usage_bonus` and
-  `resource_banking_penalty` enabled, and the new macro-progression block turned
-  on with sensible defaults. Combat-minigame guidance retained in the README.
-- SC2 analytics: added the previously-missing `small_selection` reward component
-  to the normalisation map (it was unmapped and triggered a warning).
-
----
-
-## [0.4.1] - 2026-06-02
-
----
-
-## [0.4.0] - 2026-06-02
 
 ### Added
 - **SC2 `new_action_usage_bonus` reward component** (issue #400).  New opt-in

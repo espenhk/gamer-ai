@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.4.2] - 2026-06-03
+
 ### Added
 - SC2 macro-progression reward shaping for ladder 1v1 play. New opt-in
   `reward_config.yaml` keys (all `0.0` default in code): `supply_block_penalty`,
@@ -40,7 +45,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   on with sensible defaults. Combat-minigame guidance retained in the README.
 - SC2 analytics: added the previously-missing `small_selection` reward component
   to the normalisation map (it was unmapped and triggered a warning).
-
 
 ---
 

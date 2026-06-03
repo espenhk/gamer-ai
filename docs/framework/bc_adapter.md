@@ -28,7 +28,7 @@ below (duck typing) and be attached to the `GameAdapter.bc` attribute.
 def validate_replay_dir(replay_dir, *, race=None) -> Any
 def build_dataset(replay_dir, save_path, *, obs_spec, training_params,
                   race=None, max_replays=None) -> dict
-def fit_bc(dataset, obs_spec, *, target, training_params) -> (policy, float)
+def fit_bc(dataset, obs_spec, *, target, training_params) -> tuple[Any, float]
 def summary_extras(dataset, meta, *, target, training_params) -> dict   # optional
 ```
 

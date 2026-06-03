@@ -42,8 +42,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   on `TMNFAdapter.bc`, so `python main.py <experiment> --game tmnf
   --bc` is the supported way to reproduce the legacy `do_pretrain`
   warm-start.  `.Replay.Gbx` ingest is tracked separately in #396.
-
-### Added
 - BC refactor — Phase 4: docs, polish, and dead-code cleanup (issue #397,
   parent #392).  New `docs/framework/bc_adapter.md` documents the
   `BCAdapter` Protocol, `demos.npz` dataset schema, `bc_summary.json`

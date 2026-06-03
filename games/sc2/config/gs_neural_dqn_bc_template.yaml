@@ -37,7 +37,7 @@ bc:
   replay_dir: /path/to/replays     # REQUIRED: directory of .SC2Replay files
   bc_target: sc2_neural_dqn
   player_id: winner                # clone the winning side
-  race: any                        # no race filter — clone all replays
+  race: terran                        # no race filter — clone all replays
   max_replays: null                # null = process all replays in replay_dir
   bc_epochs: 10
   bc_learning_rate: 0.001

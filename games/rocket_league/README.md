@@ -101,24 +101,20 @@ scales.
 
 ---
 
-## Reward signal
+## Rewards
 
-### `games/rocket_league/config/reward_config.yaml`
+Configured in `games/rocket_league/config/reward_config.yaml`.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `vel_to_ball_weight` | `0.01` | Dense: reward ∝ velocity component towards ball each step. |
-| `boost_weight` | `0.0` | Dense: per-step bonus while boost is active. Set negative to penalise waste. |
-| `touch_bonus` | `1.0` | Sparse: one-time bonus when the car first touches the ball in an episode. |
-| `goal_weight` | `10.0` | Sparse: reward when agent scores. |
-| `concede_penalty` | `5.0` | Sparse: penalty when opponent scores (subtracted). |
-| `step_penalty` | `-0.001` | Per-step time cost to encourage efficient play. |
+| `vel_to_ball_weight` | 0.01 | Dense reward proportional to the agent's velocity component directed toward the ball each step. Provides continuous shaping to encourage ball-chasing even before contact occurs. |
+| `boost_weight` | 0.0 | Per-step bonus while boost is active. Set to a small negative value (e.g. `−0.002`) to penalise boost spam; leave at 0.0 to ignore boost usage in the reward. |
+| `touch_bonus` | 1.0 | Sparse one-time bonus the first time the car makes contact with the ball in an episode. Helps bootstrap ball-touching behaviour before the agent discovers how to score. |
+| `goal_weight` | 10.0 | Sparse reward added when the agent scores a goal. Should be large relative to shaping terms so the agent ultimately optimises for scoring, not just chasing. |
+| `concede_penalty` | 5.0 | Sparse penalty subtracted when an opponent scores. Asymmetric with `goal_weight` by design — conceding is bad but losing is not as catastrophic as scoring is good. |
+| `step_penalty` | −0.001 | Flat per-step time cost. Encourages efficient play and discourages passive waiting. |
 
-**Tuning tips:**
-- Start with `vel_to_ball_weight` and `touch_bonus` active to establish basic
-  ball-chasing behaviour before adding `goal_weight`.
-- Use a negative `boost_weight` (e.g. `-0.002`) to discourage boost spam while
-  learning; relax it once the agent understands boost use.
+**Tuning order:** Enable `vel_to_ball_weight` and `touch_bonus` first to establish basic ball-chasing, then add `goal_weight` once the agent reliably makes contact. Use a negative `boost_weight` to discourage boost spam early in training, then relax it once the agent understands boost management.
 
 ---
 

@@ -23,6 +23,19 @@ config, observation/action space, reward, and supported policies. This file
 is the architecture overview — defer to those per-game READMEs for
 game-specific specifics.
 
+**Per-game reward documentation convention.** Every game README must contain
+a `## Rewards` section (plural) with a Markdown table — columns
+`Parameter | Default | Description` — covering every key in the game's
+`reward_config.yaml`. This is where formulas, interaction effects, tuning
+notes, and preset recommendations live. The YAML file itself should be a
+clean list of `key: value` pairs with a single one-line header comment
+pointing to the README (`# Reward configuration for <GAME>. See
+games/<name>/README.md for full documentation.`). Avoid paragraph-style
+explanations or multi-line comment blocks inside the YAML. Short inline
+hints (e.g. `# "none" | "icm" | "rnd"` for an enum value) are acceptable
+when the valid options are not obvious from context. The
+`games/_template/` files show the expected pattern for new games.
+
 The framework-side protocols a contributor implements to ship a game or a
 policy are documented one file per protocol under
 [`docs/framework/`](docs/framework/README.md): `GameAdapter`, the
@@ -1112,9 +1125,9 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `damage_taken_penalty` | `0.0` | Penalty per raw HP+shield point lost across visible friendly units. Only on-screen units counted — keep weight small. Opt-in. |
 | `passive_under_fire_penalty` | `0.0` | Per-step penalty when enemies are within attack range of friendlies and the agent did not issue `Attack_screen`. Opt-in. |
 | `small_selection_bonus` | `0.0` | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. Opt-in. |
-| `new_action_unlock_bonus` | `0.0` | One-shot bonus per tech-gated `fn_idx` the first time it becomes available in an episode (issue #360). Rewards building the prerequisite structure. Recommended range `1.0–10.0`. Opt-in. |
-| `new_action_usage_bonus` | `0.0` | Per-step bonus when a tech-gated action that is already unlocked this episode is *issued*, for its first `new_action_usage_max_uses` uses (issue #400). Rewards following through and producing from new tech; independent of `new_action_unlock_bonus`. Range `0.1–2.0`. Opt-in. |
-| `new_action_usage_max_uses` | `50` | Cap on rewarded uses per `fn_idx` per episode for `new_action_usage_bonus`. |
+| `new_action_unlock_bonus` | `0.0` | One-shot bonus per tech-gated fn_idx that appears in `available_fn_ids` for the first time in an episode (issue #360). Selection-only and always-available actions excluded. Recommended range: `1.0–10.0`. Opt-in. |
+| `new_action_usage_bonus` | `0.0` | Per-step bonus when the agent issues a tech-gated fn_idx that has already been unlocked this episode (issue #400). Fires up to `new_action_usage_max_uses` times per fn_idx per episode. Complements `new_action_unlock_bonus`. Recommended range: `0.1–2.0`. Opt-in. |
+| `new_action_usage_max_uses` | `50` | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
 | `supply_block_penalty` | `0.0` | Per-step penalty while supply-blocked (`food_used >= food_cap` and `food_cap < 200`). Production halts when capped — the most common macro failure. Range `-0.05` to `-0.5`. Opt-in. |
 | `supply_growth_bonus` | `0.0` | Bonus per point of `food_cap` increase (build supply structures / expand). Only increases rewarded. Range `0.5–3.0`. Opt-in. |
 | `worker_growth_bonus` | `0.0` | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Range `0.5–3.0`. Opt-in. |
@@ -1123,16 +1136,13 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `expansion_bonus` | `0.0` | One-shot bonus each time the friendly town-hall count reaches a new episode max (an expansion). Counted from visible town halls; running max keeps it monotonic and never rewards the starting base. Range `5.0–25.0`. Opt-in. |
 | `scout_bonus` | `0.0` | Bonus proportional to the increase in `minimap_explored_frac` (revealing new map). Captures scouting beyond the screen. Per-step delta is tiny, so the weight is large. Range `5.0–50.0`. Opt-in. |
 
-The bundled `games/sc2/config/reward_config.yaml` ships **tuned for 1v1 ladder
-play**: `score_weight: 0.0` (PySC2's spiky cumulative score would swamp the
-win/loss outcome over a full game), outcome-driven `win_bonus`/`loss_penalty`,
-and a dense macro-progression block (supply / worker / army growth, supply-block
-penalty, tech-building, expansion, scouting, tech-action unlock + usage). The
-combat/movement shaping terms are dialled down from the combat-minigame values.
-For a combat minigame instead, raise `score_weight`, zero the macro block, and
-lean on `idle_bonus` / the attack bonuses.
-
-The minimal ladder essentials remain:
+The bundled `reward_config.yaml` ships **tuned for 1v1 ladder play**:
+`score_weight: 0.0` (PySC2's spiky cumulative score would swamp the win/loss
+outcome over a full game), outcome-driven `win_bonus`/`loss_penalty`, and the
+macro-progression block (supply / worker / army growth, supply-block, tech
+unlock + usage, tech-building, expansion, scouting) enabled. Combat/movement
+shaping is dialled down from the combat-minigame values. The minimal ladder
+essentials are:
 
 ```yaml
 score_weight: 0.0

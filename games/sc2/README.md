@@ -19,7 +19,7 @@ StarCraft II (PySC2) integration for the tmnf-ai reinforcement learning framewor
   - [Preset: `rich` (103 dims)](#preset-rich-103-dims)
   - [Backward compatibility / weight migration](#backward-compatibility--weight-migration)
 - [Action space](#action-space)
-- [Reward](#reward)
+- [Rewards](#rewards)
 - [Example commands](#example-commands)
   - [Single experiment](#single-experiment)
   - [Grid search](#grid-search)
@@ -336,48 +336,65 @@ When DEBUG logging is enabled, `SC2Client` also dumps a readable game-state snap
 
 ---
 
-## Reward
+## Rewards
 
-Configured in `games/sc2/config/reward_config.yaml`:
+Configured in `games/sc2/config/reward_config.yaml`.
 
-| Parameter | Default | Effect |
-|---|---:|---|
-| `score_weight` | 1.0 | PySC2 score delta per step (primary signal for minigames) |
-| `win_bonus` | 100.0 | One-time reward for winning the episode (ladder maps) |
-| `loss_penalty` | −100.0 | One-time penalty for losing (ladder maps) |
-| `step_penalty` | −0.001 | Per-step time cost |
-| `idle_penalty` | 0.0 | Penalty when `army_count == 0 and food_used < food_cap` (BuildMarines / economy maps) |
-| `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within effective attack range of an enemy (unit-aware when `feature_units` is available). The gate uses a 5% inside-range margin to avoid edge-of-range stalling (issue #127). |
-| `move_exploration_bonus` | 0.01 | Bonus for `Move_screen` targets that are at least `_MOVE_MIN_MEANINGFUL_FRAC` (6/64 ≈ 9% of screen) away from the previous move target. Sub-threshold moves receive no bonus, preventing stutter-stepping. |
-| `move_repeat_penalty` | −0.02 | Penalty when a `Move_screen` command is less than `_MOVE_MIN_MEANINGFUL_FRAC` from the previous move target (covers both exact repeats and tiny stutter steps) |
-| `move_self_penalty` | −0.01 | Penalty for issuing `Move_screen` to the friendly-unit centroid (discourages "move where we already are") |
-| `attack_move_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` with the target on empty ground while enemies are visible (A-move). Opt-in. |
-| `click_attack_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` directly on a visible enemy unit. Subject to `click_attack_cooldown_steps`. Opt-in. |
-| `click_attack_cooldown_steps` | 8 | Minimum env steps between rewarded target switches for `click_attack_bonus`. |
-| `economy_weight` | 0.0 | Coefficient on (minerals + vespene) delta — recommended `0.001` for ladder maps |
-| `resource_banking_penalty` | 0.0 | Per-step penalty proportional to excess minerals above `mineral_banking_threshold` or vespene above `gas_banking_threshold`. Nudges the agent to spend banked resources. Recommended range: `-0.0001` to `-0.001`. Opt-in. |
-| `mineral_banking_threshold` | 300.0 | Minerals above this level count as "banked" for `resource_banking_penalty`. |
-| `gas_banking_threshold` | 200.0 | Vespene above this level counts as "banked" for `resource_banking_penalty`. |
-| `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands when the active selection is one unit or under 50% of visible friendly units. Opt-in. |
+| Parameter | Default | Description |
+|---|---|---|
+| `score_weight` | 0.0 | Multiplied by the PySC2 cumulative-score delta each step. `0.0` for ladder (rely on `economy_weight`, the progression block, and terminal bonuses); raise to ~`0.05–1.0` for minigames where the cumulative score is the task signal. |
+| `win_bonus` | 100.0 | One-time reward when `player_outcome > 0` (win). Only fires on ladder maps — minigames never set `player_outcome`. |
+| `loss_penalty` | −100.0 | One-time penalty when `player_outcome < 0` (loss). Only fires on ladder maps. Always active regardless of `score_weight`. |
+| `step_penalty` | −0.002 | Flat per-step time cost. |
+| `idle_penalty` | 0.0 | Per-step penalty when `army_count == 0` and `food_used < food_cap`. Nudges the agent to build or train units on economy-focused maps (BuildMarines, CollectMineralsAndGas). |
+| `idle_worker_penalty` | −0.1 | Per-step penalty scaled by `idle_worker_count`. Workers should always be mining or building — each idle worker subtracts this amount per step. Recommended range for economy/ladder maps: `−0.05` to `−0.5`. |
+| `idle_bonus` | 0.0 | Per-step bonus when the agent issues `no_op` AND friendly units are within effective attack range of a visible enemy. Off for ladder; enable on combat minigames. Makes "stand still and shoot" learnable on combat minigames (DefeatRoaches, DefeatZerglingsAndBanelings). Uses a curated unit-range table in `games/sc2/client.py`; a 5% inside-range margin prevents edge-of-range stalling. |
+| `move_exploration_bonus` | 0.02 | Per-step bonus when a `Move_screen` command is issued and the friendly-unit centroid lands in a currently-unexplored cell of the screen grid. Small on ladder (screen-cell coverage is a weak proxy for useful movement); larger on movement minigames. Combats hyperfixation on one corner. Moves sub-threshold (`_MOVE_MIN_MEANINGFUL_FRAC` ≈ 9% of screen width) from the previous target receive no bonus. |
+| `move_exploration_grid_size` | 8 | Cells per axis of the screen exploration grid (8 → 8×8 = 64 cells). Higher = finer granularity, harder to fully explore. |
+| `move_exploration_decay_steps` | 50 | Steps before an explored cell can be rewarded again on a return visit. `0` = never expire (once per cell per episode); larger keeps areas "explored" longer. |
+| `move_repeat_penalty` | −0.02 | Penalty when a `Move_screen` target is within `_MOVE_MIN_MEANINGFUL_FRAC` of the previous move target. Covers both exact repeats and stutter steps. |
+| `move_self_penalty` | −0.02 | Penalty for issuing `Move_screen` to the centroid of currently-visible friendly units. Discourages "move where we already are". |
+| `attack_move_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` (fn_idx 3) targeting empty ground while enemies are visible (A-move). On ladder, combat shaping is folded into the single `attack_bonus`. Encourages units to fight rather than retreat or idle. |
+| `click_attack_bonus` | 0.0 | Per-step bonus when the agent issues `Attack_screen` directly on a visible enemy unit. Set higher than `attack_move_bonus` to favour precision targeting over A-moves. Subject to `click_attack_cooldown_steps`. |
+| `click_attack_cooldown_steps` | 8 | Minimum steps between rewarded target switches for `click_attack_bonus`. Clicking the same unit again passes immediately; rapidly switching targets is withheld until this many steps have elapsed. |
+| `attack_bonus` | 0.1 | Per-step bonus whenever `Attack_screen` (fn_idx 3) is issued, regardless of whether the target is a unit or open ground. Kept small on ladder so it nudges engagement without dominating the return. Simpler alternative to enabling `attack_move_bonus` and `click_attack_bonus` separately; all three can be active simultaneously. |
+| `attack_friendly_penalty` | −10.0 | Per-step penalty when an `Attack_screen` target lands on or near the centroid of visible friendly units (ally fire). Penalised heavily to deter friendly-fire regardless of intent. |
+| `unit_loss_penalty` | −1.0 | Penalty per army unit lost each step (drop in `army_count`). Two units dying simultaneously yields 2× the penalty. |
+| `damage_taken_penalty` | 0.0 | Penalty per raw HP+shield point lost across visible friendly units each step. Off for ladder (off-screen combat makes it noisy); enable on combat minigames where the whole fight is on screen. Only on-screen units count (feature_units limitation) — keep small to tolerate off-screen combat noise. |
+| `passive_under_fire_penalty` | 0.0 | Per-step penalty when enemies are within attack range of friendly units and the agent did not issue `Attack_screen`. Discourages retreating or idling under fire. Disabled by default; discrete SC2 policies cannot issue `Attack_screen`. |
+| `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. |
+| `economy_weight` | 0.001 | Coefficient on the (minerals + vespene) delta each step. Recommended `0.001` for ladder maps; `0.0` for minigames to avoid double-counting with `score_weight`. |
+| `new_action_unlock_bonus` | 5.0 | One-shot bonus the first time a tech-tree-gated fn_idx becomes fully executable in an episode (prerequisite buildings exist, correct unit is selected, affordable). Selection-only and always-available actions (no_op, select_army) are excluded. Recommended range: `1.0–10.0`. Disabled by default. |
+| `new_action_usage_bonus` | 0.5 | Per-step bonus when the agent actually issues a tech-gated fn_idx that has already been unlocked this episode. Complements `new_action_unlock_bonus` by rewarding sustained use, not just first discovery. Fires up to `new_action_usage_max_uses` times per fn_idx per episode then goes silent. Recommended range: `0.1–2.0` (keep smaller than `new_action_unlock_bonus`). Disabled by default. |
+| `new_action_usage_max_uses` | 50 | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
+| `resource_banking_penalty` | −0.0005 | Per-step penalty proportional to excess minerals above `mineral_banking_threshold` or vespene above `gas_banking_threshold`. Nudges the agent to invest hoarded resources. Recommended range: `−0.0001` to `−0.001`. |
+| `mineral_banking_threshold` | 300.0 | Minerals above this count as "banked" for `resource_banking_penalty`. |
+| `gas_banking_threshold` | 200.0 | Vespene above this count as "banked" for `resource_banking_penalty`. |
+| `supply_block_penalty` | −0.1 | Per-step penalty while supply-blocked (`food_used >= food_cap` and `food_cap < 200`). Production halts when capped — the most common ladder macro failure. Recommended range: `−0.05` to `−0.5`. |
+| `supply_growth_bonus` | 1.0 | Bonus per point of `food_cap` increase (build supply structures / expand — a new base also raises the cap). Only increases are rewarded. Recommended range: `0.5–3.0`. |
+| `worker_growth_bonus` | 1.0 | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Only increases are rewarded. Recommended range: `0.5–3.0`. |
+| `army_growth_bonus` | 1.0 | Bonus per point of `food_army` increase (produce combat units). Only increases are rewarded — losses are handled by `unit_loss_penalty`. Recommended range: `0.5–3.0`. |
+| `tech_building_bonus` | 5.0 | One-shot bonus the first time each friendly structure *type* is seen this episode (climbing the build tree). Fires once per structure type per episode. Recommended range: `2.0–10.0`. |
+| `expansion_bonus` | 15.0 | One-shot bonus each time the friendly town-hall count reaches a new episode maximum (an expansion). Counted from currently-visible town halls (a base built fully off-camera may be missed); the running maximum keeps the signal monotonic and never rewards the starting base. Recommended range: `5.0–25.0`. |
+| `scout_bonus` | 20.0 | Bonus proportional to the increase in `minimap_explored_frac` each step (revealing new map). Captures scouting that screen-local `move_exploration_bonus` cannot. The per-step fraction delta is tiny, so the weight is large. Recommended range: `5.0–50.0`. |
 
-`idle_bonus` uses PySC2 unit IDs plus a curated unit-range table in `games/sc2/client.py`.
-PySC2 does not expose weapon ranges directly in `pysc2.lib.units`; to update ranges, use
-Blizzard `s2client-proto` unit weapon data (`Weapon.range`) and/or Liquipedia unit stats:
-`s2clientprotocol/data.proto` and `Unit_Statistics_(Legacy_of_the_Void)`.
+### Recommended presets
 
-For ladder maps (`Simple64` etc.) the recommended preset is:
+The bundled file **ships tuned for ladder play** (`score_weight: 0.0`, outcome-driven bonuses, and the macro-progression block enabled). It is the default; no override is needed for Simple64-style 1v1 maps.
+
+**Combat / movement minigame:** raise `score_weight` to ~`0.05–1.0` (the cumulative score is the task signal), zero the macro-progression block (`supply_block_penalty`, `supply_growth_bonus`, `worker_growth_bonus`, `army_growth_bonus`, `tech_building_bonus`, `expansion_bonus`, `scout_bonus`, `new_action_unlock_bonus`, `new_action_usage_bonus`, `resource_banking_penalty`), and enable the combat shaping (`idle_bonus`, `attack_move_bonus`, `click_attack_bonus`); for BuildMarines set `idle_penalty: -0.05`.
+
+**Ladder essentials (already the shipped defaults):**
 
 ```yaml
 score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
-step_penalty: -0.001
+step_penalty: -0.002
 economy_weight: 0.001
 ```
 
-`win_bonus` and `loss_penalty` always fire on terminal `player_outcome` regardless of `score_weight`.
-
-The reward calculator exposes a per-component breakdown via `compute_with_components()` (issue #128/2b). `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, which the analytics layer plots as `reward_components.png` so you can attribute episode reward to `score` / `economy` / `idle_penalty` / `idle_bonus` / `move_exploration` / `move_repeat_penalty` / `move_self_penalty` / `small_selection` / `step_penalty` / `terminal` separately.
+The reward calculator exposes a per-component breakdown via `compute_with_components()`. `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, plotted as `reward_components.png` in the analytics output so you can attribute episode reward to individual terms.
 
 ---
 

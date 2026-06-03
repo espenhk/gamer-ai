@@ -5,8 +5,8 @@ from __future__ import annotations
 from framework.run_config import GameSpec, ProbeSpec, WarmupSpec
 from games.atari.actions import DISCRETE_ACTIONS
 from games.atari.analytics import save_experiment_results
-from games.atari.obs_spec import ATARI_OBS_SPEC
 from games.atari.env import make_env
+from games.atari.obs_spec import ATARI_OBS_SPEC
 
 
 def _sanitize(name: str) -> str:
@@ -62,11 +62,9 @@ class AtariAdapter:
         training_params: dict,
         track_override: str | None,
     ) -> GameSpec:
-
         map_name = track_override or training_params.get("map_name", "Pong-v5")
 
         def _make_env():
-
             return make_env(
                 experiment_dir=experiment_dir,
                 map_name=map_name,

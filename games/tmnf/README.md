@@ -15,7 +15,7 @@ Trackmania Nations Forever integration for the tmnf-ai reinforcement learning fr
 - [Background: What Is a Policy?](#background-what-is-a-policy)
 - [What the Car Can Sense (Observations)](#what-the-car-can-sense-observations)
 - [What the Car Can Do (Actions)](#what-the-car-can-do-actions)
-- [The Reward Signal](#the-reward-signal)
+- [Rewards](#rewards)
 - [Episode Warmup](#episode-warmup)
 - [Policies](#policies)
   - [1. `hill_climbing` — WeightedLinearPolicy](#1-hill_climbing--weightedlinearpolicy)
@@ -178,17 +178,42 @@ Policies that use **continuous actions** (linear, neural net) can produce any st
 
 ---
 
-## The Reward Signal
+## Rewards
 
-The training loop scores each episode using a weighted sum of several signals. The dominant signals are:
+Configured in `games/tmnf/config/reward_config.yaml`.
 
-- **Progress reward**: the main signal — proportional to how much further along the track the car got compared to the last step.
-- **Centreline penalty**: penalises drifting away from the centreline (quadratic by default, so small offsets are tolerated but large ones are punished heavily).
-- **Speed bonus**: small tie-breaker; rewards going faster.
-- **Finish bonus**: large one-time reward for completing the lap.
-- **Crash termination**: episode ends immediately if the lateral offset exceeds a threshold.
+| Parameter | Default | Description |
+|---|---|---|
+| `progress_weight` | 10000.0 | Multiplied by the track-progress delta each step. Dominates the reward — driving further is always beneficial, and the scale ensures it swamps the shaping terms. |
+| `centerline_weight` | −0.083 | Coefficient of the centerline penalty applied as `centerline_weight × |lateral_offset_m|^centerline_exp × n_ticks`. Pre-divided by ~1.2 (average ticks/step at 10× game speed) so the effective magnitude stays comparable to the pre-scaling baseline value of −0.1. |
+| `centerline_exp` | 2.0 | Exponent for the centerline penalty. 2.0 = quadratic — small offsets are tolerated, but drifting far off-centre is punished heavily. |
+| `speed_weight` | 0.042 | Per-step bonus proportional to vehicle speed, scaled by n_ticks. Small enough to be a tie-breaker between otherwise equal trajectories rather than the driving objective. Pre-divided by ~1.2 for the same n_ticks reason as `centerline_weight`. |
+| `step_penalty` | −0.05 | Flat per-step time cost. Discourages spinning in place or looping. |
+| `finish_bonus` | 5000.0 | One-time reward when `track_progress >= 1.0`. |
+| `finish_time_weight` | −5.0 | Multiplied by `(elapsed_s − par_time_s)`. Negative means being slower than par costs reward; finishing faster than par earns a bonus. |
+| `par_time_s` | 60.0 | Reference lap time in seconds used by `finish_time_weight`. |
+| `accel_bonus` | 0.5 | Flat bonus per step when the throttle is pressed. Discourages coasting. |
+| `airborne_penalty` | −0.83 | Applied every step when ≤1 wheel is in contact with the ground AND vertical offset ≤ 0 (airborne below the centreline level). Scaled by n_ticks. Pre-divided by ~1.2 for the same reason as `centerline_weight`. |
+| `lidar_wall_weight` | −5.0 | Wall proximity penalty: `lidar_wall_weight × (1 − min_ray)²`. A ray value near 0 means a wall is very close. Set to 0.0 when LIDAR is disabled (`n_lidar_rays: 0`). |
+| `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
 
-This means policies learn to drive quickly and accurately, not just reach the end.
+### Curiosity (intrinsic exploration)
+
+Optional intrinsic reward added on top of the extrinsic signal above. Both modules train online from experience — no replay buffer required. Set `curiosity_type: "none"` or `curiosity_weight: 0` to disable.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `curiosity_type` | `"icm"` | Module: `"icm"` (Intrinsic Curiosity Module, Pathak 2017), `"rnd"` (Random Network Distillation, Burda 2018), or `"none"`. |
+| `curiosity_weight` | 0.01 | Scale applied to the intrinsic reward before adding it to the extrinsic reward. Keep small (0.001–0.05) so exploration does not drown out the task signal. |
+| `curiosity_feature_dim` | 8 | Dimensionality of the learned feature embedding shared by the ICM/RND networks. |
+| `curiosity_hidden_size` | 32 | Hidden-layer width of the ICM/RND networks. |
+| `curiosity_lr` | 0.001 | Online SGD learning rate for updating the curiosity networks each step. |
+| `curiosity_beta` | 0.2 | ICM only: balance between forward-model loss and inverse-model loss. 0 = only inverse (action classification), 1 = only forward (state prediction). |
+| `curiosity_seed` | 42 | RNG seed for curiosity module initialisation. |
+
+**ICM** learns a feature encoder together with a forward model (predict next features from current features + action) and an inverse model (predict action from consecutive features). The forward prediction error in feature space is the intrinsic reward. The inverse model prevents the encoder collapsing onto action-irrelevant features.
+
+**RND** trains a predictor network to match a frozen randomly-initialised target network. States the agent has visited frequently have low prediction error; novel states have high error, which is the intrinsic reward. Cheaper than ICM — no action input required.
 
 ---
 

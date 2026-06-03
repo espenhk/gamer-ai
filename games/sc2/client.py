@@ -2078,8 +2078,9 @@ def _enemy_unit_type_features(
         if int(owner) != 4:
             continue
         name = unit_type_lookup.get(int(row[0]))
-        if name is not None:
-            out[f"enemy_count_{name}"] += 1.0
+        key = f"enemy_count_{name}"
+        if name is not None and key in out:
+            out[key] += 1.0
     return out, unit_type_lookup
 
 

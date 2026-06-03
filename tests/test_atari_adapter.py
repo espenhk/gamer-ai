@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
 
 from framework.game_adapter import GAME_ADAPTERS
@@ -106,10 +107,18 @@ class TestAtariGameSpec(unittest.TestCase):
         self.assertTrue(callable(spec.save_results_fn))
 
     def test_build_game_spec_registers_atari_policies(self):
-        """build_game_spec must trigger side-effect import of games.atari.policies."""
+        """build_game_spec must trigger the side-effect import of games.atari.policies.
+
+        Force a fresh import by temporarily removing the module from sys.modules
+        so the test is not order-dependent on other test files that may have
+        already imported games.atari.policies as a side effect.
+        """
         from framework.policies import POLICY_REGISTRY
 
+        # Remove so the next build_game_spec() call re-imports it.
+        sys.modules.pop("games.atari.policies", None)
         self._build_spec()
+        self.assertIn("games.atari.policies", sys.modules, "build_game_spec() must import games.atari.policies")
         for policy_type in ("neural_dqn", "reinforce", "lstm"):
             self.assertIn(
                 policy_type,

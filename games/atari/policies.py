@@ -10,7 +10,12 @@ import yaml
 from framework.dqn import DQNPolicy as _FrameworkDQN
 from framework.lstm import LSTMCore as _FrameworkLSTMCore
 from framework.lstm import LSTMEvolutionPolicy as _FrameworkLSTMEvo
-from framework.policies import POLICY_REGISTRY, register_policy, trainer_state_path
+from framework.policies import (
+    POLICY_REGISTRY,
+    check_continuous_action_compatible,
+    register_policy,
+    trainer_state_path,
+)
 from framework.reinforce import REINFORCEPolicy as _FrameworkREINFORCE
 
 logger = logging.getLogger(__name__)
@@ -52,7 +57,7 @@ if "neural_dqn" not in POLICY_REGISTRY:
 
         @classmethod
         def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-            return True, None
+            return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
         def to_cfg(self) -> dict:
             cfg = super().to_cfg()
@@ -132,7 +137,7 @@ if "reinforce" not in POLICY_REGISTRY:
 
         @classmethod
         def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-            return True, None
+            return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
         @classmethod
         def _construct_or_resume(
@@ -186,7 +191,7 @@ if "lstm" not in POLICY_REGISTRY:
 
         @classmethod
         def compatible_with(cls, game_name: str) -> tuple[bool, str | None]:
-            return True, None
+            return check_continuous_action_compatible(game_name, cls.POLICY_TYPE)
 
         @classmethod
         def _construct_or_resume(

@@ -47,7 +47,6 @@ class RunConfig:
     mutation_scale: float = 0.05
     mutation_share: float = 1.0
     adaptive_mutation: bool = True
-    do_pretrain: bool = False
     patience: int = 0
     policy_type: str = "hill_climbing"
     policy_params: dict = field(default_factory=dict)
@@ -63,7 +62,6 @@ class RunConfig:
             mutation_scale=p.get("mutation_scale", 0.05),
             mutation_share=p.get("mutation_share", 1.0),
             adaptive_mutation=p.get("adaptive_mutation", True),
-            do_pretrain=p.get("do_pretrain", False),
             patience=p.get("patience", 0),
             policy_type=p.get("policy_type", "hill_climbing"),
             policy_params=p.get("policy_params", {}),

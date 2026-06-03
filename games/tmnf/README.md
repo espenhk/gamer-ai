@@ -89,6 +89,28 @@ Results are saved to `experiments/<track>/my_experiment/results/`.
 python main.py my_experiment
 ```
 
+### Behaviour cloning warm-start (SimplePolicy source)
+
+`--bc` drives a one-shot warm-start: connect to TMNF, drive
+`SimplePolicy` for `bc_n_demo_laps` laps (default `3`), and least-squares-fit
+a `WeightedLinearPolicy` on the demonstrations.  The resulting
+`policy_weights.yaml` is loaded automatically by the next normal training
+run.
+
+```bash
+# 1. One-off BC warm-start (no --replay-dir → SimplePolicy live demos)
+python main.py my_experiment --game tmnf --bc
+
+# 2. Fine-tune as usual; the BC weights are picked up automatically
+python main.py my_experiment --game tmnf
+```
+
+This replaces the legacy `do_pretrain: true` config knob (removed in
+issue #395).  `.Replay.Gbx` replay-file ingest is tracked in #396.
+
+Tune via `bc_n_demo_laps: <N>` in `training_params.yaml`; only
+`bc_target: hill_climbing` is supported today.
+
 ### Grid search
 
 A ready-made grid search template is included:

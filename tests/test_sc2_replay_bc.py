@@ -1576,14 +1576,20 @@ class TestBCCLIMain(unittest.TestCase):
             args = self._parse(["myexp", "--game", "sc2", "--bc", "--replay-dir", "/r", "--bc-target", target])
             self.assertEqual(args.bc_target, target)
 
-    def test_bc_rejected_for_non_sc2(self):
-        """--bc with --game != sc2 must raise SystemExit."""
+    def test_bc_rejected_for_game_without_bc_adapter(self):
+        """--bc against a game whose adapter exposes no BCAdapter must
+        raise SystemExit with a clear error.
+
+        Phase 2 (#394) made --bc game-agnostic; the SC2-only gate is gone.
+        TMNF wires a BCAdapter as of #395, so the test uses ``torcs`` which
+        has not adopted the BC seam.
+        """
 
         from main import main as main_fn
 
         with unittest.mock.patch(
             "sys.argv",
-            ["main.py", "myexp", "--game", "tmnf", "--bc", "--replay-dir", "/r"],
+            ["main.py", "myexp", "--game", "torcs", "--bc"],
         ):
             with self.assertRaises(SystemExit) as ctx:
                 main_fn()

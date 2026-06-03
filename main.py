@@ -455,6 +455,12 @@ def _build_bc_obs_spec(game: str, training_params: dict):
         enable_belief = training_params.get("enable_belief", False)
         return _get_obs_spec(map_name, preset, enable_belief)
 
+    if game == "tmnf":
+        from games.tmnf.obs_spec import TMNF_OBS_SPEC
+
+        n_lidar_rays = training_params.get("n_lidar_rays", 0)
+        return TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+
     raise SystemExit(
         f"BC obs_spec for --game {game} is not wired into main.py yet.  See _build_bc_obs_spec in main.py."
     )

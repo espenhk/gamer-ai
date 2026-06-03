@@ -34,6 +34,24 @@ formatting, internal refactors with no behaviour change — can be skipped.
   owns the replay parser and per-target fitters, and its `run()` remains
   as a backward-compat shim with the legacy summary shape — external
   scripts and `tests/test_sc2_replay_bc.py` keep working unchanged.
+- TMNF BC adapter (issue #395, parent #392). New
+  `games/tmnf/bc_adapter.py` implements `BCAdapter` for TMNF using the
+  in-game `SimplePolicy` as the demonstration source — drives N laps
+  (default 3, override via `bc_n_demo_laps`) and least-squares-fits a
+  `WeightedLinearPolicy` on the resulting (obs, action) pairs.  Wired
+  on `TMNFAdapter.bc`, so `python main.py <experiment> --game tmnf
+  --bc` is the supported way to reproduce the legacy `do_pretrain`
+  warm-start.  `.Replay.Gbx` ingest is tracked separately in #396.
+
+### Breaking
+- The `do_pretrain: true` training-params key and its `rl/pretrain.py`
+  landing pad have been removed (issue #395, parent #392).  Replace any
+  remaining `do_pretrain: true` in your `training_params.yaml` with a
+  one-off `python main.py <experiment> --game tmnf --bc` step before
+  the regular training run; the BC output is byte-compatible with what
+  `do_pretrain` produced.  Stale `do_pretrain` keys are silently
+  ignored by `RunConfig.from_training_params`, so legacy configs
+  continue to load.
 
 ---
 

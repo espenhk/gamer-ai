@@ -1029,7 +1029,18 @@ The first run creates `experiments/sc2_<map>/<name>/` and copies both master con
 
 `--eval` (SC2 only) loads the champion and runs it against the AI bot for `--num-episodes` episodes, reporting aggregate statistics. `--bot-difficulty` overrides the opponent difficulty and `--eval-speed` overrides `step_mul` for the eval run.
 
-`--bc` (SC2 only) runs offline behaviour cloning from `.SC2Replay` files. Writes `policy_weights.yaml` (+ optional `trainer_state.npz` and `bc_summary.json`) into the experiment directory. Mutually exclusive with `--play` and `--eval`. See the StarCraft 2 `games/sc2/README.md` for the full workflow, dataset sourcing, per-policy warm-start table, and coordinate/resolution caveats.
+`--bc` runs offline behaviour cloning into the experiment directory.  It is
+game-agnostic: any game whose `GameAdapter` exposes a `BCAdapter` can use
+it.  SC2 reads `.SC2Replay` files (with `--replay-dir`, `--bc-race`,
+`--bc-player`); TMNF runs the in-game `SimplePolicy` for `bc_n_demo_laps`
+laps and least-squares-fits a `WeightedLinearPolicy` (no `--replay-dir`
+needed) — replacing the legacy `do_pretrain: true` knob.  `.Replay.Gbx`
+ingest for TMNF is tracked in #396.  The mode flag is mutually exclusive
+with `--play` and `--eval`.  Writes `policy_weights.yaml` (+ optional
+`trainer_state.npz`) and `bc_summary.json` into the experiment
+directory.  See `framework/bc.py` for the per-game extension contract,
+and the per-game READMEs (`games/sc2/README.md`, `games/tmnf/README.md`)
+for game-specific workflow details.
 
 ### Config knobs
 

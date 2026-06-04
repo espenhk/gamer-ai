@@ -17,6 +17,26 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
+- **SC2 ladder default reward enables `damage_taken_penalty`** (issue #401).
+  The bundled `games/sc2/config/reward_config.yaml` now sets
+  `damage_taken_penalty: -0.01` (was `0.0`), so the agent now pays a small
+  per-HP cost when friendly units take damage on screen.  A 40-HP Marine
+  loss costs ~0.4 — comparable to a single `unit_loss_penalty` hit — while
+  staying small enough to tolerate the feature_units off-screen noise.
+  No code changes; set the key back to `0.0` to recover the previous behaviour.
+
+### Added
+- **SC2 Refinery target snap** (issue #402).  `SC2Client` now tracks visible
+  neutral vespene geysers from `feature_units` each step and rewrites the
+  target coordinates of `Build_Refinery_screen`, `Build_Assimilator_screen`,
+  and `Build_Extractor_screen` actions onto the nearest cached geyser
+  before issuing the PySC2 call.  Geysers occupied by an existing
+  Refinery/Assimilator/Extractor drop out of the neutral list naturally
+  (the friendly building takes their place), so the snap won't pick an
+  already-occupied geyser.  When no geyser is visible the action passes
+  through unchanged (PySC2 then no-ops it, identical to the previous
+  behaviour).  New `GEYSER_NAMES` frozenset in `games/sc2/tech_tree.py`.
 
 ---
 

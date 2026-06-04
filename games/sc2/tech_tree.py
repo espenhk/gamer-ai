@@ -73,6 +73,25 @@ class Preconditions:
 # ---------------------------------------------------------------------------
 WORKER_NAMES: frozenset[str] = frozenset({"SCV", "Probe", "Drone"})
 
+# ---------------------------------------------------------------------------
+# Vespene-geyser unit-type names.
+# ---------------------------------------------------------------------------
+# Neutral resource units on which Refinery / Assimilator / Extractor must be
+# placed.  Names match ``pysc2.lib.units.Neutral`` enum entries so the client
+# can identify them in ``feature_units`` without a translation layer.  Used by
+# the Build_Refinery interceptor to snap the target coordinates onto a real
+# geyser (issue #402).
+GEYSER_NAMES: frozenset[str] = frozenset(
+    {
+        "VespeneGeyser",
+        "SpacePlatformGeyser",
+        "RichVespeneGeyser",
+        "ProtossVespeneGeyser",
+        "PurifierVespeneGeyser",
+        "ShakurasVespeneGeyser",
+    }
+)
+
 # Town-hall structures (and their morphs) per race.  Used by the expansion
 # reward to count friendly bases — each additional town hall is an expansion.
 TOWNHALL_NAMES: frozenset[str] = frozenset(

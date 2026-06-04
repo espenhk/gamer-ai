@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
 
 from framework.game_adapter import GAME_ADAPTERS
@@ -80,28 +81,50 @@ class TestAtariAdapter(unittest.TestCase):
 
 
 class TestAtariGameSpec(unittest.TestCase):
-    def test_build_game_spec_returns_atari_obs_spec_and_actions(self):
-        from games.atari.obs_spec import ATARI_OBS_SPEC
-
-        adapter = GAME_ADAPTERS["atari"]()
-        spec = adapter.build_game_spec(
+    def _build_spec(self, policy_type="genetic"):
+        return GAME_ADAPTERS["atari"]().build_game_spec(
             experiment_name="myrun",
-            experiment_dir="experiments/atari/genetic/Pong-v5/myrun",
-            weights_file="experiments/atari/genetic/Pong-v5/myrun/policy_weights.yaml",
-            reward_cfg_file="experiments/atari/genetic/Pong-v5/myrun/reward_config.yaml",
+            experiment_dir=f"experiments/atari/{policy_type}/Pong-v5/myrun",
+            weights_file=f"experiments/atari/{policy_type}/Pong-v5/myrun/policy_weights.yaml",
+            reward_cfg_file=f"experiments/atari/{policy_type}/Pong-v5/myrun/reward_config.yaml",
             training_params={
                 "map_name": "Pong-v5",
                 "in_game_episode_s": 60.0,
-                "policy_type": "genetic",
+                "policy_type": policy_type,
             },
             track_override=None,
         )
+
+    def test_build_game_spec_returns_atari_obs_spec_and_actions(self):
+        from games.atari.obs_spec import ATARI_OBS_SPEC
+
+        spec = self._build_spec()
         self.assertEqual(spec.game_name, "atari")
         self.assertEqual(spec.head_names, ["action"])
         self.assertIs(spec.obs_spec, ATARI_OBS_SPEC)
         self.assertEqual(spec.discrete_actions.shape, (18, 1))
         self.assertTrue(callable(spec.make_env_fn))
         self.assertTrue(callable(spec.save_results_fn))
+
+    def test_build_game_spec_registers_atari_policies(self):
+        """build_game_spec must trigger the side-effect import of games.atari.policies.
+
+        Force a fresh import by temporarily removing the module from sys.modules
+        so the test is not order-dependent on other test files that may have
+        already imported games.atari.policies as a side effect.
+        """
+        from framework.policies import POLICY_REGISTRY
+
+        # Remove so the next build_game_spec() call re-imports it.
+        sys.modules.pop("games.atari.policies", None)
+        self._build_spec()
+        self.assertIn("games.atari.policies", sys.modules, "build_game_spec() must import games.atari.policies")
+        for policy_type in ("neural_dqn", "reinforce", "lstm"):
+            self.assertIn(
+                policy_type,
+                POLICY_REGISTRY,
+                f"Expected '{policy_type}' to be registered after build_game_spec()",
+            )
 
 
 if __name__ == "__main__":

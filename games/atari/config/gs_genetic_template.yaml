@@ -1,0 +1,60 @@
+# Grid search template: GeneticPolicy — Atari RAM
+#
+# Usage:
+#   python grid_search.py games/atari/config/gs_genetic_template.yaml --game atari
+#
+# Background
+# ----------
+# GeneticPolicy maintains a population of WeightedLinearPolicy individuals.
+# Each generation evaluates all individuals, keeps the top elite_k unchanged,
+# and breeds the rest via uniform crossover + mutation.  On Atari RAM the
+# policy output (a single float in [-1, 1]) is linearly mapped by the env to
+# a legal action index, so the genetic search optimises a linear RAM→action
+# mapping without needing to discretise the action space explicitly.
+#
+# Budget
+# ------
+# At 60 fps, 60 s per episode ≈ 3 600 env steps.
+# n_sims=50 generations × population_size=20 = 1 000 episodes ≈ 3.6 M env steps.
+# This is a fast first-pass sweep; raise n_sims to 100+ once you've found a
+# good mutation_scale.
+#
+# Sweep axes: population_size × mutation_scale
+# ---------------------------------------------
+# population_size controls the breadth of each generation's search.  Larger
+# populations explore more weight space per generation but reduce the number
+# of generations within the episode budget.
+# mutation_scale is the std-dev of Gaussian noise added to offspring weights.
+# Too small → slow convergence; too large → offspring behave randomly.
+#
+# Combos: 2 × 3 = 6 runs.
+#
+# Second-pass ablations to consider:
+#   eval_episodes: [1, 2]   — average fitness over multiple episodes per individual
+#   mutation_share: [0.5, 1.0]
+
+base_name: "genetic_atari_v1"
+game: atari
+
+training_params:
+  map_name: Pong-v5           # swap for Breakout-v5, SpaceInvaders-v5, etc.
+  in_game_episode_s: 60.0     # 60 s × 60 fps ≈ 3 600 steps / episode
+  n_sims: 50                  # generations; total episodes = n_sims × population_size
+  policy_type: genetic
+  adaptive_mutation: false    # genetic has its own selection pressure; disable
+  patience: 0
+
+  # --- Search axes ---
+  population_size: [10, 20]
+  mutation_scale: [0.05, 0.1, 0.2]
+
+  # Fixed policy params
+  policy_params:
+    elite_k: 3
+    mutation_share: 1.0
+    eval_episodes: 1
+
+reward_params:
+  native_reward_scale: 1.0
+  clip_sign: true             # pin per-step reward to {-1, 0, +1}
+  step_penalty: -0.001

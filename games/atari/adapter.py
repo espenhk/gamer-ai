@@ -62,6 +62,8 @@ class AtariAdapter:
         training_params: dict,
         track_override: str | None,
     ) -> GameSpec:
+        import games.atari.policies  # noqa: F401 — side-effect: registers Atari policy types
+
         map_name = track_override or training_params.get("map_name", "Pong-v5")
 
         def _make_env():

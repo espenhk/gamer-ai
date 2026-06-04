@@ -1,0 +1,61 @@
+# Grid search template: REINFORCEPolicy — Atari RAM
+#
+# Usage:
+#   python grid_search.py games/atari/config/gs_reinforce_template.yaml --game atari
+#
+# Background
+# ----------
+# REINFORCE (Monte Carlo policy gradient) collects a full episode, computes
+# discounted returns, and updates a softmax MLP policy via gradient ascent.
+# The 18-action softmax head directly models the Atari action distribution,
+# making this a natural fit for the discrete Atari action space.
+# An optional running-mean baseline reduces gradient variance without
+# introducing a learnable critic.
+#
+# Budget
+# ------
+# At 60 fps, 120 s per episode ≈ 7 200 env steps.
+# n_sims=150 → ~1 080 000 total env steps.
+# REINFORCE has high variance so longer episodes and more sims are preferred
+# over very short episodes with many updates.
+#
+# Sweep axes: learning_rate × entropy_coeff
+# -----------------------------------------
+# learning_rate: the dominant stability knob.  Too high → policy collapses or
+#   diverges; too low → convergence within the episode budget is too slow.
+#   The range 3e-4–1e-3 is the practical sweet spot for RAM-based Atari.
+# entropy_coeff: adds an entropy bonus to prevent premature policy collapse.
+#   0.0 = pure REINFORCE; 0.01 = light exploration pressure (recommended
+#   default); higher values keep the policy more uniform but slow exploitation.
+#
+# Combos: 3 × 2 = 6 runs.
+#
+# Second-pass ablations to consider:
+#   baseline: ["running_mean", "none"]
+#   hidden_sizes: [[64, 64], [128, 64]]
+
+base_name: "reinforce_atari_v1"
+game: atari
+
+training_params:
+  map_name: Pong-v5           # swap for Breakout-v5, SpaceInvaders-v5, etc.
+  in_game_episode_s: 120.0    # 120 s × 60 fps ≈ 7 200 steps / episode
+  n_sims: 150                 # full MC rollouts (episodes); one gradient update each
+  policy_type: reinforce
+  adaptive_mutation: false
+  patience: 0
+
+  # --- Search axes ---
+  learning_rate: [0.0003, 0.0005, 0.001]
+  entropy_coeff: [0.0, 0.01]
+
+  # Fixed policy params
+  policy_params:
+    hidden_sizes: [64, 64]
+    gamma: 0.99
+    baseline: running_mean
+
+reward_params:
+  native_reward_scale: 1.0
+  clip_sign: true             # pin per-step reward to {-1, 0, +1}
+  step_penalty: -0.001

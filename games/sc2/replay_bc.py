@@ -275,12 +275,16 @@ def replay_observations(
     PySC2 imports are lazy — callers without PySC2 installed can still import
     this module.  Raises ``ImportError`` at call-time if PySC2 is absent.
     """
+    from absl import flags as _absl_flags  # type: ignore[import-untyped]
     from pysc2 import run_configs
     from pysc2.lib import features as sc2_features
     from s2clientprotocol import sc2api_pb2 as sc2_api
 
     from games.sc2.actions import function_call_to_action
     from games.sc2.client import _ObsExtractState, extract_flat_obs
+
+    if not _absl_flags.FLAGS.is_parsed():
+        _absl_flags.FLAGS([""])
 
     path = pathlib.Path(path)
     run_config = run_configs.get()
@@ -383,8 +387,15 @@ def _read_one_replay(
     screen_size: int,
     minimap_size: int,
     multi_action_strategy: str,
+    _controller: Any = None,
+    _run_config: Any = None,
 ) -> tuple[bool, str, list[tuple[np.ndarray, np.ndarray]]]:
-    """Open ONE SC2 process per replay: race-check first, then collect pairs.
+    """Process one replay: race-check first, then collect (obs, action) pairs.
+
+    When *_controller* and *_run_config* are provided (passed by
+    :func:`build_dataset`) the already-running SC2 process is reused so the
+    caller pays the binary-startup cost only once.  When they are ``None``
+    (standalone use) a fresh SC2 process is started and closed per call.
 
     Returns
     -------
@@ -393,6 +404,7 @@ def _read_one_replay(
         dropped by the race filter.  *player_race* is the race string of the
         observed player regardless of filtering.
     """
+    from absl import flags as _absl_flags  # type: ignore[import-untyped]
     from pysc2 import run_configs
     from pysc2.lib import features as sc2_features
     from s2clientprotocol import sc2api_pb2 as sc2_api
@@ -400,16 +412,16 @@ def _read_one_replay(
     from games.sc2.actions import function_call_to_action
     from games.sc2.client import _ObsExtractState, extract_flat_obs
 
-    run_config = run_configs.get()
+    if not _absl_flags.FLAGS.is_parsed():
+        _absl_flags.FLAGS([""])
 
-    with run_config.start(want_rgb=False) as controller:
+    def _process(run_config: Any, controller: Any) -> tuple[bool, str, list]:
         replay_data = run_config.replay_data(str(path))
         info = controller.replay_info(replay_data)
         winner_id, player_races = _parse_replay_info(info)
         resolved_pid = _resolve_player_id(player_id, winner_id)
         player_race = player_races.get(resolved_pid, "random")
 
-        # Apply race filter before starting the replay.
         if race_filter is not None and player_race != race_filter:
             return False, player_race, []
 
@@ -451,7 +463,7 @@ def _read_one_replay(
 
             raw_actions = list(obs_proto.actions)
             if not raw_actions:
-                state.last_fn_idx = 0  # idle frame → no_op for next obs
+                state.last_fn_idx = 0
                 controller.step(step_mul)
                 continue
 
@@ -485,7 +497,14 @@ def _read_one_replay(
                 skipped_unknown,
             )
 
-    return True, player_race, pairs
+        return True, player_race, pairs
+
+    if _controller is not None:
+        return _process(_run_config, _controller)
+
+    run_config = run_configs.get()
+    with run_config.start(want_rgb=False) as controller:
+        return _process(run_config, controller)
 
 
 def build_dataset(
@@ -555,52 +574,75 @@ def build_dataset(
     source_names: list[str] = []
     kept = 0
     skipped_race = 0
+    failed = 0
 
-    for replay_path in replay_paths:
-        try:
-            race_ok, player_race, pairs = _read_one_replay(
-                replay_path,
-                player_id=player_id,
-                race_filter=race_filter,
-                obs_spec=obs_spec,
-                step_mul=step_mul,
-                screen_size=screen_size,
-                minimap_size=minimap_size,
-                multi_action_strategy=multi_action_strategy,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to process %s: %s", replay_path.name, exc)
-            continue
+    from absl import flags as _absl_flags  # type: ignore[import-untyped]
+    from pysc2 import run_configs
 
-        if not race_ok:
-            skipped_race += 1
-            logger.debug(
-                "Race filter '%s' dropped %s (player race: %s)",
-                race_filter,
-                replay_path.name,
-                player_race,
-            )
-            continue
+    if not _absl_flags.FLAGS.is_parsed():
+        _absl_flags.FLAGS([""])
 
-        if not pairs:
-            logger.debug("Replay %s yielded no steps; skipping.", replay_path.name)
-            continue
+    run_config = run_configs.get()
+    logger.info("Starting shared SC2 process for %d replay(s) ...", len(replay_paths))
 
-        start_idx = len(all_obs)
-        ep_len = len(pairs)
-        episode_starts.append(start_idx)
-        episode_lengths.append(ep_len)
-        all_obs.extend(obs for obs, _ in pairs)
-        all_actions.extend(act for _, act in pairs)
-        episode_id_chunks.append(np.full(ep_len, kept, dtype=np.int64))
-        source_names.append(replay_path.name)
-        kept += 1
-        logger.info("Loaded %s (%d steps)", replay_path.name, ep_len)
+    with run_config.start(want_rgb=False) as controller:
+        for replay_path in replay_paths:
+            try:
+                race_ok, player_race, pairs = _read_one_replay(
+                    replay_path,
+                    player_id=player_id,
+                    race_filter=race_filter,
+                    obs_spec=obs_spec,
+                    step_mul=step_mul,
+                    screen_size=screen_size,
+                    minimap_size=minimap_size,
+                    multi_action_strategy=multi_action_strategy,
+                    _controller=controller,
+                    _run_config=run_config,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to process %s: %s", replay_path.name, exc)
+                failed += 1
+                continue
+
+            if not race_ok:
+                skipped_race += 1
+                logger.debug(
+                    "Race filter '%s' dropped %s (player race: %s)",
+                    race_filter,
+                    replay_path.name,
+                    player_race,
+                )
+                continue
+
+            if not pairs:
+                logger.debug("Replay %s yielded no steps; skipping.", replay_path.name)
+                continue
+
+            start_idx = len(all_obs)
+            ep_len = len(pairs)
+            episode_starts.append(start_idx)
+            episode_lengths.append(ep_len)
+            all_obs.extend(obs for obs, _ in pairs)
+            all_actions.extend(act for _, act in pairs)
+            episode_id_chunks.append(np.full(ep_len, kept, dtype=np.int64))
+            source_names.append(replay_path.name)
+            kept += 1
+            logger.info("Loaded %s (%d steps)", replay_path.name, ep_len)
 
     if kept == 0:
         if skipped_race > 0:
             raise ValueError(f"Race filter '{race}' removed all {skipped_race} replay(s) in {folder!r}.")
-        raise ValueError(f"No usable replays found in {folder!r}.")
+        hint = ""
+        if failed > 0:
+            hint = (
+                f" All {failed} replay(s) failed to process. "
+                "A common cause is missing map archive (.s2ma) files in the Battle.net "
+                "cache — SC2 needs the original map to parse a replay. "
+                "Open Battle.net and play (or spectate) the relevant maps to download "
+                "them, or use a replay set built from maps already in your SC2 installation."
+            )
+        raise ValueError(f"No usable replays found in {folder!r}.{hint}")
 
     obs_arr = np.stack(all_obs, axis=0).astype(np.float32)
     act_arr = np.stack(all_actions, axis=0).astype(np.float32)

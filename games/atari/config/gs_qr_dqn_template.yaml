@@ -1,0 +1,34 @@
+# Grid search template: neural_dqn — Atari RAM (Pong-v5)
+#
+# Usage:
+#   python grid_search.py games/atari/config/gs_neural_dqn_template.yaml --game atari
+#
+
+base_name: "qr_dqn_v1"
+game: atari
+
+training_params:
+  map_name: Pong-v5           # swap for Breakout-v5, SpaceInvaders-v5, Asteroids-v5, etc.
+  in_game_episode_s: 120.0    # 120 s × 60 fps ≈ 7 200 steps / episode
+  n_sims: 200                 # 200 episodes ≈ 1.44 M env steps total
+  policy_type: qr_dqn
+  adaptive_mutation: false    # not used by DQN; disable to keep logs clean
+  patience: 0
+
+  # --- Search axes ---
+  learning_rate: [0.0001, 0.0005, 0.001]
+
+  policy_params:
+    # 128 normalised inputs → two 256-unit hidden layers is ample for RAM-based
+    # Atari.  Increase to [512, 256] if the best combo still clearly underfits.
+    # To sweep architectures: move hidden_sizes here and use [[256,256],[512,256]].
+    hidden_sizes: [256, 256]
+    # 128 float32 values/transition × 100 000 entries ≈ 51 MB — comfortable.
+    # Scale up to 500 000 if you have spare RAM and want stronger replay diversity.
+    batch_size: 32            # DQN-paper value; 64 reduces variance with minor speed cost
+    gamma: 0.99
+
+reward_params:
+  native_reward_scale: 1.0
+  clip_sign: true             # DQN-paper convention: per-step reward ∈ {-1, 0, +1}
+  step_penalty: -0.001        # -0.001 to penalise stalling in games without natural timeout

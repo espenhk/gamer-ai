@@ -115,7 +115,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Behaviour-cloning pre-training mode.  Available for any game whose "
-            "adapter exposes a BCAdapter (currently SC2; TMNF lands in #395).  "
+            "adapter exposes a BCAdapter (SC2 and TMNF today).  "
             "Reads replay files from --replay-dir (or from a per-game live "
             "demonstration source when None), fits a policy to the data, and "
             "writes policy_weights.yaml into the experiment directory.  Run "
@@ -453,6 +453,14 @@ def _run_bc(adapter, args: argparse.Namespace) -> None:
         # all replays, ...) should exit cleanly with the message rather
         # than dump a traceback at the user.
         raise SystemExit(str(exc)) from exc
+    except ImportError as exc:
+        # Optional game-specific deps (pysc2 for SC2, tmnf group for TMNF,
+        # etc.) are imported lazily inside the adapter; surface a clean
+        # install hint instead of a raw traceback.
+        raise SystemExit(
+            f"Cannot import {args.game} BC dependencies: {exc}\n"
+            f"Install the {args.game} dependencies with:  poetry install --with {args.game}"
+        ) from exc
     logger.info(
         "BC complete — run 'python main.py %s --game %s' to fine-tune from pre-trained weights.",
         args.experiment,

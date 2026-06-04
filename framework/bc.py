@@ -14,7 +14,7 @@ Per-game extension point
 ========================
 
 Implement :class:`BCAdapter` for your game (one module per game, conventionally
-``games/<game>/bc.py``).  Expose the instance via the game's ``GameAdapter.bc``
+``games/<game>/bc_adapter.py``).  Expose the instance via the game's ``GameAdapter.bc``
 attribute.  The :func:`run` orchestrator drives the whole flow:
 
 #. ``bc_adapter.validate_replay_dir(replay_dir, race=...)`` — fail fast on a

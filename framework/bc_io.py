@@ -68,13 +68,18 @@ def load_dataset(
         recurrent policies that consume whole ordered sequences with
         hidden-state carry-over.
     """
-    data = np.load(str(path), allow_pickle=False)
-    obs = data["obs"]
-    actions = data["actions"]
-    episode_starts = data["episode_starts"]
-    episode_lengths = data["episode_lengths"]
-    episode_id = data["episode_id"]
-    meta = json.loads(str(data["meta"]))
+    # ``np.load`` returns a lazy ``NpzFile`` that holds the underlying file
+    # descriptor open until ``.close()`` is called.  Use it as a context
+    # manager so the FD is released promptly — important on Windows where
+    # holding the FD blocks ``TemporaryDirectory`` cleanup in
+    # :func:`framework.bc.run`.
+    with np.load(str(path), allow_pickle=False) as data:
+        obs = data["obs"]
+        actions = data["actions"]
+        episode_starts = data["episode_starts"]
+        episode_lengths = data["episode_lengths"]
+        episode_id = data["episode_id"]
+        meta = json.loads(str(data["meta"]))
 
     if not as_episodes:
         return {

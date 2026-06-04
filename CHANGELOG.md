@@ -55,6 +55,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
   `#396` / phase-3 references removed from `games/tmnf/bc_adapter.py`
   and `main.py`.
 
+### Fixed
+- BC review polish (#413): `main.py --bc` help text no longer claims
+  TMNF is unimplemented; `_run_bc` now catches `ImportError` and emits
+  the same install-hint message style as `--play` / `--eval`;
+  `framework/bc_io.load_dataset` opens the NPZ via a context manager so
+  the file descriptor is released before its `TemporaryDirectory` is
+  cleaned up (fixes a Windows file-lock edge case);
+  `framework/bc.py` module docstring corrected to point at
+  `games/<game>/bc_adapter.py` (matches actual convention).
+
 ### Breaking
 - **Migration: `do_pretrain: true` → `--bc`.**  The `do_pretrain: true`
   training-params key and its `rl/pretrain.py` landing pad were removed

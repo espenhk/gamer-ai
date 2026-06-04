@@ -17,6 +17,67 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Framework-level behaviour-cloning seam (issue #393, parent #392). New
+  modules `framework/bc.py` (`BCAdapter` Protocol + `run()` orchestrator)
+  and `framework/bc_io.py` (`load_dataset`, `save_summary`) lift the
+  game-agnostic parts of the SC2 BC pipeline into the framework. The
+  `demos.npz` schema is byte-compatible with what `games/sc2/replay_bc.py`
+  has been writing since #351, so existing datasets load unchanged. The
+  `GameAdapter` Protocol gains an optional `bc: BCAdapter | None`
+  attribute.
+- SC2 BC ported onto the framework seam (issue #394, parent #392). New
+  `games/sc2/bc_adapter.py` implements `BCAdapter` for SC2 and is wired
+  on `SC2Adapter.bc`. `--bc` is now game-agnostic at the CLI level
+  (`_run_bc(adapter, args)` in `main.py`); games without a wired
+  `BCAdapter` exit with a clear error. `games/sc2/replay_bc.py` still
+  owns the replay parser and per-target fitters, and its `run()` remains
+  as a backward-compat shim with the legacy summary shape — external
+  scripts and `tests/test_sc2_replay_bc.py` keep working unchanged.
+- TMNF BC adapter (issue #395, parent #392). New
+  `games/tmnf/bc_adapter.py` implements `BCAdapter` for TMNF using the
+  in-game `SimplePolicy` as the demonstration source — drives N laps
+  (default 3, override via `bc_n_demo_laps`) and least-squares-fits a
+  `WeightedLinearPolicy` on the resulting (obs, action) pairs.  Wired
+  on `TMNFAdapter.bc`, so `python main.py <experiment> --game tmnf
+  --bc` is the supported way to reproduce the legacy `do_pretrain`
+  warm-start.  `.Replay.Gbx` ingest is tracked separately in #396.
+- BC refactor — Phase 4: docs, polish, and dead-code cleanup (issue #397,
+  parent #392).  New `docs/framework/bc_adapter.md` documents the
+  `BCAdapter` Protocol, `demos.npz` dataset schema, `bc_summary.json`
+  schema, and a worked example of adding BC to a new game.
+  `docs/framework/README.md` updated to list the new page.  `CLAUDE.md`
+  gains a game-agnostic `--bc` section under **Running** (alongside
+  `--play` / `--eval`); the SC2 `--bc` paragraph now cross-links to the
+  framework doc.  `games/tmnf/README.md` updated: `.Replay.Gbx` note
+  changed from "tracked in #396" to "not currently supported".
+  `games/sc2/README.md` BC intro cross-links framework doc.  Stale
+  `#396` / phase-3 references removed from `games/tmnf/bc_adapter.py`
+  and `main.py`.
+
+### Fixed
+- BC review polish (#413): `main.py --bc` help text no longer claims
+  TMNF is unimplemented; `_run_bc` now catches `ImportError` and emits
+  the same install-hint message style as `--play` / `--eval`;
+  `framework/bc_io.load_dataset` opens the NPZ via a context manager so
+  the file descriptor is released before its `TemporaryDirectory` is
+  cleaned up (fixes a Windows file-lock edge case);
+  `framework/bc.py` module docstring corrected to point at
+  `games/<game>/bc_adapter.py` (matches actual convention).
+
+### Breaking
+- **Migration: `do_pretrain: true` → `--bc`.**  The `do_pretrain: true`
+  training-params key and its `rl/pretrain.py` landing pad were removed
+  in issue #395 (parent #392).  To reproduce the old warm-start
+  behaviour, run a one-off BC step before the regular training run:
+  ```bash
+  python main.py <experiment> --game tmnf --bc   # produces policy_weights.yaml
+  python main.py <experiment> --game tmnf        # fine-tunes from BC weights
+  ```
+  The BC output is byte-compatible with what `do_pretrain` produced.
+  Stale `do_pretrain: true` keys in existing `training_params.yaml`
+  files are silently ignored by `RunConfig.from_training_params`, so
+  legacy configs continue to load without error.
 
 
 ---

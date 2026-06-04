@@ -1791,7 +1791,6 @@ def train_rl(
     mutation_scale = config.mutation_scale
     mutation_share = config.mutation_share
     adaptive_mutation = config.adaptive_mutation
-    do_pretrain = config.do_pretrain
     patience = config.patience
     policy_type = config.policy_type
     policy_params = dict(config.policy_params)
@@ -1835,36 +1834,19 @@ def train_rl(
         _assert_policy_compatible(_preflight_cls, policy_type, game_name)
         _preflight_cls._validate_params(policy_params)
 
-    _will_pretrain = (
-        do_pretrain and policy_type == "hill_climbing" and not os.path.exists(weights_file) and not re_initialize
-    )
-
-    if _will_pretrain and not no_interrupt:
-        input("\n  [PRE-TRAIN]  Press Enter to connect and start behavior cloning from SimplePolicy...")
-    elif cold_start and not no_interrupt:
+    if cold_start and not no_interrupt:
         input("\n  [PROBE PHASE]  Press Enter to connect and start probe runs...")
 
     logger.info("Connecting to game...")
     env = make_env_fn()
     live_monitor = make_live_monitor(training_params, obs_spec)
 
-    pretrained = False
-    if _will_pretrain:
-        from rl.pretrain import run as _pretrain_run
-
-        _pretrain_run(
-            env,
-            experiment_dir=os.path.dirname(os.path.abspath(weights_file)),
-            obs_spec=obs_spec,
-        )
-        pretrained = True
-
     probe_results: list[ProbeResult] = []
     cold_start_data: list[ColdStartRestartResult] = []
     probe_best = None
     t_after_probe = t_after_cold = None
 
-    if cold_start and not pretrained:
+    if cold_start:
         probe_phase: ProbePhaseResult = _run_probes(
             env,
             probe_actions,

@@ -13,6 +13,11 @@ class TMNFAdapter:
     name = "tmnf"
     config_dir = "games/tmnf/config"
 
+    def __init__(self) -> None:
+        from games.tmnf.bc_adapter import TMNFBCAdapter
+
+        self.bc = TMNFBCAdapter()
+
     # ------------------------------------------------------------------
     # Directory helpers
     # ------------------------------------------------------------------

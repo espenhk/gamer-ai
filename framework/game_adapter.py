@@ -9,7 +9,10 @@ pysc2).
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
+
+if TYPE_CHECKING:
+    from framework.bc import BCAdapter
 
 # ---------------------------------------------------------------------------
 # Protocol
@@ -21,6 +24,12 @@ class GameAdapter(Protocol):
 
     name: str
     config_dir: str  # e.g. "games/tmnf/config"
+
+    #: Optional behaviour-cloning extension.  When set, ``python main.py
+    #: <experiment> --game <name> --bc`` drives the framework BC orchestrator
+    #: via this object.  ``None`` means BC isn't supported for the game yet.
+    #: See :mod:`framework.bc`.
+    bc: "BCAdapter | None"
 
     def experiment_dir(
         self,

@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.5.0] - 2026-06-04
+
 ### Added
 - Framework-level behaviour-cloning seam (issue #393, parent #392). New
   modules `framework/bc.py` (`BCAdapter` Protocol + `run()` orchestrator)
@@ -78,7 +83,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   Stale `do_pretrain: true` keys in existing `training_params.yaml`
   files are silently ignored by `RunConfig.from_training_params`, so
   legacy configs continue to load without error.
-
 
 ---
 

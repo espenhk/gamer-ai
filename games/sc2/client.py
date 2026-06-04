@@ -23,6 +23,7 @@ from framework.obs_spec import ObsSpec
 from games.sc2.actions import FUNCTION_IDS, action_to_function_call, fn_ids_for_race
 from games.sc2.obs_spec import get_spec
 from games.sc2.tech_tree import (
+    GEYSER_NAMES,
     PRECONDITIONS,
     STRUCTURE_NAMES,
     TOWNHALL_NAMES,
@@ -30,6 +31,13 @@ from games.sc2.tech_tree import (
     SelectionReq,
     fn_idx_satisfied,
 )
+
+# fn_ids that build a vespene-extraction structure on top of a geyser.
+# 22 = Build_Refinery_screen (Terran), 51 = Build_Assimilator_screen (Protoss),
+# 82 = Build_Extractor_screen (Zerg). These three must be targeted on a visible
+# vespene geyser; the client snaps their target coordinates onto the nearest
+# one before calling PySC2 (issue #402).
+REFINERY_FN_IDS: frozenset[int] = frozenset({22, 51, 82})
 
 logger = logging.getLogger(__name__)
 
@@ -379,6 +387,13 @@ class SC2Client:
         # to issue select_point on the right worker/building/unit when the
         # policy's chosen action requires a different selection.
         self._screen_xy_by_unit_type: dict[str, tuple[int, int]] = {}
+        # Visible neutral vespene-geyser screen positions, refreshed every step
+        # from feature_units. The Build_Refinery/Assimilator/Extractor snap
+        # (issue #402) picks the nearest entry to the policy's requested
+        # target. Geysers that already have a refinery built on them disappear
+        # from the neutral list (the friendly refinery takes their place), so
+        # this implicitly excludes already-occupied geysers.
+        self._geyser_screen_positions: list[tuple[int, int]] = []
         # 1-slot FIFO for the deferred-action queue. When the resolver auto-
         # emits a selection this step, the original action is stored here
         # and replayed on the next step().
@@ -422,6 +437,7 @@ class SC2Client:
         self._fn_ids_cache_keys = None
         self._fn_ids_cache_result = set()
         self._screen_xy_by_unit_type = {}
+        self._geyser_screen_positions = []
         self._deferred_action = None
         self._last_state_log_wall_s = None
         if self._self_play and len(timesteps) > 1:
@@ -769,6 +785,35 @@ class SC2Client:
         fn = getattr(pysc2_actions.FUNCTIONS, name, None)
         return int(fn.id) if fn is not None else None
 
+    def _snap_refinery_to_geyser(self, action: np.ndarray) -> np.ndarray:
+        """Snap Build_Refinery/Assimilator/Extractor targets onto a real geyser.
+
+        Refineries can only be placed on a vespene geyser, but the policy
+        outputs continuous screen coordinates that almost never line up with
+        one.  When the action's fn_idx is in :data:`REFINERY_FN_IDS` and at
+        least one visible neutral geyser is cached this step, we rewrite the
+        target ``(x, y)`` to the nearest geyser's normalised screen position.
+        Actions with other fn_ids — and refinery actions taken on screens
+        with no visible geyser — pass through unchanged (issue #402).
+        """
+        fn_idx = int(action[0])
+        if fn_idx not in REFINERY_FN_IDS or not self._geyser_screen_positions:
+            return action
+        scale = max(self._screen_size - 1, 1)
+        tx_px = float(np.clip(action[1], 0.0, 1.0)) * scale
+        ty_px = float(np.clip(action[2], 0.0, 1.0)) * scale
+        best = min(
+            self._geyser_screen_positions,
+            key=lambda p: (p[0] - tx_px) ** 2 + (p[1] - ty_px) ** 2,
+        )
+        # Offset by 0.5 px before normalising so that downstream int-truncation
+        # (``int(x_norm * (screen_size - 1))`` in ``action_to_function_call``)
+        # lands on the geyser's pixel instead of one off due to float rounding.
+        snapped = action.copy()
+        snapped[1] = min(1.0, (float(best[0]) + 0.5) / scale)
+        snapped[2] = min(1.0, (float(best[1]) + 0.5) / scale)
+        return snapped
+
     def _action_to_call(self, action: np.ndarray) -> Any:
         """Translate a 4-vector action to a PySC2 ``FunctionCall``.
 
@@ -778,9 +823,15 @@ class SC2Client:
         action as unavailable (rare — e.g. resource gates or a stale
         observation race) we issue ``no_op`` rather than substituting,
         keeping this layer simple and deterministic.
+
+        Refinery-style actions also pass through
+        :meth:`_snap_refinery_to_geyser`, which rewrites the target
+        coordinates onto the nearest visible vespene geyser so the placement
+        is actually legal in-game (issue #402).
         """
         from pysc2.lib import actions as pysc2_actions  # type: ignore[import-untyped]
 
+        action = self._snap_refinery_to_geyser(action)
         fn_call = action_to_function_call(action, self._screen_size, self._minimap_size)
 
         fn_idx = int(action[0])
@@ -1179,9 +1230,17 @@ class SC2Client:
         worker/building/unit when the agent's chosen action requires a
         different selection.
 
-        First-seen-wins per unit-type name; ties are resolved arbitrarily.
+        Also refreshes ``self._geyser_screen_positions`` with every visible
+        neutral vespene-geyser position (alliance=3) so the Build_Refinery
+        snap (issue #402) can pick the nearest geyser to the policy's
+        requested target.
+
+        First-seen-wins per friendly unit-type name; ties are resolved
+        arbitrarily.  Geyser positions are kept in full (every visible
+        geyser is a distinct candidate).
         """
         self._screen_xy_by_unit_type = {}
+        self._geyser_screen_positions = []
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return
@@ -1190,12 +1249,16 @@ class SC2Client:
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
         for row in feat_units:
-            if int(row[1]) != 1:  # alliance != self
-                continue
+            alliance = int(row[1])
             name = self._unit_type_id_to_name.get(int(row[0]))
-            if name is None or name in self._screen_xy_by_unit_type:
+            if name is None:
                 continue
-            self._screen_xy_by_unit_type[name] = (int(row[8]), int(row[9]))
+            if alliance == 1:
+                if name in self._screen_xy_by_unit_type:
+                    continue
+                self._screen_xy_by_unit_type[name] = (int(row[8]), int(row[9]))
+            elif alliance == 3 and name in GEYSER_NAMES:
+                self._geyser_screen_positions.append((int(row[8]), int(row[9])))
 
     def _compute_owned_buildings(self, ob: Any) -> frozenset[str]:
         """Return the set of friendly structure/building names visible this step.

@@ -335,12 +335,12 @@ worker mechanics are unit-tested with a dummy env.
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
 - SC2 summary formatting: scalar `outcome` (`win`/`loss`/`draw`) plus scalar `reward=` and `score=` values
 - `_log_new_best_details` — empty info emits nothing
-- reward components: logs all non-zero components, always includes `score` (even when 0), and explicitly logs `win_bonus`/`loss_penalty` split from terminal reward with previous-best comparison
+- reward components: logs all non-zero components, always includes `score` (even when 0); `win_bonus` shown only when terminal > 0, `loss_penalty` only when terminal < 0 (neither shown on non-terminal episodes); prev-best comparison included when available
 - action frequency: one log line per action; uses `episode_action_name_map` when present (e.g. `Attack_screen=70.0%`), falls back to raw key stringified when absent; prev comparison shown
 - task metrics: generic `episode_task_metrics` dict (pre-formatted strings); progress, lateral offset, finish time only when present; prev comparison for each key (all on one combined line); adapters are responsible for populating and formatting values
 - SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
 - SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison
-- all five groups together emit nine lines (2 components + win/loss + 2 actions + 1 task metric + 1 kills + 1 game-state)
+- all five groups together emit seven lines when no terminal event (2 components + 2 actions + 1 task metric + 1 kills + 1 game-state)
 
 ### test_utils.py — math/state-extraction utils
 - vector magnitude: zero / unit / 3D / compute_speed alias

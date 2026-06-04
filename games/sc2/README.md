@@ -363,9 +363,9 @@ Configured in `games/sc2/config/reward_config.yaml`.
 | `damage_taken_penalty` | 0.0 | Penalty per raw HP+shield point lost across visible friendly units each step. Off for ladder (off-screen combat makes it noisy); enable on combat minigames where the whole fight is on screen. Only on-screen units count (feature_units limitation) — keep small to tolerate off-screen combat noise. |
 | `passive_under_fire_penalty` | 0.0 | Per-step penalty when enemies are within attack range of friendly units and the agent did not issue `Attack_screen`. Discourages retreating or idling under fire. Disabled by default; discrete SC2 policies cannot issue `Attack_screen`. |
 | `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. |
-| `economy_weight` | 0.001 | Coefficient on the (minerals + vespene) delta each step. Recommended `0.001` for ladder maps; `0.0` for minigames to avoid double-counting with `score_weight`. |
+| `economy_weight` | 0.01 | Coefficient on the (minerals + vespene) delta each step. Recommended `0.01` for ladder maps; `0.0` for minigames to avoid double-counting with `score_weight`. |
 | `new_action_unlock_bonus` | 5.0 | One-shot bonus the first time a tech-tree-gated fn_idx becomes fully executable in an episode (prerequisite buildings exist, correct unit is selected, affordable). Selection-only and always-available actions (no_op, select_army) are excluded. Recommended range: `1.0–10.0`. Enabled in the shipped ladder preset; set to `0.0` to disable. |
-| `new_action_usage_bonus` | 0.5 | Per-step bonus when the agent actually issues a tech-gated fn_idx that has already been unlocked this episode. Complements `new_action_unlock_bonus` by rewarding sustained use, not just first discovery. Fires up to `new_action_usage_max_uses` times per fn_idx per episode then goes silent. Recommended range: `0.1–2.0` (keep smaller than `new_action_unlock_bonus`). Enabled in the shipped ladder preset; set to `0.0` to disable. |
+| `new_action_usage_bonus` | 0.1 | Per-step bonus when the agent actually issues a tech-gated fn_idx that has already been unlocked this episode. Complements `new_action_unlock_bonus` by rewarding sustained use, not just first discovery. Fires up to `new_action_usage_max_uses` times per fn_idx per episode then goes silent. Recommended range: `0.1–2.0` (keep smaller than `new_action_unlock_bonus`). Enabled in the shipped ladder preset; set to `0.0` to disable. |
 | `new_action_usage_max_uses` | 50 | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
 | `resource_banking_penalty` | −0.0005 | Per-step penalty proportional to excess minerals above `mineral_banking_threshold` or vespene above `gas_banking_threshold`. Nudges the agent to invest hoarded resources. Recommended range: `−0.0001` to `−0.001`. |
 | `mineral_banking_threshold` | 300.0 | Minerals above this count as "banked" for `resource_banking_penalty`. |
@@ -375,7 +375,7 @@ Configured in `games/sc2/config/reward_config.yaml`.
 | `worker_growth_bonus` | 1.0 | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Only increases are rewarded. Recommended range: `0.5–3.0`. |
 | `army_growth_bonus` | 1.0 | Bonus per point of `food_army` increase (produce combat units). Only increases are rewarded — losses are handled by `unit_loss_penalty`. Recommended range: `0.5–3.0`. |
 | `tech_building_bonus` | 5.0 | One-shot bonus the first time each friendly structure *type* is seen this episode (climbing the build tree). Fires once per structure type per episode. Recommended range: `2.0–10.0`. |
-| `expansion_bonus` | 15.0 | One-shot bonus each time the friendly town-hall count reaches a new episode maximum (an expansion). Counted from currently-visible town halls (a base built fully off-camera may be missed); the running maximum keeps the signal monotonic and never rewards the starting base. Recommended range: `5.0–25.0`. |
+| `expansion_bonus` | 10.0 | One-shot bonus each time the friendly town-hall count reaches a new episode maximum (an expansion). Counted from currently-visible town halls (a base built fully off-camera may be missed); the running maximum keeps the signal monotonic and never rewards the starting base. Recommended range: `5.0–25.0`. |
 | `scout_bonus` | 20.0 | Bonus proportional to the increase in `minimap_explored_frac` each step (revealing new map). Captures scouting that screen-local `move_exploration_bonus` cannot. The per-step fraction delta is tiny, so the weight is large. Recommended range: `5.0–50.0`. |
 
 ### Recommended presets
@@ -391,7 +391,15 @@ score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
 step_penalty: -0.002
-economy_weight: 0.001
+economy_weight: 0.01
+supply_block_penalty: -0.1
+supply_growth_bonus: 1.0
+worker_growth_bonus: 1.0
+army_growth_bonus: 1.0
+tech_building_bonus: 5.0
+expansion_bonus: 10.0
+scout_bonus: 20.0
+new_action_usage_bonus: 0.1
 ```
 
 The reward calculator exposes a per-component breakdown via `compute_with_components()`. `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, plotted as `reward_components.png` in the analytics output so you can attribute episode reward to individual terms.

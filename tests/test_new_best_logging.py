@@ -161,7 +161,7 @@ class TestLogNewBestDetails(unittest.TestCase):
         self.assertIn("loss_penalty=-100.0", all_text)
         self.assertNotIn("win_bonus=", all_text)
 
-    def test_no_terminal_hides_win_and_loss(self):
+    def test_terminal_zero_hides_win_and_loss(self):
         info = {"episode_reward_components": {"score": 8.0, "terminal": 0.0}}
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         all_text = "\n".join(lines)

@@ -391,12 +391,16 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
         loss_penalty = terminal if terminal < 0 else 0.0
         prev_win_bonus = prev_terminal if prev_terminal > 0 else 0.0
         prev_loss_penalty = prev_terminal if prev_terminal < 0 else 0.0
-        if "terminal" in prev_rc:
-            logger.info("    win_bonus=%+.1f (prev %+.1f)", win_bonus, prev_win_bonus)
-            logger.info("    loss_penalty=%+.1f (prev %+.1f)", loss_penalty, prev_loss_penalty)
-        else:
-            logger.info("    win_bonus=%+.1f", win_bonus)
-            logger.info("    loss_penalty=%+.1f", loss_penalty)
+        if win_bonus != 0.0:
+            if "terminal" in prev_rc:
+                logger.info("    win_bonus=%+.1f (prev %+.1f)", win_bonus, prev_win_bonus)
+            else:
+                logger.info("    win_bonus=%+.1f", win_bonus)
+        if loss_penalty != 0.0:
+            if "terminal" in prev_rc:
+                logger.info("    loss_penalty=%+.1f (prev %+.1f)", loss_penalty, prev_loss_penalty)
+            else:
+                logger.info("    loss_penalty=%+.1f", loss_penalty)
 
     # 2. Action-frequency breakdown (any game may populate episode_action_counts)
     ac = info.get("episode_action_counts")

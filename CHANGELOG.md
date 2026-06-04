@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.4.5] - 2026-06-04
+
 ### Changed
 - **SC2 ladder default reward enables `damage_taken_penalty`** (issue #401).
   The bundled `games/sc2/config/reward_config.yaml` now sets
@@ -37,7 +42,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   already-occupied geyser.  When no geyser is visible the action passes
   through unchanged (PySC2 then no-ops it, identical to the previous
   behaviour).  New `GEYSER_NAMES` frozenset in `games/sc2/tech_tree.py`.
-
 
 ---
 

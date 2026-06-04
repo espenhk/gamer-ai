@@ -1149,7 +1149,15 @@ score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
 step_penalty: -0.002
-economy_weight: 0.001
+economy_weight: 0.01
+supply_block_penalty: -0.1
+supply_growth_bonus: 1.0
+worker_growth_bonus: 1.0
+army_growth_bonus: 1.0
+tech_building_bonus: 5.0
+expansion_bonus: 10.0
+scout_bonus: 20.0
+new_action_usage_bonus: 0.1
 ```
 
 `win_bonus` and `loss_penalty` are always active for ladder maps regardless of `score_weight`.

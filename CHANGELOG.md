@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.4.3] - 2026-06-04
+
 ### Fixed
 - **Atari: `neural_dqn` (and `reinforce`, `lstm`) policy registration** (issue #399).
   `games/atari/adapter.py` never imported `games.atari.policies`, so Atari-specific

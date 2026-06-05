@@ -334,6 +334,8 @@ When the policy emits an action whose selection requirement is unmet, `SC2Client
 
 When DEBUG logging is enabled, `SC2Client` also dumps a readable game-state snapshot every ~10 s of wall-clock time: currently-owned friendly units (counts), currently-owned buildings, completed upgrades/research, currently-selected unit type, and the available action set with the unit/building each action needs selected. This makes it easy to verify the mask is doing the right thing without tailing 22.4 obs/s of raw step logs.
 
+**Refinery target snap (issue #402).** `Build_Refinery_screen`, `Build_Assimilator_screen`, and `Build_Extractor_screen` only succeed when the target pixel sits on a vespene geyser; the policy's continuous `(x, y)` almost never lines up. `SC2Client` tracks every visible neutral vespene geyser each step (`alliance == 3` rows in `feature_units` whose unit-type name is in `GEYSER_NAMES`) and, before issuing the PySC2 call, rewrites the target coordinates of any Refinery-style action to the nearest cached geyser. Geysers with a refinery already on top vanish from the neutral list (the friendly building takes their place), so occupied geysers are implicitly excluded. When no geyser is on screen the action passes through unchanged — PySC2 will then no-op it, identical to the pre-snap behaviour.
+
 ---
 
 ## Rewards
@@ -360,12 +362,12 @@ Configured in `games/sc2/config/reward_config.yaml`.
 | `attack_bonus` | 0.1 | Per-step bonus whenever `Attack_screen` (fn_idx 3) is issued, regardless of whether the target is a unit or open ground. Kept small on ladder so it nudges engagement without dominating the return. Simpler alternative to enabling `attack_move_bonus` and `click_attack_bonus` separately; all three can be active simultaneously. |
 | `attack_friendly_penalty` | −10.0 | Per-step penalty when an `Attack_screen` target lands on or near the centroid of visible friendly units (ally fire). Penalised heavily to deter friendly-fire regardless of intent. |
 | `unit_loss_penalty` | −1.0 | Penalty per army unit lost each step (drop in `army_count`). Two units dying simultaneously yields 2× the penalty. |
-| `damage_taken_penalty` | 0.0 | Penalty per raw HP+shield point lost across visible friendly units each step. Off for ladder (off-screen combat makes it noisy); enable on combat minigames where the whole fight is on screen. Only on-screen units count (feature_units limitation) — keep small to tolerate off-screen combat noise. |
+| `damage_taken_penalty` | −0.01 | Penalty per raw HP+shield point lost across visible friendly units each step (issue #401). Small per-HP weight so a 40-HP Marine loss costs ~0.4 — comparable to a single `unit_loss_penalty` hit — while staying tolerant of feature_units off-screen noise (units that walk off-camera also lower `total_self_hp`). Set to `0.0` to disable, or raise on combat minigames where the whole fight is on screen. |
 | `passive_under_fire_penalty` | 0.0 | Per-step penalty when enemies are within attack range of friendly units and the agent did not issue `Attack_screen`. Discourages retreating or idling under fire. Disabled by default; discrete SC2 policies cannot issue `Attack_screen`. |
 | `small_selection_bonus` | 0.0 | Per-step bonus for unit-targeted commands (`Move_screen` / `Attack_screen` / `Harvest_Gather_screen`) when the active selection is a single unit or under 50% of visible friendlies. Encourages micro over full-army commands. |
-| `economy_weight` | 0.001 | Coefficient on the (minerals + vespene) delta each step. Recommended `0.001` for ladder maps; `0.0` for minigames to avoid double-counting with `score_weight`. |
+| `economy_weight` | 0.01 | Coefficient on the (minerals + vespene) delta each step. Recommended `0.01` for ladder maps; `0.0` for minigames to avoid double-counting with `score_weight`. |
 | `new_action_unlock_bonus` | 5.0 | One-shot bonus the first time a tech-tree-gated fn_idx becomes fully executable in an episode (prerequisite buildings exist, correct unit is selected, affordable). Selection-only and always-available actions (no_op, select_army) are excluded. Recommended range: `1.0–10.0`. Enabled in the shipped ladder preset; set to `0.0` to disable. |
-| `new_action_usage_bonus` | 0.5 | Per-step bonus when the agent actually issues a tech-gated fn_idx that has already been unlocked this episode. Complements `new_action_unlock_bonus` by rewarding sustained use, not just first discovery. Fires up to `new_action_usage_max_uses` times per fn_idx per episode then goes silent. Recommended range: `0.1–2.0` (keep smaller than `new_action_unlock_bonus`). Enabled in the shipped ladder preset; set to `0.0` to disable. |
+| `new_action_usage_bonus` | 0.1 | Per-step bonus when the agent actually issues a tech-gated fn_idx that has already been unlocked this episode. Complements `new_action_unlock_bonus` by rewarding sustained use, not just first discovery. Fires up to `new_action_usage_max_uses` times per fn_idx per episode then goes silent. Recommended range: `0.1–2.0` (keep smaller than `new_action_unlock_bonus`). Enabled in the shipped ladder preset; set to `0.0` to disable. |
 | `new_action_usage_max_uses` | 50 | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
 | `resource_banking_penalty` | −0.0005 | Per-step penalty proportional to excess minerals above `mineral_banking_threshold` or vespene above `gas_banking_threshold`. Nudges the agent to invest hoarded resources. Recommended range: `−0.0001` to `−0.001`. |
 | `mineral_banking_threshold` | 300.0 | Minerals above this count as "banked" for `resource_banking_penalty`. |
@@ -375,7 +377,7 @@ Configured in `games/sc2/config/reward_config.yaml`.
 | `worker_growth_bonus` | 1.0 | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Only increases are rewarded. Recommended range: `0.5–3.0`. |
 | `army_growth_bonus` | 1.0 | Bonus per point of `food_army` increase (produce combat units). Only increases are rewarded — losses are handled by `unit_loss_penalty`. Recommended range: `0.5–3.0`. |
 | `tech_building_bonus` | 5.0 | One-shot bonus the first time each friendly structure *type* is seen this episode (climbing the build tree). Fires once per structure type per episode. Recommended range: `2.0–10.0`. |
-| `expansion_bonus` | 15.0 | One-shot bonus each time the friendly town-hall count reaches a new episode maximum (an expansion). Counted from currently-visible town halls (a base built fully off-camera may be missed); the running maximum keeps the signal monotonic and never rewards the starting base. Recommended range: `5.0–25.0`. |
+| `expansion_bonus` | 10.0 | One-shot bonus each time the friendly town-hall count reaches a new episode maximum (an expansion). Counted from currently-visible town halls (a base built fully off-camera may be missed); the running maximum keeps the signal monotonic and never rewards the starting base. Recommended range: `5.0–25.0`. |
 | `scout_bonus` | 20.0 | Bonus proportional to the increase in `minimap_explored_frac` each step (revealing new map). Captures scouting that screen-local `move_exploration_bonus` cannot. The per-step fraction delta is tiny, so the weight is large. Recommended range: `5.0–50.0`. |
 
 ### Recommended presets
@@ -391,7 +393,15 @@ score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
 step_penalty: -0.002
-economy_weight: 0.001
+economy_weight: 0.01
+supply_block_penalty: -0.1
+supply_growth_bonus: 1.0
+worker_growth_bonus: 1.0
+army_growth_bonus: 1.0
+tech_building_bonus: 5.0
+expansion_bonus: 10.0
+scout_bonus: 20.0
+new_action_usage_bonus: 0.1
 ```
 
 The reward calculator exposes a per-component breakdown via `compute_with_components()`. `SC2Env` accumulates per-episode totals into `info["episode_reward_components"]`, plotted as `reward_components.png` in the analytics output so you can attribute episode reward to individual terms.
@@ -689,11 +699,17 @@ python main.py myrun --game sc2 --bc --replay-dir /path/to/replays --bc-race ter
 python main.py myrun --game sc2
 ```
 
-`--bc` is SC2-only (rejected with an error for other games, and mutually
-exclusive with `--play` / `--eval`).  The resulting `policy_weights.yaml`
-(and optional `trainer_state.npz`) are written to the standard experiment
-directory; the normal SC2 training loop auto-loads them on the next run, so
-step 2 is just a regular training run.
+`--bc` is game-agnostic — any game whose `GameAdapter` exposes a
+`BCAdapter` can use it.  The mode flag is mutually exclusive with
+`--play` / `--eval`.  The resulting `policy_weights.yaml` (and optional
+`trainer_state.npz`) are written to the standard experiment directory;
+the normal SC2 training loop auto-loads them on the next run, so step 2
+is just a regular training run.  The orchestration lives in
+`framework/bc.py` (see
+[`docs/framework/bc_adapter.md`](../../docs/framework/bc_adapter.md)
+for the full contract) and the SC2-specific implementation in
+`games/sc2/bc_adapter.py` — `games/sc2/replay_bc.py` still owns the
+replay parser and per-target fitters.
 
 ### Getting replay data
 

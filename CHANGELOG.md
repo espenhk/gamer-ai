@@ -20,39 +20,145 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
-## [0.4.2] - 2026-06-03
-
-### Added
-- SC2 macro-progression reward shaping for ladder 1v1 play. New opt-in
-  `reward_config.yaml` keys (all `0.0` default in code): `supply_block_penalty`,
-  `supply_growth_bonus`, `worker_growth_bonus`, `army_growth_bonus`,
-  `tech_building_bonus`, `expansion_bonus`, and `scout_bonus`. Each is surfaced
-  as its own `reward_components` entry and mapped in the SC2 analytics
-  normalisation table. These complement the existing `new_action_unlock_bonus`
-  (#360) and `new_action_usage_bonus` (#400) to give the agent a dense path from
-  economy growth to the terminal win/loss signal.
-- `SC2Client` now surfaces `food_workers`, `food_army`, `minimap_explored_frac`,
-  `owned_building_names`, and `townhall_count` in `info` for the new reward
-  terms; `TOWNHALL_NAMES` added to `games/sc2/tech_tree.py`.
+## [0.5.1] - 2026-06-05
 
 ### Changed
-- The bundled `games/sc2/config/reward_config.yaml` is now tuned for 1v1 ladder
-  play: `score_weight` 100→0 (PySC2's cumulative score deltas otherwise swamp
-  the win/loss outcome), `win_bonus` 1000→100, `step_penalty` -0.001→-0.002,
-  combat/movement shaping dialled down, `idle_worker_penalty`,
-  `new_action_unlock_bonus`, `new_action_usage_bonus` and
-  `resource_banking_penalty` enabled, and the new macro-progression block turned
-  on with sensible defaults. Combat-minigame guidance retained in the README.
-- SC2 analytics: added the previously-missing `small_selection` reward component
-  to the normalisation map (it was unmapped and triggered a warning).
+- Live GUI (`--live_gui`) now updates every 50 steps instead of every env
+  step, eliminating the per-step Tkinter redraw that was blocking the SC2
+  training loop and making the game chug (issue #378). The interval is
+  configurable via `live_gui_update_interval` in `training_params.yaml`
+  (default `50`). Rolling reward statistics are still accumulated every
+  step so the displayed means remain accurate.
+- The "Last 10 actions" list in the live GUI has been replaced with an
+  action-frequency bar chart showing the count and percentage of each
+  distinct action taken in the most recent batch of steps. No-op actions
+  are still hidden.
 
 ---
 
-## [0.4.1] - 2026-06-02
+## [0.5.0] - 2026-06-04
+
+### Added
+- Framework-level behaviour-cloning seam (issue #393, parent #392). New
+  modules `framework/bc.py` (`BCAdapter` Protocol + `run()` orchestrator)
+  and `framework/bc_io.py` (`load_dataset`, `save_summary`) lift the
+  game-agnostic parts of the SC2 BC pipeline into the framework. The
+  `demos.npz` schema is byte-compatible with what `games/sc2/replay_bc.py`
+  has been writing since #351, so existing datasets load unchanged. The
+  `GameAdapter` Protocol gains an optional `bc: BCAdapter | None`
+  attribute.
+- SC2 BC ported onto the framework seam (issue #394, parent #392). New
+  `games/sc2/bc_adapter.py` implements `BCAdapter` for SC2 and is wired
+  on `SC2Adapter.bc`. `--bc` is now game-agnostic at the CLI level
+  (`_run_bc(adapter, args)` in `main.py`); games without a wired
+  `BCAdapter` exit with a clear error. `games/sc2/replay_bc.py` still
+  owns the replay parser and per-target fitters, and its `run()` remains
+  as a backward-compat shim with the legacy summary shape — external
+  scripts and `tests/test_sc2_replay_bc.py` keep working unchanged.
+- TMNF BC adapter (issue #395, parent #392). New
+  `games/tmnf/bc_adapter.py` implements `BCAdapter` for TMNF using the
+  in-game `SimplePolicy` as the demonstration source — drives N laps
+  (default 3, override via `bc_n_demo_laps`) and least-squares-fits a
+  `WeightedLinearPolicy` on the resulting (obs, action) pairs.  Wired
+  on `TMNFAdapter.bc`, so `python main.py <experiment> --game tmnf
+  --bc` is the supported way to reproduce the legacy `do_pretrain`
+  warm-start.  `.Replay.Gbx` ingest is tracked separately in #396.
+- BC refactor — Phase 4: docs, polish, and dead-code cleanup (issue #397,
+  parent #392).  New `docs/framework/bc_adapter.md` documents the
+  `BCAdapter` Protocol, `demos.npz` dataset schema, `bc_summary.json`
+  schema, and a worked example of adding BC to a new game.
+  `docs/framework/README.md` updated to list the new page.  `CLAUDE.md`
+  gains a game-agnostic `--bc` section under **Running** (alongside
+  `--play` / `--eval`); the SC2 `--bc` paragraph now cross-links to the
+  framework doc.  `games/tmnf/README.md` updated: `.Replay.Gbx` note
+  changed from "tracked in #396" to "not currently supported".
+  `games/sc2/README.md` BC intro cross-links framework doc.  Stale
+  `#396` / phase-3 references removed from `games/tmnf/bc_adapter.py`
+  and `main.py`.
+
+### Fixed
+- BC review polish (#413): `main.py --bc` help text no longer claims
+  TMNF is unimplemented; `_run_bc` now catches `ImportError` and emits
+  the same install-hint message style as `--play` / `--eval`;
+  `framework/bc_io.load_dataset` opens the NPZ via a context manager so
+  the file descriptor is released before its `TemporaryDirectory` is
+  cleaned up (fixes a Windows file-lock edge case);
+  `framework/bc.py` module docstring corrected to point at
+  `games/<game>/bc_adapter.py` (matches actual convention).
+
+### Breaking
+- **Migration: `do_pretrain: true` → `--bc`.**  The `do_pretrain: true`
+  training-params key and its `rl/pretrain.py` landing pad were removed
+  in issue #395 (parent #392).  To reproduce the old warm-start
+  behaviour, run a one-off BC step before the regular training run:
+  ```bash
+  python main.py <experiment> --game tmnf --bc   # produces policy_weights.yaml
+  python main.py <experiment> --game tmnf        # fine-tunes from BC weights
+  ```
+  The BC output is byte-compatible with what `do_pretrain` produced.
+  Stale `do_pretrain: true` keys in existing `training_params.yaml`
+  files are silently ignored by `RunConfig.from_training_params`, so
+  legacy configs continue to load without error.
 
 ---
 
-## [0.4.0] - 2026-06-02
+## [0.4.6] - 2026-06-04
+
+---
+
+## [0.4.5] - 2026-06-04
+
+### Changed
+- **SC2 ladder default reward enables `damage_taken_penalty`** (issue #401).
+  The bundled `games/sc2/config/reward_config.yaml` now sets
+  `damage_taken_penalty: -0.01` (was `0.0`), so the agent now pays a small
+  per-HP cost when friendly units take damage on screen.  A 40-HP Marine
+  loss costs ~0.4 — comparable to a single `unit_loss_penalty` hit — while
+  staying small enough to tolerate the feature_units off-screen noise.
+  No code changes; set the key back to `0.0` to recover the previous behaviour.
+
+### Added
+- **SC2 Refinery target snap** (issue #402).  `SC2Client` now tracks visible
+  neutral vespene geysers from `feature_units` each step and rewrites the
+  target coordinates of `Build_Refinery_screen`, `Build_Assimilator_screen`,
+  and `Build_Extractor_screen` actions onto the nearest cached geyser
+  before issuing the PySC2 call.  Geysers occupied by an existing
+  Refinery/Assimilator/Extractor drop out of the neutral list naturally
+  (the friendly building takes their place), so the snap won't pick an
+  already-occupied geyser.  When no geyser is visible the action passes
+  through unchanged (PySC2 then no-ops it, identical to the previous
+  behaviour).  New `GEYSER_NAMES` frozenset in `games/sc2/tech_tree.py`.
+
+---
+
+## [0.4.4] - 2026-06-04
+
+---
+
+## [0.4.3] - 2026-06-04
+
+### Fixed
+- **Atari: `neural_dqn` (and `reinforce`, `lstm`) policy registration** (issue #399).
+  `games/atari/adapter.py` never imported `games.atari.policies`, so Atari-specific
+  policy types were never registered in `POLICY_REGISTRY`, causing
+  `ValueError: Unknown policy_type: 'neural_dqn'` when running any Atari grid search.
+  Fixed by adding `import games.atari.policies` as a side-effect import in
+  `build_game_spec()`, matching the pattern already used by the TMNF and SC2 adapters.
+
+### Added
+- **Atari: `reinforce` and `lstm` policy thin wrappers** (issue #399).
+  `games/atari/policies.py` now also registers `REINFORCEPolicy` (Monte Carlo
+  policy gradient, softmax over 18 actions) and `LSTMEvolutionPolicy` (LSTM +
+  isotropic ES), both gated with the same duplicate-registration guards as
+  `NeuralDQNPolicy`.
+- **Atari grid search templates** (issue #399): `gs_genetic_template.yaml` and
+  `gs_reinforce_template.yaml` under `games/atari/config/`, joining the existing
+  `gs_neural_dqn_template.yaml`.  All three templates include budget notes,
+  sweep-axis rationale, and second-pass ablation suggestions.
+
+---
+
+## [0.4.2] - 2026-06-03
 
 ### Added
 - **SC2 `new_action_usage_bonus` reward component** (issue #400).  New opt-in

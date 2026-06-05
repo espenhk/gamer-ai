@@ -50,7 +50,6 @@ applies safe defaults:
 | `mutation_scale` | `0.05` | `mutation_scale` |
 | `mutation_share` | `1.0` | `mutation_share` |
 | `adaptive_mutation` | `True` | `adaptive_mutation` |
-| `do_pretrain` | `False` | `do_pretrain` |
 | `patience` | `0` | `patience` |
 | `policy_type` | `"hill_climbing"` | `policy_type` |
 | `policy_params` | `{}` | `policy_params` |

@@ -74,6 +74,11 @@
   - [test\_sc2\_self\_play.py — `SelfPlayManager` (three self-play opponent modes)](#test_sc2_self_playpy--selfplaymanager-three-self-play-opponent-modes)
   - [test\_sc2\_analytics.py — SC2-specific analytics plots and flags](#test_sc2_analyticspy--sc2-specific-analytics-plots-and-flags)
   - [test\_sc2\_replay\_bc.py — SC2 replay BC: dataset, fit, run, and `--bc` CLI (issues #351–#354)](#test_sc2_replay_bcpy--sc2-replay-bc-dataset-fit-run-and---bc-cli-issues-351354)
+  - [test\_sc2\_bc\_adapter.py — SC2 BC adapter ↔ framework integration (issue #394)](#test_sc2_bc_adapterpy--sc2-bc-adapter--framework-integration-issue-394)
+- [Framework BC seam](#framework-bc-seam)
+  - [test\_framework\_bc.py — `BCAdapter` Protocol + `framework.bc.run` orchestrator (issue #393)](#test_framework_bcpy--bcadapter-protocol--frameworkbcrun-orchestrator-issue-393)
+- [TMNF BC](#tmnf-bc)
+  - [test\_tmnf\_bc.py — TMNF BC adapter (SimplePolicy source) + `do_pretrain` removal (issue #395)](#test_tmnf_bcpy--tmnf-bc-adapter-simplepolicy-source--do_pretrain-removal-issue-395)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
   - [test\_rocket\_league\_reward.py — Rocket League reward calc](#test_rocket_league_rewardpy--rocket-league-reward-calc)
@@ -262,6 +267,7 @@ worker mechanics are unit-tested with a dummy env.
 - `track_label` defaults to `Pong-v5`, sanitises slashes (e.g. `ALE/Pong-v5` → `ALE_Pong-v5`)
 - `build_probe` / `build_warmup` / `decorate_reward_cfg` are no-ops
 - `build_game_spec` wires in the 128-dim obs spec, the 18-row `DISCRETE_ACTIONS`, and a callable `make_env_fn` / `save_results_fn`
+- `build_game_spec` side-effect: `neural_dqn`, `reinforce`, and `lstm` are registered in `POLICY_REGISTRY` after the call
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)
@@ -304,6 +310,7 @@ worker mechanics are unit-tested with a dummy env.
 - reward ordering puts `total_reward` first; all other keys (including former TMNF/SC2-specific names) are sorted alphabetically
 - layout helpers split rows into display columns while preserving order and switch observation panel column count from 3 to 4 on wide canvases
 - action formatting renders 3-value TMNF controls with steer direction/percent, treats tiny pedal values (`<= 0.01`) as effectively zero when choosing accel-only vs brake-only display, and still truncates long vectors after six entries
+- action panel (bar chart): all-no-op buffer shows "(only no-ops)" status and draws no bars; real actions produce bar entries with percentage annotations
 
 ### test_obs_memory.py — frame-stacking observation wrapper
 - shape; reset fills initial; step shifts frames; k=1 passthrough; invalid k raises; most-recent zero-padded; clear
@@ -335,12 +342,12 @@ worker mechanics are unit-tested with a dummy env.
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted
 - SC2 summary formatting: scalar `outcome` (`win`/`loss`/`draw`) plus scalar `reward=` and `score=` values
 - `_log_new_best_details` — empty info emits nothing
-- reward components: logs all non-zero components, always includes `score` (even when 0), and explicitly logs `win_bonus`/`loss_penalty` split from terminal reward with previous-best comparison
+- reward components: logs all non-zero components, always includes `score` (even when 0); `win_bonus` shown only when terminal > 0, `loss_penalty` only when terminal < 0 (neither shown on non-terminal episodes); prev-best comparison included when available
 - action frequency: one log line per action; uses `episode_action_name_map` when present (e.g. `Attack_screen=70.0%`), falls back to raw key stringified when absent; prev comparison shown
 - task metrics: generic `episode_task_metrics` dict (pre-formatted strings); progress, lateral offset, finish time only when present; prev comparison for each key (all on one combined line); adapters are responsible for populating and formatting values
 - SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
 - SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison
-- all five groups together emit nine lines (2 components + win/loss + 2 actions + 1 task metric + 1 kills + 1 game-state)
+- all five groups together emit seven lines when no terminal event (2 components + 2 actions + 1 task metric + 1 kills + 1 game-state)
 
 ### test_utils.py — math/state-extraction utils
 - vector magnitude: zero / unit / 3D / compute_speed alias
@@ -688,6 +695,7 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - owned-buildings accumulation fix (#356 H2): drives real `_timestep_to_obs_info()` with patched `_compute_owned_buildings()` — buildings seen in prior steps remain in `_owned_buildings` after the camera pans away; new buildings are unioned in each step; episode `reset()` clears both `_owned_buildings` and `_owned_buildings_seen`
 - fn_idx_satisfied cache fix (#356 H3): patches `games.sc2.client.fn_idx_satisfied` to count calls — zero new calls on cache hit (identical state); fresh pass triggered when `owned_buildings`, `selected_unit_types`, or the PySC2 candidate set changes
 - select_idle_worker suppression (issue #383): fn_idx 4 removed from available set when SCV is selected; present when no worker selected; suppression covers all three races (SCV / Probe / Drone)
+- Refinery target snap (issue #402): `_update_unit_screen_positions` collects neutral (alliance=3) vespene-geyser positions from `feature_units` (excludes non-geyser neutrals like mineral fields, excludes friendly Refineries on top of geysers, resets cache each step); `_snap_refinery_to_geyser` rewrites Build_Refinery/Assimilator/Extractor (fn_idx 22/51/82) target coordinates to the nearest cached geyser, leaves other actions untouched, passes the snap input unchanged when no geyser is visible, and uses a +0.5-px offset so downstream int-truncation lands on the geyser pixel exactly; `_action_to_call` invokes the snap before delegating to PySC2.
 
 ### test_sc2_env.py — SC2 env wrapper
 - minigame obs space; action space shape+bounds; ladder obs space; episode time-limit get/set
@@ -904,6 +912,100 @@ handful of iterations only); reading real `.SC2Replay` files end-to-end
 - `TestBugFixes354`: tabular Q-values sum to exactly 1.0 per state (not per-action count-divided);
   DQN terminal transitions store a zero-vector `next_obs` (not the next episode's first obs);
   `sc2_lstm` raises `ValueError` with "episode_starts" in the message when those keys are absent
+
+### test_sc2_bc_adapter.py — SC2 BC adapter ↔ framework integration (issue #394)
+- Protocol surface: `name="sc2"`, `default_target="sc2_reinforce"`, all nine
+  `sc2_*` / tabular targets in `supported_targets`, all four protocol methods
+  callable
+- `validate_replay_dir(None)` raises with a pointer to `--replay-dir` /
+  `bc_replay_dir`
+- End-to-end through `framework.bc.run` with mocked SC2 pipeline: emits the
+  canonical framework summary (`game`, `bc_target`, `n_episodes`, `n_pairs`,
+  `bc_race`, `extras`); SC2 stats (`fn_idx_histogram`, `bc_player_id`,
+  `n_replays_kept`, `n_replays_skipped_race`) land under `extras`;
+  `policy_weights.yaml` written; on-disk JSON matches return value
+- `supported_targets` membership is asserted explicitly so a new
+  per-target fitter added to `games.sc2.replay_bc.fit_bc` without the
+  corresponding adapter entry fails this test rather than silently being
+  unreachable from `--bc`
+
+## Framework BC seam
+
+`framework/bc.py` and `framework/bc_io.py` — game-agnostic BC orchestrator
+(issue #393, parent #392).  Two game-specific implementations are wired
+on top: `games/sc2/bc_adapter.py` (issue #394) and
+`games/tmnf/bc_adapter.py` (issue #395).  See
+`docs/framework/bc_adapter.md` for the full protocol contract.
+
+**Tested.** `BCAdapter` Protocol conformance via a fake adapter, the
+generic `run()` orchestrator's validate → build → fit → save flow, NPZ
+dataset round-trips (flat and per-episode), and `bc_summary.json` JSON
+shape.  These tests do not touch any game.
+
+### test_framework_bc.py — `BCAdapter` Protocol + `framework.bc.run` orchestrator (issue #393)
+- `bc_io.load_dataset` round-trip (flat): all six keys present; obs / actions
+  / `episode_starts` / `episode_lengths` / `episode_id` shapes and contents
+  match what was written; `meta` JSON parses to original dict
+- `bc_io.load_dataset` (as_episodes=True): returns one `(obs_seq, act_seq)`
+  per episode in temporal order; episode boundaries preserved
+- `bc_io.load_dataset` rejects an NPZ missing required keys with `KeyError`
+- `bc_io.save_summary` writes indented JSON; creates missing
+  `experiment_dir` ancestors
+- `bc.run` orchestrator drives `validate_replay_dir` → `build_dataset` →
+  `fit_bc` in order; passes the orchestrator's `training_params` through
+  to `fit_bc` unchanged; canonical summary shape (`game`, `bc_target`,
+  `n_episodes`, `n_pairs`, `bc_race`, `final_bc_loss`, `extras`); on-disk
+  JSON matches return value
+- `bc.run` saves `policy_weights.yaml` via the policy's `save()` method
+- Race normalisation: `"ANY"` / `""` / `None` → no filter in the summary
+  (`bc_race == "any"`); `"Terran"` → lowercase passed to the adapter
+- Unsupported `target` raises `ValueError` before any adapter method is
+  called
+- `bc.run` creates the experiment directory if it doesn't exist
+- Protocol attribute surface: a fake adapter satisfies the `BCAdapter`
+  shape; the `GameAdapter` Protocol declares the optional `bc` attribute
+
+## TMNF BC
+
+`games/tmnf/bc_adapter.py` — TMNF implementation of the framework BC seam
+introduced in issue #395.  Uses the in-game `SimplePolicy` as the
+demonstration source (`.Replay.Gbx` replay-file ingest not currently supported).
+
+**Tested.** Protocol surface, lstsq fit recovers a synthetic target
+policy, full pipeline through `framework.bc.run` with a stubbed env, and
+the removal of the legacy `do_pretrain: true` / `rl/pretrain.py`
+landing pad.  The real TMNF env (TMInterface + Trackmania) is not
+exercised — `_make_tmnf_env` is patched out and a fake env emits the
+episodes.
+
+### test_tmnf_bc.py — TMNF BC adapter (SimplePolicy source) + `do_pretrain` removal (issue #395)
+- Protocol surface: `name="tmnf"`, `supported_targets=("hill_climbing",)`,
+  `default_target="hill_climbing"`, all four methods callable
+- `validate_replay_dir(None)` returns a synthetic
+  `"<simple-policy-live-demos>"` marker
+- `validate_replay_dir(<dir with .Replay.Gbx>)` raises `ValueError`
+  with "not currently supported"; `build_dataset` with a non-None
+  `replay_dir` raises the same way
+- `fit_weighted_linear` recovers a synthetic target weight vector via
+  lstsq (tolerance `1e-4`) when the training signal is noiseless
+- `fit_bc` returns `(policy, loss)` where `loss` matches
+  `_bc_residual_loss` on the same inputs; non-`hill_climbing` targets
+  raise `ValueError`
+- `collect_demos` produces the requested number of laps (`n_laps × ep_steps`
+  rows, float32)
+- `build_dataset` writes a framework-loadable NPZ: `meta["source"] ==
+  "simple_policy"`, single contiguous episode, dimensions match the
+  obs_spec
+- `build_dataset` default `bc_n_demo_laps` matches the historical
+  `N_DEMO_LAPS = 3` constant
+- `bc_n_demo_laps <= 0` raises `ValueError` before any env is built
+- End-to-end through `framework.bc.run` with a stubbed env: canonical
+  summary shape; `policy_weights.yaml` and `bc_summary.json` written
+- `TMNFAdapter.bc` is a `TMNFBCAdapter` instance
+- `do_pretrain` removal: `do_pretrain` no longer a `RunConfig` field;
+  `rl/pretrain.py` deleted; legacy `do_pretrain: true` in
+  `training_params.yaml` is silently dropped by
+  `RunConfig.from_training_params` rather than raising
 
 ## Rocket League
 

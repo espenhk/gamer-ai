@@ -232,6 +232,7 @@ def _import_all_game_policies() -> None:
     Re-importing is a no-op (modules are cached), so this is safe to call from
     multiple tests without triggering duplicate-registration errors.
     """
+    import games.atari.policies  # noqa: F401
     import games.sc2.cnn_policy  # noqa: F401
     import games.sc2.policies  # noqa: F401
     import games.sc2.sc2_policies  # noqa: F401

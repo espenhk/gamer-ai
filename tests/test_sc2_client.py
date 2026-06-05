@@ -2373,5 +2373,183 @@ class TestIssue356FnIdxCache(unittest.TestCase):
                 self.assertGreater(mock_sat.call_count, after_first)
 
 
+# ---------------------------------------------------------------------------
+# Issue #402: Build_Refinery / Build_Assimilator / Build_Extractor must land
+# on a vespene geyser. SC2Client tracks visible neutral geysers and snaps
+# the target coordinates onto the nearest one before issuing the PySC2 call.
+# ---------------------------------------------------------------------------
+
+
+class TestSC2ClientGeyserDetection(unittest.TestCase):
+    """``_update_unit_screen_positions`` must populate
+    ``_geyser_screen_positions`` from neutral (alliance=3) feature_units rows
+    whose unit-type name is in :data:`GEYSER_NAMES`, leaving the friendly
+    cache untouched.
+    """
+
+    def setUp(self):
+        self.client = SC2Client(map_name="Simple64")
+        self.client._unit_type_id_to_name = {
+            1: "SCV",
+            2: "VespeneGeyser",
+            3: "RichVespeneGeyser",
+            4: "MineralField",
+        }
+
+    def test_collects_neutral_geysers(self):
+        # Columns: [unit_type, alliance, ..., x=col8, y=col9].
+        feat_units = np.zeros((3, 10), dtype=np.int32)
+        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 12, 14]  # friendly SCV
+        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 30, 40]  # neutral geyser
+        feat_units[2] = [3, 3, 0, 0, 0, 0, 0, 0, 50, 22]  # neutral rich geyser
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(sorted(self.client._geyser_screen_positions), [(30, 40), (50, 22)])
+        # Friendly cache still picked up the SCV.
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (12, 14))
+
+    def test_excludes_non_geyser_neutrals(self):
+        feat_units = np.zeros((2, 10), dtype=np.int32)
+        feat_units[0] = [2, 3, 0, 0, 0, 0, 0, 0, 30, 40]  # geyser
+        feat_units[1] = [4, 3, 0, 0, 0, 0, 0, 0, 60, 60]  # mineral field — not a geyser
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._geyser_screen_positions, [(30, 40)])
+
+    def test_excludes_friendly_alliance_even_with_geyser_name(self):
+        # Defensive: a Refinery sitting on a geyser is alliance=1, not 3.
+        # The neutral-only filter must drop friendly rows so the snap doesn't
+        # pick a position that's already occupied by a refinery.
+        self.client._unit_type_id_to_name = {1: "Refinery", 2: "VespeneGeyser"}
+        feat_units = np.zeros((2, 10), dtype=np.int32)
+        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 10, 10]  # friendly Refinery
+        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 40, 40]  # neutral geyser
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._geyser_screen_positions, [(40, 40)])
+
+    def test_resets_each_step(self):
+        # Stale geysers must not bleed across steps even if feature_units
+        # comes back empty (e.g. camera panned away).
+        self.client._geyser_screen_positions = [(99, 99)]
+        self.client._update_unit_screen_positions({"feature_units": np.zeros((0, 10), dtype=np.int32)})
+        self.assertEqual(self.client._geyser_screen_positions, [])
+
+
+class TestSC2ClientRefinerySnap(unittest.TestCase):
+    """``_snap_refinery_to_geyser`` rewrites Build_Refinery/Assimilator/
+    Extractor target coordinates onto the nearest visible geyser, and leaves
+    every other action untouched.
+    """
+
+    def setUp(self):
+        self.client = SC2Client(map_name="Simple64")
+        # screen_size=64 → pixel coords ∈ [0, 63], normalised against 63.
+
+    def _action(self, fn_idx, x, y):
+        return np.array([fn_idx, x, y, 0], dtype=np.float32)
+
+    def _snap_pixel(self, px: int) -> float:
+        # Mirrors the +0.5 offset used inside ``_snap_refinery_to_geyser`` so
+        # downstream int-truncation lands on the right pixel.
+        return min(1.0, (float(px) + 0.5) / 63.0)
+
+    def test_refinery_snaps_to_only_geyser(self):
+        self.client._geyser_screen_positions = [(20, 30)]
+        out = self.client._snap_refinery_to_geyser(self._action(22, 0.9, 0.1))
+        self.assertAlmostEqual(float(out[1]), self._snap_pixel(20), places=4)
+        self.assertAlmostEqual(float(out[2]), self._snap_pixel(30), places=4)
+        # The snapped target should land on the geyser pixel after the
+        # standard int-truncation downstream.
+        self.assertEqual(int(float(out[1]) * 63), 20)
+        self.assertEqual(int(float(out[2]) * 63), 30)
+        # fn_idx and queue preserved.
+        self.assertEqual(int(out[0]), 22)
+        self.assertEqual(int(out[3]), 0)
+
+    def test_refinery_snaps_to_nearest_geyser(self):
+        # Two geysers; click closer to the right one.
+        self.client._geyser_screen_positions = [(5, 5), (55, 55)]
+        # Target (40, 40) → closer to (55, 55) than to (5, 5).
+        out = self.client._snap_refinery_to_geyser(self._action(22, 40 / 63.0, 40 / 63.0))
+        self.assertEqual(int(float(out[1]) * 63), 55)
+        self.assertEqual(int(float(out[2]) * 63), 55)
+
+    def test_assimilator_and_extractor_also_snap(self):
+        self.client._geyser_screen_positions = [(10, 12)]
+        for fn_idx in (51, 82):
+            out = self.client._snap_refinery_to_geyser(self._action(fn_idx, 0.5, 0.5))
+            self.assertEqual(int(float(out[1]) * 63), 10)
+            self.assertEqual(int(float(out[2]) * 63), 12)
+
+    def test_non_refinery_action_passes_through(self):
+        self.client._geyser_screen_positions = [(10, 10)]
+        # Build_SupplyDepot_screen (fn_idx=9) must not be snapped.
+        action = self._action(9, 0.7, 0.3)
+        out = self.client._snap_refinery_to_geyser(action)
+        self.assertAlmostEqual(float(out[1]), 0.7, places=6)
+        self.assertAlmostEqual(float(out[2]), 0.3, places=6)
+
+    def test_no_visible_geyser_passes_through(self):
+        self.client._geyser_screen_positions = []
+        action = self._action(22, 0.7, 0.3)
+        out = self.client._snap_refinery_to_geyser(action)
+        # Unchanged when there's no geyser to snap to (PySC2 will no-op it).
+        self.assertAlmostEqual(float(out[1]), 0.7, places=6)
+        self.assertAlmostEqual(float(out[2]), 0.3, places=6)
+
+    def test_snap_does_not_mutate_input(self):
+        self.client._geyser_screen_positions = [(20, 30)]
+        action = self._action(22, 0.9, 0.1)
+        original = action.copy()
+        self.client._snap_refinery_to_geyser(action)
+        np.testing.assert_array_equal(action, original)
+
+
+class TestSC2ClientActionToCallSnapsRefinery(unittest.TestCase):
+    """End-to-end: ``_action_to_call`` snaps Build_Refinery coordinates onto
+    a cached geyser before delegating to PySC2."""
+
+    def setUp(self):
+        from unittest.mock import patch
+
+        patcher_pysc2 = patch.dict(
+            "sys.modules",
+            {
+                "pysc2": _FakePySc2,
+                "pysc2.lib": _FakePySc2.lib,
+                "pysc2.lib.actions": _FakeActionsModule,
+            },
+        )
+        patcher_pysc2.start()
+        self.addCleanup(patcher_pysc2.stop)
+
+        from games.sc2 import client as client_mod
+
+        self._captured_action = None
+
+        def _fake_action_to_call(action, screen_size, minimap_size=None):
+            self._captured_action = action.copy()
+            return _FakeFunctionCall(_FakeFunctions.Build_Barracks_screen.id, [])
+
+        patcher_helper = patch.object(client_mod, "action_to_function_call", _fake_action_to_call)
+        patcher_helper.start()
+        self.addCleanup(patcher_helper.stop)
+
+        from games.sc2.client import SC2Client
+
+        self.client = SC2Client(map_name="Simple64")
+        # PySC2 mask says Build_Refinery is available so the no_op fallback
+        # doesn't fire. We reuse Build_Barracks_screen's fake id because the
+        # fake module only declares a handful of functions.
+        self.client._available_actions = None
+
+    def test_refinery_target_rewritten_to_geyser(self):
+        self.client._geyser_screen_positions = [(30, 40)]
+        action = np.array([22, 0.9, 0.1, 0], dtype=np.float32)
+        self.client._action_to_call(action)
+        self.assertIsNotNone(self._captured_action)
+        # Downstream int-truncation must land on the geyser pixel exactly.
+        self.assertEqual(int(float(self._captured_action[1]) * 63), 30)
+        self.assertEqual(int(float(self._captured_action[2]) * 63), 40)
+
+
 if __name__ == "__main__":
     unittest.main()

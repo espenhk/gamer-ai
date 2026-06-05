@@ -88,8 +88,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    sc2_mode = parser.add_mutually_exclusive_group()
-    sc2_mode.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--play",
         action="store_true",
         help=(
@@ -99,7 +99,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "the trained agent.  No weight updates occur."
         ),
     )
-    sc2_mode.add_argument(
+    mode_group.add_argument(
         "--eval",
         action="store_true",
         help=(
@@ -110,16 +110,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "No weight updates occur."
         ),
     )
-    sc2_mode.add_argument(
+    mode_group.add_argument(
         "--bc",
         action="store_true",
         help=(
-            "Behaviour-cloning pre-training mode (SC2 only).  "
-            "Reads .SC2Replay files from --replay-dir, fits a policy to the "
-            "demonstration data, and writes policy_weights.yaml into the "
-            "experiment directory.  Run without --bc afterwards to fine-tune "
-            "from the pre-trained weights.  Defaults: --bc-player winner, "
-            "--bc-race any, --bc-target sc2_reinforce."
+            "Behaviour-cloning pre-training mode.  Available for any game whose "
+            "adapter exposes a BCAdapter (SC2 and TMNF today).  "
+            "Reads replay files from --replay-dir (or from a per-game live "
+            "demonstration source when None), fits a policy to the data, and "
+            "writes policy_weights.yaml into the experiment directory.  Run "
+            "without --bc afterwards to fine-tune from the pre-trained weights."
         ),
     )
 
@@ -128,37 +128,32 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="DIR",
         help=(
-            "Directory containing .SC2Replay files for --bc mode.  "
-            "May also be set via bc_replay_dir in training_params.yaml."
+            "Directory of replay files for --bc mode (e.g. .SC2Replay for SC2).  "
+            "May also be set via bc_replay_dir in training_params.yaml.  Some "
+            "games (e.g. TMNF live-demo source) accept no replay-dir."
         ),
     )
     parser.add_argument(
         "--bc-player",
         default=None,
         choices=["winner", "1", "2"],
-        help="Which player to clone: 'winner' (default), '1', or '2'.  Overrides bc_player_id in config.",
+        help=("Which player to clone (SC2 only): 'winner' (default), '1', or '2'.  Overrides bc_player_id in config."),
     )
     parser.add_argument(
         "--bc-race",
         default=None,
         choices=["terran", "protoss", "zerg", "any"],
-        help="Race filter for --bc mode (default: any).  Overrides bc_race in config.",
+        help=("Race filter for --bc mode (SC2 only, default: any).  Overrides bc_race in config."),
     )
     parser.add_argument(
         "--bc-target",
         default=None,
-        choices=[
-            "sc2_reinforce",
-            "sc2_genetic",
-            "sc2_cmaes",
-            "sc2_neural_net",
-            "sc2_neural_dqn",
-            "sc2_lstm",
-            "sc2_cnn",
-            "epsilon_greedy",
-            "ucb_q",
-        ],
-        help="Policy type to pre-train (default: sc2_reinforce).  Overrides bc_target in config.",
+        metavar="POLICY_TYPE",
+        help=(
+            "Policy type to pre-train.  Overrides bc_target in config.  "
+            "Validated against the active game's BCAdapter.supported_targets "
+            "at runtime."
+        ),
     )
 
     def _positive_int(name: str):
@@ -254,9 +249,6 @@ def main() -> None:
     if args.eval and args.game != "sc2":
         raise SystemExit("--eval is only supported with --game sc2")
 
-    if args.bc and args.game != "sc2":
-        raise SystemExit("--bc is only supported with --game sc2")
-
     if args.play:
         _run_play_sc2(args)
         return
@@ -265,11 +257,12 @@ def main() -> None:
         _run_eval_sc2(args)
         return
 
+    adapter = GAME_ADAPTERS[args.game]()
+
     if args.bc:
-        _run_bc_sc2(args)
+        _run_bc(adapter, args)
         return
 
-    adapter = GAME_ADAPTERS[args.game]()
     _run_one(adapter, args)
 
 
@@ -380,24 +373,37 @@ def _run_play_sc2(args: argparse.Namespace) -> None:
 # ======================================================================
 
 
-def _run_bc_sc2(args: argparse.Namespace) -> None:
-    try:
-        from games.sc2.adapter import SC2Adapter
-        from games.sc2.replay_bc import run as bc_run
-    except ImportError as exc:
-        raise SystemExit(
-            f"Cannot import SC2 BC dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
-        ) from exc
+def _run_bc(adapter, args: argparse.Namespace) -> None:
+    """Game-agnostic behaviour-cloning entry point.
 
-    adapter = SC2Adapter()
+    Drives the framework BC orchestrator (:func:`framework.bc.run`) via the
+    game's :class:`framework.bc.BCAdapter`.  Games without a BC adapter wired
+    on their :class:`GameAdapter` raise a clean error here.
+    """
+    bc_adapter = getattr(adapter, "bc", None)
+    if bc_adapter is None:
+        raise SystemExit(
+            f"--bc is not supported for --game {args.game}: no BCAdapter wired on "
+            f"the game adapter.  See framework/bc.py for the integration contract."
+        )
+
+    from framework.bc import run as bc_run
+
     master_cfg = os.path.join(adapter.config_dir, "training_params.yaml")
     with open(master_cfg) as f:
         master_p = yaml.safe_load(f)
 
     experiment_dir = adapter.experiment_dir(args.experiment, master_p, args.track)
     training_params_file = f"{experiment_dir}/training_params.yaml"
+    reward_cfg_file = f"{experiment_dir}/reward_config.yaml"
 
     os.makedirs(experiment_dir, exist_ok=True)
+    # Mirror _run_one for the master-config copy step.  Some games (e.g. TMNF)
+    # build an env during BC and need reward_config.yaml on disk too.
+    master_reward_cfg = os.path.join(adapter.config_dir, "reward_config.yaml")
+    if not os.path.exists(reward_cfg_file) and os.path.exists(master_reward_cfg):
+        shutil.copy(master_reward_cfg, reward_cfg_file)
+        logger.info("Copied master reward config → %s", reward_cfg_file)
     if not os.path.exists(training_params_file):
         shutil.copy(master_cfg, training_params_file)
         logger.info("Copied master training params → %s", training_params_file)
@@ -405,45 +411,85 @@ def _run_bc_sc2(args: argparse.Namespace) -> None:
     with open(training_params_file) as f:
         p = yaml.safe_load(f)
 
-    # Resolve obs_spec from training params
-    from games.sc2.adapter import _get_obs_spec  # noqa: PLC0415
+    # Apply game-specific reward-config decoration (e.g. TMNF centerline_path)
+    # so the BC-driven env constructs cleanly.
+    if os.path.exists(reward_cfg_file):
+        with open(reward_cfg_file) as f:
+            reward_cfg = yaml.safe_load(f) or {}
+        adapter.decorate_reward_cfg(reward_cfg, p, args.track)
+        with open(reward_cfg_file, "w") as f:
+            yaml.dump(reward_cfg, f, default_flow_style=False, sort_keys=False)
 
-    map_name = p.get("map_name", "MoveToBeacon")
-    obs_spec_preset = p.get("obs_spec_preset")
-    enable_belief = p.get("enable_belief", False)
-    obs_spec = _get_obs_spec(map_name, obs_spec_preset, enable_belief)
+    obs_spec = _build_bc_obs_spec(args.game, p)
 
-    # CLI flags override config; config overrides hard-wired defaults.
+    # CLI flags override config; config overrides BCAdapter default.
     replay_dir = getattr(args, "replay_dir", None) or p.get("bc_replay_dir")
-    if not replay_dir:
-        raise SystemExit("--replay-dir must be specified for --bc mode (or set bc_replay_dir in training_params.yaml)")
-
-    player_id: str | int = getattr(args, "bc_player", None) or p.get("bc_player_id", "winner")
-    # Coerce "1"/"2" string choices to int so _resolve_player_id works
-    if player_id in ("1", "2"):
-        player_id = int(player_id)
-
     race = getattr(args, "bc_race", None) or p.get("bc_race", "any")
-    target = getattr(args, "bc_target", None) or p.get("bc_target", "sc2_reinforce")
+    target = getattr(args, "bc_target", None) or p.get("bc_target", bc_adapter.default_target)
 
-    bc_opts: dict = dict(
-        target=target,
-        player_id=player_id,
-        race=race,
-        max_replays=p.get("bc_max_replays"),
-        step_mul=p.get("bc_step_mul", p.get("step_mul", 1)),
-        screen_size=p.get("screen_size", 64),
-        minimap_size=p.get("minimap_size", 64),
-        bc_epochs=p.get("bc_epochs", 10),
-        bc_learning_rate=p.get("bc_learning_rate", 1e-3),
-        bc_batch_size=p.get("bc_batch_size", 256),
-        bc_ignore_noop=p.get("bc_ignore_noop", True),
+    # SC2-specific: --bc-player overrides bc_player_id in the training params
+    # the BCAdapter will read.  Other games can ignore the key.
+    if getattr(args, "bc_player", None):
+        p = dict(p, bc_player_id=args.bc_player)
+
+    # Pass the resolved experiment directory through so adapters that build
+    # an env during BC (e.g. TMNF) can find reward_config.yaml on disk.
+    p = dict(p, _bc_experiment_dir=experiment_dir)
+
+    try:
+        bc_run(
+            bc_adapter,
+            replay_dir,
+            experiment_dir,
+            obs_spec=obs_spec,
+            target=target,
+            training_params=p,
+            race=race,
+            max_replays=p.get("bc_max_replays"),
+        )
+    except ValueError as exc:
+        # Adapter/orchestrator validation errors (missing --replay-dir,
+        # unsupported target, empty replay directory, race filter dropped
+        # all replays, ...) should exit cleanly with the message rather
+        # than dump a traceback at the user.
+        raise SystemExit(str(exc)) from exc
+    except ImportError as exc:
+        # Optional game-specific deps (pysc2 for SC2, tmnf group for TMNF,
+        # etc.) are imported lazily inside the adapter; surface a clean
+        # install hint instead of a raw traceback.
+        raise SystemExit(
+            f"Cannot import {args.game} BC dependencies: {exc}\n"
+            f"Install the {args.game} dependencies with:  poetry install --with {args.game}"
+        ) from exc
+    logger.info(
+        "BC complete — run 'python main.py %s --game %s' to fine-tune from pre-trained weights.",
+        args.experiment,
+        args.game,
     )
 
-    bc_run(replay_dir, experiment_dir, obs_spec, **bc_opts)
-    logger.info(
-        "BC complete — run 'python main.py %s --game sc2' to fine-tune from pre-trained weights.",
-        args.experiment,
+
+def _build_bc_obs_spec(game: str, training_params: dict):
+    """Build the active observation spec for a BC run.
+
+    Each game decides its own obs_spec wiring.  The CLI asks the game
+    module directly; new games add a branch here when they wire a BCAdapter.
+    """
+    if game == "sc2":
+        from games.sc2.adapter import _get_obs_spec
+
+        map_name = training_params.get("map_name", "MoveToBeacon")
+        preset = training_params.get("obs_spec_preset")
+        enable_belief = training_params.get("enable_belief", False)
+        return _get_obs_spec(map_name, preset, enable_belief)
+
+    if game == "tmnf":
+        from games.tmnf.obs_spec import TMNF_OBS_SPEC
+
+        n_lidar_rays = training_params.get("n_lidar_rays", 0)
+        return TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+
+    raise SystemExit(
+        f"BC obs_spec for --game {game} is not wired into main.py yet.  See _build_bc_obs_spec in main.py."
     )
 
 

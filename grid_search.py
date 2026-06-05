@@ -74,7 +74,6 @@ _ABBREV = {
     "n_vision": "nv",
     "policy_type": "pt",
     "policy_params": "pp",
-    "do_pretrain": "dpt",
     "patience": "pat",
     "decision_offset_pct": "dec",
     "action_window_ticks": "awt",

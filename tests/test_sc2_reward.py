@@ -2506,7 +2506,7 @@ class TestSC2BuildTrainBonus(unittest.TestCase):
     """Tests for the build_train_bonus reward term (issue #416)."""
 
     # fn_idx 8 = Build_Barracks_screen (Terran build)
-    # fn_idx 7 = Train_SCV_quick (Terran train)
+    # fn_idx 7 = Train_Marine_quick (Terran train)
     # fn_idx 2 = Move_screen (move category — should NOT trigger)
     # fn_idx 0 = no_op (move category — should NOT trigger)
     _BUILD_FN_IDX = 8

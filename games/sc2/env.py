@@ -439,7 +439,8 @@ class SC2Env(BaseGameEnv):
             self._ep_supply_capped_steps += 1
         _army_count = info.get("army_count", 0.0)
         _resources = info.get("minerals", 0.0) + info.get("vespene", 0.0)
-        if self._ep_obs_step_count % _SERIES_SAMPLE_RATE == 0:
+        _is_terminal = info.get("is_last", False) or info.get("time_over", False)
+        if self._ep_obs_step_count % _SERIES_SAMPLE_RATE == 0 or _is_terminal:
             self._ep_army_series.append([_game_time_s, _army_count])
             self._ep_resource_series.append([_game_time_s, _resources])
         # Build-order: detect unit-count increases from client's unit_counts dict.

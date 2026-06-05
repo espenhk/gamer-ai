@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.5.1] - 2026-06-05
+
 ### Changed
 - Live GUI (`--live_gui`) now updates every 50 steps instead of every env
   step, eliminating the per-step Tkinter redraw that was blocking the SC2

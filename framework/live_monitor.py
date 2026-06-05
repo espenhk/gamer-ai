@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -227,15 +227,17 @@ class LiveTelemetryMonitor:
         obs_names: list[str],
         obs_scales: np.ndarray,
         rolling_window: int = 5,
+        update_interval: int = 50,
     ) -> None:
         self._obs_names = list(obs_names)
         self._obs_scales = np.asarray(obs_scales, dtype=np.float32)
         self._rolling_window = max(1, int(rolling_window))
+        self._update_interval = max(1, int(update_interval))
         self._reward_history: dict[str, deque[float]] = {}
         self._prev_episode_components: dict[str, float] = {}
         self._groups = _classify_observation_features(self._obs_names)
         self._step_idx = 0
-        self._last_actions: deque[tuple[int, Any]] = deque(maxlen=10)
+        self._action_buffer: deque[Any] = deque(maxlen=self._update_interval)
 
         self._tk = None
         self._reward_canvas = None
@@ -274,7 +276,12 @@ class LiveTelemetryMonitor:
                 top_frame, text="Rewards (rolling avg)", anchor="w", font=("TkDefaultFont", 8, "bold")
             )
             reward_label.grid(row=0, column=0, sticky="w")
-            action_label = tk.Label(top_frame, text="Last 10 actions", anchor="w", font=("TkDefaultFont", 8, "bold"))
+            action_label = tk.Label(
+                top_frame,
+                text=f"Action frequency (last {self._update_interval} steps)",
+                anchor="w",
+                font=("TkDefaultFont", 8, "bold"),
+            )
             action_label.grid(row=0, column=1, sticky="w", padx=(12, 0))
 
             top_frame.columnconfigure(0, weight=3)
@@ -348,17 +355,20 @@ class LiveTelemetryMonitor:
             return
         self._step_idx += 1
         if action is not None:
-            self._last_actions.append((self._step_idx, action))
+            self._action_buffer.append(action)
         step_components, self._prev_episode_components = _derive_step_components(
             info,
             reward,
             self._prev_episode_components,
         )
+        # Always update rolling stats so the window stays accurate between draws.
         avg_components = _rolling_means(
             self._reward_history,
             step_components,
             self._rolling_window,
         )
+        if self._step_idx % self._update_interval != 0:
+            return
         self._draw_reward_panel(avg_components)
         self._draw_action_panel()
         self._draw_observation_panel(np.asarray(obs, dtype=np.float32))
@@ -431,25 +441,55 @@ class LiveTelemetryMonitor:
             return
         c = self._action_canvas
         c.delete("all")
-        if not self._last_actions:
+        if not self._action_buffer:
             c.create_text(8, 8, anchor="nw", text="(no actions yet)", fill="gray", font=("TkDefaultFont", 8))
             c.configure(scrollregion=(0, 0, 200, 40))
             return
 
-        y = 8
-        row_h = 18
-        actions = list(self._last_actions)
-        shown = 0
-        for step_i, act in reversed(actions):
-            action_text = _fmt_action(act)
-            if not action_text:
-                continue
-            label = f"#{step_i:>5}: {action_text}"
-            c.create_text(8, y, anchor="nw", text=label, font=("TkFixedFont", 8), fill="#222")
-            y += row_h
-            shown += 1
+        counts = Counter(lbl for a in self._action_buffer if (lbl := _fmt_action(a)))
+        if not counts:
+            c.create_text(8, 8, anchor="nw", text="(only no-ops)", fill="gray", font=("TkDefaultFont", 8))
+            c.configure(scrollregion=(0, 0, 200, 40))
+            return
 
-        c.configure(scrollregion=(0, 0, int(c.winfo_width()) or 200, y + 4))
+        # total_steps includes no-ops (denominator for honest percentages);
+        # total_shown excludes them (denominator for bar-width so bars fill the chart).
+        total_steps = len(self._action_buffer)
+        total_shown = sum(counts.values())
+        canvas_w = max(220, int(c.winfo_width()) or 220)
+        c.create_text(
+            8,
+            6,
+            anchor="nw",
+            text=f"last {total_steps} steps",
+            fill="#666",
+            font=("TkDefaultFont", 8),
+        )
+
+        y = 26
+        row_h = 18
+        label_w = 110
+        bar_left = 8 + label_w
+        bar_right = canvas_w - 50
+        bar_max = max(20, bar_right - bar_left)
+
+        for label, count in counts.most_common(15):
+            bar_frac = count / total_shown
+            pct = count / total_steps * 100
+            px = max(1, int(bar_max * bar_frac))
+            c.create_rectangle(bar_left, y + 1, bar_left + px, y + row_h - 3, fill="#4c78a8", outline="")
+            c.create_text(bar_left - 4, y + 2, anchor="ne", text=label[:14], font=("TkDefaultFont", 8), fill="#222")
+            c.create_text(
+                bar_left + px + 4,
+                y + 2,
+                anchor="nw",
+                text=f"{count} ({pct:.0f}%)",
+                font=("TkFixedFont", 8),
+                fill="#555",
+            )
+            y += row_h
+
+        c.configure(scrollregion=(0, 0, canvas_w, y + 8))
 
     def _draw_observation_panel(self, obs: np.ndarray) -> None:
         if self._obs_canvas is None:
@@ -589,6 +629,11 @@ def make_live_monitor(training_params: dict, obs_spec: Any) -> LiveTelemetryMoni
     if not names:
         logger.warning("live_gui requested but observation spec is empty; disabling.")
         return None
-    monitor = LiveTelemetryMonitor(names, scales, rolling_window=5)
+    try:
+        update_interval = max(1, int(training_params.get("live_gui_update_interval", 50) or 50))
+    except (TypeError, ValueError):
+        logger.warning("live_gui_update_interval is invalid; defaulting to 50")
+        update_interval = 50
+    monitor = LiveTelemetryMonitor(names, scales, rolling_window=5, update_interval=update_interval)
     monitor.start()
     return monitor

@@ -452,13 +452,16 @@ class LiveTelemetryMonitor:
             c.configure(scrollregion=(0, 0, 200, 40))
             return
 
-        total = sum(counts.values())
+        # total_steps includes no-ops (denominator for honest percentages);
+        # total_shown excludes them (denominator for bar-width so bars fill the chart).
+        total_steps = len(self._action_buffer)
+        total_shown = sum(counts.values())
         canvas_w = max(220, int(c.winfo_width()) or 220)
         c.create_text(
             8,
             6,
             anchor="nw",
-            text=f"last {len(self._action_buffer)} steps",
+            text=f"last {total_steps} steps",
             fill="#666",
             font=("TkDefaultFont", 8),
         )
@@ -471,15 +474,16 @@ class LiveTelemetryMonitor:
         bar_max = max(20, bar_right - bar_left)
 
         for label, count in counts.most_common(15):
-            frac = count / total
-            px = max(1, int(bar_max * frac))
+            bar_frac = count / total_shown
+            pct = count / total_steps * 100
+            px = max(1, int(bar_max * bar_frac))
             c.create_rectangle(bar_left, y + 1, bar_left + px, y + row_h - 3, fill="#4c78a8", outline="")
             c.create_text(bar_left - 4, y + 2, anchor="ne", text=label[:14], font=("TkDefaultFont", 8), fill="#222")
             c.create_text(
                 bar_left + px + 4,
                 y + 2,
                 anchor="nw",
-                text=f"{count} ({frac * 100:.0f}%)",
+                text=f"{count} ({pct:.0f}%)",
                 font=("TkFixedFont", 8),
                 fill="#555",
             )
@@ -625,7 +629,11 @@ def make_live_monitor(training_params: dict, obs_spec: Any) -> LiveTelemetryMoni
     if not names:
         logger.warning("live_gui requested but observation spec is empty; disabling.")
         return None
-    update_interval = max(1, int(training_params.get("live_gui_update_interval", 50)))
+    try:
+        update_interval = max(1, int(training_params.get("live_gui_update_interval", 50) or 50))
+    except (TypeError, ValueError):
+        logger.warning("live_gui_update_interval is invalid; defaulting to 50")
+        update_interval = 50
     monitor = LiveTelemetryMonitor(names, scales, rolling_window=5, update_interval=update_interval)
     monitor.start()
     return monitor

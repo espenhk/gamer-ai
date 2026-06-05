@@ -188,6 +188,24 @@ class TestActionPanel(unittest.TestCase):
         pct_texts = [t for t in monitor._action_canvas.texts if "%" in t]
         self.assertTrue(len(pct_texts) > 0)
 
+    def test_draw_action_panel_percentages_use_total_steps(self):
+        """Percentages are computed against total buffer length, not just shown actions.
+
+        1 real action + 49 no-ops → 2%, not 100%.
+        """
+        monitor = LiveTelemetryMonitor(["obs"], [1.0], rolling_window=5, update_interval=50)
+        monitor._action_canvas = _FakeCanvas()
+        # Fill with 49 no-ops then 1 real action
+        for _ in range(49):
+            monitor._action_buffer.append([0.0, 0.0, 0.0, 0.0])
+        monitor._action_buffer.append([1.0, 0.0, 0.0, 0.0])  # select_army
+
+        monitor._draw_action_panel()
+
+        pct_texts = [t for t in monitor._action_canvas.texts if "%" in t]
+        self.assertEqual(len(pct_texts), 1)
+        self.assertIn("2%", pct_texts[0])
+
 
 if __name__ == "__main__":
     unittest.main()

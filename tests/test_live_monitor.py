@@ -137,6 +137,7 @@ class TestDisplayHelpers(unittest.TestCase):
 class _FakeCanvas:
     def __init__(self):
         self.texts = []
+        self.rects = []
         self.scrollregion = None
 
     def delete(self, *_args, **_kwargs):
@@ -146,22 +147,46 @@ class _FakeCanvas:
         self.texts.append(kwargs.get("text", ""))
         return None
 
+    def create_rectangle(self, *args, **_kwargs):
+        self.rects.append(args)
+        return None
+
     def configure(self, **kwargs):
         self.scrollregion = kwargs.get("scrollregion")
 
     def winfo_width(self):
-        return 200
+        return 220
 
 
 class TestActionPanel(unittest.TestCase):
-    def test_draw_action_panel_skips_no_op_lines_entirely(self):
+    def test_draw_action_panel_skips_no_op_actions(self):
+        """All-no-op buffer shows a status message, not an action bar entry."""
         monitor = LiveTelemetryMonitor(["obs"], [1.0], rolling_window=5)
         monitor._action_canvas = _FakeCanvas()
-        monitor._last_actions.append((1, [0.0, 0.0, 0.0, 0.0]))
+        monitor._action_buffer.append([0.0, 0.0, 0.0, 0.0])  # SC2 no-op
 
         monitor._draw_action_panel()
 
-        self.assertEqual(monitor._action_canvas.texts, [])
+        # Only the "(only no-ops)" status text should appear; no bars drawn.
+        self.assertTrue(any("only no-ops" in t for t in monitor._action_canvas.texts))
+        self.assertEqual(monitor._action_canvas.rects, [])
+
+    def test_draw_action_panel_shows_bar_chart_for_real_actions(self):
+        """Non-no-op actions produce bar entries and no list lines."""
+        monitor = LiveTelemetryMonitor(["obs"], [1.0], rolling_window=5)
+        monitor._action_canvas = _FakeCanvas()
+        # Two Move_screen actions (fn_idx=2) and one select_army (fn_idx=1)
+        monitor._action_buffer.append([2.0, 0.5, 0.5, 0.0])
+        monitor._action_buffer.append([2.0, 0.2, 0.3, 0.0])
+        monitor._action_buffer.append([1.0, 0.0, 0.0, 0.0])
+
+        monitor._draw_action_panel()
+
+        # Bars should have been drawn.
+        self.assertTrue(len(monitor._action_canvas.rects) > 0)
+        # Percentage annotations should be present.
+        pct_texts = [t for t in monitor._action_canvas.texts if "%" in t]
+        self.assertTrue(len(pct_texts) > 0)
 
 
 if __name__ == "__main__":

@@ -310,6 +310,7 @@ worker mechanics are unit-tested with a dummy env.
 - reward ordering puts `total_reward` first; all other keys (including former TMNF/SC2-specific names) are sorted alphabetically
 - layout helpers split rows into display columns while preserving order and switch observation panel column count from 3 to 4 on wide canvases
 - action formatting renders 3-value TMNF controls with steer direction/percent, treats tiny pedal values (`<= 0.01`) as effectively zero when choosing accel-only vs brake-only display, and still truncates long vectors after six entries
+- action panel (bar chart): all-no-op buffer shows "(only no-ops)" status and draws no bars; real actions produce bar entries with percentage annotations
 
 ### test_obs_memory.py — frame-stacking observation wrapper
 - shape; reset fills initial; step shifts frames; k=1 passthrough; invalid k raises; most-recent zero-padded; clear

@@ -17,6 +17,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
+- Live GUI (`--live_gui`) now updates every 50 steps instead of every env
+  step, eliminating the per-step Tkinter redraw that was blocking the SC2
+  training loop and making the game chug (issue #378). The interval is
+  configurable via `live_gui_update_interval` in `training_params.yaml`
+  (default `50`). Rolling reward statistics are still accumulated every
+  step so the displayed means remain accurate.
+- The "Last 10 actions" list in the live GUI has been replaced with an
+  action-frequency bar chart showing the count and percentage of each
+  distinct action taken in the most recent batch of steps. No-op actions
+  are still hidden.
 
 ---
 

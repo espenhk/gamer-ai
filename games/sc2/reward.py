@@ -269,6 +269,19 @@ class SC2RewardConfig:
         ``0.0`` — opt-in.  Recommended starting range: ``0.2–1.0`` (keep
         smaller than ``supply_growth_bonus`` / ``worker_growth_bonus`` so the
         shaping term does not dominate outcome-driven signals).
+    build_repeat_penalty :
+        Per-step penalty when the agent issues the same build fn_idx on two
+        consecutive env steps.  Discourages placement-spam loops where the
+        agent repeatedly tries to build at an invalid location and the
+        "Can't find placement location" rejection earns no penalty from the
+        reward function.  The penalty fires on the second and later consecutive
+        repetitions; the first issuance of any build fn_idx is always
+        unpenalised.  Any intervening non-build action (move, train, no-op,
+        select) resets the counter.  Combined with ``build_train_bonus``, a
+        weight of ``-build_train_bonus`` makes the net reward exactly zero for
+        a repeated build, breaking the positive feedback loop while leaving the
+        first issuance fully rewarded.  Default ``0.0`` — opt-in.  Recommended
+        range: ``-0.3`` to ``-1.0``.
     """
 
     score_weight: float = 1.0
@@ -309,6 +322,7 @@ class SC2RewardConfig:
     expansion_bonus: float = 0.0
     scout_bonus: float = 0.0
     build_train_bonus: float = 0.0
+    build_repeat_penalty: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -431,6 +445,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._prev_explored_frac: float | None = None
         self._seen_structures: set[str] = set()
         self._max_townhalls: int | None = None
+        self._last_build_fn_idx: int | None = None
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -451,6 +466,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._prev_explored_frac = None
         self._seen_structures = set()
         self._max_townhalls = None
+        self._last_build_fn_idx = None
 
     def compute(
         self,
@@ -487,11 +503,11 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
         ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
         ``early_random_action``, ``new_action_unlock``, ``new_action_usage``,
-        ``build_train``, ``unit_loss``, ``damage_taken``, ``passive_under_fire``,
-        ``small_selection``, ``resource_banking``, ``supply_block``,
-        ``supply_growth``, ``worker_growth``, ``army_growth``,
-        ``tech_building``, ``expansion``, ``scout_explore``, ``step_penalty``
-        and ``terminal`` separately.
+        ``build_train``, ``build_repeat_penalty``, ``unit_loss``,
+        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
+        ``resource_banking``, ``supply_block``, ``supply_growth``,
+        ``worker_growth``, ``army_growth``, ``tech_building``, ``expansion``,
+        ``scout_explore``, ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -617,6 +633,20 @@ class SC2RewardCalculator(RewardCalculatorBase):
                 build_train = cfg.build_train_bonus * n_ticks
         components["build_train"] = float(build_train)
 
+        # Build-repeat penalty: discourage consecutive same-fn_idx build spam.
+        # The first issuance of any build fn_idx is unpenalised; any subsequent
+        # repetition of the *same* build fn_idx without an intervening non-build
+        # action fires the penalty.  Catches "Can't find placement location"
+        # loops where failed placements earn no consequence from the reward.
+        build_repeat = 0.0
+        if FN_IDX_TO_CATEGORY.get(raw_fn_idx) == "build":
+            if cfg.build_repeat_penalty != 0.0 and self._last_build_fn_idx == raw_fn_idx:
+                build_repeat = cfg.build_repeat_penalty * n_ticks
+            self._last_build_fn_idx = raw_fn_idx
+        else:
+            self._last_build_fn_idx = None
+        components["build_repeat_penalty"] = float(build_repeat)
+
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False
         if self_count > 0:
@@ -703,7 +733,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
             enemy_count = info.get("screen_enemy_count", 0.0)
             if self_count > 0 and enemy_count > 0:
                 dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
-                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
                 dist = (dx * dx + dy * dy) ** 0.5
                 screen_size = float(info.get("screen_size", 64))
                 max_attack_range_px = float(

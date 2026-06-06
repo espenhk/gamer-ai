@@ -1,7 +1,7 @@
-# Grid search template: neural_dqn — Atari RAM (Pong-v5)
+# Grid search template: qr_dqn — Atari RAM (Pong-v5)
 #
 # Usage:
-#   python grid_search.py games/atari/config/gs_neural_dqn_template.yaml --game atari
+#   python grid_search.py games/atari/config/gs_qr_dqn_template.yaml --game atari
 #
 
 base_name: "qr_dqn_v1"

@@ -1,1740 +1,1740 @@
 {
-  "C:\\GitHub\\gamer-ai\\.claude\\settings.local.json": {
+  ".claude/settings.local.json": {
     "mtime": 1780554667.97525,
     "ast_hash": "59c6084b8354aeb6bb5fc450ec35a7fe",
     "semantic_hash": "59c6084b8354aeb6bb5fc450ec35a7fe"
   },
-  "C:\\GitHub\\gamer-ai\\analytics.py": {
+  "analytics.py": {
     "mtime": 1779522507.8582454,
     "ast_hash": "5d1aa1d4cf6da7b7d3b9289efccf1111",
     "semantic_hash": "5d1aa1d4cf6da7b7d3b9289efccf1111"
   },
-  "C:\\GitHub\\gamer-ai\\batch_run.sh": {
+  "batch_run.sh": {
     "mtime": 1779522507.8582454,
     "ast_hash": "2100afc9314198f5b323646c085d94b1",
     "semantic_hash": "2100afc9314198f5b323646c085d94b1"
   },
-  "C:\\GitHub\\gamer-ai\\cross_grid_report.py": {
+  "cross_grid_report.py": {
     "mtime": 1779522507.8582454,
     "ast_hash": "69eb076f7cbc513c5d0ba99865fcbd46",
     "semantic_hash": "69eb076f7cbc513c5d0ba99865fcbd46"
   },
-  "C:\\GitHub\\gamer-ai\\distributed\\__init__.py": {
+  "distributed/__init__.py": {
     "mtime": 1777665601.862154,
     "ast_hash": "40996c79ecea417626c081a3f5afec95",
     "semantic_hash": "40996c79ecea417626c081a3f5afec95"
   },
-  "C:\\GitHub\\gamer-ai\\distributed\\coordinator.py": {
+  "distributed/coordinator.py": {
     "mtime": 1779522507.8582454,
     "ast_hash": "3239fc8614332ff686bb07b5a63fd962",
     "semantic_hash": "3239fc8614332ff686bb07b5a63fd962"
   },
-  "C:\\GitHub\\gamer-ai\\distributed\\protocol.py": {
+  "distributed/protocol.py": {
     "mtime": 1779522507.8582454,
     "ast_hash": "7238b17e5d085ff908575a5845aadb3b",
     "semantic_hash": "7238b17e5d085ff908575a5845aadb3b"
   },
-  "C:\\GitHub\\gamer-ai\\distributed\\worker.py": {
+  "distributed/worker.py": {
     "mtime": 1779522507.8582454,
     "ast_hash": "4660b88bad34df73bd8d6b9e9874ebfc",
     "semantic_hash": "4660b88bad34df73bd8d6b9e9874ebfc"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\__init__.py": {
+  "framework/__init__.py": {
     "mtime": 1777665601.8864343,
     "ast_hash": "aa0351878ca27b672889f543c5be04b3",
     "semantic_hash": "aa0351878ca27b672889f543c5be04b3"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\alphazero.py": {
+  "framework/alphazero.py": {
     "mtime": 1779954849.4771402,
     "ast_hash": "bda052a6b868cfbcb817b177b8d6df9e",
     "semantic_hash": "bda052a6b868cfbcb817b177b8d6df9e"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\analytics.py": {
+  "framework/analytics.py": {
     "mtime": 1779954849.4788806,
     "ast_hash": "f269b33b8e29439d2c9d0b565e88bcda",
     "semantic_hash": "f269b33b8e29439d2c9d0b565e88bcda"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\base_env.py": {
+  "framework/base_env.py": {
     "mtime": 1777665601.8864343,
     "ast_hash": "dd03ecc0a8163ee161d4ddcea432c151",
     "semantic_hash": "dd03ecc0a8163ee161d4ddcea432c151"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\base_reward.py": {
+  "framework/base_reward.py": {
     "mtime": 1777665601.9024332,
     "ast_hash": "b99b7e6e53bd4a4370860d22d3698496",
     "semantic_hash": "b99b7e6e53bd4a4370860d22d3698496"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\belief.py": {
+  "framework/belief.py": {
     "mtime": 1779522508.3922973,
     "ast_hash": "b198d62cb4ab785b1f76ca6fbd5b3cc9",
     "semantic_hash": "b198d62cb4ab785b1f76ca6fbd5b3cc9"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\cmaes.py": {
+  "framework/cmaes.py": {
     "mtime": 1779522508.3975754,
     "ast_hash": "7707a48546eed1769375136262d52f7d",
     "semantic_hash": "7707a48546eed1769375136262d52f7d"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\dqn.py": {
+  "framework/dqn.py": {
     "mtime": 1779954849.479884,
     "ast_hash": "acaf947478e84b1dfc7cdb02b5bca7ff",
     "semantic_hash": "acaf947478e84b1dfc7cdb02b5bca7ff"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\env_loader.py": {
+  "framework/env_loader.py": {
     "mtime": 1779441993.0702085,
     "ast_hash": "44f9406469d6ddf20e19361fa28567b4",
     "semantic_hash": "44f9406469d6ddf20e19361fa28567b4"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\game_adapter.py": {
+  "framework/game_adapter.py": {
     "mtime": 1779960677.3412602,
     "ast_hash": "4904786370946e7ea7354427274f3a1d",
     "semantic_hash": "4904786370946e7ea7354427274f3a1d"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\info_gain.py": {
+  "framework/info_gain.py": {
     "mtime": 1777665601.9024332,
     "ast_hash": "5c589d0fe83f95c12c3b1f13b8f15007",
     "semantic_hash": "5c589d0fe83f95c12c3b1f13b8f15007"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\live_monitor.py": {
+  "framework/live_monitor.py": {
     "mtime": 1779954849.479884,
     "ast_hash": "00e2e4007e7f8d0cd0772fbc58c6ed4b",
     "semantic_hash": "00e2e4007e7f8d0cd0772fbc58c6ed4b"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\lstm.py": {
+  "framework/lstm.py": {
     "mtime": 1779522508.3975754,
     "ast_hash": "3e6b660f9573655f8524b4ab27ac5b38",
     "semantic_hash": "3e6b660f9573655f8524b4ab27ac5b38"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\obs_memory.py": {
+  "framework/obs_memory.py": {
     "mtime": 1779522508.3975754,
     "ast_hash": "e490d4deb518cc2a50067e7d42eceaa8",
     "semantic_hash": "e490d4deb518cc2a50067e7d42eceaa8"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\obs_spec.py": {
+  "framework/obs_spec.py": {
     "mtime": 1779954849.4808917,
     "ast_hash": "9e13bd06db47654cd5fddcaadeee742d",
     "semantic_hash": "9e13bd06db47654cd5fddcaadeee742d"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\parallel_eval.py": {
+  "framework/parallel_eval.py": {
     "mtime": 1779954849.4819138,
     "ast_hash": "3b78d406d4231ac16833418ffe38493c",
     "semantic_hash": "3b78d406d4231ac16833418ffe38493c"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\policies.py": {
+  "framework/policies.py": {
     "mtime": 1779954849.4819138,
     "ast_hash": "3d81ca85dfb17df1d6d0ee09e5bf2d82",
     "semantic_hash": "3d81ca85dfb17df1d6d0ee09e5bf2d82"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\reinforce.py": {
+  "framework/reinforce.py": {
     "mtime": 1779522508.3975754,
     "ast_hash": "a61fbb936a3a5f27e2d060b208d4bd8c",
     "semantic_hash": "a61fbb936a3a5f27e2d060b208d4bd8c"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\replay.py": {
+  "framework/replay.py": {
     "mtime": 1779522508.3975754,
     "ast_hash": "25b9c6641fec17c6c32af7c015e44056",
     "semantic_hash": "25b9c6641fec17c6c32af7c015e44056"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\run_config.py": {
+  "framework/run_config.py": {
     "mtime": 1779954849.4829888,
     "ast_hash": "529d29580616a7cf94990135c94b2088",
     "semantic_hash": "529d29580616a7cf94990135c94b2088"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\sb3_policies.py": {
+  "framework/sb3_policies.py": {
     "mtime": 1779954849.4881,
     "ast_hash": "6aa8793dda7cb854e4235dcda1ae66f4",
     "semantic_hash": "6aa8793dda7cb854e4235dcda1ae66f4"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\sb3_support.py": {
+  "framework/sb3_support.py": {
     "mtime": 1779954849.4891467,
     "ast_hash": "3fbba04dbaf77f7d1d26a40ca18a2d0f",
     "semantic_hash": "3fbba04dbaf77f7d1d26a40ca18a2d0f"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\self_play.py": {
+  "framework/self_play.py": {
     "mtime": 1780260526.1117816,
     "ast_hash": "74a391cea5a82e97934296e4698a5fc1",
     "semantic_hash": "74a391cea5a82e97934296e4698a5fc1"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\training.py": {
+  "framework/training.py": {
     "mtime": 1780380060.8762097,
     "ast_hash": "b4ece7847ec401207fc30276ab62b22d",
     "semantic_hash": "b4ece7847ec401207fc30276ab62b22d"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\version.py": {
+  "framework/version.py": {
     "mtime": 1780522451.4362254,
     "ast_hash": "8c172139a9b1d9fcb4b7b253da180086",
     "semantic_hash": "8c172139a9b1d9fcb4b7b253da180086"
   },
-  "C:\\GitHub\\gamer-ai\\games\\__init__.py": {
+  "games/__init__.py": {
     "mtime": 1777665601.9181285,
     "ast_hash": "40e48f156f2db374ad53f4c7ada33a25",
     "semantic_hash": "40e48f156f2db374ad53f4c7ada33a25"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\__init__.py": {
+  "games/_template/__init__.py": {
     "mtime": 1780047397.391114,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\actions.py": {
+  "games/_template/actions.py": {
     "mtime": 1780047397.392123,
     "ast_hash": "4f4ebfe5d6765cce596ba141ca20baf2",
     "semantic_hash": "4f4ebfe5d6765cce596ba141ca20baf2"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\adapter.py": {
+  "games/_template/adapter.py": {
     "mtime": 1780047397.392123,
     "ast_hash": "d6a3a0e319fc6ec22cd5b436471aa00b",
     "semantic_hash": "d6a3a0e319fc6ec22cd5b436471aa00b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\analytics.py": {
+  "games/_template/analytics.py": {
     "mtime": 1780047397.4029694,
     "ast_hash": "08b1ae6e37da6b0615e667f2b62e2987",
     "semantic_hash": "08b1ae6e37da6b0615e667f2b62e2987"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\env.py": {
+  "games/_template/env.py": {
     "mtime": 1780047397.4029694,
     "ast_hash": "8a2a643c38f9449edd0cf61cb222ea87",
     "semantic_hash": "8a2a643c38f9449edd0cf61cb222ea87"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\obs_spec.py": {
+  "games/_template/obs_spec.py": {
     "mtime": 1780047397.4029694,
     "ast_hash": "0cee193942b6c05e6146b6d36ad38f5e",
     "semantic_hash": "0cee193942b6c05e6146b6d36ad38f5e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\reward.py": {
+  "games/_template/reward.py": {
     "mtime": 1780047397.4029694,
     "ast_hash": "cc7fd46eddbe57d120c475a84779089a",
     "semantic_hash": "cc7fd46eddbe57d120c475a84779089a"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\__init__.py": {
+  "games/assetto_corsa/__init__.py": {
     "mtime": 1777665601.9387906,
     "ast_hash": "4254f2423fdcdb93a503ab870afec8a0",
     "semantic_hash": "4254f2423fdcdb93a503ab870afec8a0"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\actions.py": {
+  "games/assetto_corsa/actions.py": {
     "mtime": 1779954849.490401,
     "ast_hash": "60f0c0116e291b30d5cf3cef6660897a",
     "semantic_hash": "60f0c0116e291b30d5cf3cef6660897a"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\adapter.py": {
+  "games/assetto_corsa/adapter.py": {
     "mtime": 1779960677.3422487,
     "ast_hash": "b948f74315d4350c91b0d62d7cee3497",
     "semantic_hash": "b948f74315d4350c91b0d62d7cee3497"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\analytics.py": {
+  "games/assetto_corsa/analytics.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "3d61ff3ef3b9f3dad780cbc31389518d",
     "semantic_hash": "3d61ff3ef3b9f3dad780cbc31389518d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\clients\\__init__.py": {
+  "games/assetto_corsa/clients/__init__.py": {
     "mtime": 1777665601.949948,
     "ast_hash": "5d5c4df3591c21aed26e7320352d08cf",
     "semantic_hash": "5d5c4df3591c21aed26e7320352d08cf"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\clients\\ac_client.py": {
+  "games/assetto_corsa/clients/ac_client.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "8a6cfe4ed1787bf5d799c4ab8a3e70cb",
     "semantic_hash": "8a6cfe4ed1787bf5d799c4ab8a3e70cb"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\env.py": {
+  "games/assetto_corsa/env.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "2f2ff960aee08e13a28349b7b5dc26a7",
     "semantic_hash": "2f2ff960aee08e13a28349b7b5dc26a7"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\obs_spec.py": {
+  "games/assetto_corsa/obs_spec.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "a6b3d123397d52e58f35885e5296fe13",
     "semantic_hash": "a6b3d123397d52e58f35885e5296fe13"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\reward.py": {
+  "games/assetto_corsa/reward.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "052935cbe80e8112cd848f861eb0c79c",
     "semantic_hash": "052935cbe80e8112cd848f861eb0c79c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\__init__.py": {
+  "games/atari/__init__.py": {
     "mtime": 1779960677.3442762,
     "ast_hash": "ab4635554740a80a365f32fb14e88148",
     "semantic_hash": "ab4635554740a80a365f32fb14e88148"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\actions.py": {
+  "games/atari/actions.py": {
     "mtime": 1779960677.3442762,
     "ast_hash": "be646e8faeee2c8e4d4600f5407905df",
     "semantic_hash": "be646e8faeee2c8e4d4600f5407905df"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\adapter.py": {
+  "games/atari/adapter.py": {
     "mtime": 1780522451.441041,
     "ast_hash": "31b023de00a2ea22fd3a218edc78a1c8",
     "semantic_hash": "31b023de00a2ea22fd3a218edc78a1c8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\analytics.py": {
+  "games/atari/analytics.py": {
     "mtime": 1779960677.3457825,
     "ast_hash": "249eb3f153ade1933ed7ed4504cd9b1b",
     "semantic_hash": "249eb3f153ade1933ed7ed4504cd9b1b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\env.py": {
+  "games/atari/env.py": {
     "mtime": 1779960677.3508182,
     "ast_hash": "0438fb3aa6b7bc6d35436a6bdfef7938",
     "semantic_hash": "0438fb3aa6b7bc6d35436a6bdfef7938"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\obs_spec.py": {
+  "games/atari/obs_spec.py": {
     "mtime": 1779960677.35227,
     "ast_hash": "33f39f26de78818bac96763d34a487d2",
     "semantic_hash": "33f39f26de78818bac96763d34a487d2"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\policies.py": {
+  "games/atari/policies.py": {
     "mtime": 1780380651.827245,
     "ast_hash": "31b08dd761f0102c50447b7d25a91de1",
     "semantic_hash": "31b08dd761f0102c50447b7d25a91de1"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\reward.py": {
+  "games/atari/reward.py": {
     "mtime": 1779960677.35227,
     "ast_hash": "0ca305db2b8afd9020140f5bf9217b16",
     "semantic_hash": "0ca305db2b8afd9020140f5bf9217b16"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\__init__.py": {
+  "games/beamng/__init__.py": {
     "mtime": 1777664591.804996,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\actions.py": {
+  "games/beamng/actions.py": {
     "mtime": 1779954849.4914875,
     "ast_hash": "864591c5220620c6ac12206613e2ad15",
     "semantic_hash": "864591c5220620c6ac12206613e2ad15"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\adapter.py": {
+  "games/beamng/adapter.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "bace082e1117204849f8dfe67205d2a0",
     "semantic_hash": "bace082e1117204849f8dfe67205d2a0"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\analytics.py": {
+  "games/beamng/analytics.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "985b3a18b2636c3b2aca7f1a58605790",
     "semantic_hash": "985b3a18b2636c3b2aca7f1a58605790"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\env.py": {
+  "games/beamng/env.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "40de52fb8c0d64a8385739b6a078f545",
     "semantic_hash": "40de52fb8c0d64a8385739b6a078f545"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\obs_spec.py": {
+  "games/beamng/obs_spec.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "1de18955e3c1f9ab831afd4b0adf955a",
     "semantic_hash": "1de18955e3c1f9ab831afd4b0adf955a"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\reward.py": {
+  "games/beamng/reward.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "11b0d447e627df6a582042bcc7dccccd",
     "semantic_hash": "11b0d447e627df6a582042bcc7dccccd"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\__init__.py": {
+  "games/car_racing/__init__.py": {
     "mtime": 1777664591.804996,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\actions.py": {
+  "games/car_racing/actions.py": {
     "mtime": 1779954849.4925807,
     "ast_hash": "39e97a15105138b3b75051ce4ace4440",
     "semantic_hash": "39e97a15105138b3b75051ce4ace4440"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\adapter.py": {
+  "games/car_racing/adapter.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "d20ce366eb9e1b467cfb9ab4538d8fd4",
     "semantic_hash": "d20ce366eb9e1b467cfb9ab4538d8fd4"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\analytics.py": {
+  "games/car_racing/analytics.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "7365cf917abc949fada76dd6d88d6045",
     "semantic_hash": "7365cf917abc949fada76dd6d88d6045"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\env.py": {
+  "games/car_racing/env.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "3b5916d20d2ad69ad1bf270bc535ac30",
     "semantic_hash": "3b5916d20d2ad69ad1bf270bc535ac30"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\obs_spec.py": {
+  "games/car_racing/obs_spec.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "36173070912f134a91d4f2c477895099",
     "semantic_hash": "36173070912f134a91d4f2c477895099"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\reward.py": {
+  "games/car_racing/reward.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "5e89a3d76ad4f5b4a29b6372ae27173f",
     "semantic_hash": "5e89a3d76ad4f5b4a29b6372ae27173f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\__init__.py": {
+  "games/iracing/__init__.py": {
     "mtime": 1779441993.0734773,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\actions.py": {
+  "games/iracing/actions.py": {
     "mtime": 1779954849.4925807,
     "ast_hash": "51d72ba81415970d810da9bb4a825dcd",
     "semantic_hash": "51d72ba81415970d810da9bb4a825dcd"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\adapter.py": {
+  "games/iracing/adapter.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "857fe3b6c4257ed69528401116dd7dd5",
     "semantic_hash": "857fe3b6c4257ed69528401116dd7dd5"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\analytics.py": {
+  "games/iracing/analytics.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "a73967e4cf9c8f6a4568a47e76881cbc",
     "semantic_hash": "a73967e4cf9c8f6a4568a47e76881cbc"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\controller.py": {
+  "games/iracing/controller.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "80a5e57a86d296e87bc5d5ea2cefdd13",
     "semantic_hash": "80a5e57a86d296e87bc5d5ea2cefdd13"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\env.py": {
+  "games/iracing/env.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "1c07ffcddf075088b0f98f9c1d8ec40f",
     "semantic_hash": "1c07ffcddf075088b0f98f9c1d8ec40f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\obs_spec.py": {
+  "games/iracing/obs_spec.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "924e7755ffef12c6e7ef988856042ede",
     "semantic_hash": "924e7755ffef12c6e7ef988856042ede"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\reward.py": {
+  "games/iracing/reward.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "4b05c9b417cea5000229cc8e23c84825",
     "semantic_hash": "4b05c9b417cea5000229cc8e23c84825"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\__init__.py": {
+  "games/rocket_league/__init__.py": {
     "mtime": 1779441993.0774827,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\actions.py": {
+  "games/rocket_league/actions.py": {
     "mtime": 1779954849.4935865,
     "ast_hash": "fcd6f343b5f08afe40b13e859aa91103",
     "semantic_hash": "fcd6f343b5f08afe40b13e859aa91103"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\adapter.py": {
+  "games/rocket_league/adapter.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "65907582433995db0b20387d60cae2d1",
     "semantic_hash": "65907582433995db0b20387d60cae2d1"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\analytics.py": {
+  "games/rocket_league/analytics.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "4759125b0682e8a1b3740de9641de3a3",
     "semantic_hash": "4759125b0682e8a1b3740de9641de3a3"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\env.py": {
+  "games/rocket_league/env.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "571950ecc956ad807a3e4c3c86f99031",
     "semantic_hash": "571950ecc956ad807a3e4c3c86f99031"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\obs_spec.py": {
+  "games/rocket_league/obs_spec.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "de053b2de2427f5156c2aaabefd33169",
     "semantic_hash": "de053b2de2427f5156c2aaabefd33169"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\reward.py": {
+  "games/rocket_league/reward.py": {
     "mtime": 1779522508.4060357,
     "ast_hash": "46bcadedd89b2b4cc5d6bd378511ab90",
     "semantic_hash": "46bcadedd89b2b4cc5d6bd378511ab90"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\__init__.py": {
+  "games/sc2/__init__.py": {
     "mtime": 1777665602.0610006,
     "ast_hash": "9e9c11e3be3947710d73256076d9870b",
     "semantic_hash": "9e9c11e3be3947710d73256076d9870b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\actions.py": {
+  "games/sc2/actions.py": {
     "mtime": 1780417275.9042056,
     "ast_hash": "a55df26ca6bac83a16f0973f615d0955",
     "semantic_hash": "a55df26ca6bac83a16f0973f615d0955"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\adapter.py": {
+  "games/sc2/adapter.py": {
     "mtime": 1780047397.4029694,
     "ast_hash": "a63c7cf2815b108ef12cfcf1410a1458",
     "semantic_hash": "a63c7cf2815b108ef12cfcf1410a1458"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\analytics.py": {
+  "games/sc2/analytics.py": {
     "mtime": 1780522451.455695,
     "ast_hash": "190e24781f68b95f1912a7c37d62d230",
     "semantic_hash": "190e24781f68b95f1912a7c37d62d230"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\apm_limiter.py": {
+  "games/sc2/apm_limiter.py": {
     "mtime": 1779062210.187041,
     "ast_hash": "0291da6068d72cd2dec450ec5810d52c",
     "semantic_hash": "0291da6068d72cd2dec450ec5810d52c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\belief_schema.py": {
+  "games/sc2/belief_schema.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "5aef7006f364f66eb835ab14e14e33f8",
     "semantic_hash": "5aef7006f364f66eb835ab14e14e33f8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\client.py": {
+  "games/sc2/client.py": {
     "mtime": 1780522451.455695,
     "ast_hash": "0de02c7ecb93684209118bd1c7e5c127",
     "semantic_hash": "0de02c7ecb93684209118bd1c7e5c127"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\cnn_policy.py": {
+  "games/sc2/cnn_policy.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "56cffaa13c1e83f7b43605d8aefff71f",
     "semantic_hash": "56cffaa13c1e83f7b43605d8aefff71f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\env.py": {
+  "games/sc2/env.py": {
     "mtime": 1780417275.908831,
     "ast_hash": "744b4914ac166d45890392d6e72c0082",
     "semantic_hash": "744b4914ac166d45890392d6e72c0082"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\eval.py": {
+  "games/sc2/eval.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "f2cb80ca00b15882de4377a3a80e3a6a",
     "semantic_hash": "f2cb80ca00b15882de4377a3a80e3a6a"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\map_access_gate.py": {
+  "games/sc2/map_access_gate.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "7e1aee120faa1178d4bdad3f8566102e",
     "semantic_hash": "7e1aee120faa1178d4bdad3f8566102e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\obs_spec.py": {
+  "games/sc2/obs_spec.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "424e25cff73586c19bf97201173b9f7d",
     "semantic_hash": "424e25cff73586c19bf97201173b9f7d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\play.py": {
+  "games/sc2/play.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "625d8fadf614bfabcb25544162645205",
     "semantic_hash": "625d8fadf614bfabcb25544162645205"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\policies.py": {
+  "games/sc2/policies.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "14594ba1deb514cfeb773047532269e8",
     "semantic_hash": "14594ba1deb514cfeb773047532269e8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\replay_bc.py": {
+  "games/sc2/replay_bc.py": {
     "mtime": 1780417275.908831,
     "ast_hash": "10375ceae51830c03d0b60c58c7e361b",
     "semantic_hash": "10375ceae51830c03d0b60c58c7e361b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\reward.py": {
+  "games/sc2/reward.py": {
     "mtime": 1780522451.458031,
     "ast_hash": "bffd94d277b25d03e652be8213112896",
     "semantic_hash": "bffd94d277b25d03e652be8213112896"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\sc2_policies.py": {
+  "games/sc2/sc2_policies.py": {
     "mtime": 1780417275.908831,
     "ast_hash": "53c768497770b75243e1804aba8505cb",
     "semantic_hash": "53c768497770b75243e1804aba8505cb"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\tech_tree.py": {
+  "games/sc2/tech_tree.py": {
     "mtime": 1780522451.4595582,
     "ast_hash": "8f48c23f02a1156279133e566a916c22",
     "semantic_hash": "8f48c23f02a1156279133e566a916c22"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\__init__.py": {
+  "games/tmnf/__init__.py": {
     "mtime": 1777665602.108303,
     "ast_hash": "5464bfd7ace0ad013cd07495e5aabd95",
     "semantic_hash": "5464bfd7ace0ad013cd07495e5aabd95"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\actions.py": {
+  "games/tmnf/actions.py": {
     "mtime": 1779954849.4956334,
     "ast_hash": "9972e77cdb313865ecc9bae302792193",
     "semantic_hash": "9972e77cdb313865ecc9bae302792193"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\adapter.py": {
+  "games/tmnf/adapter.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "1d0bc72c9664794456e24b91af277842",
     "semantic_hash": "1d0bc72c9664794456e24b91af277842"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\analytics.py": {
+  "games/tmnf/analytics.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "0ba42d9f3e92a0d42058e4e1ec5a468c",
     "semantic_hash": "0ba42d9f3e92a0d42058e4e1ec5a468c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\clients\\__init__.py": {
+  "games/tmnf/clients/__init__.py": {
     "mtime": 1777665602.1239703,
     "ast_hash": "b831d5d74784fbb3af4e56bc3a750710",
     "semantic_hash": "b831d5d74784fbb3af4e56bc3a750710"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\clients\\base.py": {
+  "games/tmnf/clients/base.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "b5599e2498fe025385662387aa2a7d55",
     "semantic_hash": "b5599e2498fe025385662387aa2a7d55"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\clients\\instruction_client.py": {
+  "games/tmnf/clients/instruction_client.py": {
     "mtime": 1779522508.4216967,
     "ast_hash": "65b450e8abb93d4f58f924cc5da19164",
     "semantic_hash": "65b450e8abb93d4f58f924cc5da19164"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\clients\\rl_client.py": {
+  "games/tmnf/clients/rl_client.py": {
     "mtime": 1779954849.49676,
     "ast_hash": "76d21484ad8bb23bec2e19715eaade09",
     "semantic_hash": "76d21484ad8bb23bec2e19715eaade09"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\constants.py": {
+  "games/tmnf/constants.py": {
     "mtime": 1777665602.2022495,
     "ast_hash": "43952d7b3107691801ac7cdfca9230cc",
     "semantic_hash": "43952d7b3107691801ac7cdfca9230cc"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\curiosity.py": {
+  "games/tmnf/curiosity.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "061fb5044bf37e184a1a63540453d673",
     "semantic_hash": "061fb5044bf37e184a1a63540453d673"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\entry.py": {
+  "games/tmnf/entry.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "7b4b8d3f252da5790ac6b510f323303c",
     "semantic_hash": "7b4b8d3f252da5790ac6b510f323303c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\env.py": {
+  "games/tmnf/env.py": {
     "mtime": 1779954849.4978955,
     "ast_hash": "c689bb71ea01b48aa04a98032b0de344",
     "semantic_hash": "c689bb71ea01b48aa04a98032b0de344"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\instructions.py": {
+  "games/tmnf/instructions.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "e677b26d3840dfe6ed9258c6eb2cc8e8",
     "semantic_hash": "e677b26d3840dfe6ed9258c6eb2cc8e8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\lidar.py": {
+  "games/tmnf/lidar.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "54fefd6e65831dca048b84933bef622c",
     "semantic_hash": "54fefd6e65831dca048b84933bef622c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\obs_spec.py": {
+  "games/tmnf/obs_spec.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "d130f7619b9db4a3e5a656e5426cc4a1",
     "semantic_hash": "d130f7619b9db4a3e5a656e5426cc4a1"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\policies.py": {
+  "games/tmnf/policies.py": {
     "mtime": 1779954849.4989479,
     "ast_hash": "8259696fee25bc82b23a7dfaa05ca1a3",
     "semantic_hash": "8259696fee25bc82b23a7dfaa05ca1a3"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\reward.py": {
+  "games/tmnf/reward.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "1ea3b12276498167dac9aa43da6e1d88",
     "semantic_hash": "1ea3b12276498167dac9aa43da6e1d88"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\simple_policy.py": {
+  "games/tmnf/simple_policy.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "51f4d4c80c6c08418ef05331eed0dc39",
     "semantic_hash": "51f4d4c80c6c08418ef05331eed0dc39"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\state.py": {
+  "games/tmnf/state.py": {
     "mtime": 1779954849.4989479,
     "ast_hash": "07ef93754011325e2bd29dcad405d40d",
     "semantic_hash": "07ef93754011325e2bd29dcad405d40d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\steering.py": {
+  "games/tmnf/steering.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "6365f10fb847265a3072fdbe25ec5fc4",
     "semantic_hash": "6365f10fb847265a3072fdbe25ec5fc4"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\tools\\__init__.py": {
+  "games/tmnf/tools/__init__.py": {
     "mtime": 1777665603.1971426,
     "ast_hash": "b7a29216f37b72a4085a05872addbf10",
     "semantic_hash": "b7a29216f37b72a4085a05872addbf10"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\tools\\build_centerline.py": {
+  "games/tmnf/tools/build_centerline.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "a5384bf023d7400c6c827780543bfad5",
     "semantic_hash": "a5384bf023d7400c6c827780543bfad5"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\tools\\debug_straight.py": {
+  "games/tmnf/tools/debug_straight.py": {
     "mtime": 1777665603.2077734,
     "ast_hash": "625bf22578f9354bfd142d9f8f3a68df",
     "semantic_hash": "625bf22578f9354bfd142d9f8f3a68df"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\track.py": {
+  "games/tmnf/track.py": {
     "mtime": 1779954849.5001614,
     "ast_hash": "4f0062bb3ef656f00205ba7d6a6f3e0e",
     "semantic_hash": "4f0062bb3ef656f00205ba7d6a6f3e0e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\__init__.py": {
+  "games/torcs/__init__.py": {
     "mtime": 1777665603.2551627,
     "ast_hash": "c3a84fa04e331106c1b3b0d3ec9dc4f8",
     "semantic_hash": "c3a84fa04e331106c1b3b0d3ec9dc4f8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\actions.py": {
+  "games/torcs/actions.py": {
     "mtime": 1779954849.5001614,
     "ast_hash": "34311645269c0c31e805229aca294040",
     "semantic_hash": "34311645269c0c31e805229aca294040"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\adapter.py": {
+  "games/torcs/adapter.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "a912f03c148f29b09be70eea1451835c",
     "semantic_hash": "a912f03c148f29b09be70eea1451835c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\analytics.py": {
+  "games/torcs/analytics.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "0085d2dc7f538a0d671efb643be24708",
     "semantic_hash": "0085d2dc7f538a0d671efb643be24708"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\client.py": {
+  "games/torcs/client.py": {
     "mtime": 1777665603.277503,
     "ast_hash": "396598bb598647bd838a5e1330e2fa15",
     "semantic_hash": "396598bb598647bd838a5e1330e2fa15"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\env.py": {
+  "games/torcs/env.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "4ddf2ad33f48fba0b2b8f4eebf673a78",
     "semantic_hash": "4ddf2ad33f48fba0b2b8f4eebf673a78"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\obs_spec.py": {
+  "games/torcs/obs_spec.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "fe6c67f4a9af1975b83e94f0d5d652bc",
     "semantic_hash": "fe6c67f4a9af1975b83e94f0d5d652bc"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\reward.py": {
+  "games/torcs/reward.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "60eb635418a2ff4b787711200b7ecc47",
     "semantic_hash": "60eb635418a2ff4b787711200b7ecc47"
   },
-  "C:\\GitHub\\gamer-ai\\grid_search.py": {
+  "grid_search.py": {
     "mtime": 1780417275.9108453,
     "ast_hash": "d3674d8c3e19cdf696806c8583a80d56",
     "semantic_hash": "d3674d8c3e19cdf696806c8583a80d56"
   },
-  "C:\\GitHub\\gamer-ai\\main.py": {
+  "main.py": {
     "mtime": 1780417275.9108453,
     "ast_hash": "5b049183ae800b6b2ec4023b0b3d15e6",
     "semantic_hash": "5b049183ae800b6b2ec4023b0b3d15e6"
   },
-  "C:\\GitHub\\gamer-ai\\param_explorer.py": {
+  "param_explorer.py": {
     "mtime": 1779522508.4376602,
     "ast_hash": "ab5a516c457c822384b3f3c993d26acb",
     "semantic_hash": "ab5a516c457c822384b3f3c993d26acb"
   },
-  "C:\\GitHub\\gamer-ai\\redo_analytics.py": {
+  "redo_analytics.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "f7dbe88aa21c412a5db634715e80e62c",
     "semantic_hash": "f7dbe88aa21c412a5db634715e80e62c"
   },
-  "C:\\GitHub\\gamer-ai\\rl\\__init__.py": {
+  "rl/__init__.py": {
     "mtime": 1777664592.002646,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\rl\\env.py": {
+  "rl/env.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "fbd3005e1a07ff48453e346a11ee8703",
     "semantic_hash": "fbd3005e1a07ff48453e346a11ee8703"
   },
-  "C:\\GitHub\\gamer-ai\\rl\\main.py": {
+  "rl/main.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "fd4cdbaa44b343c61563d476541523fd",
     "semantic_hash": "fd4cdbaa44b343c61563d476541523fd"
   },
-  "C:\\GitHub\\gamer-ai\\rl\\pretrain.py": {
+  "rl/pretrain.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "1c0ff5d182574425c1ec704651cd615b",
     "semantic_hash": "1c0ff5d182574425c1ec704651cd615b"
   },
-  "C:\\GitHub\\gamer-ai\\rl\\reward.py": {
+  "rl/reward.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "32286004f0f5e4ca6d3475ec2692f6cc",
     "semantic_hash": "32286004f0f5e4ca6d3475ec2692f6cc"
   },
-  "C:\\GitHub\\gamer-ai\\scripts\\launch_assetto.ps1": {
+  "scripts/launch_assetto.ps1": {
     "mtime": 1777665603.529379,
     "ast_hash": "f89bfa62983fda3c54c447746c92b5af",
     "semantic_hash": "f89bfa62983fda3c54c447746c92b5af"
   },
-  "C:\\GitHub\\gamer-ai\\scripts\\launch_assetto.sh": {
+  "scripts/launch_assetto.sh": {
     "mtime": 1777665603.533388,
     "ast_hash": "4efe3a2ebeff84916f4a9cff09615301",
     "semantic_hash": "4efe3a2ebeff84916f4a9cff09615301"
   },
-  "C:\\GitHub\\gamer-ai\\scripts\\release.py": {
+  "scripts/release.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "bde2a0798ae86aa604745d22a4559eaf",
     "semantic_hash": "bde2a0798ae86aa604745d22a4559eaf"
   },
-  "C:\\GitHub\\gamer-ai\\setup_and_run.ps1": {
+  "setup_and_run.ps1": {
     "mtime": 1778098593.9844048,
     "ast_hash": "a3bdca721d564df348dc951b00ac170b",
     "semantic_hash": "a3bdca721d564df348dc951b00ac170b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\__init__.py": {
+  "tests/__init__.py": {
     "mtime": 1777664592.0077057,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\_parallel_eval_helpers.py": {
+  "tests/_parallel_eval_helpers.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "6cd0f143325732f1e289a962234728ab",
     "semantic_hash": "6cd0f143325732f1e289a962234728ab"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\assetto_corsa\\__init__.py": {
+  "tests/assetto_corsa/__init__.py": {
     "mtime": 1777664592.0077057,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\assetto_corsa\\test_smoke.py": {
+  "tests/assetto_corsa/test_smoke.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "065b070121adb6086078ece2a0edc848",
     "semantic_hash": "065b070121adb6086078ece2a0edc848"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\cli\\__init__.py": {
+  "tests/cli/__init__.py": {
     "mtime": 1777664592.0077057,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\cli\\test_game_flag.py": {
+  "tests/cli/test_game_flag.py": {
     "mtime": 1779960677.3635192,
     "ast_hash": "902ee6a85d88252babf8eeeaf98cb2bf",
     "semantic_hash": "902ee6a85d88252babf8eeeaf98cb2bf"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\conftest.py": {
+  "tests/conftest.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "9737d37e3810fdd31c0213c7eabbf6a5",
     "semantic_hash": "9737d37e3810fdd31c0213c7eabbf6a5"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\helpers.py": {
+  "tests/helpers.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "00710e719d79ad16c74258d7ae52f048",
     "semantic_hash": "00710e719d79ad16c74258d7ae52f048"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\integration\\__init__.py": {
+  "tests/integration/__init__.py": {
     "mtime": 1778166734.1735606,
     "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\integration\\test_car_racing.py": {
+  "tests/integration/test_car_racing.py": {
     "mtime": 1779954849.5057056,
     "ast_hash": "3c1f6b9f219d4e7e67b7caa5c1b7f6f6",
     "semantic_hash": "3c1f6b9f219d4e7e67b7caa5c1b7f6f6"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\integration\\test_sc2.py": {
+  "tests/integration/test_sc2.py": {
     "mtime": 1779954849.5070193,
     "ast_hash": "26bef500f3bd40055f58016d805e006e",
     "semantic_hash": "26bef500f3bd40055f58016d805e006e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_alphazero_mcts.py": {
+  "tests/test_alphazero_mcts.py": {
     "mtime": 1779954849.5070193,
     "ast_hash": "efb9c146877c94f0ab9161dc9c5daa02",
     "semantic_hash": "efb9c146877c94f0ab9161dc9c5daa02"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_analytics_no_matplotlib.py": {
+  "tests/test_analytics_no_matplotlib.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "08c9a4d7ed806b6dcc3e4b86b89c6511",
     "semantic_hash": "08c9a4d7ed806b6dcc3e4b86b89c6511"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_analytics_task_metrics.py": {
+  "tests/test_analytics_task_metrics.py": {
     "mtime": 1779954849.5080624,
     "ast_hash": "32f4dbe4a7a2b8277f6699b8f68ae30b",
     "semantic_hash": "32f4dbe4a7a2b8277f6699b8f68ae30b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_atari_adapter.py": {
+  "tests/test_atari_adapter.py": {
     "mtime": 1779960677.3635192,
     "ast_hash": "3e562286ae63011f8cbadea3e594cb94",
     "semantic_hash": "3e562286ae63011f8cbadea3e594cb94"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_atari_env.py": {
+  "tests/test_atari_env.py": {
     "mtime": 1779960677.3645031,
     "ast_hash": "edd34072202638992a0bf4f8c7a3811b",
     "semantic_hash": "edd34072202638992a0bf4f8c7a3811b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_atari_obs_spec.py": {
+  "tests/test_atari_obs_spec.py": {
     "mtime": 1779960677.3645031,
     "ast_hash": "55075621dcae2cb7ee3c03933d29e453",
     "semantic_hash": "55075621dcae2cb7ee3c03933d29e453"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_atari_reward.py": {
+  "tests/test_atari_reward.py": {
     "mtime": 1779960677.3655019,
     "ast_hash": "105a0f1ac1765a07c6871a6ee40b1a16",
     "semantic_hash": "105a0f1ac1765a07c6871a6ee40b1a16"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_belief.py": {
+  "tests/test_belief.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "46f1f9da2f90d6692649bc5c5b495735",
     "semantic_hash": "46f1f9da2f90d6692649bc5c5b495735"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_build_centerline.py": {
+  "tests/test_build_centerline.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "36dc6c4dd24450aabfd3ca1fb5e4ef1b",
     "semantic_hash": "36dc6c4dd24450aabfd3ca1fb5e4ef1b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_cmaes_distribution.py": {
+  "tests/test_cmaes_distribution.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "8b4803e0b4032c13e7da3ce4665b37f7",
     "semantic_hash": "8b4803e0b4032c13e7da3ce4665b37f7"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_cmaes_policy.py": {
+  "tests/test_cmaes_policy.py": {
     "mtime": 1780260526.1205337,
     "ast_hash": "d0be1e19c654054e8c19f30a7863f8e2",
     "semantic_hash": "d0be1e19c654054e8c19f30a7863f8e2"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_consolidate.py": {
+  "tests/test_consolidate.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "c919abc4f8542615f9cab49c76dd62e7",
     "semantic_hash": "c919abc4f8542615f9cab49c76dd62e7"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_cross_grid_report.py": {
+  "tests/test_cross_grid_report.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "b57cb56592dd887fe10da93d00a7da3b",
     "semantic_hash": "b57cb56592dd887fe10da93d00a7da3b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_curiosity.py": {
+  "tests/test_curiosity.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "fdcdd21b73e0167686d1ed086982e40b",
     "semantic_hash": "fdcdd21b73e0167686d1ed086982e40b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_discretize_obs.py": {
+  "tests/test_discretize_obs.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "4a36dd498e759325f5c6645eaae6f801",
     "semantic_hash": "4a36dd498e759325f5c6645eaae6f801"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_distributed.py": {
+  "tests/test_distributed.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "52e54eed1f0249f1e61e01655107b5c8",
     "semantic_hash": "52e54eed1f0249f1e61e01655107b5c8"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_dqn_upgrades.py": {
+  "tests/test_dqn_upgrades.py": {
     "mtime": 1779954849.5080624,
     "ast_hash": "2dfd351a0304c74da8d7d9163a8efe46",
     "semantic_hash": "2dfd351a0304c74da8d7d9163a8efe46"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_early_stopping.py": {
+  "tests/test_early_stopping.py": {
     "mtime": 1779954849.5080624,
     "ast_hash": "3ec2214c8c10703c0ad65ece7b166cd2",
     "semantic_hash": "3ec2214c8c10703c0ad65ece7b166cd2"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_env_termination.py": {
+  "tests/test_env_termination.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "9cc6ee034449ad9730ff1827e94a418a",
     "semantic_hash": "9cc6ee034449ad9730ff1827e94a418a"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_epsilon_greedy_policy.py": {
+  "tests/test_epsilon_greedy_policy.py": {
     "mtime": 1779522508.453306,
     "ast_hash": "25382d9a78d9d754c4cfe0cc600865aa",
     "semantic_hash": "25382d9a78d9d754c4cfe0cc600865aa"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_game_adapter.py": {
+  "tests/test_game_adapter.py": {
     "mtime": 1779960677.3667624,
     "ast_hash": "89f009d65960da3b85f363faa56f11cc",
     "semantic_hash": "89f009d65960da3b85f363faa56f11cc"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_genetic_policy.py": {
+  "tests/test_genetic_policy.py": {
     "mtime": 1779954849.5091043,
     "ast_hash": "3c2bf428bd521e1f6df3cf76e052497d",
     "semantic_hash": "3c2bf428bd521e1f6df3cf76e052497d"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_grid_search.py": {
+  "tests/test_grid_search.py": {
     "mtime": 1780417275.9161785,
     "ast_hash": "7472719f2419ccfd6a25b1d8af92247f",
     "semantic_hash": "7472719f2419ccfd6a25b1d8af92247f"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_info_gain.py": {
+  "tests/test_info_gain.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "8c811a79bd0b95c1ba85a78f623e6de9",
     "semantic_hash": "8c811a79bd0b95c1ba85a78f623e6de9"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_iracing_controller.py": {
+  "tests/test_iracing_controller.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "909360bdb5061e9f234cd2cb80a175c7",
     "semantic_hash": "909360bdb5061e9f234cd2cb80a175c7"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_live_monitor.py": {
+  "tests/test_live_monitor.py": {
     "mtime": 1779954849.5101275,
     "ast_hash": "c48e6f0b09392158e38dc8acce6b9766",
     "semantic_hash": "c48e6f0b09392158e38dc8acce6b9766"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_lstm_policy.py": {
+  "tests/test_lstm_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "23fd778956490578159a24bbc874bb96",
     "semantic_hash": "23fd778956490578159a24bbc874bb96"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_neural_dqn_policy.py": {
+  "tests/test_neural_dqn_policy.py": {
     "mtime": 1779954849.5111895,
     "ast_hash": "a86ac1e897ff52682f7aa8b30bbe996c",
     "semantic_hash": "a86ac1e897ff52682f7aa8b30bbe996c"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_neural_net_policy.py": {
+  "tests/test_neural_net_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "e083f062858139aad930d699ef85ce42",
     "semantic_hash": "e083f062858139aad930d699ef85ce42"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_new_best_logging.py": {
+  "tests/test_new_best_logging.py": {
     "mtime": 1780380060.8926117,
     "ast_hash": "afa70c726781d019c232b7a6fa89f3a1",
     "semantic_hash": "afa70c726781d019c232b7a6fa89f3a1"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_obs_memory.py": {
+  "tests/test_obs_memory.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "eb15cdb776c08a1cf4b31ca65aa91a8d",
     "semantic_hash": "eb15cdb776c08a1cf4b31ca65aa91a8d"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_parallel_eval.py": {
+  "tests/test_parallel_eval.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "01a524ed876615f357d6a8be82bf4d87",
     "semantic_hash": "01a524ed876615f357d6a8be82bf4d87"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_policy_docs.py": {
+  "tests/test_policy_docs.py": {
     "mtime": 1779960677.3667624,
     "ast_hash": "adcc9f8bcaf49d8c74dff66925e1dbc5",
     "semantic_hash": "adcc9f8bcaf49d8c74dff66925e1dbc5"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_policy_registry.py": {
+  "tests/test_policy_registry.py": {
     "mtime": 1779954849.5125816,
     "ast_hash": "43c3e269c315faba2a27ddd0063d5932",
     "semantic_hash": "43c3e269c315faba2a27ddd0063d5932"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_redo_analytics.py": {
+  "tests/test_redo_analytics.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "aff73091b4c8aa9da5ccecb54592e109",
     "semantic_hash": "aff73091b4c8aa9da5ccecb54592e109"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_reinforce_policy.py": {
+  "tests/test_reinforce_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "b31ac7c31b58d9b4d801f7c0188f9760",
     "semantic_hash": "b31ac7c31b58d9b4d801f7c0188f9760"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_reward.py": {
+  "tests/test_reward.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "8934cd1f13aab4f0625b85d50d09433a",
     "semantic_hash": "8934cd1f13aab4f0625b85d50d09433a"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_rl_client.py": {
+  "tests/test_rl_client.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "2b9117f21c7275192c2d6edfdfafaaab",
     "semantic_hash": "2b9117f21c7275192c2d6edfdfafaaab"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_rocket_league_env.py": {
+  "tests/test_rocket_league_env.py": {
     "mtime": 1779954849.5132868,
     "ast_hash": "9b7afc03b7989e702fc18282d50ccc3b",
     "semantic_hash": "9b7afc03b7989e702fc18282d50ccc3b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_rocket_league_obs_spec.py": {
+  "tests/test_rocket_league_obs_spec.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "5d8a3aed86a4714462c228ee7e038483",
     "semantic_hash": "5d8a3aed86a4714462c228ee7e038483"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_rocket_league_reward.py": {
+  "tests/test_rocket_league_reward.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "16dcc5521643d80df57b774c36e2340f",
     "semantic_hash": "16dcc5521643d80df57b774c36e2340f"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sb3_policies.py": {
+  "tests/test_sb3_policies.py": {
     "mtime": 1779954849.5138917,
     "ast_hash": "f967730a2c6ac892d34ac7e7048cb2f6",
     "semantic_hash": "f967730a2c6ac892d34ac7e7048cb2f6"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_actions.py": {
+  "tests/test_sc2_actions.py": {
     "mtime": 1780417275.9178343,
     "ast_hash": "3a45150e9b335f196753c92f3a439772",
     "semantic_hash": "3a45150e9b335f196753c92f3a439772"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_analytics.py": {
+  "tests/test_sc2_analytics.py": {
     "mtime": 1780522451.4625652,
     "ast_hash": "e0f55ed45e0c90b9cccc681aa1f58676",
     "semantic_hash": "e0f55ed45e0c90b9cccc681aa1f58676"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_apm_limiter.py": {
+  "tests/test_sc2_apm_limiter.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "da5fb13b5414ac53fc4b51af9f48247f",
     "semantic_hash": "da5fb13b5414ac53fc4b51af9f48247f"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_belief_integration.py": {
+  "tests/test_sc2_belief_integration.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "d08cee9a622ab48bd595ca3b5d579316",
     "semantic_hash": "d08cee9a622ab48bd595ca3b5d579316"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_client.py": {
+  "tests/test_sc2_client.py": {
     "mtime": 1780522451.4625652,
     "ast_hash": "551fc3028af952413866e211132087be",
     "semantic_hash": "551fc3028af952413866e211132087be"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_cmaes_policy.py": {
+  "tests/test_sc2_cmaes_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "309c86694bd58c6cc332c5c954fd41c8",
     "semantic_hash": "309c86694bd58c6cc332c5c954fd41c8"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_cnn_policy.py": {
+  "tests/test_sc2_cnn_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "dd43ae0e5fc078a71398011ddc32dee3",
     "semantic_hash": "dd43ae0e5fc078a71398011ddc32dee3"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_env.py": {
+  "tests/test_sc2_env.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "cf0b2cc8363bfc3053776fd64f55b6cb",
     "semantic_hash": "cf0b2cc8363bfc3053776fd64f55b6cb"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_eval.py": {
+  "tests/test_sc2_eval.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "323e4fd08181dfbe45ebd26d081e50a5",
     "semantic_hash": "323e4fd08181dfbe45ebd26d081e50a5"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_genetic_policy.py": {
+  "tests/test_sc2_genetic_policy.py": {
     "mtime": 1779522508.4689515,
     "ast_hash": "0c60ac05d7feeeb78b3edd028e04608c",
     "semantic_hash": "0c60ac05d7feeeb78b3edd028e04608c"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_hierarchical_policy.py": {
+  "tests/test_sc2_hierarchical_policy.py": {
     "mtime": 1780417275.9198418,
     "ast_hash": "13a648e2414710d7a87bce252224a2b8",
     "semantic_hash": "13a648e2414710d7a87bce252224a2b8"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_legacy_names_rejected.py": {
+  "tests/test_sc2_legacy_names_rejected.py": {
     "mtime": 1779954849.5149736,
     "ast_hash": "b79ae60d42c1135fc9381ae39e6aafb7",
     "semantic_hash": "b79ae60d42c1135fc9381ae39e6aafb7"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_lstm_policy.py": {
+  "tests/test_sc2_lstm_policy.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "78259193ceadd4bdb35c05e0f1e3a780",
     "semantic_hash": "78259193ceadd4bdb35c05e0f1e3a780"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_map_access_gate.py": {
+  "tests/test_sc2_map_access_gate.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "de8f5848e736218aa1bd30364ae966ef",
     "semantic_hash": "de8f5848e736218aa1bd30364ae966ef"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_neural_dqn_policy.py": {
+  "tests/test_sc2_neural_dqn_policy.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "12d8211cb6a8c71d4779e436168d71e5",
     "semantic_hash": "12d8211cb6a8c71d4779e436168d71e5"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_neural_net_policy.py": {
+  "tests/test_sc2_neural_net_policy.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "014d56ef766d64457a509057f85fb511",
     "semantic_hash": "014d56ef766d64457a509057f85fb511"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_obs_spec.py": {
+  "tests/test_sc2_obs_spec.py": {
     "mtime": 1780260526.1205337,
     "ast_hash": "70e4c115762129906071ffb3ae168927",
     "semantic_hash": "70e4c115762129906071ffb3ae168927"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_play.py": {
+  "tests/test_sc2_play.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "f2e48b8830a9111e6813132d695076f9",
     "semantic_hash": "f2e48b8830a9111e6813132d695076f9"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_reinforce_policy.py": {
+  "tests/test_sc2_reinforce_policy.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "68c68134d0b49c62d1659925266b4573",
     "semantic_hash": "68c68134d0b49c62d1659925266b4573"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_replay.py": {
+  "tests/test_sc2_replay.py": {
     "mtime": 1779954849.5149736,
     "ast_hash": "00b109eddc8343dd6e51bf817432c06b",
     "semantic_hash": "00b109eddc8343dd6e51bf817432c06b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_replay_bc.py": {
+  "tests/test_sc2_replay_bc.py": {
     "mtime": 1780417275.9198418,
     "ast_hash": "a9052a959af1ae308cb4c64f22e8d4ac",
     "semantic_hash": "a9052a959af1ae308cb4c64f22e8d4ac"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_reward.py": {
+  "tests/test_sc2_reward.py": {
     "mtime": 1780522451.4625652,
     "ast_hash": "6b3372212813f8d57b6ce5cedfb0b206",
     "semantic_hash": "6b3372212813f8d57b6ce5cedfb0b206"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_self_play.py": {
+  "tests/test_sc2_self_play.py": {
     "mtime": 1780260526.1205337,
     "ast_hash": "c72c6dceb68cd69bc614a3ef18959894",
     "semantic_hash": "c72c6dceb68cd69bc614a3ef18959894"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_simple64_training.py": {
+  "tests/test_sc2_simple64_training.py": {
     "mtime": 1779954849.5160582,
     "ast_hash": "de22bf6e12ed6c02f9267e1aba5c050d",
     "semantic_hash": "de22bf6e12ed6c02f9267e1aba5c050d"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_sc2_tech_tree.py": {
+  "tests/test_sc2_tech_tree.py": {
     "mtime": 1780260526.1205337,
     "ast_hash": "c69b4730dbacbea9b87f752fdf0b65a6",
     "semantic_hash": "c69b4730dbacbea9b87f752fdf0b65a6"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_template_skeleton.py": {
+  "tests/test_template_skeleton.py": {
     "mtime": 1780047397.4175208,
     "ast_hash": "cacdf26cfd9aed4d6a1e68caa541f248",
     "semantic_hash": "cacdf26cfd9aed4d6a1e68caa541f248"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_torcs_analytics.py": {
+  "tests/test_torcs_analytics.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "2bdf56470c46a6a279ddd527a8fee2eb",
     "semantic_hash": "2bdf56470c46a6a279ddd527a8fee2eb"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_torcs_client.py": {
+  "tests/test_torcs_client.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "5466d8b6cae3584b1dcd9a660042bcdc",
     "semantic_hash": "5466d8b6cae3584b1dcd9a660042bcdc"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_torcs_env.py": {
+  "tests/test_torcs_env.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "f478bb7e9dbc5d6905509c1e49db1903",
     "semantic_hash": "f478bb7e9dbc5d6905509c1e49db1903"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_torcs_obs_spec.py": {
+  "tests/test_torcs_obs_spec.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "eb5d369bfcdfa9a3e2d320c548f7e35d",
     "semantic_hash": "eb5d369bfcdfa9a3e2d320c548f7e35d"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_torcs_reward.py": {
+  "tests/test_torcs_reward.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "cc3f735f7759a786e125cec94513987e",
     "semantic_hash": "cc3f735f7759a786e125cec94513987e"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_track.py": {
+  "tests/test_track.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "7e3ae09fa2c5b7e1457ab766098ada11",
     "semantic_hash": "7e3ae09fa2c5b7e1457ab766098ada11"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_train_rl_signature.py": {
+  "tests/test_train_rl_signature.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "d2179ec8e763a41aa3a4c630681174fb",
     "semantic_hash": "d2179ec8e763a41aa3a4c630681174fb"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_training_multi_agent_shared_policy.py": {
+  "tests/test_training_multi_agent_shared_policy.py": {
     "mtime": 1779954849.516916,
     "ast_hash": "755a27d977609dfe561bfa1bcf1c11a4",
     "semantic_hash": "755a27d977609dfe561bfa1bcf1c11a4"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_ucb_q_policy.py": {
+  "tests/test_ucb_q_policy.py": {
     "mtime": 1779954849.516916,
     "ast_hash": "a87e4c2b3afc2de640a233a8fb1b7118",
     "semantic_hash": "a87e4c2b3afc2de640a233a8fb1b7118"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_utils.py": {
+  "tests/test_utils.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "a3042fee02a399e1b19dd3f8bd44bce0",
     "semantic_hash": "a3042fee02a399e1b19dd3f8bd44bce0"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_version.py": {
+  "tests/test_version.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "44bce6ba8724a62685c0ebcae8a6b31d",
     "semantic_hash": "44bce6ba8724a62685c0ebcae8a6b31d"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\test_weighted_linear_policy.py": {
+  "tests/test_weighted_linear_policy.py": {
     "mtime": 1779522508.4850342,
     "ast_hash": "77882961b263a86357e8be57c255cff4",
     "semantic_hash": "77882961b263a86357e8be57c255cff4"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\ISSUE_TEMPLATE\\config.yml": {
+  ".github/ISSUE_TEMPLATE/config.yml": {
     "mtime": 1779062210.178577,
     "ast_hash": "68e17709ac61810171871e6289773028",
     "semantic_hash": "68e17709ac61810171871e6289773028"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\ISSUE_TEMPLATE\\issue_template.md": {
+  ".github/ISSUE_TEMPLATE/issue_template.md": {
     "mtime": 1779301138.5122683,
     "ast_hash": "b3a2265578e1c34220aca4fbaf5a9216",
     "semantic_hash": "b3a2265578e1c34220aca4fbaf5a9216"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\PULL_REQUEST_TEMPLATE.md": {
+  ".github/PULL_REQUEST_TEMPLATE.md": {
     "mtime": 1779310727.8144612,
     "ast_hash": "a34a1f8bd0a9d09ca7679d132509f50c",
     "semantic_hash": "a34a1f8bd0a9d09ca7679d132509f50c"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\codestyle-critic.agent.md": {
+  ".github/agents/codestyle-critic.agent.md": {
     "mtime": 1777665601.7128668,
     "ast_hash": "37717550cdde4c7e881d6e088d91f862",
     "semantic_hash": "37717550cdde4c7e881d6e088d91f862"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\data-engineer.agent.md": {
+  ".github/agents/data-engineer.agent.md": {
     "mtime": 1777665601.7232924,
     "ast_hash": "590632976974585033442b4aa1752520",
     "semantic_hash": "590632976974585033442b4aa1752520"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\documenter.agent.md": {
+  ".github/agents/documenter.agent.md": {
     "mtime": 1777665601.7296696,
     "ast_hash": "9bcc84e3f5cafdf20ac95f969740e08c",
     "semantic_hash": "9bcc84e3f5cafdf20ac95f969740e08c"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\git.agent.md": {
+  ".github/agents/git.agent.md": {
     "mtime": 1777665601.7413878,
     "ast_hash": "3b6611a7ada7d425a1c1caa44bc03730",
     "semantic_hash": "3b6611a7ada7d425a1c1caa44bc03730"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\orchestrator.agent.md": {
+  ".github/agents/orchestrator.agent.md": {
     "mtime": 1777665601.7545483,
     "ast_hash": "aa6ec444665a8e7b444b2705a2f0a275",
     "semantic_hash": "aa6ec444665a8e7b444b2705a2f0a275"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\product-owner.agent.md": {
+  ".github/agents/product-owner.agent.md": {
     "mtime": 1777665601.7626276,
     "ast_hash": "9f2d67847a78c162a04e5d024a097424",
     "semantic_hash": "9f2d67847a78c162a04e5d024a097424"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\python.agent.md": {
+  ".github/agents/python.agent.md": {
     "mtime": 1777665601.7787886,
     "ast_hash": "e364481647ee38d1ed5c4a68b5555843",
     "semantic_hash": "e364481647ee38d1ed5c4a68b5555843"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\agents\\terraform.agent.md": {
+  ".github/agents/terraform.agent.md": {
     "mtime": 1777665601.7824924,
     "ast_hash": "9b5c33933b434e3a00ac2cb21dc9d3f1",
     "semantic_hash": "9b5c33933b434e3a00ac2cb21dc9d3f1"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\workflows\\auto-version-bump.yml": {
+  ".github/workflows/auto-version-bump.yml": {
     "mtime": 1779310727.825271,
     "ast_hash": "7af28c2e76d287bce57ce80f734c9ce7",
     "semantic_hash": "7af28c2e76d287bce57ce80f734c9ce7"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\workflows\\integration-tests.yml": {
+  ".github/workflows/integration-tests.yml": {
     "mtime": 1780260526.105131,
     "ast_hash": "547259cbef1db0a060458b8097d96e91",
     "semantic_hash": "547259cbef1db0a060458b8097d96e91"
   },
-  "C:\\GitHub\\gamer-ai\\.github\\workflows\\tests.yml": {
+  ".github/workflows/tests.yml": {
     "mtime": 1780260526.1066065,
     "ast_hash": "a0ae1b9c6913e512d81ecb263d1589b0",
     "semantic_hash": "a0ae1b9c6913e512d81ecb263d1589b0"
   },
-  "C:\\GitHub\\gamer-ai\\.pre-commit-config.yaml": {
+  ".pre-commit-config.yaml": {
     "mtime": 1779522507.8582454,
     "ast_hash": "3aa3745755b0b062000a4d30c0b2602c",
     "semantic_hash": "3aa3745755b0b062000a4d30c0b2602c"
   },
-  "C:\\GitHub\\gamer-ai\\CHANGELOG.md": {
+  "CHANGELOG.md": {
     "mtime": 1780522451.4362254,
     "ast_hash": "94c27b46f5568a3293800b7918eebf03",
     "semantic_hash": "94c27b46f5568a3293800b7918eebf03"
   },
-  "C:\\GitHub\\gamer-ai\\CLAUDE.md": {
+  "CLAUDE.md": {
     "mtime": 1780522451.4362254,
     "ast_hash": "cd6d33ef423dca054f23c6cd9d9c4964",
     "semantic_hash": "cd6d33ef423dca054f23c6cd9d9c4964"
   },
-  "C:\\GitHub\\gamer-ai\\CONTRIBUTING.md": {
+  "CONTRIBUTING.md": {
     "mtime": 1780047397.3874128,
     "ast_hash": "504aa3363c7feaa5af33b279b23ce387",
     "semantic_hash": "504aa3363c7feaa5af33b279b23ce387"
   },
-  "C:\\GitHub\\gamer-ai\\README.md": {
+  "README.md": {
     "mtime": 1779954849.4541187,
     "ast_hash": "ac33b72eaf11879faa60a5d8eaa43378",
     "semantic_hash": "ac33b72eaf11879faa60a5d8eaa43378"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\README_ASSETTO.md": {
+  "docs/README_ASSETTO.md": {
     "mtime": 1779954849.4548464,
     "ast_hash": "304e4fba9a6912ac92dfa3d0acedb5ba",
     "semantic_hash": "304e4fba9a6912ac92dfa3d0acedb5ba"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\README_TORCS.md": {
+  "docs/README_TORCS.md": {
     "mtime": 1779954849.455853,
     "ast_hash": "2b32c81c5c8340a44b258aa05d19059e",
     "semantic_hash": "2b32c81c5c8340a44b258aa05d19059e"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\README.md": {
+  "docs/framework/README.md": {
     "mtime": 1779353106.6905627,
     "ast_hash": "ae2452487f6cdfa5d7bd98f88676c6e6",
     "semantic_hash": "ae2452487f6cdfa5d7bd98f88676c6e6"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\base_env.md": {
+  "docs/framework/base_env.md": {
     "mtime": 1779353106.6915684,
     "ast_hash": "83adddcda404614968f98e05c28384e0",
     "semantic_hash": "83adddcda404614968f98e05c28384e0"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\game_adapter.md": {
+  "docs/framework/game_adapter.md": {
     "mtime": 1780047397.3874128,
     "ast_hash": "6b1735d4a43b3a6556a7131ee891fe3a",
     "semantic_hash": "6b1735d4a43b3a6556a7131ee891fe3a"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\obs_spec.md": {
+  "docs/framework/obs_spec.md": {
     "mtime": 1779353106.6925662,
     "ast_hash": "6e0035cd69593bf163ed535378ccfccf",
     "semantic_hash": "6e0035cd69593bf163ed535378ccfccf"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\policies.md": {
+  "docs/framework/policies.md": {
     "mtime": 1779954849.455853,
     "ast_hash": "1932710cbfcd7c358300cbce919d354b",
     "semantic_hash": "1932710cbfcd7c358300cbce919d354b"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\reward.md": {
+  "docs/framework/reward.md": {
     "mtime": 1779353106.6935682,
     "ast_hash": "e332f064dc873396cad3a0265f43f51a",
     "semantic_hash": "e332f064dc873396cad3a0265f43f51a"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\framework\\run_config.md": {
+  "docs/framework/run_config.md": {
     "mtime": 1779353106.694567,
     "ast_hash": "788bf853f1f8959dbedeafe258a9e2af",
     "semantic_hash": "788bf853f1f8959dbedeafe258a9e2af"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\research\\competing-projects.md": {
+  "docs/research/competing-projects.md": {
     "mtime": 1779954849.455853,
     "ast_hash": "970a14c221c93616528abc8f8cb989d3",
     "semantic_hash": "970a14c221c93616528abc8f8cb989d3"
   },
-  "C:\\GitHub\\gamer-ai\\framework\\README.md": {
+  "framework/README.md": {
     "mtime": 1779954849.4771402,
     "ast_hash": "706768cf4d95cbe67736bb37a0962823",
     "semantic_hash": "706768cf4d95cbe67736bb37a0962823"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\README.md": {
+  "games/_template/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "5ed72d82d26bb82bdf48bee4fa799be2",
     "semantic_hash": "5ed72d82d26bb82bdf48bee4fa799be2"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\config\\reward_config.yaml": {
+  "games/_template/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "920e96d0279c425a1e5bd055586a899b",
     "semantic_hash": "920e96d0279c425a1e5bd055586a899b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\_template\\config\\training_params.yaml": {
+  "games/_template/config/training_params.yaml": {
     "mtime": 1780047397.4029694,
     "ast_hash": "2c8be739aa8abf391c2aebda8a754b93",
     "semantic_hash": "2c8be739aa8abf391c2aebda8a754b93"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\README.md": {
+  "games/assetto_corsa/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "6012b8d78910e390b624c7102d194c72",
     "semantic_hash": "6012b8d78910e390b624c7102d194c72"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\config\\reward_config.yaml": {
+  "games/assetto_corsa/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "021e2b079e4d159913fc1b7aa2d84027",
     "semantic_hash": "021e2b079e4d159913fc1b7aa2d84027"
   },
-  "C:\\GitHub\\gamer-ai\\games\\assetto_corsa\\config\\training_params.yaml": {
+  "games/assetto_corsa/config/training_params.yaml": {
     "mtime": 1777665601.9657502,
     "ast_hash": "80c1fa26471b8d3702f148d6963634a3",
     "semantic_hash": "80c1fa26471b8d3702f148d6963634a3"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\README.md": {
+  "games/atari/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "06d755aa505dd4fb740da2796e6fe593",
     "semantic_hash": "06d755aa505dd4fb740da2796e6fe593"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\config\\gs_neural_dqn_template.yaml": {
+  "games/atari/config/gs_neural_dqn_template.yaml": {
     "mtime": 1780419173.395597,
     "ast_hash": "f51b4668c2bf00fefddb83217cc5cb49",
     "semantic_hash": "f51b4668c2bf00fefddb83217cc5cb49"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\config\\gs_qr_dqn_template.yaml": {
+  "games/atari/config/gs_qr_dqn_template.yaml": {
     "mtime": 1780419321.6201646,
     "ast_hash": "fb38c52e39b643274a38f6574a622021",
     "semantic_hash": "fb38c52e39b643274a38f6574a622021"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\config\\reward_config.yaml": {
+  "games/atari/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "69a5da0790106ea8aeec90c25f268458",
     "semantic_hash": "69a5da0790106ea8aeec90c25f268458"
   },
-  "C:\\GitHub\\gamer-ai\\games\\atari\\config\\training_params.yaml": {
+  "games/atari/config/training_params.yaml": {
     "mtime": 1779960677.3498254,
     "ast_hash": "6ab3c649e2dcf08a0c7d85abd09e63b5",
     "semantic_hash": "6ab3c649e2dcf08a0c7d85abd09e63b5"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\README.md": {
+  "games/beamng/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "c9a988c396c8bbab3db951ecc0212de2",
     "semantic_hash": "c9a988c396c8bbab3db951ecc0212de2"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\config\\reward_config.yaml": {
+  "games/beamng/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "e438dfa55260f0ac10a5f808d967ff87",
     "semantic_hash": "e438dfa55260f0ac10a5f808d967ff87"
   },
-  "C:\\GitHub\\gamer-ai\\games\\beamng\\config\\training_params.yaml": {
+  "games/beamng/config/training_params.yaml": {
     "mtime": 1777801236.4508512,
     "ast_hash": "490bb9b5168456ee0e1149c19ccef7e7",
     "semantic_hash": "490bb9b5168456ee0e1149c19ccef7e7"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\README.md": {
+  "games/car_racing/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "fb37dc4745de338accb8887cf26d7d36",
     "semantic_hash": "fb37dc4745de338accb8887cf26d7d36"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\config\\reward_config.yaml": {
+  "games/car_racing/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "c16f8fcbd8d4ddb4ffb833514cdf518c",
     "semantic_hash": "c16f8fcbd8d4ddb4ffb833514cdf518c"
   },
-  "C:\\GitHub\\gamer-ai\\games\\car_racing\\config\\training_params.yaml": {
+  "games/car_racing/config/training_params.yaml": {
     "mtime": 1777801236.4667313,
     "ast_hash": "e115d58886cc084b8e1a8f2b39ab32db",
     "semantic_hash": "e115d58886cc084b8e1a8f2b39ab32db"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\README.md": {
+  "games/iracing/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "dfc321ef806ecfb0eebc4eaff41f7b92",
     "semantic_hash": "dfc321ef806ecfb0eebc4eaff41f7b92"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\config\\reward_config.yaml": {
+  "games/iracing/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "3af1c49d4359f86ddd87945048b8f9c6",
     "semantic_hash": "3af1c49d4359f86ddd87945048b8f9c6"
   },
-  "C:\\GitHub\\gamer-ai\\games\\iracing\\config\\training_params.yaml": {
+  "games/iracing/config/training_params.yaml": {
     "mtime": 1779441993.0754814,
     "ast_hash": "ddbaced19bed8fc30fd2f775954cc5a9",
     "semantic_hash": "ddbaced19bed8fc30fd2f775954cc5a9"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\README.md": {
+  "games/rocket_league/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "b66e6a3a8b25bf0ce1c31059ddc1457f",
     "semantic_hash": "b66e6a3a8b25bf0ce1c31059ddc1457f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\gs_epsilon_greedy_template.yaml": {
+  "games/rocket_league/config/gs_epsilon_greedy_template.yaml": {
     "mtime": 1779441993.0797834,
     "ast_hash": "5be89409fa9ca46c986bde41f52b665a",
     "semantic_hash": "5be89409fa9ca46c986bde41f52b665a"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\gs_genetic_template.yaml": {
+  "games/rocket_league/config/gs_genetic_template.yaml": {
     "mtime": 1779441993.0807838,
     "ast_hash": "f47144956e7e9ed050c2bb3eee906d2f",
     "semantic_hash": "f47144956e7e9ed050c2bb3eee906d2f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\gs_hill_climbing_template.yaml": {
+  "games/rocket_league/config/gs_hill_climbing_template.yaml": {
     "mtime": 1779441993.0807838,
     "ast_hash": "f7c0fdf518a5b710b5bcabf568009a43",
     "semantic_hash": "f7c0fdf518a5b710b5bcabf568009a43"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\gs_mcts_template.yaml": {
+  "games/rocket_league/config/gs_mcts_template.yaml": {
     "mtime": 1779441993.0807838,
     "ast_hash": "7581c7d972b5b771b9ac004f2661a88f",
     "semantic_hash": "7581c7d972b5b771b9ac004f2661a88f"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\gs_neural_net_template.yaml": {
+  "games/rocket_league/config/gs_neural_net_template.yaml": {
     "mtime": 1779441993.0807838,
     "ast_hash": "ab4a4e2ab71ce3cdf214a7ea249e8259",
     "semantic_hash": "ab4a4e2ab71ce3cdf214a7ea249e8259"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\reward_config.yaml": {
+  "games/rocket_league/config/reward_config.yaml": {
     "mtime": 1780522451.441041,
     "ast_hash": "af6700d8c3a24af3c6e87ca6100b8ed1",
     "semantic_hash": "af6700d8c3a24af3c6e87ca6100b8ed1"
   },
-  "C:\\GitHub\\gamer-ai\\games\\rocket_league\\config\\training_params.yaml": {
+  "games/rocket_league/config/training_params.yaml": {
     "mtime": 1779441993.0823014,
     "ast_hash": "a924828b209183a94bfcbe4a57258fa0",
     "semantic_hash": "a924828b209183a94bfcbe4a57258fa0"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\README.md": {
+  "games/sc2/README.md": {
     "mtime": 1780522451.441041,
     "ast_hash": "16abd535effaf61c81a39a0023012415",
     "semantic_hash": "16abd535effaf61c81a39a0023012415"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\belief_config.yaml": {
+  "games/sc2/config/belief_config.yaml": {
     "mtime": 1779441993.0883157,
     "ast_hash": "511a40394d1270b63f9b88b818da1c79",
     "semantic_hash": "511a40394d1270b63f9b88b818da1c79"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\grid_search_template.yaml": {
+  "games/sc2/config/grid_search_template.yaml": {
     "mtime": 1779062210.188046,
     "ast_hash": "16c64d54b72e2facfc368f229b554934",
     "semantic_hash": "16c64d54b72e2facfc368f229b554934"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_cmaes_template.yaml": {
+  "games/sc2/config/gs_cmaes_template.yaml": {
     "mtime": 1779360640.666158,
     "ast_hash": "d69a7fe8094b4b956fd21b8a7faf7758",
     "semantic_hash": "d69a7fe8094b4b956fd21b8a7faf7758"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_epsilon_greedy_template.yaml": {
+  "games/sc2/config/gs_epsilon_greedy_template.yaml": {
     "mtime": 1779062210.1900854,
     "ast_hash": "620abdf0a9bd5c09008bac0ab8251d84",
     "semantic_hash": "620abdf0a9bd5c09008bac0ab8251d84"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_genetic_template.yaml": {
+  "games/sc2/config/gs_genetic_template.yaml": {
     "mtime": 1779062232.6516473,
     "ast_hash": "f966560d750de45ee1fa8a804791b326",
     "semantic_hash": "f966560d750de45ee1fa8a804791b326"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_lstm_template.yaml": {
+  "games/sc2/config/gs_lstm_template.yaml": {
     "mtime": 1779360640.6671565,
     "ast_hash": "e1bdd8c988b1fd19739c1a06c429bb4b",
     "semantic_hash": "e1bdd8c988b1fd19739c1a06c429bb4b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_mcts_game_template.yaml": {
+  "games/sc2/config/gs_mcts_game_template.yaml": {
     "mtime": 1779960677.3552637,
     "ast_hash": "6993f4b501e4dad69f48e6c3b4d0fd05",
     "semantic_hash": "6993f4b501e4dad69f48e6c3b4d0fd05"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_mcts_template.yaml": {
+  "games/sc2/config/gs_mcts_template.yaml": {
     "mtime": 1779960677.3552637,
     "ast_hash": "fb0ac37e6e871ab95f34e9c6dc671805",
     "semantic_hash": "fb0ac37e6e871ab95f34e9c6dc671805"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_neural_dqn_bc_template.yaml": {
+  "games/sc2/config/gs_neural_dqn_bc_template.yaml": {
     "mtime": 1780418211.619968,
     "ast_hash": "9d4536c2eeb38a050c6b32d7ae4059a7",
     "semantic_hash": "9d4536c2eeb38a050c6b32d7ae4059a7"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_neural_dqn_template.yaml": {
+  "games/sc2/config/gs_neural_dqn_template.yaml": {
     "mtime": 1780521747.0886085,
     "ast_hash": "280d6cd8a94bc9743fd02f635a0b1c41",
     "semantic_hash": "280d6cd8a94bc9743fd02f635a0b1c41"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_reinforce_template.yaml": {
+  "games/sc2/config/gs_reinforce_template.yaml": {
     "mtime": 1779522508.4216967,
     "ast_hash": "f6143dce838211b2eeb67a80699e78de",
     "semantic_hash": "f6143dce838211b2eeb67a80699e78de"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_sc2_cnn_template.yaml": {
+  "games/sc2/config/gs_sc2_cnn_template.yaml": {
     "mtime": 1779441993.089311,
     "ast_hash": "ed45b2f5dad16e90592fc68b6b2bd307",
     "semantic_hash": "ed45b2f5dad16e90592fc68b6b2bd307"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\gs_sc2_neural_net_template.yaml": {
+  "games/sc2/config/gs_sc2_neural_net_template.yaml": {
     "mtime": 1779522508.4216967,
     "ast_hash": "2694b767eb82772327313cb60c09b8bc",
     "semantic_hash": "2694b767eb82772327313cb60c09b8bc"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\reward_config.yaml": {
+  "games/sc2/config/reward_config.yaml": {
     "mtime": 1780522482.0044813,
     "ast_hash": "e9cc7930f8c07a431b1f6710d92fab5d",
     "semantic_hash": "e9cc7930f8c07a431b1f6710d92fab5d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\sc2\\config\\training_params.yaml": {
+  "games/sc2/config/training_params.yaml": {
     "mtime": 1780417275.9078064,
     "ast_hash": "a404ed4c588b7d089f2c2c9439f2a589",
     "semantic_hash": "a404ed4c588b7d089f2c2c9439f2a589"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\README.md": {
+  "games/tmnf/README.md": {
     "mtime": 1780522451.4606156,
     "ast_hash": "f04e4e7258cb941ec68abe8689436ba0",
     "semantic_hash": "f04e4e7258cb941ec68abe8689436ba0"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\README_LICENSE.md": {
+  "games/tmnf/config/README_LICENSE.md": {
     "mtime": 1777665602.1487637,
     "ast_hash": "6ab3b443c52c7409b8d706c77eae1550",
     "semantic_hash": "6ab3b443c52c7409b8d706c77eae1550"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\grid_search_template.yaml": {
+  "games/tmnf/config/grid_search_template.yaml": {
     "mtime": 1779293779.1981726,
     "ast_hash": "0171aa30de322de38afab62a6bcfc195",
     "semantic_hash": "0171aa30de322de38afab62a6bcfc195"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_cmaes.yaml": {
+  "games/tmnf/config/gs_cmaes.yaml": {
     "mtime": 1777665602.1579247,
     "ast_hash": "498afcc6e8613cee4fdfc1b70bd28e36",
     "semantic_hash": "498afcc6e8613cee4fdfc1b70bd28e36"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_curiosity_v1.yaml": {
+  "games/tmnf/config/gs_curiosity_v1.yaml": {
     "mtime": 1777665602.1579247,
     "ast_hash": "8224b82f0e4d06fc56fdfc1b40e3c330",
     "semantic_hash": "8224b82f0e4d06fc56fdfc1b40e3c330"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_epsilon_greedy.yaml": {
+  "games/tmnf/config/gs_epsilon_greedy.yaml": {
     "mtime": 1777665602.1579247,
     "ast_hash": "28dd5c912abc996edca54f32d7dd35c8",
     "semantic_hash": "28dd5c912abc996edca54f32d7dd35c8"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_genetic.yaml": {
+  "games/tmnf/config/gs_genetic.yaml": {
     "mtime": 1777665602.1705081,
     "ast_hash": "32b01769c046f41602e63d79467bda00",
     "semantic_hash": "32b01769c046f41602e63d79467bda00"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_hill_climbing.yaml": {
+  "games/tmnf/config/gs_hill_climbing.yaml": {
     "mtime": 1777806767.962149,
     "ast_hash": "f36b110fbe83f06ecfb4a042993ae018",
     "semantic_hash": "f36b110fbe83f06ecfb4a042993ae018"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_lstm_v1.yaml": {
+  "games/tmnf/config/gs_lstm_v1.yaml": {
     "mtime": 1779954852.0965683,
     "ast_hash": "197599ef322549d11bba6f52ae0451ce",
     "semantic_hash": "197599ef322549d11bba6f52ae0451ce"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_mcts.yaml": {
+  "games/tmnf/config/gs_mcts.yaml": {
     "mtime": 1777665602.1705081,
     "ast_hash": "f873783be12cd1ec69f7da4c625288da",
     "semantic_hash": "f873783be12cd1ec69f7da4c625288da"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_neural_dqn_v1.yaml": {
+  "games/tmnf/config/gs_neural_dqn_v1.yaml": {
     "mtime": 1779522508.4216967,
     "ast_hash": "a5e15d80e6e8a1a8a600f5b4e52c38df",
     "semantic_hash": "a5e15d80e6e8a1a8a600f5b4e52c38df"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_neural_net.yaml": {
+  "games/tmnf/config/gs_neural_net.yaml": {
     "mtime": 1779522508.4216967,
     "ast_hash": "577bf116d07ad9ae218e5e424e8c9c59",
     "semantic_hash": "577bf116d07ad9ae218e5e424e8c9c59"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\gs_reinforce_v1.yaml": {
+  "games/tmnf/config/gs_reinforce_v1.yaml": {
     "mtime": 1777665602.1861444,
     "ast_hash": "b7514e0db3ad80d61ac6cf90ad21ae03",
     "semantic_hash": "b7514e0db3ad80d61ac6cf90ad21ae03"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\policy_weights.yaml": {
+  "games/tmnf/config/policy_weights.yaml": {
     "mtime": 1777665602.1861444,
     "ast_hash": "d8d769c4b43670fb1595202753b6a1aa",
     "semantic_hash": "d8d769c4b43670fb1595202753b6a1aa"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\reward_config.yaml": {
+  "games/tmnf/config/reward_config.yaml": {
     "mtime": 1780522451.4606156,
     "ast_hash": "1d7a701ef8bad58ae22a60d39635fb82",
     "semantic_hash": "1d7a701ef8bad58ae22a60d39635fb82"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\config\\training_params.yaml": {
+  "games/tmnf/config/training_params.yaml": {
     "mtime": 1779522508.4376602,
     "ast_hash": "d6b6c1085e043d70a4e2c42271237e29",
     "semantic_hash": "d6b6c1085e043d70a4e2c42271237e29"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\runs\\a01_start_example.txt": {
+  "games/tmnf/runs/a01_start_example.txt": {
     "mtime": 1779522508.4376602,
     "ast_hash": "b7d150f37063aa53fd8d55af0db52437",
     "semantic_hash": "b7d150f37063aa53fd8d55af0db52437"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\runs\\debug_straight.txt": {
+  "games/tmnf/runs/debug_straight.txt": {
     "mtime": 1777665603.1532903,
     "ast_hash": "7f58ecf1951df6bc1a023ebb99d1212e",
     "semantic_hash": "7f58ecf1951df6bc1a023ebb99d1212e"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\runs\\example_run.txt": {
+  "games/tmnf/runs/example_run.txt": {
     "mtime": 1779522508.4376602,
     "ast_hash": "b7d150f37063aa53fd8d55af0db52437",
     "semantic_hash": "b7d150f37063aa53fd8d55af0db52437"
   },
-  "C:\\GitHub\\gamer-ai\\games\\tmnf\\tracks\\registry.yaml": {
+  "games/tmnf/tracks/registry.yaml": {
     "mtime": 1777665603.2391849,
     "ast_hash": "129a9beb65fc53256262d20592d3e459",
     "semantic_hash": "129a9beb65fc53256262d20592d3e459"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\README.md": {
+  "games/torcs/README.md": {
     "mtime": 1780522451.4616113,
     "ast_hash": "6bbd1030362f4bd1b484c65688236dcc",
     "semantic_hash": "6bbd1030362f4bd1b484c65688236dcc"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\grid_search_template.yaml": {
+  "games/torcs/config/grid_search_template.yaml": {
     "mtime": 1777801236.538877,
     "ast_hash": "3f70afe7b283d0e86b4892544aa76f7d",
     "semantic_hash": "3f70afe7b283d0e86b4892544aa76f7d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\gs_cmaes.yaml": {
+  "games/torcs/config/gs_cmaes.yaml": {
     "mtime": 1777665603.296097,
     "ast_hash": "04ce838e5f07215a744ef8ecd573665b",
     "semantic_hash": "04ce838e5f07215a744ef8ecd573665b"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\gs_genetic.yaml": {
+  "games/torcs/config/gs_genetic.yaml": {
     "mtime": 1777665603.3018725,
     "ast_hash": "bb7b0bb6466abf7e2db5f7cff54857d4",
     "semantic_hash": "bb7b0bb6466abf7e2db5f7cff54857d4"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\gs_hill_climbing.yaml": {
+  "games/torcs/config/gs_hill_climbing.yaml": {
     "mtime": 1777665603.310465,
     "ast_hash": "922f971e56be08d4979c99d78c6326c2",
     "semantic_hash": "922f971e56be08d4979c99d78c6326c2"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\reward_config.yaml": {
+  "games/torcs/config/reward_config.yaml": {
     "mtime": 1780522451.4622116,
     "ast_hash": "f984a786bf92ef2c7c60f31123db1b0d",
     "semantic_hash": "f984a786bf92ef2c7c60f31123db1b0d"
   },
-  "C:\\GitHub\\gamer-ai\\games\\torcs\\config\\training_params.yaml": {
+  "games/torcs/config/training_params.yaml": {
     "mtime": 1777801236.544877,
     "ast_hash": "9d3aaff08f1cec8707bb964025a03590",
     "semantic_hash": "9d3aaff08f1cec8707bb964025a03590"
   },
-  "C:\\GitHub\\gamer-ai\\infrastructure\\README.md": {
+  "infrastructure/README.md": {
     "mtime": 1778098593.9798636,
     "ast_hash": "acd96875b3fa62380e628ec704aa94b6",
     "semantic_hash": "acd96875b3fa62380e628ec704aa94b6"
   },
-  "C:\\GitHub\\gamer-ai\\plans\\issue-229-sc2-multi-instance-intra-run.md": {
+  "plans/issue-229-sc2-multi-instance-intra-run.md": {
     "mtime": 1779173081.313653,
     "ast_hash": "f30b862984e28f84c3669aaf5dc2b0b8",
     "semantic_hash": "f30b862984e28f84c3669aaf5dc2b0b8"
   },
-  "C:\\GitHub\\gamer-ai\\plans\\issues-122-126-127-sc2-action-and-obs-redesign.md": {
+  "plans/issues-122-126-127-sc2-action-and-obs-redesign.md": {
     "mtime": 1777997573.513774,
     "ast_hash": "584f797c42de498722fe580b12790911",
     "semantic_hash": "584f797c42de498722fe580b12790911"
   },
-  "C:\\GitHub\\gamer-ai\\plans\\the-current-reward-structuring-serialized-kernighan.md": {
+  "plans/the-current-reward-structuring-serialized-kernighan.md": {
     "mtime": 1777665603.4855332,
     "ast_hash": "dea9c0c93985e8d58e98666f7828503b",
     "semantic_hash": "dea9c0c93985e8d58e98666f7828503b"
   },
-  "C:\\GitHub\\gamer-ai\\tests\\README.md": {
+  "tests/README.md": {
     "mtime": 1780522451.4625652,
     "ast_hash": "0130a2cff32c58af141118d8f46b64b8",
     "semantic_hash": "0130a2cff32c58af141118d8f46b64b8"
   },
-  "C:\\GitHub\\gamer-ai\\docs\\images\\live_gui_preview.png": {
+  "docs/images/live_gui_preview.png": {
     "mtime": 1779293779.1914098,
     "ast_hash": "6bf40d30e76c8a72d791e0837f188edf",
     "semantic_hash": "6bf40d30e76c8a72d791e0837f188edf"

@@ -276,7 +276,6 @@ def replay_observations(
     PySC2 imports are lazy — callers without PySC2 installed can still import
     this module.  Raises ``ImportError`` at call-time if PySC2 is absent.
     """
-    from absl import flags as _absl_flags  # type: ignore[import-untyped]
     from pysc2 import run_configs
     from pysc2.lib import features as sc2_features
     from s2clientprotocol import sc2api_pb2 as sc2_api
@@ -284,8 +283,13 @@ def replay_observations(
     from games.sc2.actions import function_call_to_action
     from games.sc2.client import _ObsExtractState, extract_flat_obs
 
-    if not _absl_flags.FLAGS.is_parsed():
-        _absl_flags.FLAGS([""])
+    try:
+        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+
+        if not _absl_flags.FLAGS.is_parsed():
+            _absl_flags.FLAGS([""])
+    except ImportError:
+        pass
 
     path = pathlib.Path(path)
     run_config = run_configs.get()
@@ -405,7 +409,6 @@ def _read_one_replay(
         dropped by the race filter.  *player_race* is the race string of the
         observed player regardless of filtering.
     """
-    from absl import flags as _absl_flags  # type: ignore[import-untyped]
     from pysc2 import run_configs
     from pysc2.lib import features as sc2_features
     from s2clientprotocol import sc2api_pb2 as sc2_api
@@ -413,8 +416,13 @@ def _read_one_replay(
     from games.sc2.actions import function_call_to_action
     from games.sc2.client import _ObsExtractState, extract_flat_obs
 
-    if not _absl_flags.FLAGS.is_parsed():
-        _absl_flags.FLAGS([""])
+    try:
+        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+
+        if not _absl_flags.FLAGS.is_parsed():
+            _absl_flags.FLAGS([""])
+    except ImportError:
+        pass
 
     def _process(run_config: Any, controller: Any) -> tuple[bool, str, list]:
         replay_data = run_config.replay_data(str(path))
@@ -501,6 +509,8 @@ def _read_one_replay(
         return True, player_race, pairs
 
     if _controller is not None:
+        if _run_config is None:
+            raise ValueError("_run_config must be provided together with _controller")
         return _process(_run_config, _controller)
 
     run_config = run_configs.get()
@@ -577,11 +587,15 @@ def build_dataset(
     skipped_race = 0
     failed = 0
 
-    from absl import flags as _absl_flags  # type: ignore[import-untyped]
     from pysc2 import run_configs
 
-    if not _absl_flags.FLAGS.is_parsed():
-        _absl_flags.FLAGS([""])
+    try:
+        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+
+        if not _absl_flags.FLAGS.is_parsed():
+            _absl_flags.FLAGS([""])
+    except ImportError:
+        pass
 
     run_config = run_configs.get()
     logger.info("Starting shared SC2 process for %d replay(s) ...", len(replay_paths))

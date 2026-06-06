@@ -12,9 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-import networkx as nx
-from networkx.readwrite import json_graph
-
 from graphify.analyze import god_nodes, suggest_questions, surprising_connections
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
@@ -22,15 +19,28 @@ from graphify.detect import detect_incremental, save_manifest
 from graphify.export import to_json
 from graphify.extract import collect_files, extract
 from graphify.report import generate
+from networkx.readwrite import json_graph
 
-REPO_ROOT = Path(__file__).parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent
 GRAPH_DIR = REPO_ROOT / "graphify-out"
 GRAPH_JSON = GRAPH_DIR / "graph.json"
 MANIFEST = GRAPH_DIR / "manifest.json"
 
 CODE_EXTENSIONS = {
-    ".py", ".ts", ".js", ".go", ".rs", ".java", ".cpp", ".c",
-    ".rb", ".swift", ".kt", ".cs", ".scala", ".php",
+    ".py",
+    ".ts",
+    ".js",
+    ".go",
+    ".rs",
+    ".java",
+    ".cpp",
+    ".c",
+    ".rb",
+    ".swift",
+    ".kt",
+    ".cs",
+    ".scala",
+    ".php",
 }
 
 
@@ -68,9 +78,9 @@ def main() -> None:
     # Prune nodes from deleted/changed files (changed files will be re-extracted)
     stale_sources = deleted | set(code_changed)
     stale_nodes = [
-        n for n, d in G.nodes(data=True)
-        if d.get("source_file") in stale_sources
-        or str(REPO_ROOT / d.get("source_file", "")) in stale_sources
+        n
+        for n, d in G.nodes(data=True)
+        if d.get("source_file") in stale_sources or str(REPO_ROOT / d.get("source_file", "")) in stale_sources
     ]
     if stale_nodes:
         G.remove_nodes_from(stale_nodes)
@@ -125,8 +135,16 @@ def main() -> None:
         "files": incremental.get("files", {"code": [], "document": [], "paper": []}),
     }
     report = generate(
-        G, communities, cohesion, labels, gods, surprises,
-        detection, tokens, str(REPO_ROOT), suggested_questions=questions,
+        G,
+        communities,
+        cohesion,
+        labels,
+        gods,
+        surprises,
+        detection,
+        tokens,
+        str(REPO_ROOT),
+        suggested_questions=questions,
     )
     (GRAPH_DIR / "GRAPH_REPORT.md").write_text(report, encoding="utf-8")
 
@@ -136,17 +154,26 @@ def main() -> None:
 
     # Update cost.json (AST runs are free — record with 0 tokens)
     cost_path = GRAPH_DIR / "cost.json"
-    cost = json.loads(cost_path.read_text(encoding="utf-8")) if cost_path.exists() else {
-        "runs": [], "total_input_tokens": 0, "total_output_tokens": 0,
-    }
+    cost = (
+        json.loads(cost_path.read_text(encoding="utf-8"))
+        if cost_path.exists()
+        else {
+            "runs": [],
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        }
+    )
     from datetime import datetime, timezone
-    cost["runs"].append({
-        "date": datetime.now(timezone.utc).isoformat(),
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "files": len(code_changed),
-        "note": "CI AST-only update",
-    })
+
+    cost["runs"].append(
+        {
+            "date": datetime.now(timezone.utc).isoformat(),
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "files": len(code_changed),
+            "note": "CI AST-only update",
+        }
+    )
     cost_path.write_text(json.dumps(cost, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print(f"Graph updated: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges, {len(communities)} communities")

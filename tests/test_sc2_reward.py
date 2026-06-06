@@ -2502,5 +2502,89 @@ class TestMacroProgressionRewards(unittest.TestCase):
         self.assertAlmostEqual(total, sum(comp.values()))
 
 
+class TestSC2BuildTrainBonus(unittest.TestCase):
+    """Tests for the build_train_bonus reward term (issue #416)."""
+
+    # fn_idx 8 = Build_Barracks_screen (Terran build)
+    # fn_idx 7 = Train_Marine_quick (Terran train)
+    # fn_idx 2 = Move_screen (move category — should NOT trigger)
+    # fn_idx 0 = no_op (move category — should NOT trigger)
+    _BUILD_FN_IDX = 8
+    _TRAIN_FN_IDX = 7
+    _MOVE_FN_IDX = 2
+    _NOOP_FN_IDX = 0
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {"score_weight": 0.0, "step_penalty": 0.0, "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0}
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _step(self, calc: SC2RewardCalculator, fn_idx: int = 0) -> tuple[float, dict]:
+        return calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "action_fn_idx": fn_idx},
+        )
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.build_train_bonus, 0.0)
+
+    def test_bonus_fires_on_build_action(self):
+        calc = self._make_calc(build_train_bonus=1.0)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 1.0)
+
+    def test_bonus_fires_on_train_action(self):
+        calc = self._make_calc(build_train_bonus=1.0)
+        _, comp = self._step(calc, fn_idx=self._TRAIN_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 1.0)
+
+    def test_no_bonus_on_move_action(self):
+        calc = self._make_calc(build_train_bonus=1.0)
+        _, comp = self._step(calc, fn_idx=self._MOVE_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 0.0)
+
+    def test_no_bonus_on_noop(self):
+        calc = self._make_calc(build_train_bonus=1.0)
+        _, comp = self._step(calc, fn_idx=self._NOOP_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 0.0)
+
+    def test_zero_when_disabled(self):
+        calc = self._make_calc(build_train_bonus=0.0)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 0.0)
+
+    def test_scales_with_bonus_value(self):
+        calc = self._make_calc(build_train_bonus=2.5)
+        _, comp = self._step(calc, fn_idx=self._TRAIN_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"], 2.5)
+
+    def test_n_ticks_scaling(self):
+        calc = self._make_calc(build_train_bonus=1.0)
+        total, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "action_fn_idx": self._BUILD_FN_IDX},
+            n_ticks=4,
+        )
+        self.assertAlmostEqual(comp["build_train"], 4.0)
+
+    def test_present_in_components_when_disabled(self):
+        calc = self._make_calc()
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertIn("build_train", comp)
+        self.assertAlmostEqual(comp["build_train"], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._make_calc(build_train_bonus=0.5)
+        total, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(total, sum(comp.values()))
+
+
 if __name__ == "__main__":
     unittest.main()

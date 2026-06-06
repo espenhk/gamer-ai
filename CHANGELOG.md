@@ -17,6 +17,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- SC2: `build_train_bonus` reward parameter (issue #416). Per-step bonus
+  when the agent issues any "build" or "train" category action (supply
+  depots, barracks, workers, marines, etc.). Encourages production over
+  idle movement in the early game. Default `0.0` (opt-in); shipped ladder
+  preset enables it at `0.5`. Normalised in analytics via the
+  `build_train` component key.
+- SC2: `new_action_unlock_bonus` reward parameter (issue #360). One-shot
+  bonus the first time a tech-tree-gated fn_idx becomes fully executable
+  in an episode. Paired with `new_action_usage_bonus` which rewards
+  actually issuing those newly-available actions.
+- SC2: `damage_taken_penalty` reward parameter (issue #401). Per-step
+  penalty proportional to HP+shield lost across visible friendly units.
+  Default `0.0` (opt-in); shipped ladder preset enables it at `-0.01`.
 
 ---
 

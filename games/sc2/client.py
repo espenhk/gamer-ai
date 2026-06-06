@@ -1410,8 +1410,11 @@ class SC2Client:
         # of the *current* selection means training actions (e.g.
         # Train_Marine_quick) appear in the mask whenever the producer
         # building exists, not only when it happens to be selected.  The
-        # deferred-action resolver auto-emits the required select_point when
-        # the policy chooses such an action.
+        # deferred-action resolver auto-emits a select_point when the policy
+        # picks such an action — but only if the target has a cached screen
+        # position.  Buildings in owned_buildings that are off-screen will
+        # appear in the mask yet no-op that tick; this is an intentional
+        # trade-off favouring a stable mask over camera-driven flicker.
         visible_unit_types = frozenset(self._screen_xy_by_unit_type.keys())
         accessible_types = self._owned_buildings | visible_unit_types
 

@@ -722,12 +722,20 @@ def fn_idx_satisfied(
     """Return True if all preconditions for *fn_idx* are met.
 
     Selection presence is checked against *accessible_unit_types*, which
-    represents every unit/building type the agent *could* select right now
-    (owned buildings + currently visible units), not just what is currently
-    selected.  This lets the action mask include e.g. ``Train_Marine_quick``
-    whenever a Barracks exists, even if an SCV is currently selected — the
-    client's deferred-action queue will auto-emit a ``select_point`` on the
-    Barracks before replaying the train action on the next tick.
+    represents every unit/building type the agent *could* select right now,
+    not just what is currently selected.  This lets the action mask include
+    e.g. ``Train_Marine_quick`` whenever a Barracks exists, even if an SCV
+    is currently selected — the client's deferred-action resolver will
+    attempt to auto-emit a ``select_point`` on the Barracks before replaying
+    the train action on the next tick.
+
+    **Note on off-screen buildings.** The caller typically passes
+    ``owned_buildings | {types visible on screen}``; owned buildings that
+    have scrolled off-screen remain in the mask even though the resolver
+    can only auto-select units/buildings with a cached screen position.  If
+    the producer is off-screen the action will silently no-op that tick.
+    This is an intentional trade-off: keeping the mask stable (no
+    camera-driven flicker) at the cost of an occasional wasted step.
 
     Parameters
     ----------
@@ -743,6 +751,9 @@ def fn_idx_satisfied(
         means nothing is selectable.  ``ANY_UNIT`` actions are satisfied
         whenever this set is non-empty; ``OF_TYPE`` actions are satisfied
         when any accessible type is in :attr:`Preconditions.selection_target`.
+        Auto-selection by the resolver only succeeds for types that are
+        currently in ``_screen_xy_by_unit_type``; types present only via
+        ``owned_buildings`` may no-op if off-screen.
     minerals :
         Current mineral count.  Defaults to ``inf`` so callers that
         don't track resources still allow all actions (backwards

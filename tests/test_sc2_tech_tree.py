@@ -17,10 +17,9 @@ from games.sc2.tech_tree import (
     fn_idx_satisfied,
 )
 
-# Selection-set shorthands.  ``fn_idx_satisfied`` takes a ``frozenset`` so
-# that a single API can express "nothing selected" (empty), single-type
-# selections (one element), and post-``select_army`` mixed-type
-# selections (multiple elements).
+# Accessible-type shorthands used by fn_idx_satisfied.  The parameter now
+# represents all unit/building types the agent *could* select (owned
+# buildings + visible units), not just the current selection.
 _NONE: frozenset[str] = frozenset()
 _SCV = frozenset({"SCV"})
 
@@ -74,11 +73,15 @@ class TestFnIdxSatisfiedTerran(unittest.TestCase):
         # Marine selected (wrong type) → unsatisfied.
         self.assertFalse(fn_idx_satisfied(9, frozenset(), frozenset(), _sel("Marine")))
 
-    def test_train_marine_needs_barracks_selected(self):
-        # SCV selected → unsatisfied (Barracks needs to be selected).
+    def test_train_marine_needs_barracks_accessible(self):
+        # No Barracks in accessible types → unsatisfied even with SCV accessible.
         self.assertFalse(fn_idx_satisfied(7, frozenset({"Barracks"}), frozenset(), _SCV))
-        # Barracks selected → satisfied.
+        # Barracks accessible (e.g. owned + visible) → satisfied even when SCV
+        # is also accessible (the resolver will auto-select the Barracks).
         self.assertTrue(fn_idx_satisfied(7, frozenset({"Barracks"}), frozenset(), _sel("Barracks")))
+        self.assertTrue(fn_idx_satisfied(7, frozenset({"Barracks"}), frozenset(), _sel("SCV", "Barracks")))
+        # No Barracks at all → unsatisfied.
+        self.assertFalse(fn_idx_satisfied(7, frozenset(), frozenset(), _SCV))
 
     def test_train_marauder_needs_tech_lab(self):
         # Barracks selected but no TechLab → unsatisfied.
@@ -234,10 +237,10 @@ class TestMixedSelection(unittest.TestCase):
             )
         )
 
-    def test_mixed_army_without_target_type_still_fails_of_type(self):
-        # Train_Marine needs Barracks selected; a mixed army selection
-        # without any Barracks should still fail.
-        self.assertFalse(fn_idx_satisfied(7, frozenset({"Barracks"}), frozenset(), _sel("Marine", "Marauder")))
+    def test_mixed_army_without_barracks_accessible_fails_train_marine(self):
+        # Train_Marine needs Barracks accessible.  A mixed army (Marine +
+        # Marauder visible) without any Barracks accessible → unsatisfied.
+        self.assertFalse(fn_idx_satisfied(7, frozenset(), frozenset(), _sel("Marine", "Marauder")))
 
 
 class TestResourceCostFilter(unittest.TestCase):

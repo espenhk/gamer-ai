@@ -715,18 +715,27 @@ def fn_idx_satisfied(
     fn_idx: int,
     owned_buildings: frozenset[str],
     completed_upgrades: frozenset[str],
-    selected_unit_types: frozenset[str],
+    accessible_unit_types: frozenset[str],
     minerals: float = float("inf"),
     vespene: float = float("inf"),
 ) -> bool:
     """Return True if all preconditions for *fn_idx* are met.
 
-    Selection presence is checked here: if ``required_selection`` is
-    ``OF_TYPE`` or ``ANY_UNIT`` and *selected_unit_types* is empty,
-    the action is reported as unsatisfied.  The client's
-    deferred-action queue is responsible for *issuing* the right
-    selection — this function only reports whether the action could
-    execute *given the current state*.
+    Selection presence is checked against *accessible_unit_types*, which
+    represents every unit/building type the agent *could* select right now,
+    not just what is currently selected.  This lets the action mask include
+    e.g. ``Train_Marine_quick`` whenever a Barracks exists, even if an SCV
+    is currently selected — the client's deferred-action resolver will
+    attempt to auto-emit a ``select_point`` on the Barracks before replaying
+    the train action on the next tick.
+
+    **Note on off-screen buildings.** The caller typically passes
+    ``owned_buildings | {types visible on screen}``; owned buildings that
+    have scrolled off-screen remain in the mask even though the resolver
+    can only auto-select units/buildings with a cached screen position.  If
+    the producer is off-screen the action will silently no-op that tick.
+    This is an intentional trade-off: keeping the mask stable (no
+    camera-driven flicker) at the cost of an occasional wasted step.
 
     Parameters
     ----------
@@ -736,14 +745,15 @@ def fn_idx_satisfied(
         Set of structure names currently owned by the agent.
     completed_upgrades :
         Set of upgrade/research names already completed.
-    selected_unit_types :
-        Set of unit-type names currently in the selection.  Empty
-        frozenset means "nothing selected".  A multi-type selection
-        (e.g. ``{"Marine", "Marauder"}`` after ``select_army``) satisfies
-        ``ANY_UNIT``, and satisfies ``OF_TYPE`` whenever any selected
-        type is in :attr:`Preconditions.selection_target` — PySC2 will
-        apply the issued command only to compatible units in the
-        selection.
+    accessible_unit_types :
+        Set of unit/building-type names the agent can select — typically
+        ``owned_buildings | {types visible on screen}``.  Empty frozenset
+        means nothing is selectable.  ``ANY_UNIT`` actions are satisfied
+        whenever this set is non-empty; ``OF_TYPE`` actions are satisfied
+        when any accessible type is in :attr:`Preconditions.selection_target`.
+        Auto-selection by the resolver only succeeds for types that are
+        currently in ``_screen_xy_by_unit_type``; types present only via
+        ``owned_buildings`` may no-op if off-screen.
     minerals :
         Current mineral count.  Defaults to ``inf`` so callers that
         don't track resources still allow all actions (backwards
@@ -778,12 +788,12 @@ def fn_idx_satisfied(
 
     if pre.required_selection == SelectionReq.NONE:
         return True
-    if not selected_unit_types:
+    if not accessible_unit_types:
         return False
     if pre.required_selection == SelectionReq.ANY_UNIT:
         return True
-    # OF_TYPE — at least one selected type must be in the target set.
-    return bool(selected_unit_types & pre.selection_target)
+    # OF_TYPE — at least one accessible type must be in the target set.
+    return bool(accessible_unit_types & pre.selection_target)
 
 
 def building_prereqs_met(building_name: str, owned_buildings: frozenset[str]) -> bool:

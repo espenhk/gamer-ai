@@ -1404,6 +1404,20 @@ class SC2Client:
                 out.discard(4)
             return out
 
+        # Accessible types: all unit/building types the agent could select
+        # this step — owned buildings (persistent across the episode) plus
+        # every unit type currently visible on screen.  Passing this instead
+        # of the *current* selection means training actions (e.g.
+        # Train_Marine_quick) appear in the mask whenever the producer
+        # building exists, not only when it happens to be selected.  The
+        # deferred-action resolver auto-emits a select_point when the policy
+        # picks such an action — but only if the target has a cached screen
+        # position.  Buildings in owned_buildings that are off-screen will
+        # appear in the mask yet no-op that tick; this is an intentional
+        # trade-off favouring a stable mask over camera-driven flicker.
+        visible_unit_types = frozenset(self._screen_xy_by_unit_type.keys())
+        accessible_types = self._owned_buildings | visible_unit_types
+
         # Cache: skip the full fn_idx_satisfied loop when the game-state inputs
         # are unchanged (issue #356 H3).  Minerals and vespene are included
         # because PR #357 gates build/train actions on affordability.
@@ -1411,7 +1425,7 @@ class SC2Client:
             frozenset(candidate),
             self._owned_buildings,
             self._completed_upgrades,
-            self._selected_unit_types,
+            visible_unit_types,
             self._minerals,
             self._vespene,
         )
@@ -1425,7 +1439,7 @@ class SC2Client:
                     fn_idx,
                     self._owned_buildings,
                     self._completed_upgrades,
-                    self._selected_unit_types,
+                    accessible_types,
                     self._minerals,
                     self._vespene,
                 )

@@ -2332,19 +2332,25 @@ class TestIssue356FnIdxCache(unittest.TestCase):
             self.client._compute_available_fn_ids(None)
             self.assertGreater(mock_sat.call_count, after_first)
 
-    def test_cache_invalidated_when_selected_unit_types_changes(self):
-        """Changing selected_unit_types must trigger a fresh tech-tree pass."""
+    def test_cache_invalidated_when_visible_unit_types_changes(self):
+        """Changing visible unit types must trigger a fresh tech-tree pass.
+
+        The cache key uses _screen_xy_by_unit_type (not the current selection)
+        so that training actions appear in the mask whenever a producer
+        building is accessible, regardless of what is currently selected.
+        """
         from unittest.mock import patch
 
         with patch("games.sc2.client.fn_idx_satisfied", return_value=True) as mock_sat:
             self.client._owned_buildings = frozenset()
             self.client._completed_upgrades = frozenset()
-            self.client._selected_unit_types = frozenset()
+            self.client._screen_xy_by_unit_type = {}
 
             self.client._compute_available_fn_ids(None)
             after_first = mock_sat.call_count
 
-            self.client._selected_unit_types = frozenset({"Marine"})
+            # A new unit type becomes visible → cache miss.
+            self.client._screen_xy_by_unit_type = {"Marine": (10, 10)}
             self.client._compute_available_fn_ids(None)
             self.assertGreater(mock_sat.call_count, after_first)
 

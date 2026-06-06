@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.5.5] - 2026-06-06
+
 ### Added
 - SC2: `build_repeat_penalty` reward parameter. Per-step penalty when the
   agent issues the same build fn_idx on two consecutive env steps. Breaks

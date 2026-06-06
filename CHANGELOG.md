@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.5.3] - 2026-06-06
+
 ### Fixed
 - SC2 training loop no longer slows down progressively over long runs (issue #378).
   Three root causes removed:

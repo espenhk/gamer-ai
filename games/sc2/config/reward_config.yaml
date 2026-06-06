@@ -193,3 +193,9 @@ tech_building_bonus: 5.0
 expansion_bonus: 10.0
 scout_bonus: 20.0
 new_action_usage_bonus: 0.1
+
+# --- Build/train action bonus (issue #416) ---
+# Per-step bonus when the agent issues a build or train category action
+# (supply depots, barracks, workers, marines, etc.).  Encourages production
+# over idle movement in the early game.  Recommended range: 0.2–1.0.
+build_train_bonus: 0.5

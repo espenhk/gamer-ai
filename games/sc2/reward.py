@@ -733,7 +733,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
             enemy_count = info.get("screen_enemy_count", 0.0)
             if self_count > 0 and enemy_count > 0:
                 dx = float(info.get("screen_self_cx", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
-                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cx", 0.0))
+                dy = float(info.get("screen_self_cy", 0.0)) - float(info.get("screen_enemy_cy", 0.0))
                 dist = (dx * dx + dy * dy) ** 0.5
                 screen_size = float(info.get("screen_size", 64))
                 max_attack_range_px = float(

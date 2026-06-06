@@ -2586,5 +2586,118 @@ class TestSC2BuildTrainBonus(unittest.TestCase):
         self.assertAlmostEqual(total, sum(comp.values()))
 
 
+class TestSC2BuildRepeatPenalty(unittest.TestCase):
+    """Tests for the build_repeat_penalty reward term."""
+
+    # fn_idx 8 = Build_Barracks_screen (build category)
+    # fn_idx 9 = Build_SupplyDepot_screen (build category)
+    # fn_idx 7 = Train_Marine_quick (train category — NOT build, resets counter)
+    # fn_idx 2 = Move_screen (move category — resets counter)
+    _BUILD_FN_IDX = 8
+    _BUILD_FN_IDX_2 = 9
+    _TRAIN_FN_IDX = 7
+    _MOVE_FN_IDX = 2
+
+    def _make_calc(self, **kwargs) -> SC2RewardCalculator:
+        cfg = {"score_weight": 0.0, "step_penalty": 0.0, "win_bonus": 0.0, "loss_penalty": 0.0, "economy_weight": 0.0}
+        cfg.update(kwargs)
+        return SC2RewardCalculator(SC2RewardConfig(**cfg))
+
+    def _step(self, calc: SC2RewardCalculator, fn_idx: int = 0) -> tuple[float, dict]:
+        return calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "action_fn_idx": fn_idx},
+        )
+
+    def test_disabled_by_default(self):
+        cfg = SC2RewardConfig()
+        self.assertEqual(cfg.build_repeat_penalty, 0.0)
+
+    def test_first_build_no_penalty(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+    def test_second_same_build_fires_penalty(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], -1.0)
+
+    def test_third_consecutive_same_build_fires_again(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], -1.0)
+
+    def test_different_build_fn_idx_does_not_fire(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX_2)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+    def test_intervening_move_resets_counter(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self._step(calc, fn_idx=self._MOVE_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+    def test_intervening_train_resets_counter(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self._step(calc, fn_idx=self._TRAIN_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+    def test_disabled_zero_weight_no_penalty(self):
+        calc = self._make_calc(build_repeat_penalty=0.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+    def test_n_ticks_scaling(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = calc.compute_with_components(
+            prev_state=None,
+            curr_state=None,
+            finished=False,
+            elapsed_s=1.0,
+            info={"prev_score": 0.0, "score": 0.0, "action_fn_idx": self._BUILD_FN_IDX},
+            n_ticks=4,
+        )
+        self.assertAlmostEqual(comp["build_repeat_penalty"], -4.0)
+
+    def test_present_in_components_when_disabled(self):
+        calc = self._make_calc()
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertIn("build_repeat_penalty", comp)
+
+    def test_net_zero_with_matching_bonus(self):
+        """Repeated build earns build_train_bonus + build_repeat_penalty = 0."""
+        calc = self._make_calc(build_train_bonus=0.5, build_repeat_penalty=-0.5)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_train"] + comp["build_repeat_penalty"], 0.0)
+
+    def test_components_sum_equals_total(self):
+        calc = self._make_calc(build_repeat_penalty=-0.5)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        total, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(total, sum(comp.values()))
+
+    def test_reset_clears_last_build_fn_idx(self):
+        calc = self._make_calc(build_repeat_penalty=-1.0)
+        self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        calc.reset()
+        _, comp = self._step(calc, fn_idx=self._BUILD_FN_IDX)
+        self.assertAlmostEqual(comp["build_repeat_penalty"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

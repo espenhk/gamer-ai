@@ -17,11 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
----
-
-## [0.5.4] - 2026-06-06
+### Added
+- SC2: `build_repeat_penalty` reward parameter. Per-step penalty when the
+  agent issues the same build fn_idx on two consecutive env steps. Breaks
+  "Can't find placement location" spam loops where a failed placement earns
+  no consequence from the reward function. Setting `build_repeat_penalty:
+  -build_train_bonus` (e.g. `-0.5`) makes repeated build spam net-zero
+  reward while leaving the first issuance fully rewarded. Default `0.0`
+  (opt-in); shipped ladder config enables it at `-0.5`. Appears as
+  `build_repeat_penalty` in the reward components dict.
 
 ---
 

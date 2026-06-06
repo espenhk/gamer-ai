@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.5.2] - 2026-06-06
+
 ### Added
 - SC2: `build_train_bonus` reward parameter (issue #416). Per-step bonus
   when the agent issues any "build" or "train" category action (supply

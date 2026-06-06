@@ -46,6 +46,10 @@ from games.sc2.reward import SC2RewardCalculator, SC2RewardConfig
 
 # PySC2 runs at 22.4 game ticks per real second.
 _SC2_TICKS_PER_S: float = 22.4
+# Record one army/resource series point every N steps to bound memory.
+# At step_mul=1 a 10-min game produces ~13 400 steps; sampling at 10 gives
+# ~1 340 points per series — enough resolution for analytics charts.
+_SERIES_SAMPLE_RATE: int = 10
 
 logger = logging.getLogger(__name__)
 
@@ -426,11 +430,6 @@ class SC2Env(BaseGameEnv):
             if _v is not None:
                 self._ep_obs_sums[_feat] = self._ep_obs_sums.get(_feat, 0.0) + float(_v)
         self._ep_obs_step_count += 1
-        info["episode_action_counts"] = dict(self._ep_action_counts)
-        info["episode_action_name_map"] = FUNCTION_IDS
-        info["episode_xy_hist"] = self._ep_xy_hist.tolist()
-        if self._ep_obs_step_count > 0:
-            info["episode_obs_averages"] = {k: v / self._ep_obs_step_count for k, v in self._ep_obs_sums.items()}
 
         # Track SC2 end-screen analytics: supply cap, time-series, build order.
         _game_time_s = float(info.get("game_loop", 0.0)) / _SC2_TICKS_PER_S
@@ -440,8 +439,10 @@ class SC2Env(BaseGameEnv):
             self._ep_supply_capped_steps += 1
         _army_count = info.get("army_count", 0.0)
         _resources = info.get("minerals", 0.0) + info.get("vespene", 0.0)
-        self._ep_army_series.append([_game_time_s, _army_count])
-        self._ep_resource_series.append([_game_time_s, _resources])
+        _is_terminal = info.get("is_last", False) or info.get("time_over", False)
+        if self._ep_obs_step_count % _SERIES_SAMPLE_RATE == 0 or _is_terminal:
+            self._ep_army_series.append([_game_time_s, _army_count])
+            self._ep_resource_series.append([_game_time_s, _resources])
         # Build-order: detect unit-count increases from client's unit_counts dict.
         _unit_counts = info.get("unit_counts") or {}
         for _uname, _ucount in _unit_counts.items():
@@ -461,6 +462,10 @@ class SC2Env(BaseGameEnv):
             info["episode_army_series"] = self._ep_army_series
             info["episode_resource_series"] = self._ep_resource_series
             info["episode_build_order"] = self._ep_build_order
+            info["episode_action_counts"] = dict(self._ep_action_counts)
+            info["episode_action_name_map"] = FUNCTION_IDS
+            info["episode_xy_hist"] = self._ep_xy_hist.tolist()
+            info["episode_obs_averages"] = {k: v / self._ep_obs_step_count for k, v in self._ep_obs_sums.items()}
             # Kill stats: score_cumulative counters are cumulative and reset
             # each episode, so the final value equals the episode total.
             info["episode_killed_value_units"] = info.get("killed_value_units", 0.0)

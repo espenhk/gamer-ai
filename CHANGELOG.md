@@ -17,6 +17,23 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+- SC2 training loop no longer slows down progressively over long runs (issue #378).
+  Three root causes removed:
+  - Army and resource time-series were appended every env step; they now sample
+    every 10 steps (`_SERIES_SAMPLE_RATE`), bounding each episode's series to
+    ~1 340 points at `step_mul=1` for a 10-minute game instead of ~13 400.
+  - Six expensive per-step info fields (`episode_action_counts`,
+    `episode_action_name_map`, `episode_xy_hist`, `episode_obs_averages`,
+    `episode_army_series`, `episode_resource_series`) were rebuilt from scratch
+    on every step; they are now computed only at episode end.
+  - `greedy_sims` in the training loop held full series data for every
+    simulation; non-improving sims now store `None` for series fields, so
+    memory use no longer grows with the number of simulations.
+- Action frequency bar chart in the live GUI now groups SC2 `Move_screen` /
+  `Attack_screen` actions by action type instead of showing every distinct
+  `(x, y)` coordinate as a separate bar, giving a readable frequency summary
+  across the 64-cell grid.
 
 ---
 

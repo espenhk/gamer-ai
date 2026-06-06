@@ -894,9 +894,9 @@ def _greedy_loop(
                         xy_hist=ep.info.get("episode_xy_hist"),
                         skipped_frames=_episode_skipped_frames(ep.info),
                         supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
-                        build_order=ep.info.get("episode_build_order"),
-                        army_count_series=ep.info.get("episode_army_series"),
-                        resource_series=ep.info.get("episode_resource_series"),
+                        build_order=ep.info.get("episode_build_order") if improved else None,
+                        army_count_series=ep.info.get("episode_army_series") if improved else None,
+                        resource_series=ep.info.get("episode_resource_series") if improved else None,
                     )
                 )
                 no_improve_streak = 0 if improved else no_improve_streak + 1
@@ -1047,9 +1047,9 @@ def _greedy_loop(
                     xy_hist=best_ep.info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(best_ep.info),
                     supply_capped_fraction=best_ep.info.get("episode_supply_capped_fraction"),
-                    build_order=best_ep.info.get("episode_build_order"),
-                    army_count_series=best_ep.info.get("episode_army_series"),
-                    resource_series=best_ep.info.get("episode_resource_series"),
+                    build_order=best_ep.info.get("episode_build_order") if improved else None,
+                    army_count_series=best_ep.info.get("episode_army_series") if improved else None,
+                    resource_series=best_ep.info.get("episode_resource_series") if improved else None,
                 )
             )
             no_improve_streak = 0 if improved else no_improve_streak + 1
@@ -1293,9 +1293,9 @@ def _greedy_loop_cmaes(
                     xy_hist=last_info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(last_info),
                     supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
-                    build_order=last_info.get("episode_build_order"),
-                    army_count_series=last_info.get("episode_army_series"),
-                    resource_series=last_info.get("episode_resource_series"),
+                    build_order=last_info.get("episode_build_order") if improved else None,
+                    army_count_series=last_info.get("episode_army_series") if improved else None,
+                    resource_series=last_info.get("episode_resource_series") if improved else None,
                 )
             )
             no_improve_streak = 0 if improved else no_improve_streak + 1
@@ -1416,9 +1416,9 @@ def _greedy_loop_q_learning(
                     xy_hist=ep.info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(ep.info),
                     supply_capped_fraction=ep.info.get("episode_supply_capped_fraction"),
-                    build_order=ep.info.get("episode_build_order"),
-                    army_count_series=ep.info.get("episode_army_series"),
-                    resource_series=ep.info.get("episode_resource_series"),
+                    build_order=ep.info.get("episode_build_order") if improved else None,
+                    army_count_series=ep.info.get("episode_army_series") if improved else None,
+                    resource_series=ep.info.get("episode_resource_series") if improved else None,
                 )
             )
             no_improve_streak = 0 if improved else no_improve_streak + 1
@@ -1628,9 +1628,9 @@ def _greedy_loop_genetic(
                     xy_hist=last_info.get("episode_xy_hist"),
                     skipped_frames=_episode_skipped_frames(last_info),
                     supply_capped_fraction=last_info.get("episode_supply_capped_fraction"),
-                    build_order=last_info.get("episode_build_order"),
-                    army_count_series=last_info.get("episode_army_series"),
-                    resource_series=last_info.get("episode_resource_series"),
+                    build_order=last_info.get("episode_build_order") if improved else None,
+                    army_count_series=last_info.get("episode_army_series") if improved else None,
+                    resource_series=last_info.get("episode_resource_series") if improved else None,
                 )
             )
             no_improve_streak = 0 if improved else no_improve_streak + 1

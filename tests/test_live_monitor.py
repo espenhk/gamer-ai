@@ -7,6 +7,7 @@ from collections import deque
 
 from framework.live_monitor import (
     LiveTelemetryMonitor,
+    _action_category,
     _classify_observation_features,
     _derive_step_components,
     _fmt_action,
@@ -132,6 +133,25 @@ class TestDisplayHelpers(unittest.TestCase):
 
     def test_fmt_action_hides_sc2_no_op(self):
         self.assertEqual(_fmt_action([0.0, 0.0, 0.0, 0.0]), "")
+
+
+class TestActionCategory(unittest.TestCase):
+    def test_strips_coordinate_suffix_from_screen_action(self):
+        self.assertEqual(_action_category("move screen: (10,25)"), "move screen")
+
+    def test_strips_coordinate_suffix_from_attack(self):
+        self.assertEqual(_action_category("attack screen: (32,48)"), "attack screen")
+
+    def test_leaves_non_coordinate_labels_unchanged(self):
+        self.assertEqual(_action_category("select army"), "select army")
+
+    def test_leaves_tmnf_labels_unchanged(self):
+        self.assertEqual(_action_category("accel 80% | steer straight"), "accel 80% | steer straight")
+
+    def test_groups_different_coordinates_to_same_category(self):
+        labels = ["move screen: (1,2)", "move screen: (10,25)", "move screen: (63,63)"]
+        categories = {_action_category(lbl) for lbl in labels}
+        self.assertEqual(categories, {"move screen"})
 
 
 class _FakeCanvas:

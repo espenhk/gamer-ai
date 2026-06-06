@@ -216,6 +216,16 @@ def _fmt_action(action: Any) -> str:
         return str(action)[:40]
 
 
+def _action_category(label: str) -> str:
+    """Strip trailing coordinate suffix so screen actions group by type.
+
+    ``_fmt_action`` returns e.g. ``"move screen: (10,25)"``; this collapses
+    all ``Move_screen`` variants to ``"move screen"`` for the frequency chart.
+    """
+    colon = label.find(": (")
+    return label[:colon] if colon != -1 else label
+
+
 class LiveTelemetryMonitor:
     """Compact Tkinter dashboard that updates during training."""
 
@@ -446,7 +456,7 @@ class LiveTelemetryMonitor:
             c.configure(scrollregion=(0, 0, 200, 40))
             return
 
-        counts = Counter(lbl for a in self._action_buffer if (lbl := _fmt_action(a)))
+        counts = Counter(_action_category(lbl) for a in self._action_buffer if (lbl := _fmt_action(a)))
         if not counts:
             c.create_text(8, 8, anchor="nw", text="(only no-ops)", fill="gray", font=("TkDefaultFont", 8))
             c.configure(scrollregion=(0, 0, 200, 40))

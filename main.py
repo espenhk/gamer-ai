@@ -112,10 +112,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--eval",
         action="store_true",
         help=(
-            "Evaluation mode (SC2 only).  "
-            "Loads the champion policy from the experiment and runs it against "
-            "AI opponents for evaluation.  Runs multiple episodes and reports "
-            "aggregate statistics: win rate, average score, average game length.  "
+            "Evaluation mode (SC2 and Atari).  "
+            "Loads the champion policy from the experiment and runs it for "
+            "--num-episodes episodes, reporting aggregate statistics.  "
+            "For Atari, opens a human-visible game window automatically.  "
             "No weight updates occur."
         ),
     )
@@ -271,15 +271,18 @@ def main() -> None:
     if args.play and args.game != "sc2":
         raise SystemExit("--play is only supported with --game sc2")
 
-    if args.eval and args.game != "sc2":
-        raise SystemExit("--eval is only supported with --game sc2")
+    if args.eval and args.game not in ("sc2", "atari"):
+        raise SystemExit("--eval is only supported with --game sc2 or --game atari")
 
     if args.play:
         _run_play_sc2(args)
         return
 
     if args.eval:
-        _run_eval_sc2(args)
+        if args.game == "sc2":
+            _run_eval_sc2(args)
+        else:
+            _run_eval_atari(args)
         return
 
     adapter = GAME_ADAPTERS[args.game]()
@@ -378,6 +381,12 @@ def _run_eval_sc2(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"Cannot import SC2 eval dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
         ) from exc
+
+
+def _run_eval_atari(args: argparse.Namespace) -> None:
+    from games.atari.eval import eval_atari  # noqa: PLC0415
+
+    eval_atari(args.experiment, args)
 
 
 # ======================================================================

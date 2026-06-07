@@ -117,6 +117,15 @@ python main.py pong_genetic --game atari --track Pong-v5
 
 Results saved to `experiments/atari/genetic/Pong-v5/pong_genetic/results/`.
 
+### Watch the champion play (eval mode)
+
+Load the best saved weights and watch the agent play rendered in real time — no weight updates:
+
+```bash
+python main.py pong_genetic --game atari --eval
+python main.py pong_genetic --game atari --eval --num-episodes 5
+```
+
 ### Grid search
 
 A ready-made DQN template is included:

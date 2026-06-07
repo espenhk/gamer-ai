@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 def eval_atari(experiment_name: str, args) -> None:
     import games.atari.policies  # noqa: F401 — registers Atari policy types
-
     from framework.policies import POLICY_REGISTRY
     from games.atari.actions import DISCRETE_ACTIONS
     from games.atari.adapter import AtariAdapter
@@ -37,8 +36,7 @@ def eval_atari(experiment_name: str, args) -> None:
         )
     if not os.path.exists(weights_file):
         raise SystemExit(
-            f"No champion weights found at: {weights_file}\n"
-            "The experiment may not have completed a greedy phase yet."
+            f"No champion weights found at: {weights_file}\nThe experiment may not have completed a greedy phase yet."
         )
 
     p = master_p
@@ -54,9 +52,7 @@ def eval_atari(experiment_name: str, args) -> None:
 
     policy_cls = POLICY_REGISTRY.get(policy_type)
     if policy_cls is None:
-        raise SystemExit(
-            f"Unknown policy_type {policy_type!r} — was the experiment trained with a valid policy?"
-        )
+        raise SystemExit(f"Unknown policy_type {policy_type!r} — was the experiment trained with a valid policy?")
 
     policy = policy_cls._construct_or_resume(
         obs_spec=ATARI_OBS_SPEC,

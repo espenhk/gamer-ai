@@ -51,6 +51,7 @@ PySC2 installed (matching the existing games/sc2 convention).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import pathlib
@@ -587,20 +588,25 @@ def build_dataset(
     skipped_race = 0
     failed = 0
 
-    from pysc2 import run_configs
-
     try:
-        from absl import flags as _absl_flags  # type: ignore[import-untyped]
+        from pysc2 import run_configs as _run_configs
 
-        if not _absl_flags.FLAGS.is_parsed():
-            _absl_flags.FLAGS([""])
+        try:
+            from absl import flags as _absl_flags  # type: ignore[import-untyped]
+
+            if not _absl_flags.FLAGS.is_parsed():
+                _absl_flags.FLAGS([""])
+        except ImportError:
+            pass
+
+        _shared_run_config: Any = _run_configs.get()
+        logger.info("Starting shared SC2 process for %d replay(s) ...", len(replay_paths))
+        _sc2_ctx: Any = _shared_run_config.start(want_rgb=False)
     except ImportError:
-        pass
+        _shared_run_config = None
+        _sc2_ctx = contextlib.nullcontext(None)
 
-    run_config = run_configs.get()
-    logger.info("Starting shared SC2 process for %d replay(s) ...", len(replay_paths))
-
-    with run_config.start(want_rgb=False) as controller:
+    with _sc2_ctx as controller:
         for replay_path in replay_paths:
             try:
                 race_ok, player_race, pairs = _read_one_replay(
@@ -613,7 +619,7 @@ def build_dataset(
                     minimap_size=minimap_size,
                     multi_action_strategy=multi_action_strategy,
                     _controller=controller,
-                    _run_config=run_config,
+                    _run_config=_shared_run_config,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to process %s: %s", replay_path.name, exc)

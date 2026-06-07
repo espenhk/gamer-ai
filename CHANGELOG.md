@@ -17,11 +17,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
----
-
-## [0.5.5] - 2026-06-06
-
 ### Added
 - SC2: `build_repeat_penalty` reward parameter. Per-step penalty when the
   agent issues the same build fn_idx on two consecutive env steps. Breaks
@@ -1023,7 +1018,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward
   config key `attack_bonus` (default `0.0`) awards a flat bonus whenever the
   agent issues `Attack_screen` (fn_idx 3), regardless of whether the target
-  is a visible enemy unit (click-to-attack) or open ground (A-move).  Acts as
+  is a visible enemy unit (click-to-attack) or on open ground (A-move).  Acts as
   a simpler alternative to enabling both `attack_move_bonus` and
   `click_attack_bonus` separately; all three can be active simultaneously.
   The contribution is tracked as a separate `"attack_bonus"` entry in

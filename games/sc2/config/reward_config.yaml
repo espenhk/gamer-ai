@@ -194,18 +194,30 @@ expansion_bonus: 10.0
 scout_bonus: 20.0
 new_action_usage_bonus: 0.1
 
-# --- Build/train action bonus (issue #416) ---
-# Per-step bonus when the agent issues a build or train category action
-# (supply depots, barracks, workers, marines, etc.).  Encourages production
-# over idle movement in the early game.  Recommended range: 0.2–1.0.
-build_train_bonus: 0.5
+# --- Build action bonus ---
+# Per-step bonus when the agent issues a build (structure) category action
+# (supply depots, barracks, refineries, etc.).  Recommended range: 0.2–1.0.
+build_bonus: 0.5
 
 # --- Build-repeat penalty ---
 # Per-step penalty when the agent issues the same build fn_idx on two
 # consecutive env steps.  Fires on the second and later repetitions;
 # the first issuance of any build fn_idx is always unpenalised.  Any
 # intervening non-build action resets the counter.
-# Set to -build_train_bonus to make repeated builds net-zero reward and
-# break "Can't find placement location" spam loops.
+# Set to -build_bonus to make repeated builds net-zero reward and break
+# "Can't find placement location" spam loops.
 # Recommended range: -0.3 to -1.0.  Default 0.0 = disabled.
 build_repeat_penalty: -0.5
+
+# --- Train action bonus (4× build_bonus) ---
+# Per-step bonus when the agent issues a train (unit production) category
+# action (workers, marines, zealots, etc.).  Set to 4× build_bonus to
+# reflect that unit production has more immediate combat impact than placing
+# a structure.  Recommended: 4× build_bonus (default 2.0).
+train_bonus: 2.0
+
+# --- Train-repeat penalty ---
+# Mirrors build_repeat_penalty for consecutive same-fn_idx train spam.
+# Set to -train_bonus to make repeated train spam net-zero.
+# Recommended range: -0.8 to -4.0.  Default 0.0 = disabled.
+train_repeat_penalty: -2.0

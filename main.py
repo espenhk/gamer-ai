@@ -212,6 +212,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Logging verbosity (default: INFO)",
     )
     parser.add_argument(
+        "--log-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write logs to PATH in addition to the terminal (tee).  "
+            "The file is opened fresh on each run (overwrites).  "
+            "Combine with --log-level DEBUG to capture SC2 state snapshots "
+            "(available actions, units, buildings) every ~10 s."
+        ),
+    )
+    parser.add_argument(
         "--workers",
         type=_positive_int("--workers"),
         default=None,
@@ -236,11 +247,16 @@ def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    _log_level = getattr(logging, args.log_level)
+    _log_fmt = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+    _log_datefmt = "%H:%M:%S"
+    logging.basicConfig(level=_log_level, format=_log_fmt, datefmt=_log_datefmt)
+    if args.log_file:
+        _fh = logging.FileHandler(args.log_file, mode="w", encoding="utf-8", delay=False)
+        _fh.setLevel(_log_level)
+        _fh.setFormatter(logging.Formatter(_log_fmt, datefmt=_log_datefmt))
+        logging.getLogger().addHandler(_fh)
+        logger.info("Logging to file: %s", args.log_file)
     logger.info("gamer-ai code version: %s", code_version())
 
     if args.play and args.game != "sc2":

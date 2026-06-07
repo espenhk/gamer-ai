@@ -172,6 +172,7 @@ _ABBREV = {
     "expansion_bonus": "exb",
     "scout_bonus": "scb",
     "build_train_bonus": "btb",
+    "build_repeat_penalty": "brp",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
     "off_track_penalty": "otp",

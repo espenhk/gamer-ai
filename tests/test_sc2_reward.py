@@ -1830,6 +1830,51 @@ class TestNewActionUnlockBonus(unittest.TestCase):
         for fn_idx in (0, 1, 2):
             self.assertNotIn(fn_idx, SC2RewardCalculator._TECH_GATED_FN_IDS)
 
+    def test_train_marine_is_tech_gated(self):
+        # fn_idx 7 = Train_Marine_quick: selection_target={"Barracks"};
+        # Barracks has non-empty BUILDING_PREREQS (requires SupplyDepot).
+        # Must be included so new_action_unlock_bonus fires when Barracks is built.
+        self.assertIn(7, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_train_hellion_is_tech_gated(self):
+        # fn_idx 35 = Train_Hellion_quick: selection_target={"Factory"};
+        # Factory requires Barracks.
+        self.assertIn(35, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_train_zealot_is_tech_gated(self):
+        # fn_idx 64 = Train_Zealot_quick: selection_target={"Gateway","WarpGate"};
+        # Gateway requires Pylon.
+        self.assertIn(64, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_train_scv_not_tech_gated(self):
+        # fn_idx 10 = Train_SCV_quick: selection_target={"CommandCenter",...};
+        # CommandCenter has no BUILDING_PREREQS — it's the starting structure.
+        self.assertNotIn(10, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_train_drone_not_tech_gated(self):
+        # fn_idx 95 = Train_Drone_quick: selection_target={"Larva"};
+        # Larva is not in BUILDING_PREREQS at all.
+        self.assertNotIn(95, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_unlock_bonus_fires_for_train_marine(self):
+        # Verifies end-to-end: unlock bonus fires when Train_Marine_quick (fn_idx 7)
+        # appears in available_fn_ids for the first time.
+        calc = self._make_calc(bonus=10.0)
+        info = {**self._base_info(), "available_fn_ids": {7}}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 10.0)
+
+    def test_unlock_bonus_silent_for_train_scv(self):
+        # Train_SCV_quick must never trigger the unlock bonus.
+        calc = self._make_calc(bonus=10.0)
+        info = {**self._base_info(), "available_fn_ids": {10}}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
     def test_bonus_fires_on_first_appearance(self):
         calc = self._make_calc(bonus=5.0)
         info = {**self._base_info(), "available_fn_ids": {8}}  # Build_Barracks_screen

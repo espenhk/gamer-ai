@@ -17,7 +17,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
+### Fixed
+- SC2: `new_action_unlock_bonus` and `new_action_usage_bonus` now fire for
+  basic unit-train actions (`Train_Marine_quick`, `Train_Hellion_quick`,
+  `Train_Zealot_quick`, etc.) that are tech-gated via their `selection_target`
+  production building (e.g. Marine→Barracks, Hellion→Factory, Zealot→Gateway).
+  Previously `_TECH_GATED_FN_IDS` only matched actions with an explicit
+  `required_buildings` precondition, causing basic trains to earn zero unlock
+  and usage bonuses while build actions (Barracks, Factory…) earned both.  The
+  fix extends the filter: if `selection_target` contains any building whose
+  `BUILDING_PREREQS` is non-empty (i.e. the building itself must be
+  constructed), the action is treated as tech-gated.  Basic-worker trains
+  (`Train_SCV_quick`, `Train_Drone_quick`, `Train_Probe_quick`) remain excluded
+  because their producers (CommandCenter, Hatchery, Nexus) have no building
+  prerequisites.
 
 ---
 

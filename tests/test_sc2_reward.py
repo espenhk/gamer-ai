@@ -1875,6 +1875,21 @@ class TestNewActionUnlockBonus(unittest.TestCase):
         )
         self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
 
+    def test_train_probe_not_tech_gated(self):
+        # fn_idx 63 = Train_Probe_quick: selection_target={"Nexus"};
+        # Nexus has no BUILDING_PREREQS (it is the Protoss starting structure).
+        self.assertNotIn(63, SC2RewardCalculator._TECH_GATED_FN_IDS)
+
+    def test_unlock_bonus_silent_for_train_probe(self):
+        # End-to-end: unlock bonus must not fire when only Train_Probe_quick
+        # appears in available_fn_ids (Nexus is always present — no tech gate).
+        calc = self._make_calc(bonus=10.0)
+        info = {**self._base_info(), "available_fn_ids": {63}}
+        _, comp = calc.compute_with_components(
+            prev_state=None, curr_state=None, finished=False, elapsed_s=1.0, info=info
+        )
+        self.assertAlmostEqual(comp["new_action_unlock"], 0.0)
+
     def test_bonus_fires_on_first_appearance(self):
         calc = self._make_calc(bonus=5.0)
         info = {**self._base_info(), "available_fn_ids": {8}}  # Build_Barracks_screen

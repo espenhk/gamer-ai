@@ -17,6 +17,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+- **Atari `--render` flag** (#427): pass `--render` to `main.py` to open a human-visible SDL game window while training. Slows Atari to real-time (~60 fps); ignored for all non-Atari games. Not available in grid search.
+
 
 
 ---

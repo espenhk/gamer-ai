@@ -38,6 +38,12 @@ No external process required. Gymnasium / ALE manages the emulator lifecycle in-
 python main.py smoke --game atari --no-interrupt
 ```
 
+Add `--render` to open a human-visible game window and watch the agent play in real time (slows training to ~60 fps):
+
+```bash
+python main.py smoke --game atari --render --no-interrupt
+```
+
 By default the integration runs `Pong-v5`. Override with the `map_name` config key or the CLI `--track` flag:
 
 ```bash

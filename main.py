@@ -87,6 +87,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "of 5 steps) and observation values during training."
         ),
     )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help=(
+            "Open a human-visible game window while training (Atari only). "
+            "Ignored for all other games. "
+            "Slows training to roughly real-time (~60 fps); not suitable for grid search."
+        ),
+    )
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -317,6 +326,9 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
     if getattr(args, "live_gui", False):
         p["live_gui"] = True
         logger.info("Live GUI telemetry enabled via --live-gui")
+    if getattr(args, "render", False):
+        p["render_mode"] = "human"
+        logger.info("Human-visible rendering enabled via --render")
 
     # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
     with open(reward_cfg_file) as f:

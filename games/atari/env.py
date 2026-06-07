@@ -79,6 +79,7 @@ class AtariEnv(BaseGameEnv):
         map_name: str = _DEFAULT_MAP_NAME,
         reward_config: AtariRewardConfig | None = None,
         max_episode_steps: int = 5000,
+        render_mode: str | None = None,
     ) -> None:
         super().__init__()
 
@@ -86,6 +87,7 @@ class AtariEnv(BaseGameEnv):
         self._reward_config = reward_config or AtariRewardConfig()
         self._reward_calc = AtariRewardCalculator(self._reward_config)
         self._max_episode_steps = int(max_episode_steps)
+        self._render_mode = render_mode
 
         # Register the ALE namespace with gymnasium.  Importing ale_py is
         # what triggers its env registration; do it lazily so plain
@@ -105,6 +107,7 @@ class AtariEnv(BaseGameEnv):
             env_id,
             obs_type="ram",
             max_episode_steps=self._max_episode_steps,
+            render_mode=render_mode,
         )
 
         # The Discrete action space size for this particular game (≤ 18).
@@ -258,6 +261,7 @@ def make_env(
     experiment_dir: str | Path,
     map_name: str = _DEFAULT_MAP_NAME,
     max_episode_time_s: float = 60.0,
+    render_mode: str | None = None,
 ) -> AtariEnv:
     """Factory that wires up an AtariEnv from an experiment directory."""
     experiment_dir = Path(experiment_dir)
@@ -271,4 +275,5 @@ def make_env(
         map_name=map_name,
         reward_config=reward_config,
         max_episode_steps=max_steps,
+        render_mode=render_mode,
     )

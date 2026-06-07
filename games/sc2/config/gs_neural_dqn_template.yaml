@@ -59,7 +59,7 @@ training_params:
   max_apm: 300
   agent_race: terran
   #difficulty: medium
-  n_sims: 200                 # 200 episodes; ~48 000 env steps total
+  n_sims: 50                 # 50 episodes; ~12 000 env steps total
   policy_type: sc2_neural_dqn
   obs_spec_preset: rich
   enable_belief: false      # false: obs only; true: obs+192 belief dims + scout reward
@@ -84,4 +84,6 @@ training_params:
 
 reward_params:
   step_penalty: 0.0
+  score_weight: 1000.0
+  small_selection_bonus: 0.0
   #score_weight: 0.0

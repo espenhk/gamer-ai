@@ -16,7 +16,7 @@ import yaml
 
 from framework.base_reward import RewardCalculatorBase
 from games.sc2.actions import FN_IDX_TO_CATEGORY
-from games.sc2.tech_tree import PRECONDITIONS
+from games.sc2.tech_tree import BUILDING_PREREQS, PRECONDITIONS
 
 
 @dataclass
@@ -170,21 +170,20 @@ class SC2RewardConfig:
         is disabled. Default ``250``.
     new_action_unlock_bonus :
         One-shot bonus per fn_idx that appears in ``available_fn_ids`` for
-        the first time in an episode, restricted to actions whose tech-tree
-        preconditions include at least one required building.  The bonus fires
-        the first time the action is *fully executable* — meaning the tech-tree
-        prerequisite building exists, the correct unit type is selected, and the
-        action is affordable — not strictly at the moment the prerequisite
-        building completes (e.g. ``Build_Barracks_screen`` first becomes
-        available when a ``SupplyDepot`` exists *and* an SCV is selected and
-        minerals are sufficient).  Selection-only actions (``Move_screen``,
-        ``Attack_screen``, basic training) and always-available actions
-        (``no_op``, ``select_army``) do not trigger the bonus.  The bonus fires
-        once per qualifying fn_idx per episode; each subsequent step where that
-        fn_idx appears earns no additional reward.  Default ``0.0`` — opt-in.
-        Recommended starting range: ``1.0–10.0`` (much larger than per-step
-        shaping terms so the tech-unlock signal is clearly visible to the
-        policy).
+        the first time in an episode, restricted to actions that are
+        tech-gated by a building.  An action qualifies when its preconditions
+        include at least one required building (e.g. ``Train_Marauder_quick``
+        needs a BarracksTechLab) *or* its selection target is a production
+        building that must itself be constructed (e.g. ``Train_Marine_quick``
+        needs a Barracks, which requires a SupplyDepot; ``Train_Hellion_quick``
+        needs a Factory; ``Train_Zealot_quick`` needs a Gateway).  Basic-worker
+        trains (``Train_SCV_quick``, ``Train_Drone_quick``, ``Train_Probe_quick``)
+        and always-available actions (``no_op``, ``select_army``,
+        ``Move_screen``, ``Attack_screen``) are excluded.  The bonus fires the
+        first time the action is *fully executable* — prerequisite building
+        exists, correct unit type is accessible, and action is affordable.
+        Once per qualifying fn_idx per episode.  Default ``0.0`` — opt-in.
+        Recommended starting range: ``1.0–10.0``.
     new_action_usage_bonus :
         Per-step bonus when the agent actually *issues* a tech-gated fn_idx
         that has already been unlocked this episode (i.e. appeared in
@@ -194,9 +193,9 @@ class SC2RewardConfig:
         complements ``new_action_unlock_bonus``: unlocking a tech earns one
         large reward; then using it consistently earns smaller shaping rewards
         that encourage following through on the investment.  The same fn_idx
-        filter applies — only tech-gated (building-prerequisite) actions
-        qualify; ``no_op``, selection-only, and always-available actions are
-        excluded.  Can be enabled independently of ``new_action_unlock_bonus``.
+        filter applies — only tech-gated actions qualify; basic-worker trains,
+        ``no_op``, selection-only, and always-available actions are excluded.
+        Can be enabled independently of ``new_action_unlock_bonus``.
         Default ``0.0`` — opt-in.  Recommended starting range: ``0.1–2.0``
         (keep smaller than ``new_action_unlock_bonus`` since it fires many
         times).
@@ -412,10 +411,20 @@ class SC2RewardCalculator(RewardCalculatorBase):
     # likely want to widen friendly-fire detection equally.
     _ATTACK_SELF_RADIUS_FRAC: float = 8.0 / 64.0
 
-    # fn_ids whose PRECONDITIONS include at least one required building —
-    # the only actions for which new_action_unlock_bonus fires.
+    # fn_ids that are genuinely tech-gated: either their PRECONDITIONS list an
+    # explicit required_buildings clause (e.g. Train_Marauder needs a TechLab),
+    # OR their selection_target requires a production building that must itself
+    # be constructed (has non-empty BUILDING_PREREQS).  The second clause
+    # catches basic unit-trains like Train_Marine_quick (needs Barracks, which
+    # requires a SupplyDepot) that express their gate via selection_target rather
+    # than required_buildings.  Excluded: Train_SCV_quick / Train_Drone_quick /
+    # Train_Probe_quick (CommandCenter / Hatchery / Nexus have no prerequisites —
+    # they are starting structures), and unit-type targets (Marine, Queen, etc.)
+    # which are not in BUILDING_PREREQS at all.
     _TECH_GATED_FN_IDS: frozenset[int] = frozenset(
-        fn_idx for fn_idx, prec in PRECONDITIONS.items() if prec.required_buildings
+        fn_idx
+        for fn_idx, prec in PRECONDITIONS.items()
+        if prec.required_buildings or any(BUILDING_PREREQS.get(name) for name in prec.selection_target)
     )
 
     def __init__(self, config: SC2RewardConfig) -> None:

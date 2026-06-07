@@ -20,6 +20,61 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.5.6] - 2026-06-07
+
+### Added
+- SC2: `build_repeat_penalty` reward parameter. Per-step penalty when the
+  agent issues the same build fn_idx on two consecutive env steps. Breaks
+  "Can't find placement location" spam loops where a failed placement earns
+  no consequence from the reward function. Setting `build_repeat_penalty:
+  -build_train_bonus` (e.g. `-0.5`) makes repeated build spam net-zero
+  reward while leaving the first issuance fully rewarded. Default `0.0`
+  (opt-in); shipped ladder config enables it at `-0.5`. Appears as
+  `build_repeat_penalty` in the reward components dict.
+
+---
+
+## [0.5.3] - 2026-06-06
+
+### Fixed
+- SC2 training loop no longer slows down progressively over long runs (issue #378).
+  Three root causes removed:
+  - Army and resource time-series were appended every env step; they now sample
+    every 10 steps (`_SERIES_SAMPLE_RATE`), bounding each episode's series to
+    ~1 340 points at `step_mul=1` for a 10-minute game instead of ~13 400.
+  - Six expensive per-step info fields (`episode_action_counts`,
+    `episode_action_name_map`, `episode_xy_hist`, `episode_obs_averages`,
+    `episode_army_series`, `episode_resource_series`) were rebuilt from scratch
+    on every step; they are now computed only at episode end.
+  - `greedy_sims` in the training loop held full series data for every
+    simulation; non-improving sims now store `None` for series fields, so
+    memory use no longer grows with the number of simulations.
+- Action frequency bar chart in the live GUI now groups SC2 `Move_screen` /
+  `Attack_screen` actions by action type instead of showing every distinct
+  `(x, y)` coordinate as a separate bar, giving a readable frequency summary
+  across the 64-cell grid.
+
+---
+
+## [0.5.2] - 2026-06-06
+
+### Added
+- SC2: `build_train_bonus` reward parameter (issue #416). Per-step bonus
+  when the agent issues any "build" or "train" category action (supply
+  depots, barracks, workers, marines, etc.). Encourages production over
+  idle movement in the early game. Default `0.0` (opt-in); shipped ladder
+  preset enables it at `0.5`. Normalised in analytics via the
+  `build_train` component key.
+- SC2: `new_action_unlock_bonus` reward parameter (issue #360). One-shot
+  bonus the first time a tech-tree-gated fn_idx becomes fully executable
+  in an episode. Paired with `new_action_usage_bonus` which rewards
+  actually issuing those newly-available actions.
+- SC2: `damage_taken_penalty` reward parameter (issue #401). Per-step
+  penalty proportional to HP+shield lost across visible friendly units.
+  Default `0.0` (opt-in); shipped ladder preset enables it at `-0.01`.
+
+---
+
 ## [0.5.1] - 2026-06-05
 
 ### Changed
@@ -968,7 +1023,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward
   config key `attack_bonus` (default `0.0`) awards a flat bonus whenever the
   agent issues `Attack_screen` (fn_idx 3), regardless of whether the target
-  is a visible enemy unit (click-to-attack) or open ground (A-move).  Acts as
+  is a visible enemy unit (click-to-attack) or on open ground (A-move).  Acts as
   a simpler alternative to enabling both `attack_move_bonus` and
   `click_attack_bonus` separately; all three can be active simultaneously.
   The contribution is tracked as a separate `"attack_bonus"` entry in

@@ -15,6 +15,7 @@ from typing import Any
 import yaml
 
 from framework.base_reward import RewardCalculatorBase
+from games.sc2.actions import FN_IDX_TO_CATEGORY
 from games.sc2.tech_tree import PRECONDITIONS
 
 
@@ -255,6 +256,32 @@ class SC2RewardConfig:
         fractions in ``[0, 1]``.  Captures scouting that screen-local
         ``move_exploration_bonus`` cannot.  Default ``0.0`` — opt-in.  The
         per-step delta is small, so the weight is large; recommended ``5.0–50.0``.
+    build_train_bonus :
+        Per-step bonus when the agent issues a "build" or "train" category
+        action (``FN_IDX_TO_CATEGORY[fn_idx] in {"build", "train"}``).  Build
+        actions include constructing supply depots, barracks, refineries, and
+        other structures; train actions include producing SCVs, marines, and
+        other units.  Encourages the agent to invest its mineral income into
+        production rather than cycling through move/attack commands — the most
+        common failure mode when the agent is stuck in the early game.  Fires
+        once per env step when any build or train fn_idx is issued; scaled by
+        ``n_ticks`` for consistency with other per-step terms.  Default
+        ``0.0`` — opt-in.  Recommended starting range: ``0.2–1.0`` (keep
+        smaller than ``supply_growth_bonus`` / ``worker_growth_bonus`` so the
+        shaping term does not dominate outcome-driven signals).
+    build_repeat_penalty :
+        Per-step penalty when the agent issues the same build fn_idx on two
+        consecutive env steps.  Discourages placement-spam loops where the
+        agent repeatedly tries to build at an invalid location and the
+        "Can't find placement location" rejection earns no penalty from the
+        reward function.  The penalty fires on the second and later consecutive
+        repetitions; the first issuance of any build fn_idx is always
+        unpenalised.  Any intervening non-build action (move, train, no-op,
+        select) resets the counter.  Combined with ``build_train_bonus``, a
+        weight of ``-build_train_bonus`` makes the net reward exactly zero for
+        a repeated build, breaking the positive feedback loop while leaving the
+        first issuance fully rewarded.  Default ``0.0`` — opt-in.  Recommended
+        range: ``-0.3`` to ``-1.0``.
     """
 
     score_weight: float = 1.0
@@ -294,6 +321,8 @@ class SC2RewardConfig:
     tech_building_bonus: float = 0.0
     expansion_bonus: float = 0.0
     scout_bonus: float = 0.0
+    build_train_bonus: float = 0.0
+    build_repeat_penalty: float = 0.0
 
     @classmethod
     def from_yaml(cls, path: str) -> SC2RewardConfig:
@@ -416,6 +445,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._prev_explored_frac: float | None = None
         self._seen_structures: set[str] = set()
         self._max_townhalls: int | None = None
+        self._last_build_fn_idx: int | None = None
 
     def reset(self) -> None:
         """Clear per-episode state at the start of a new episode."""
@@ -436,6 +466,7 @@ class SC2RewardCalculator(RewardCalculatorBase):
         self._prev_explored_frac = None
         self._seen_structures = set()
         self._max_townhalls = None
+        self._last_build_fn_idx = None
 
     def compute(
         self,
@@ -472,11 +503,11 @@ class SC2RewardCalculator(RewardCalculatorBase):
         ``move_repeat_penalty``, ``move_self_penalty``, ``attack_move_bonus``,
         ``click_attack_bonus``, ``attack_bonus``, ``attack_friendly_penalty``,
         ``early_random_action``, ``new_action_unlock``, ``new_action_usage``,
-        ``unit_loss``, ``damage_taken``, ``passive_under_fire``,
-        ``small_selection``, ``resource_banking``, ``supply_block``,
-        ``supply_growth``, ``worker_growth``, ``army_growth``,
-        ``tech_building``, ``expansion``, ``scout_explore``, ``step_penalty``
-        and ``terminal`` separately.
+        ``build_train``, ``build_repeat_penalty``, ``unit_loss``,
+        ``damage_taken``, ``passive_under_fire``, ``small_selection``,
+        ``resource_banking``, ``supply_block``, ``supply_growth``,
+        ``worker_growth``, ``army_growth``, ``tech_building``, ``expansion``,
+        ``scout_explore``, ``step_penalty`` and ``terminal`` separately.
         """
         cfg = self.config
         components: dict[str, float] = {}
@@ -593,6 +624,28 @@ class SC2RewardCalculator(RewardCalculatorBase):
                     new_action_usage = cfg.new_action_usage_bonus * n_ticks
                     self._new_action_usage_counts[used_fn_idx] = count + 1
         components["new_action_usage"] = float(new_action_usage)
+
+        # Build/train bonus (issue #416): reward issuing build or train actions.
+        build_train = 0.0
+        if cfg.build_train_bonus != 0.0:
+            bt_fn_idx = int(info.get("action_fn_idx", 0))
+            if FN_IDX_TO_CATEGORY.get(bt_fn_idx) in ("build", "train"):
+                build_train = cfg.build_train_bonus * n_ticks
+        components["build_train"] = float(build_train)
+
+        # Build-repeat penalty: discourage consecutive same-fn_idx build spam.
+        # The first issuance of any build fn_idx is unpenalised; any subsequent
+        # repetition of the *same* build fn_idx without an intervening non-build
+        # action fires the penalty.  Catches "Can't find placement location"
+        # loops where failed placements earn no consequence from the reward.
+        build_repeat = 0.0
+        if FN_IDX_TO_CATEGORY.get(raw_fn_idx) == "build":
+            if cfg.build_repeat_penalty != 0.0 and self._last_build_fn_idx == raw_fn_idx:
+                build_repeat = cfg.build_repeat_penalty * n_ticks
+            self._last_build_fn_idx = raw_fn_idx
+        else:
+            self._last_build_fn_idx = None
+        components["build_repeat_penalty"] = float(build_repeat)
 
         self_count = float(info.get("screen_self_count", 0.0))
         newly_visited_unit_cell = False

@@ -1,21 +1,7 @@
 name: Update Knowledge Graph
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      # Only trigger when source code or docs change — not when the graph
-      # itself is updated (avoids infinite loops from the bot commit).
-      - 'framework/**'
-      - 'games/**'
-      - 'docs/**'
-      - 'tests/**'
-      - 'main.py'
-      - 'grid_search.py'
-      - 'policies.py'
-      - 'analytics.py'
-      - '*.md'
+  workflow_dispatch:  # manual trigger only; automatic runs are driven by auto-version-bump.yml
 
 jobs:
   update-graph:

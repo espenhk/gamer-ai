@@ -81,3 +81,22 @@ jobs:
       - name: Push release commit
         run: |
           git push origin HEAD:main
+
+      - name: Install graphify (minor/major only)
+        if: steps.bump.outputs.bump != 'patch'
+        run: pip install graphifyy -q
+
+      - name: Update knowledge graph (minor/major only)
+        if: steps.bump.outputs.bump != 'patch'
+        run: python .github/scripts/update_graph.py
+
+      - name: Commit and push updated graph
+        if: steps.bump.outputs.bump != 'patch'
+        run: |
+          git add graphify-out/graph.json graphify-out/GRAPH_REPORT.md graphify-out/manifest.json graphify-out/cost.json
+          if git diff --cached --quiet; then
+            echo "No graph changes — nothing to commit."
+          else
+            git commit -m "chore: update knowledge graph [skip ci]"
+            git push origin HEAD:main
+          fi

@@ -27,6 +27,36 @@ To regenerate the Obsidian vault locally: `/graphify --obsidian`
 
 ---
 
+## Memory management
+
+Grid searches run many experiments back-to-back in the same process, so unbounded
+in-memory accumulation is a hard constraint, not a style preference.  Before adding
+any data structure that grows over time, check that it has a clear upper bound or an
+explicit eviction/trim path.
+
+Rules that apply to every code addition:
+
+- **Replay buffers and ring buffers** must be bounded by a configured `maxlen` /
+  `capacity` and must evict old entries when full.  Never append to an unbounded list
+  across episodes or simulations.
+- **Per-episode or per-step bookkeeping** (reward components, action histories,
+  belief grids, logging buffers) must be cleared at episode reset.  Storing these on
+  `self` is fine; letting them grow across episodes is not.
+- **Caches and dicts keyed on episode or step indices** must be pruned or recreated
+  at episode / experiment boundaries so memory does not grow with run length.
+- **Population arrays** (genetic, CMA-ES, LSTM-ES) are naturally bounded by
+  `population_size`; don't accumulate the full history of all generations.
+- **History lists used for analytics** (reward curves, champion logs) belong in
+  `ExperimentData`, not in policy or env objects that persist across experiments.
+- **Logging and debug buffers** must be off by default or bounded (e.g. a circular
+  buffer of the last N entries).  Never log every step unconditionally.
+
+When reviewing a diff, flag any `list.append`, `dict[key] =`, or `deque` that lacks
+a matching size cap or reset call — those are the usual sources of slow memory leaks
+across a long grid search.
+
+---
+
 Multi-game RL agent framework. A game-agnostic training loop and policy
 set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous

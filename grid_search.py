@@ -173,7 +173,7 @@ _ABBREV = {
     "scout_bonus": "scb",
     "build_bonus": "bb",
     "build_repeat_penalty": "brp",
-    "train_bonus": "tb",
+    "train_bonus": "trb",
     "train_repeat_penalty": "trp",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",

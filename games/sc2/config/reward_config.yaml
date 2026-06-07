@@ -219,5 +219,6 @@ train_bonus: 2.0
 # --- Train-repeat penalty ---
 # Mirrors build_repeat_penalty for consecutive same-fn_idx train spam.
 # Set to -train_bonus to make repeated train spam net-zero.
-# Recommended range: -0.8 to -4.0.  Default 0.0 = disabled.
+# Recommended range: -0.8 to -4.0.  Set to 0.0 to disable.
+# Shipped ladder default: -2.0 (= -train_bonus).
 train_repeat_penalty: -2.0

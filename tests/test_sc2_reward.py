@@ -2562,8 +2562,8 @@ class TestMacroProgressionRewards(unittest.TestCase):
         self.assertAlmostEqual(total, sum(comp.values()))
 
 
-class TestSC2BuildBonus(unittest.TestCase):
-    """Tests for the build_bonus reward term (issue #416)."""
+class TestSC2BuildAndTrainBonus(unittest.TestCase):
+    """Tests for the build_bonus and train_bonus reward terms (issue #416)."""
 
     # fn_idx 8 = Build_Barracks_screen (Terran build)
     # fn_idx 7 = Train_Marine_quick (Terran train)

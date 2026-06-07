@@ -463,13 +463,13 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                 logger.info("    %s=%.1f%s", k, v, cmp_s)
 
 
-def _log_periodic_stats(info: dict, sim: int) -> None:
+def _log_periodic_stats(info: dict, sim: int, best_info: dict | None = None) -> None:
     """Log reward component breakdown and action ratios at a periodic sim interval.
 
-    Emitted at INFO level without a prev-comparison (that is reserved for the
-    NEW BEST headline in ``_log_new_best_details``).  Enables tracking of how
-    the agent's behaviour and reward mix evolve mid-run without waiting for an
-    improvement event.
+    Emitted at INFO level.  When *best_info* is supplied, action percentages are
+    annotated with their delta versus the best episode seen so far (Δ vs best).
+    Enables tracking of how the agent's behaviour and reward mix evolve mid-run
+    without waiting for an improvement event.
     """
     logger.info("  [stats @ sim %d]", sim)
 
@@ -493,26 +493,34 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
         if total > 0:
             name_map: dict = info.get("episode_action_name_map") or {}
             cat_map: dict = info.get("episode_action_category_map") or {}
+            best_ac: dict = (best_info or {}).get("episode_action_counts") or {}
+            best_total = sum(best_ac.values()) if best_ac else 0
             if cat_map:
                 _CAT_ORDER = ["move", "attack", "build", "train", "upgrade"]
-                cat_groups: dict[str, list[tuple[str, float]]] = {}
+                cat_groups: dict[str, list[tuple[str, int, float, str]]] = {}
                 for fn_idx, count in ac.items():
                     label = name_map.get(fn_idx, str(fn_idx))
                     cat = cat_map.get(fn_idx, "other")
                     pct = 100.0 * count / total
-                    cat_groups.setdefault(cat, []).append((label, pct))
+                    cmp_s = ""
+                    if best_total > 0:
+                        best_pct = 100.0 * best_ac.get(fn_idx, 0) / best_total
+                        delta = pct - best_pct
+                        if abs(delta) >= 0.1:
+                            cmp_s = f" ({delta:+.1f}pp vs best)"
+                    cat_groups.setdefault(cat, []).append((label, count, pct, cmp_s))
                 for cat in _CAT_ORDER + ["other"]:
                     entries = cat_groups.get(cat)
                     if not entries:
                         continue
                     logger.info("    [%s]", cat)
-                    for label, pct in sorted(entries):
-                        logger.info("      %s=%.1f%%", label, pct)
+                    for label, count, pct, cmp_s in sorted(entries):
+                        logger.info("      %s=%d (%.1f%%%s)", label, count, pct, cmp_s)
             else:
                 for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
                     label = name_map.get(fn_idx, str(fn_idx))
                     pct = 100.0 * count / total
-                    logger.info("    %s=%.1f%%", label, pct)
+                    logger.info("    %s=%d (%.1f%%)", label, count, pct)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:
@@ -870,7 +878,7 @@ def _greedy_loop(
                     verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
                     logger.debug("  >> %s", verdict)
                     if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
-                        _log_periodic_stats(ep.info, sim)
+                        _log_periodic_stats(ep.info, sim, best_info)
                 if self_play_manager is not None:
                     _new_opp = self_play_manager.step(best_policy, improved)
                     if _new_opp is not None:
@@ -1020,7 +1028,7 @@ def _greedy_loop(
                 )
                 logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(best_ep.info, sim)
+                    _log_periodic_stats(best_ep.info, sim, best_info_logged)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(best_policy, improved)
@@ -1283,7 +1291,7 @@ def _greedy_loop_cmaes(
                 )
                 logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(last_info, gen)
+                    _log_periodic_stats(last_info, gen, best_info_logged)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1406,7 +1414,7 @@ def _greedy_loop_q_learning(
                     cfg.get("n_states_visited", "?"),
                 )
                 if log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(ep.info, episode)
+                    _log_periodic_stats(ep.info, episode, best_info_logged)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1597,7 +1605,7 @@ def _greedy_loop_genetic(
                 verdict = f"no improvement  gen_best={gen_best:+.1f}  champion={policy.champion_reward:+.1f}"
                 logger.debug("  >> %s", verdict)
                 if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(last_info, gen)
+                    _log_periodic_stats(last_info, gen, best_info_logged)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)

@@ -45,11 +45,12 @@
 # Good ablation axes: double_dqn × dueling (2×2 = 4 combos) to isolate each
 # upgrade's contribution, or huber_kappa × max_grad_norm for loss/clip tuning.
 
-base_name: "v3-with-macro"
+base_name: "v4"
 game: sc2
 
 training_params:
-  map_name: Simple64
+  #map_name: Simple64
+  map_name: BuildMarines
   #map_name: DefeatRoaches
   in_game_episode_s: 600.0
   step_mul: 4
@@ -57,13 +58,14 @@ training_params:
   minimap_size: 64
   max_apm: 300
   agent_race: terran
-  n_sims: 50                 # 200 episodes; ~48 000 env steps total
+  #difficulty: medium
+  n_sims: 200                 # 200 episodes; ~48 000 env steps total
   policy_type: sc2_neural_dqn
   obs_spec_preset: rich
   enable_belief: false      # false: obs only; true: obs+192 belief dims + scout reward
-  learning_rate: [0.01, 0.1]
+  learning_rate: 0.01
   epsilon_decay_steps: 3000
-  hidden_sizes: [[64, 256, 256, 64], [256, 1024, 1024, 256]]
+  hidden_sizes: [[64, 256, 256, 64]]
   initial_extreme_random_fraction: [0.0, 0.25]  # fraction of initial runs forced to random valid actions (set 0 to disable)
 
   policy_params:
@@ -82,4 +84,4 @@ training_params:
 
 reward_params:
   step_penalty: 0.0
-  score_weight: 0.0
+  #score_weight: 0.0

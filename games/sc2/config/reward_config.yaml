@@ -134,6 +134,41 @@
 # small negative value to enable (e.g. -0.0005); 0.0 = disabled (default).
 # mineral_banking_threshold: minerals above this count as "banked". Default 300.
 # gas_banking_threshold: vespene above this count as "banked". Default 200.
+
+# --- Macro-progression rewards (ladder maps) ---
+# supply_block_penalty: per-step penalty while supply-blocked (food_used >=
+#   food_cap and food_cap < 200).  Production stalls when capped — the most
+#   common ladder macro failure.  Recommended range: -0.05 to -0.5.
+# supply_growth_bonus: bonus per point of food_cap increase (build supply
+#   depots / expand).  Recommended range: 0.5–3.0.
+# worker_growth_bonus: bonus per point of food_workers increase (train
+#   workers).  Pairs with idle_worker_penalty.  Recommended range: 0.5–3.0.
+# army_growth_bonus: bonus per point of food_army increase (produce combat
+#   units).  Recommended range: 0.5–3.0.
+# tech_building_bonus: one-shot bonus the first time each friendly structure
+#   type is seen this episode (climbing the build tree).  Recommended: 2.0–10.0.
+# expansion_bonus: one-shot bonus each time the friendly town-hall count
+#   reaches a new episode max (an expansion).  Recommended: 5.0–25.0.
+# scout_bonus: bonus proportional to minimap_explored_frac increase (revealing
+#   new map).  Weight must be large because per-step deltas are tiny (~0.001).
+#   Recommended range: 5.0–50.0.
+# new_action_usage_bonus: per-step bonus for issuing a tech-gated fn_idx that
+#   has already been unlocked this episode, up to new_action_usage_max_uses
+#   times per fn_idx.  Complements new_action_unlock_bonus.  Recommended: 0.1–2.0.
+
+# --- Build/train action bonus (issue #416) ---
+# Per-step bonus when the agent issues a build or train category action
+# (supply depots, barracks, workers, marines, etc.).  Encourages production
+# over idle movement in the early game.  Recommended range: 0.2–1.0.
+# --- Build-repeat penalty ---
+# Per-step penalty when the agent issues the same build fn_idx on two
+# consecutive env steps.  Fires on the second and later repetitions;
+# the first issuance of any build fn_idx is always unpenalised.  Any
+# intervening non-build action resets the counter.
+# Set to -build_train_bonus to make repeated builds net-zero reward and
+# break "Can't find placement location" spam loops.
+# Recommended range: -0.3 to -1.0.  Default 0.0 = disabled.
+
 score_weight: 0.0
 win_bonus: 100.0
 loss_penalty: -100.0
@@ -165,26 +200,6 @@ move_exploration_decay_steps: 120
 click_attack_cooldown_steps: 8
 small_selection_bonus: 0.1
 
-# --- Macro-progression rewards (ladder maps) ---
-# supply_block_penalty: per-step penalty while supply-blocked (food_used >=
-#   food_cap and food_cap < 200).  Production stalls when capped — the most
-#   common ladder macro failure.  Recommended range: -0.05 to -0.5.
-# supply_growth_bonus: bonus per point of food_cap increase (build supply
-#   depots / expand).  Recommended range: 0.5–3.0.
-# worker_growth_bonus: bonus per point of food_workers increase (train
-#   workers).  Pairs with idle_worker_penalty.  Recommended range: 0.5–3.0.
-# army_growth_bonus: bonus per point of food_army increase (produce combat
-#   units).  Recommended range: 0.5–3.0.
-# tech_building_bonus: one-shot bonus the first time each friendly structure
-#   type is seen this episode (climbing the build tree).  Recommended: 2.0–10.0.
-# expansion_bonus: one-shot bonus each time the friendly town-hall count
-#   reaches a new episode max (an expansion).  Recommended: 5.0–25.0.
-# scout_bonus: bonus proportional to minimap_explored_frac increase (revealing
-#   new map).  Weight must be large because per-step deltas are tiny (~0.001).
-#   Recommended range: 5.0–50.0.
-# new_action_usage_bonus: per-step bonus for issuing a tech-gated fn_idx that
-#   has already been unlocked this episode, up to new_action_usage_max_uses
-#   times per fn_idx.  Complements new_action_unlock_bonus.  Recommended: 0.1–2.0.
 supply_block_penalty: -0.1
 supply_growth_bonus: 1.0
 worker_growth_bonus: 1.0
@@ -194,18 +209,6 @@ expansion_bonus: 10.0
 scout_bonus: 20.0
 new_action_usage_bonus: 0.1
 
-# --- Build/train action bonus (issue #416) ---
-# Per-step bonus when the agent issues a build or train category action
-# (supply depots, barracks, workers, marines, etc.).  Encourages production
-# over idle movement in the early game.  Recommended range: 0.2–1.0.
 build_train_bonus: 0.5
 
-# --- Build-repeat penalty ---
-# Per-step penalty when the agent issues the same build fn_idx on two
-# consecutive env steps.  Fires on the second and later repetitions;
-# the first issuance of any build fn_idx is always unpenalised.  Any
-# intervening non-build action resets the counter.
-# Set to -build_train_bonus to make repeated builds net-zero reward and
-# break "Can't find placement location" spam loops.
-# Recommended range: -0.3 to -1.0.  Default 0.0 = disabled.
 build_repeat_penalty: -0.5

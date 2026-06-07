@@ -492,10 +492,27 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
         total = sum(ac.values())
         if total > 0:
             name_map: dict = info.get("episode_action_name_map") or {}
-            for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
-                label = name_map.get(fn_idx, str(fn_idx))
-                pct = 100.0 * count / total
-                logger.info("    %s=%.1f%%", label, pct)
+            cat_map: dict = info.get("episode_action_category_map") or {}
+            if cat_map:
+                _CAT_ORDER = ["move", "attack", "build", "train", "upgrade"]
+                cat_groups: dict[str, list[tuple[str, float]]] = {}
+                for fn_idx, count in ac.items():
+                    label = name_map.get(fn_idx, str(fn_idx))
+                    cat = cat_map.get(fn_idx, "other")
+                    pct = 100.0 * count / total
+                    cat_groups.setdefault(cat, []).append((label, pct))
+                for cat in _CAT_ORDER + ["other"]:
+                    entries = cat_groups.get(cat)
+                    if not entries:
+                        continue
+                    logger.info("    [%s]", cat)
+                    for label, pct in sorted(entries):
+                        logger.info("      %s=%.1f%%", label, pct)
+            else:
+                for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+                    label = name_map.get(fn_idx, str(fn_idx))
+                    pct = 100.0 * count / total
+                    logger.info("    %s=%.1f%%", label, pct)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:

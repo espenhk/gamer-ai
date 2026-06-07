@@ -38,7 +38,7 @@ from gymnasium import spaces
 from framework.base_env import BaseGameEnv
 from framework.belief import EWMABelief
 from framework.info_gain import RegionStalenessTracker
-from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS
+from games.sc2.actions import DISCRETE_ACTIONS, FN_IDX_TO_CATEGORY, FUNCTION_IDS
 from games.sc2.apm_limiter import ApmLimiter
 from games.sc2.client import SC2Client
 from games.sc2.obs_spec import MINIGAME_NAMES, get_spec
@@ -464,6 +464,7 @@ class SC2Env(BaseGameEnv):
             info["episode_build_order"] = self._ep_build_order
             info["episode_action_counts"] = dict(self._ep_action_counts)
             info["episode_action_name_map"] = FUNCTION_IDS
+            info["episode_action_category_map"] = FN_IDX_TO_CATEGORY
             info["episode_xy_hist"] = self._ep_xy_hist.tolist()
             info["episode_obs_averages"] = {k: v / self._ep_obs_step_count for k, v in self._ep_obs_sums.items()}
             # Kill stats: score_cumulative counters are cumulative and reset

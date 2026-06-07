@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.6.0] - 2026-06-07
+
 ### Changed
 
 - **SC2 reward — `build_train_bonus` split into `build_bonus` and `train_bonus`** (breaking config change). The single `build_train_bonus` key is replaced by `build_bonus` (structure placement) and `train_bonus` (unit production). `train_bonus` is intended to be `4 × build_bonus` to reflect the higher immediate impact of producing units. Each has a matching repeat-spam penalty: `build_repeat_penalty` (unchanged semantics) and the new `train_repeat_penalty`. Shipped ladder defaults: `build_bonus: 0.5`, `build_repeat_penalty: -0.5`, `train_bonus: 2.0`, `train_repeat_penalty: -2.0`. Existing configs that set `build_train_bonus` must rename the key and add `train_bonus` / `train_repeat_penalty`.

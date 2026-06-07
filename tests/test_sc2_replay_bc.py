@@ -768,6 +768,7 @@ class TestBuildDataset(unittest.TestCase):
             data = np.load(str(save_path), allow_pickle=False)
             self.assertEqual(data["obs"].shape, (5, _OBS_DIM))
             self.assertEqual(data["actions"].shape, (5, 4))
+            data.close()
 
     def test_episode_boundaries_two_replays(self):
         import tempfile
@@ -785,6 +786,7 @@ class TestBuildDataset(unittest.TestCase):
             np.testing.assert_array_equal(data["episode_starts"], [0, 3])
             np.testing.assert_array_equal(data["episode_lengths"], [3, 2])
             np.testing.assert_array_equal(data["episode_id"], [0, 0, 0, 1, 1])
+            data.close()
 
     def test_rows_stored_in_temporal_order(self):
         """obs values within an episode must preserve temporal order."""
@@ -801,6 +803,7 @@ class TestBuildDataset(unittest.TestCase):
             data = np.load(str(save_path), allow_pickle=False)
             for i in range(4):
                 self.assertAlmostEqual(data["obs"][i, 0], float(i), places=5)
+            data.close()
 
     def test_meta_json_round_trip(self):
         import tempfile
@@ -819,6 +822,7 @@ class TestBuildDataset(unittest.TestCase):
             self.assertEqual(meta["step_mul"], 2)
             self.assertEqual(meta["screen_size"], 32)
             self.assertIn("source_filenames", meta)
+            data.close()
 
     def test_race_filter_drops_all_raises(self):
         """All replays dropped by race filter → ValueError with race in message."""
@@ -883,6 +887,7 @@ class TestBuildDataset(unittest.TestCase):
                 build_dataset(folder, save_path, obs_spec=spec)
             data = np.load(str(save_path), allow_pickle=False)
             self.assertEqual(len(data["episode_id"]), 4)
+            data.close()
 
 
 # ---------------------------------------------------------------------------

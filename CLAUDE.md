@@ -1,5 +1,32 @@
 # CLAUDE.md
 
+## Knowledge graph
+
+A knowledge graph of this codebase lives at `graphify-out/graph.json` (7,025 nodes,
+16,446 edges, 371 communities). It is kept current by CI on every merge to `main`.
+
+**Use `/graphify query "<question>"` instead of reading individual files when exploring
+architecture, tracing a dependency, or understanding how a concept is used across the
+codebase.** The graph traversal is faster and gives cross-file context that file-by-file
+reading misses.
+
+Key god nodes (highest betweenness centrality — touch everything):
+
+| Node | File | Role |
+|---|---|---|
+| `ObsSpec` | `framework/obs_spec.py` | Input contract — single source of truth for observation feature names, scales, and normalization across all games |
+| `ExperimentData` | `framework/analytics.py` | Output contract — every run's result flows through this dataclass |
+| `BasePolicy` | `framework/policies.py` | Policy protocol — all algorithms implement this interface |
+| `GreedySimResult` | `framework/analytics.py` | Per-episode result — bridges training loop and analytics |
+| `SC2Client` | `games/sc2/client.py` | SC2-specific god node by accident — has leaked beyond the adapter boundary (see issue tracker) |
+
+When a task involves any of these nodes, query the graph first to understand the blast
+radius before touching code.
+
+To regenerate the Obsidian vault locally: `/graphify --obsidian`
+
+---
+
 Multi-game RL agent framework. A game-agnostic training loop and policy
 set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous

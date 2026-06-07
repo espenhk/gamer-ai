@@ -34,10 +34,10 @@ game: sc2
 # BC pre-training — runs once, shared across all grid combos
 # ---------------------------------------------------------------------------
 bc:
-  replay_dir: /path/to/replays     # REQUIRED: directory of .SC2Replay files
+  replay_dir: "/path/to/your/SC2Replays" # REQUIRED: directory of .SC2Replay files
   bc_target: sc2_neural_dqn
   player_id: winner                # clone the winning side
-  race: terran                        # no race filter — clone all replays
+  race: any                        # no race filter — clone all replays
   max_replays: null                # null = process all replays in replay_dir
   bc_epochs: 10
   bc_learning_rate: 0.001
@@ -56,15 +56,16 @@ training_params:
   max_apm: 300
   agent_race: terran
   bot_difficulty: very_easy
-  n_sims: 200
+  n_sims: 50
+  #n_sims: 200
   policy_type: sc2_neural_dqn
   obs_spec_preset: ladder
-  enable_belief: false
+  enable_belief: true
+  epsilon_decay_steps: 3000
 
   # Search axes — lists trigger a sweep; scalars are fixed across all combos.
-  learning_rate: [0.0005, 0.001, 0.01]
-  epsilon_decay_steps: [3000, 8000]
-  hidden_sizes: [[64, 64], [64, 256, 256, 64]]
+  learning_rate: [0.01, 0.05]
+  hidden_sizes: [[64, 256, 256, 64], [256, 1024, 1024, 1024, 256]]
 
   policy_params:
     replay_buffer_size: 15000

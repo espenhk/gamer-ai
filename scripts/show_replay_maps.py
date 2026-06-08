@@ -5,6 +5,7 @@ Usage:
     pip install mpyq
     python scripts/show_replay_maps.py "C:/Program Files (x86)/StarCraft II/ReplaysMiniPack"
 """
+
 from __future__ import annotations
 
 import pathlib

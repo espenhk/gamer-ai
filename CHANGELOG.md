@@ -17,6 +17,9 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+- **Bug fix**: `grid_search.py --game assetto` now works. `assetto` was missing from the `--game` choices list in `grid_search.py` despite being fully supported (closes #430).
+- Added `games/assetto_corsa/config/gs_genetic.yaml` — a baseline 6-combo grid-search template for Assetto Corsa with `GeneticPolicy`.
+
 
 ---
 

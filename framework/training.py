@@ -359,7 +359,7 @@ def _episode_skipped_frames(info: dict) -> int | None:
         return None
 
 
-def _log_action_breakdown(info: dict, cmp_for_fn) -> None:
+def _log_action_breakdown(info: dict, cmp_for_fn: Callable[[int, float], str]) -> None:
     """Log the per-action frequency breakdown, grouped by category and aligned.
 
     Shared by the NEW BEST and periodic-stats logging paths so both render an

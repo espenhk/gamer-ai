@@ -174,10 +174,10 @@ class TestLogNewBestDetails(unittest.TestCase):
         # one log line per action (sorted by descending count: fn2, fn0, fn1)
         self.assertEqual(len(lines), 3)
         all_text = "\n".join(lines)
-        # Without a name map the key is stringified; count + percentage shown.
-        self.assertIn("2 =", all_text)
-        self.assertIn("60", all_text)
-        self.assertIn("60.0%", all_text)
+        # Without a name map the key is stringified, and the line must carry the
+        # raw count *and* the percentage in their own columns (count before the
+        # "(pct%)"), so a regression that drops the count column is caught.
+        self.assertRegex(all_text, r"2\s*=\s*60\s*\(\s*60\.0%\)")
 
     def test_action_counts_uses_name_map(self):
         info = {

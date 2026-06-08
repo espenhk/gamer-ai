@@ -615,11 +615,25 @@ _MAP_AXIS_KEYS = ("map_name", "track")
 
 
 def _extract_map_axis(training_spec: dict[str, Any]) -> tuple[str | None, list | None]:
-    """Return (key, values) if a map-axis key has a list value, else (None, None)."""
-    for key in _MAP_AXIS_KEYS:
-        if isinstance(training_spec.get(key), list):
-            return key, training_spec[key]
-    return None, None
+    """Return (key, values) if a map-axis key has a list value, else (None, None).
+
+    Raises ``ValueError`` for ambiguous or degenerate configs:
+      * more than one map-axis key (``map_name`` / ``track``) is list-valued, or
+      * the chosen map-axis list is empty.
+    """
+    list_keys = [key for key in _MAP_AXIS_KEYS if isinstance(training_spec.get(key), list)]
+    if not list_keys:
+        return None, None
+    if len(list_keys) > 1:
+        raise ValueError(
+            "Multiple map-axis keys are list-valued in training_params "
+            f"({', '.join(list_keys)}); set exactly one of {_MAP_AXIS_KEYS} to a list."
+        )
+    key = list_keys[0]
+    values = training_spec[key]
+    if not values:
+        raise ValueError(f"Map-axis key '{key}' is an empty list; provide at least one map/track value.")
+    return key, values
 
 
 # ---------------------------------------------------------------------------
@@ -1312,7 +1326,17 @@ def main() -> None:
     adapter = GAME_ADAPTERS[game_name]()
 
     # Multi-map support: detect if a map-axis key is a list in the training spec.
-    map_axis_key, map_values = _extract_map_axis(training_spec)
+    try:
+        map_axis_key, map_values = _extract_map_axis(training_spec)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if map_axis_key is not None and track_override is not None:
+        parser.error(
+            f"Multi-map mode (training_params.{map_axis_key} is a list) is mutually exclusive "
+            "with a fixed track override from --track or the config 'track:' key; "
+            "the override would force every map to run against the same track. "
+            "Remove one of them."
+        )
     if map_axis_key is not None:
         logger.info(
             "Multi-map mode: %d map(s) — %s = %s",

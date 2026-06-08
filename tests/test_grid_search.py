@@ -565,6 +565,18 @@ class TestExtractMapAxis:
             maps_seen = {c["training_params"]["map_name"] for c in combos}
             assert maps_seen == {map_val}
 
+    def test_both_map_axis_keys_list_raises(self):
+        """Ambiguous config with both map_name and track as lists raises ValueError."""
+        t = {"map_name": ["MapA", "MapB"], "track": ["t1", "t2"], "n_sims": 5}
+        with pytest.raises(ValueError, match="Multiple map-axis keys"):
+            _extract_map_axis(t)
+
+    def test_empty_map_axis_list_raises(self):
+        """An empty map-axis list raises ValueError instead of silently skipping."""
+        t = {"map_name": [], "n_sims": 5}
+        with pytest.raises(ValueError, match="empty list"):
+            _extract_map_axis(t)
+
 
 class TestGridSearchCliFlags:
     def test_help_includes_live_gui_flag(self):

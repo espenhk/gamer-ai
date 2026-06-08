@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.6.5] - 2026-06-08
+
 ### Changed
 
 - `--log-file` now always writes full `DEBUG`-level output to the file

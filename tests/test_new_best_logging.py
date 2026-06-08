@@ -174,8 +174,10 @@ class TestLogNewBestDetails(unittest.TestCase):
         # one log line per action (sorted by descending count: fn2, fn0, fn1)
         self.assertEqual(len(lines), 3)
         all_text = "\n".join(lines)
-        # Without a name map the key is stringified: "2=60.0%".
-        self.assertIn("2=60.0%", all_text)
+        # Without a name map the key is stringified; count + percentage shown.
+        self.assertIn("2 =", all_text)
+        self.assertIn("60", all_text)
+        self.assertIn("60.0%", all_text)
 
     def test_action_counts_uses_name_map(self):
         info = {
@@ -184,10 +186,12 @@ class TestLogNewBestDetails(unittest.TestCase):
         }
         lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
         all_text = "\n".join(lines)
-        self.assertIn("Attack_screen=70.0%", all_text)
-        self.assertIn("no_op=30.0%", all_text)
+        self.assertIn("Attack_screen =", all_text)
+        self.assertIn("70.0%", all_text)
+        self.assertIn("no_op", all_text)
+        self.assertIn("30.0%", all_text)
         # Raw integer keys must not appear when a name map is present.
-        self.assertNotIn("3=", all_text)
+        self.assertNotIn("3 =", all_text)
 
     def test_action_counts_prev_comparison(self):
         info = {"episode_action_counts": {0: 10, 2: 90}}
@@ -196,6 +200,28 @@ class TestLogNewBestDetails(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         all_text = "\n".join(lines)
         self.assertIn("prev", all_text)
+
+    def test_action_counts_grouped_by_category(self):
+        info = {
+            "episode_action_counts": {0: 20, 3: 50, 5: 30},
+            "episode_action_name_map": {0: "Move_screen", 3: "Attack_screen", 5: "Build_Barracks"},
+            "episode_action_category_map": {0: "move", 3: "attack", 5: "build"},
+        }
+        lines = _capture_training_logs(lambda: _log_new_best_details(info, None))
+        all_text = "\n".join(lines)
+        # Category headings emitted in the canonical order.
+        self.assertIn("[move]", all_text)
+        self.assertIn("[attack]", all_text)
+        self.assertIn("[build]", all_text)
+        move_i = all_text.index("[move]")
+        attack_i = all_text.index("[attack]")
+        build_i = all_text.index("[build]")
+        self.assertLess(move_i, attack_i)
+        self.assertLess(attack_i, build_i)
+        # Labels are padded to a common width so the "=" columns align.
+        action_lines = [ln for ln in lines if "=" in ln]
+        eq_cols = {ln.index("=") for ln in action_lines}
+        self.assertEqual(len(eq_cols), 1)
 
     def test_tmnf_progress_logged(self):
         info = {"episode_task_metrics": {"progress": "75.0%"}}

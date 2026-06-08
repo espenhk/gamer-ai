@@ -344,7 +344,8 @@ worker mechanics are unit-tested with a dummy env.
 - SC2 summary formatting: scalar `outcome` (`win`/`loss`/`draw`) plus scalar `reward=` and `score=` values
 - `_log_new_best_details` — empty info emits nothing
 - reward components: logs all non-zero components, always includes `score` (even when 0); `win_bonus` shown only when terminal > 0, `loss_penalty` only when terminal < 0 (neither shown on non-terminal episodes); prev-best comparison included when available
-- action frequency: one log line per action; uses `episode_action_name_map` when present (e.g. `Attack_screen=70.0%`), falls back to raw key stringified when absent; prev comparison shown
+- action frequency: one log line per action; uses `episode_action_name_map` when present (e.g. `Attack_screen =`), falls back to raw key stringified when absent; count + percentage shown with labels padded to a common width so the `=` columns align; prev comparison shown
+- action frequency grouped: when `episode_action_category_map` is present, actions are grouped under `[category]` headings emitted in the canonical `move`/`attack`/`build`/`train`/`upgrade` order (same layout as the periodic stats log); aligned `=` columns across all groups
 - task metrics: generic `episode_task_metrics` dict (pre-formatted strings); progress, lateral offset, finish time only when present; prev comparison for each key (all on one combined line); adapters are responsible for populating and formatting values
 - SC2 kills: units + structures on one line; prev comparison; absent when key not in info; suppressed when both values zero
 - SC2 game-state averages: one log line per non-zero metric; zero values omitted; prev comparison

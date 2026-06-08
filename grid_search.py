@@ -608,6 +608,20 @@ def _expand_grid(training_spec: dict[str, Any], reward_spec: dict[str, Any]) -> 
     return combos, varied_keys
 
 
+# Map-axis keys: list values for these keys are treated as the outer search
+# axis — all inner-param combos for each map run before the next map starts,
+# and each map gets its own separate analytics summary.
+_MAP_AXIS_KEYS = ("map_name", "track")
+
+
+def _extract_map_axis(training_spec: dict[str, Any]) -> tuple[str | None, list | None]:
+    """Return (key, values) if a map-axis key has a list value, else (None, None)."""
+    for key in _MAP_AXIS_KEYS:
+        if isinstance(training_spec.get(key), list):
+            return key, training_spec[key]
+    return None, None
+
+
 # ---------------------------------------------------------------------------
 # Policy param helpers
 # ---------------------------------------------------------------------------
@@ -959,6 +973,110 @@ def _consolidate(
     logger.info("Summary report: %s/summary.md", summary_dir)
 
 
+def _run_map_grid(
+    adapter: Any,
+    base_name: str,
+    game_name: str,
+    training_spec: dict[str, Any],
+    reward_spec: dict[str, Any],
+    track_override: str | None,
+    no_interrupt: bool,
+    re_initialize: bool,
+    live_gui: bool,
+    log_stats_every: int | None,
+    bc_warmstart_dir: str | None,
+    distribute: bool,
+    distribute_kwargs: dict[str, Any],
+) -> None:
+    """Run one complete grid search for a single fixed map/track value.
+
+    Called once per map value when ``map_name`` or ``track`` is a list in the
+    grid config (multi-map mode), or once for the whole grid in single-map mode.
+    Each call produces its own experiment directories and analytics summary.
+    """
+    combos, varied_keys = _expand_grid(training_spec, reward_spec)
+
+    if live_gui:
+        for combo in combos:
+            combo["training_params"]["live_gui"] = True
+    if log_stats_every is not None:
+        for combo in combos:
+            combo["training_params"]["log_stats_every_n_sims"] = log_stats_every
+
+    n = len(combos)
+    logger.info("  Grid search:       %d combination(s)", n)
+    logger.info("  Base name:         %s", base_name)
+    logger.info("  Game:              %s", game_name)
+    logger.info("  Track override:    %s", track_override or "(default)")
+    logger.info("  Training config:")
+    for k, v in training_spec.items():
+        logger.info("    %s: %s", k, v)
+    logger.info("  Reward config:")
+    for k, v in reward_spec.items():
+        logger.info("    %s: %s", k, v)
+    if varied_keys:
+        logger.info("  Varied:      %s", ", ".join(varied_keys))
+    logger.info("%s", "=" * 60)
+
+    names = []
+    for c in combos:
+        name = _make_experiment_name(base_name, c.get("_flat", {}), varied_keys)
+        names.append(name)
+        logger.info("  %s", name)
+
+    if bc_warmstart_dir is not None:
+        _validate_bc_warmstart_combos(bc_warmstart_dir, combos, names)
+        logger.info("BC warm-start directory: %s", bc_warmstart_dir)
+
+    if distribute:
+        all_runs = _run_distributed(
+            adapter,
+            combos,
+            names,
+            track_override,
+            no_interrupt=no_interrupt,
+            re_initialize=re_initialize,
+            bc_warmstart_dir=bc_warmstart_dir,
+            **distribute_kwargs,
+        )
+    else:
+        all_runs = _run_local(
+            adapter,
+            combos,
+            names,
+            track_override=track_override,
+            no_interrupt=no_interrupt,
+            re_initialize=re_initialize,
+            bc_warmstart_dir=bc_warmstart_dir,
+        )
+
+    # Final summary table
+    logger.info("=== Grid search complete — %d run(s) ===", n)
+    logger.info("  %-50s  %12s", "Experiment", "Best Reward")
+    for exp_name, exp_data in sorted(
+        all_runs,
+        key=lambda x: -max((s.reward for s in x[1].greedy_sims), default=float("-inf")),
+    ):
+        best = max((s.reward for s in exp_data.greedy_sims), default=float("-inf"))
+        logger.info("  %-50s  %+12.1f", exp_name, best)
+
+    # Cross-experiment summary report
+    summary_root = adapter.experiment_dir_root(training_spec, track_override)
+    summary_dir = f"{summary_root}/{base_name}__summary"
+    try:
+        _analytics_mod = __import__(f"games.{game_name}.analytics", fromlist=["save_grid_summary"])
+        _analytics_mod.save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
+    except (ImportError, AttributeError):
+        logger.debug(
+            "Game-specific save_grid_summary not available for %s; using framework fallback.",
+            game_name,
+        )
+        from framework.analytics import save_grid_summary
+
+        save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
+    logger.info("Summary report: %s/summary.md", summary_dir)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Grid search over training/reward params (multi-game)")
     parser.add_argument(
@@ -1192,45 +1310,24 @@ def main() -> None:
             parser.error(str(exc))
 
     adapter = GAME_ADAPTERS[game_name]()
-    combos, varied_keys = _expand_grid(training_spec, reward_spec)
-    if args.live_gui:
-        for combo in combos:
-            combo["training_params"]["live_gui"] = True
+
+    # Multi-map support: detect if a map-axis key is a list in the training spec.
+    map_axis_key, map_values = _extract_map_axis(training_spec)
+    if map_axis_key is not None:
+        logger.info(
+            "Multi-map mode: %d map(s) — %s = %s",
+            len(map_values),
+            map_axis_key,
+            map_values,
+        )
     if args.log_stats_every is not None:
-        for combo in combos:
-            combo["training_params"]["log_stats_every_n_sims"] = args.log_stats_every
         logger.info(
             "Overriding training_params log_stats_every_n_sims = %d from --log-stats-every",
             args.log_stats_every,
         )
 
-    n = len(combos)
-    logger.info("  Grid search:       %d combination(s)", n)
-    logger.info("  Base name:         %s", base_name)
-    logger.info("  Game:              %s", game_name)
-    logger.info("  Track override:    %s", track_override or "(default)")
-    logger.info("  Training config:")
-    for k, v in training_spec.items():
-        logger.info("    %s: %s", k, v)
-    logger.info("  Reward config:")
-    for k, v in reward_spec.items():
-        logger.info("    %s: %s", k, v)
-    if args.distribute:
-        logger.info("  Distribute config: %s", distribute_cfg)
-        for k, v in distribute_cfg.items():
-            logger.info("    %s: %s", k, v)
-    if varied_keys:
-        logger.info("  Varied:      %s", ", ".join(varied_keys))
-    logger.info("%s", "=" * 60)
-
-    names = []
-    for c in combos:
-        name = _make_experiment_name(base_name, c.get("_flat", {}), varied_keys)
-        names.append(name)
-        logger.info("  %s", name)
-
     # ------------------------------------------------------------------
-    # BC warm-start: resolve warmstart dir, then validate compatibility.
+    # BC warm-start: resolve warmstart dir once (before any map loop).
     # ------------------------------------------------------------------
     bc_warmstart_dir: str | None = None
     if args.bc_warmstart_dir and bc_cfg:
@@ -1241,12 +1338,16 @@ def main() -> None:
     if args.bc_warmstart_dir:
         bc_warmstart_dir = args.bc_warmstart_dir
     elif bc_cfg:
-        bc_warmstart_dir = _run_inline_bc(bc_cfg, adapter, base_name, training_spec, track_override, game_name)
+        # For multi-map inline BC, use the first map value's training spec.
+        bc_spec = dict(training_spec)
+        if map_axis_key is not None:
+            bc_spec[map_axis_key] = map_values[0]
+        bc_warmstart_dir = _run_inline_bc(bc_cfg, adapter, base_name, bc_spec, track_override, game_name)
 
-    if bc_warmstart_dir is not None:
-        _validate_bc_warmstart_combos(bc_warmstart_dir, combos, names)
-        logger.info("BC warm-start directory: %s", bc_warmstart_dir)
-
+    # ------------------------------------------------------------------
+    # Distributed mode: resolve all kwargs once before any map loop.
+    # ------------------------------------------------------------------
+    distribute_kwargs: dict[str, Any] = {}
     if args.distribute:
         if args.local_workers is not None:
             local_workers = args.local_workers
@@ -1282,11 +1383,7 @@ def main() -> None:
             )
         monitor_username = args.monitor_username or distribute_cfg.get("monitor_username") or "monitor"
         monitor_password = args.monitor_password or distribute_cfg.get("monitor_password") or token
-        all_runs = _run_distributed(
-            adapter,
-            combos,
-            names,
-            track_override,
+        distribute_kwargs = dict(
             token=token,
             port=port,
             heartbeat_timeout=hb_timeout,
@@ -1297,46 +1394,50 @@ def main() -> None:
             monitor_password=monitor_password,
             local_workers=local_workers,
             local_worker_start_stagger_s=local_worker_stagger,
-            no_interrupt=args.no_interrupt,
-            re_initialize=args.re_initialize,
-            bc_warmstart_dir=bc_warmstart_dir,
         )
+        logger.info("  Distribute config:")
+        for k, v in distribute_cfg.items():
+            logger.info("    %s: %s", k, v)
+
+    # ------------------------------------------------------------------
+    # Run: per-map loop or single pass.
+    # ------------------------------------------------------------------
+    if map_axis_key is not None:
+        for map_val in map_values:
+            logger.info("=== Map: %s ===", map_val)
+            map_training_spec = dict(training_spec)
+            map_training_spec[map_axis_key] = map_val
+            _run_map_grid(
+                adapter,
+                base_name,
+                game_name,
+                map_training_spec,
+                reward_spec,
+                track_override,
+                no_interrupt=args.no_interrupt,
+                re_initialize=args.re_initialize,
+                live_gui=args.live_gui,
+                log_stats_every=args.log_stats_every,
+                bc_warmstart_dir=bc_warmstart_dir,
+                distribute=args.distribute,
+                distribute_kwargs=distribute_kwargs,
+            )
     else:
-        all_runs = _run_local(
+        _run_map_grid(
             adapter,
-            combos,
-            names,
-            track_override=track_override,
+            base_name,
+            game_name,
+            training_spec,
+            reward_spec,
+            track_override,
             no_interrupt=args.no_interrupt,
             re_initialize=args.re_initialize,
+            live_gui=args.live_gui,
+            log_stats_every=args.log_stats_every,
             bc_warmstart_dir=bc_warmstart_dir,
+            distribute=args.distribute,
+            distribute_kwargs=distribute_kwargs,
         )
-
-    # Final summary table
-    logger.info("=== Grid search complete — %d run(s) ===", n)
-    logger.info("  %-50s  %12s", "Experiment", "Best Reward")
-    for exp_name, exp_data in sorted(
-        all_runs,
-        key=lambda x: -max((s.reward for s in x[1].greedy_sims), default=float("-inf")),
-    ):
-        best = max((s.reward for s in exp_data.greedy_sims), default=float("-inf"))
-        logger.info("  %-50s  %+12.1f", exp_name, best)
-
-    # Cross-experiment summary report
-    summary_root = adapter.experiment_dir_root(training_spec, track_override)
-    summary_dir = f"{summary_root}/{base_name}__summary"
-    try:
-        _analytics_mod = __import__(f"games.{game_name}.analytics", fromlist=["save_grid_summary"])
-        _analytics_mod.save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
-    except (ImportError, AttributeError):
-        logger.debug(
-            "Game-specific save_grid_summary not available for %s; using framework fallback.",
-            game_name,
-        )
-        from framework.analytics import save_grid_summary
-
-        save_grid_summary(all_runs, varied_keys, summary_dir, base_name)
-    logger.info("Summary report: %s/summary.md", summary_dir)
 
 
 if __name__ == "__main__":

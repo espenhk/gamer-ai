@@ -13,10 +13,12 @@ import yaml
 from grid_search import (
     _ABBREV,
     _BC_COMPATIBLE_POLICY_TYPES,
+    _MAP_AXIS_KEYS,
     _POLICY_PARAM_MAP,
     _build_policy_params,
     _copy_bc_weights,
     _expand_grid,
+    _extract_map_axis,
     _fmt_value,
     _launch_local_workers,
     _load_grid_config,
@@ -507,6 +509,61 @@ class TestLocalWorkerParsing:
     def test_parse_non_negative_int_rejects_non_integer(self):
         with pytest.raises(ValueError, match="must be an integer >= 0"):
             _parse_non_negative_int("abc", "x")
+
+
+class TestExtractMapAxis:
+    def test_map_name_list_returns_key_and_values(self):
+        t = {"map_name": ["MoveToBeacon", "Simple64"], "n_sims": 10}
+        key, values = _extract_map_axis(t)
+        assert key == "map_name"
+        assert values == ["MoveToBeacon", "Simple64"]
+
+    def test_track_list_returns_key_and_values(self):
+        t = {"track": ["aalborg", "a03_centerline"], "n_sims": 10}
+        key, values = _extract_map_axis(t)
+        assert key == "track"
+        assert values == ["aalborg", "a03_centerline"]
+
+    def test_scalar_map_name_returns_none(self):
+        t = {"map_name": "MoveToBeacon", "n_sims": 10}
+        key, values = _extract_map_axis(t)
+        assert key is None
+        assert values is None
+
+    def test_no_map_key_returns_none(self):
+        t = {"n_sims": 10, "mutation_scale": [0.05, 0.1]}
+        key, values = _extract_map_axis(t)
+        assert key is None
+        assert values is None
+
+    def test_map_axis_keys_constant_contains_expected_keys(self):
+        assert "map_name" in _MAP_AXIS_KEYS
+        assert "track" in _MAP_AXIS_KEYS
+
+    def test_multimap_not_in_inner_varied_keys(self):
+        """After extracting the map axis, each inner expansion has a scalar map value."""
+        t = {"map_name": ["BuildMarines", "Simple64"], "n_sims": 10, "mutation_scale": [0.05, 0.1]}
+        map_key, map_values = _extract_map_axis(t)
+        assert map_key == "map_name"
+        for map_val in map_values:
+            inner_spec = dict(t)
+            inner_spec[map_key] = map_val
+            combos, varied_keys = _expand_grid(inner_spec, {})
+            assert map_key not in varied_keys
+            assert len(combos) == 2  # 2 mutation_scale values
+            assert all(c["training_params"]["map_name"] == map_val for c in combos)
+
+    def test_each_map_produces_independent_combos(self):
+        """Two maps × two inner values → 2 independent combo sets of 2 each."""
+        t = {"map_name": ["MapA", "MapB"], "n_sims": 5, "mutation_scale": [0.1, 0.2]}
+        map_key, map_values = _extract_map_axis(t)
+        for map_val in map_values:
+            inner = dict(t)
+            inner[map_key] = map_val
+            combos, varied_keys = _expand_grid(inner, {})
+            assert len(combos) == 2
+            maps_seen = {c["training_params"]["map_name"] for c in combos}
+            assert maps_seen == {map_val}
 
 
 class TestGridSearchCliFlags:

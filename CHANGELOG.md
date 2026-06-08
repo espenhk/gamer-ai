@@ -17,6 +17,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
+
+- Training logs: the periodic stats block (`log_stats_every_n_sims`) now pads
+  action labels to a common width so the count / percentage columns line up
+  under each category heading, and the `NEW BEST` action-frequency breakdown
+  now reuses the same category-grouped, column-aligned layout instead of a flat
+  list (`framework/training.py`).
 
 ---
 

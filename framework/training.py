@@ -359,6 +359,58 @@ def _episode_skipped_frames(info: dict) -> int | None:
         return None
 
 
+def _log_action_breakdown(info: dict, cmp_for_fn: Callable[[int, float], str]) -> None:
+    """Log the per-action frequency breakdown, grouped by category and aligned.
+
+    Shared by the NEW BEST and periodic-stats logging paths so both render an
+    identical, column-aligned layout (labels padded to a common width so the
+    count / percentage columns line up under each category heading).  When the
+    game supplies ``episode_action_category_map`` the actions are grouped under
+    ``[category]`` headings; otherwise they fall back to a single flat list
+    ordered by frequency.
+
+    *cmp_for_fn(fn_idx, pct)* returns the trailing comparison annotation for an
+    action (e.g. ``" (prev 12.3%)"`` or ``" (+1.2pp vs best)"``); return ``""``
+    for none.
+    """
+    ac = info.get("episode_action_counts")
+    if not ac:
+        return
+    total = sum(ac.values())
+    if total <= 0:
+        return
+
+    name_map: dict = info.get("episode_action_name_map") or {}
+    cat_map: dict = info.get("episode_action_category_map") or {}
+
+    # Pad every label to the widest one so the "= count (pct%)" columns align.
+    label_w = max(len(name_map.get(fn_idx, str(fn_idx))) for fn_idx in ac)
+
+    def _emit(fn_idx: int, count: int, indent: str) -> None:
+        label = name_map.get(fn_idx, str(fn_idx))
+        pct = 100.0 * count / total
+        cmp_s = cmp_for_fn(fn_idx, pct)
+        logger.info("%s%-*s = %4d (%5.1f%%)%s", indent, label_w, label, count, pct, cmp_s)
+
+    if cat_map:
+        _KNOWN_CATS = ["move", "attack", "build", "train", "upgrade"]
+        cat_groups: dict[str, list[int]] = {}
+        for fn_idx in ac:
+            cat = cat_map.get(fn_idx, "other")
+            cat_groups.setdefault(cat, []).append(fn_idx)
+        unknown_cats = sorted(c for c in cat_groups if c not in _KNOWN_CATS)
+        for cat in _KNOWN_CATS + unknown_cats:
+            entries = cat_groups.get(cat)
+            if not entries:
+                continue
+            logger.info("    [%s]", cat)
+            for fn_idx in sorted(entries, key=lambda i: name_map.get(i, str(i))):
+                _emit(fn_idx, ac[fn_idx], "      ")
+    else:
+        for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
+            _emit(fn_idx, count, "    ")
+
+
 def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
     """Log expanded breakdown for a newly-achieved best reward.
 
@@ -404,24 +456,18 @@ def _log_new_best_details(info: dict, prev_best_info: dict | None) -> None:
                 logger.info("    loss_penalty=%+.1f", loss_penalty)
 
     # 2. Action-frequency breakdown (any game may populate episode_action_counts)
-    ac = info.get("episode_action_counts")
-    if ac:
-        total = sum(ac.values())
-        if total > 0:
-            prev_ac: dict = prev.get("episode_action_counts") or {}
-            prev_total = sum(prev_ac.values()) if prev_ac else 0
-            name_map: dict = info.get("episode_action_name_map") or {}
-            for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
-                label = name_map.get(fn_idx, str(fn_idx))
-                pct = 100.0 * count / total
-                if prev_total > 0:
-                    # Keys are ints from env.step(); str fallback handles any
-                    # JSON-deserialised prev_best_info where keys became strings.
-                    ppct = 100.0 * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0)) / prev_total
-                    cmp_s = f" (prev {ppct:.1f}%)"
-                else:
-                    cmp_s = ""
-                logger.info("    %s=%.1f%%%s", label, pct, cmp_s)
+    prev_ac: dict = prev.get("episode_action_counts") or {}
+    prev_total = sum(prev_ac.values()) if prev_ac else 0
+
+    def _cmp_vs_prev(fn_idx: int, pct: float) -> str:
+        if prev_total <= 0:
+            return ""
+        # Keys are ints from env.step(); str fallback handles any
+        # JSON-deserialised prev_best_info where keys became strings.
+        ppct = 100.0 * prev_ac.get(fn_idx, prev_ac.get(str(fn_idx), 0)) / prev_total
+        return f" (prev {ppct:.1f}%)"
+
+    _log_action_breakdown(info, _cmp_vs_prev)
 
     # 3. Task metrics — adapters populate info["episode_task_metrics"] as a
     #    dict of {label: formatted_string} so framework stays game-agnostic.
@@ -487,41 +533,19 @@ def _log_periodic_stats(info: dict, sim: int) -> None:
             else:
                 logger.info("    loss_penalty=%+.1f", terminal)
 
-    ac = info.get("episode_action_counts")
-    if ac:
-        total = sum(ac.values())
-        if total > 0:
-            name_map: dict = info.get("episode_action_name_map") or {}
-            cat_map: dict = info.get("episode_action_category_map") or {}
-            best_ac: dict = (_stats_best[0] or {}).get("episode_action_counts") or {}
-            best_total = sum(best_ac.values()) if best_ac else 0
-            if cat_map:
-                _KNOWN_CATS = ["move", "attack", "build", "train", "upgrade"]
-                cat_groups: dict[str, list[tuple[str, int, float, str]]] = {}
-                for fn_idx, count in ac.items():
-                    label = name_map.get(fn_idx, str(fn_idx))
-                    cat = cat_map.get(fn_idx, "other")
-                    pct = 100.0 * count / total
-                    cmp_s = ""
-                    if best_total > 0:
-                        best_pct = 100.0 * best_ac.get(fn_idx, 0) / best_total
-                        delta = pct - best_pct
-                        if abs(delta) >= 0.1:
-                            cmp_s = f" ({delta:+.1f}pp vs best)"
-                    cat_groups.setdefault(cat, []).append((label, count, pct, cmp_s))
-                unknown_cats = sorted(c for c in cat_groups if c not in _KNOWN_CATS)
-                for cat in _KNOWN_CATS + unknown_cats:
-                    entries = cat_groups.get(cat)
-                    if not entries:
-                        continue
-                    logger.info("    [%s]", cat)
-                    for label, count, pct, cmp_s in sorted(entries):
-                        logger.info("      %s=%d (%.1f%%%s)", label, count, pct, cmp_s)
-            else:
-                for fn_idx, count in sorted(ac.items(), key=lambda x: -x[1]):
-                    label = name_map.get(fn_idx, str(fn_idx))
-                    pct = 100.0 * count / total
-                    logger.info("    %s=%d (%.1f%%)", label, count, pct)
+    best_ac: dict = (_stats_best[0] or {}).get("episode_action_counts") or {}
+    best_total = sum(best_ac.values()) if best_ac else 0
+
+    def _cmp_vs_best(fn_idx: int, pct: float) -> str:
+        if best_total <= 0:
+            return ""
+        best_pct = 100.0 * best_ac.get(fn_idx, 0) / best_total
+        delta = pct - best_pct
+        if abs(delta) < 0.1:
+            return ""
+        return f" ({delta:+.1f}pp vs best)"
+
+    _log_action_breakdown(info, _cmp_vs_best)
 
 
 def _print_action_stats(throttle_counts: list[int], turning_steps: int, steps: int) -> None:

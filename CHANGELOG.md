@@ -27,6 +27,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.6.6] - 2026-06-08
+
+- `grid_search.py` now accepts `--log-stats-every N`, overriding
+  `training_params.log_stats_every_n_sims` for every combo in the grid
+  (matching the existing `main.py` flag). `1` = every episode, `0` =
+  disable. Overrides any value set in the grid config YAML.
+
+---
+
 ## [0.6.5] - 2026-06-08
 
 ### Changed

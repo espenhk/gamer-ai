@@ -1101,6 +1101,20 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--log-stats-every",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="log_stats_every",
+        help=(
+            "Override training_params log_stats_every_n_sims for every combo — "
+            "print an action and reward breakdown every N episodes/generations.  "
+            "1 = every episode.  0 = disable.  Fires on every Nth episode "
+            "regardless of whether a new best was found.  Overrides any value set "
+            "in the grid config YAML."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -1171,11 +1185,24 @@ def main() -> None:
     game_name = getattr(args, "game", None) or game_name
     track_override = getattr(args, "track", None) or track_override
 
+    if args.log_stats_every is not None:
+        try:
+            args.log_stats_every = _parse_non_negative_int(args.log_stats_every, "--log-stats-every")
+        except ValueError as exc:
+            parser.error(str(exc))
+
     adapter = GAME_ADAPTERS[game_name]()
     combos, varied_keys = _expand_grid(training_spec, reward_spec)
     if args.live_gui:
         for combo in combos:
             combo["training_params"]["live_gui"] = True
+    if args.log_stats_every is not None:
+        for combo in combos:
+            combo["training_params"]["log_stats_every_n_sims"] = args.log_stats_every
+        logger.info(
+            "Overriding training_params log_stats_every_n_sims = %d from --log-stats-every",
+            args.log_stats_every,
+        )
 
     n = len(combos)
     logger.info("  Grid search:       %d combination(s)", n)

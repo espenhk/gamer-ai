@@ -27,6 +27,25 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.6.7] - 2026-06-08
+
+- `grid_search.py` now supports multiple maps / tracks as the outermost search
+  axis. Set `map_name` (SC2) or `track` (TMNF/TORCS) to a list in
+  `training_params` to run all inner-param combos for each map in sequence,
+  with a separate analytics summary per map:
+  ```yaml
+  training_params:
+    map_name: [BuildMarines, Simple64]
+    mutation_scale: [0.05, 0.1]   # → 2 combos per map, 2 summaries total
+  ```
+  Ambiguous or degenerate multi-map configs now fail fast with a clear
+  message: setting both `map_name` and `track` to lists, an empty map-axis
+  list, or combining multi-map mode with a fixed `--track` / config `track:`
+  override are all rejected up front.
+  Closes #387.
+
+---
+
 ## [0.6.6] - 2026-06-08
 
 - `grid_search.py` now accepts `--log-stats-every N`, overriding

@@ -1111,10 +1111,12 @@ def main() -> None:
         default=None,
         metavar="PATH",
         help=(
-            "Write logs to PATH in addition to the terminal (tee).  "
-            "The file is opened fresh on each run (overwrites).  "
-            "Combine with --log-level DEBUG to capture SC2 state snapshots "
-            "(available actions, units, buildings) every ~10 s."
+            "Write logs to PATH in addition to the terminal.  The file always "
+            "captures full DEBUG output regardless of --log-level, while the "
+            "terminal verbosity stays governed by --log-level.  The file is "
+            "opened fresh on each run (overwrites).  At DEBUG the file also "
+            "captures SC2 state snapshots (available actions, units, buildings) "
+            "every ~10 s."
         ),
     )
     args = parser.parse_args()
@@ -1122,13 +1124,21 @@ def main() -> None:
     _log_level = getattr(logging, args.log_level)
     _log_fmt = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
     _log_datefmt = "%H:%M:%S"
-    logging.basicConfig(level=_log_level, format=_log_fmt, datefmt=_log_datefmt)
+    # The terminal verbosity is controlled by --log-level; the file always
+    # captures DEBUG.  The root logger must therefore sit at the most verbose
+    # of the two (DEBUG when a file is requested) so records can reach the file
+    # handler, while the console handler is filtered to --log-level on its own.
+    _root_level = min(_log_level, logging.DEBUG) if args.log_file else _log_level
+    logging.basicConfig(level=_root_level, format=_log_fmt, datefmt=_log_datefmt)
     if args.log_file:
+        # Keep the terminal at --log-level even though the root is now DEBUG.
+        for _h in logging.getLogger().handlers:
+            _h.setLevel(_log_level)
         _fh = logging.FileHandler(args.log_file, mode="w", encoding="utf-8", delay=False)
-        _fh.setLevel(_log_level)
+        _fh.setLevel(logging.DEBUG)
         _fh.setFormatter(logging.Formatter(_log_fmt, datefmt=_log_datefmt))
         logging.getLogger().addHandler(_fh)
-        logger.info("Logging to file: %s", args.log_file)
+        logger.info("Logging to file: %s (DEBUG level)", args.log_file)
 
     logger.info("gamer-ai code version: %s", code_version())
 

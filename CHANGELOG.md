@@ -17,8 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Changed
 
-
+- `--log-file` now always writes full `DEBUG`-level output to the file
+  regardless of `--log-level`; `--log-level` continues to control only the
+  terminal verbosity (`main.py`, `grid_search.py`).
 
 ---
 

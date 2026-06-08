@@ -17,119 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
----
-
-## [0.6.1] - 2026-06-08
-
-- **Bug fix**: `grid_search.py --game assetto` now works. `assetto` was missing from the `--game` choices list in `grid_search.py` despite being fully supported (closes #430).
-- Added `games/assetto_corsa/config/gs_genetic.yaml` — a baseline 6-combo grid-search template for Assetto Corsa with `GeneticPolicy`.
-
----
-
-## [0.6.0] - 2026-06-07
-
-### Changed
-
-- **SC2 reward — `build_train_bonus` split into `build_bonus` and `train_bonus`** (breaking config change). The single `build_train_bonus` key is replaced by `build_bonus` (structure placement) and `train_bonus` (unit production). `train_bonus` is intended to be `4 × build_bonus` to reflect the higher immediate impact of producing units. Each has a matching repeat-spam penalty: `build_repeat_penalty` (unchanged semantics) and the new `train_repeat_penalty`. Shipped ladder defaults: `build_bonus: 0.5`, `build_repeat_penalty: -0.5`, `train_bonus: 2.0`, `train_repeat_penalty: -2.0`. Existing configs that set `build_train_bonus` must rename the key and add `train_bonus` / `train_repeat_penalty`.
-
----
-
-## [0.5.9] - 2026-06-07
-
----
-
-## [0.5.8] - 2026-06-07
-
-### Fixed
-- SC2: `new_action_unlock_bonus` and `new_action_usage_bonus` now fire for
-  basic unit-train actions (`Train_Marine_quick`, `Train_Hellion_quick`,
-  `Train_Zealot_quick`, etc.) that are tech-gated via their `selection_target`
-  production building (e.g. Marine→Barracks, Hellion→Factory, Zealot→Gateway).
-  Previously `_TECH_GATED_FN_IDS` only matched actions with an explicit
-  `required_buildings` precondition, causing basic trains to earn zero unlock
-  and usage bonuses while build actions (Barracks, Factory…) earned both.  The
-  fix extends the filter: if `selection_target` contains any building whose
-  `BUILDING_PREREQS` is non-empty (i.e. the building itself must be
-  constructed), the action is treated as tech-gated.  Basic-worker trains
-  (`Train_SCV_quick`, `Train_Drone_quick`, `Train_Probe_quick`) remain excluded
-  because their producers (CommandCenter, Hatchery, Nexus) have no building
-  prerequisites.
-
----
-
-## [0.5.7] - 2026-06-07
-
----
-
-## [0.5.6] - 2026-06-07
-
 ### Added
-- SC2: `build_repeat_penalty` reward parameter. Per-step penalty when the
-  agent issues the same build fn_idx on two consecutive env steps. Breaks
-  "Can't find placement location" spam loops where a failed placement earns
-  no consequence from the reward function. Setting `build_repeat_penalty:
-  -build_train_bonus` (e.g. `-0.5`) makes repeated build spam net-zero
-  reward while leaving the first issuance fully rewarded. Default `0.0`
-  (opt-in); shipped ladder config enables it at `-0.5`. Appears as
-  `build_repeat_penalty` in the reward components dict.
-
----
-
-## [0.5.3] - 2026-06-06
-
-### Fixed
-- SC2 training loop no longer slows down progressively over long runs (issue #378).
-  Three root causes removed:
-  - Army and resource time-series were appended every env step; they now sample
-    every 10 steps (`_SERIES_SAMPLE_RATE`), bounding each episode's series to
-    ~1 340 points at `step_mul=1` for a 10-minute game instead of ~13 400.
-  - Six expensive per-step info fields (`episode_action_counts`,
-    `episode_action_name_map`, `episode_xy_hist`, `episode_obs_averages`,
-    `episode_army_series`, `episode_resource_series`) were rebuilt from scratch
-    on every step; they are now computed only at episode end.
-  - `greedy_sims` in the training loop held full series data for every
-    simulation; non-improving sims now store `None` for series fields, so
-    memory use no longer grows with the number of simulations.
-- Action frequency bar chart in the live GUI now groups SC2 `Move_screen` /
-  `Attack_screen` actions by action type instead of showing every distinct
-  `(x, y)` coordinate as a separate bar, giving a readable frequency summary
-  across the 64-cell grid.
-
----
-
-## [0.5.2] - 2026-06-06
-
-### Added
-- SC2: `build_train_bonus` reward parameter (issue #416). Per-step bonus
-  when the agent issues any "build" or "train" category action (supply
-  depots, barracks, workers, marines, etc.). Encourages production over
-  idle movement in the early game. Default `0.0` (opt-in); shipped ladder
-  preset enables it at `0.5`. Normalised in analytics via the
-  `build_train` component key.
-- SC2: `new_action_unlock_bonus` reward parameter (issue #360). One-shot
-  bonus the first time a tech-tree-gated fn_idx becomes fully executable
-  in an episode. Paired with `new_action_usage_bonus` which rewards
-  actually issuing those newly-available actions.
-- SC2: `damage_taken_penalty` reward parameter (issue #401). Per-step
-  penalty proportional to HP+shield lost across visible friendly units.
-  Default `0.0` (opt-in); shipped ladder preset enables it at `-0.01`.
-
----
-
-## [0.5.1] - 2026-06-05
-
-### Changed
-- Live GUI (`--live_gui`) now updates every 50 steps instead of every env
-  step, eliminating the per-step Tkinter redraw that was blocking the SC2
-  training loop and making the game chug (issue #378). The interval is
-  configurable via `live_gui_update_interval` in `training_params.yaml`
-  (default `50`). Rolling reward statistics are still accumulated every
-  step so the displayed means remain accurate.
-- The "Last 10 actions" list in the live GUI has been replaced with an
-  action-frequency bar chart showing the count and percentage of each
-  distinct action taken in the most recent batch of steps. No-op actions
-  are still hidden.
+- Multi-map grid search (issue #387). Grid config YAMLs now accept a `maps:` key
+  (list of map/track names) or a list-valued `track:` key. Each map is run as the
+  outermost sequential loop — all parameter combinations execute for each map in
+  order, with a per-map cross-experiment summary report written to
+  `experiments/<map>/<base_name>__summary/`. Single-map configs (scalar or absent
+  `track:`) behave identically to before. BC warm-start and multi-map cannot be
+  combined (raises an error at startup).
 
 ---
 
@@ -358,7 +253,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
   sequence-aware NPZ demonstration datasets (`obs`, `actions`,
   `episode_starts`, `episode_lengths`, `episode_id`, `meta`).  Public API:
   `iter_replays(folder)`, `replay_observations(path, ...)` (generator),
-  `build_dataset(folder, save_path, ...)`, and `load_dataset(path, ...)`.
+  `build_dataset(folder, save_path, ...)`, and `load_dataset(path, ...)`.  
   Supports race filtering, winner/explicit player selection, configurable
   `step_mul`, and a `multi_action_strategy` knob (`"first"` /
   `"first_non_noop"`) for steps with multiple simultaneous actions.  All
@@ -1065,7 +960,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **SC2 `attack_bonus` reward component** (issue #251).  New opt-in reward
   config key `attack_bonus` (default `0.0`) awards a flat bonus whenever the
   agent issues `Attack_screen` (fn_idx 3), regardless of whether the target
-  is a visible enemy unit (click-to-attack) or on open ground (A-move).  Acts as
+  is a visible enemy unit (click-to-attack) or open ground (A-move).  Acts as
   a simpler alternative to enabling both `attack_move_bonus` and
   `click_attack_bonus` separately; all three can be active simultaneously.
   The contribution is tracked as a separate `"attack_bonus"` entry in

@@ -10,7 +10,7 @@ index using the same logic as ``games.atari.env``:
   - Integer-valued floats (e.g. 0.0, 1.0, 2.0) from tabular/DQN policies
     are used as-is (after rounding and clamping).
   - Continuous [-1, 1] values from evolutionary/gradient policies are
-    linearly mapped to [0, n_actions - 1].
+    linearly mapped to [0, n_actions − 1].
 
 Pendulum-v1 uses a continuous ``Box([-2], [2])`` action space.  Its
 ``DISCRETE_ACTIONS`` table provides a fine grid of torque values for
@@ -59,7 +59,7 @@ def is_continuous(map_name: str) -> bool:
 def get_discrete_actions(map_name: str) -> np.ndarray:
     """Return a ``(n, 1)`` DISCRETE_ACTIONS table for *map_name*.
 
-    For discrete envs: rows are integer action indices as floats (0.0, 1.0, ...).
+    For discrete envs: rows are integer action indices as floats (0.0, 1.0, …).
     For Pendulum (continuous): rows are torque values on [-2, 2] as a 11-point grid.
     """
     n = get_n_actions(map_name)

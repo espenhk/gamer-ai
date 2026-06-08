@@ -1,0 +1,4 @@
+# Reward configuration for gym_classic. See games/gym_classic/README.md for full documentation.
+
+native_reward_scale: 1.0
+step_penalty: 0.0

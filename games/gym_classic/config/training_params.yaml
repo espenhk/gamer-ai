@@ -1,0 +1,18 @@
+# Gymnasium classic-control training parameters.
+# Select the environment with map_name. Supported values:
+#   CartPole-v1, MountainCar-v0, Acrobot-v1, Pendulum-v1, LunarLander-v2
+
+game: gym_classic
+map_name: CartPole-v1
+in_game_episode_s: 10.0   # 500 steps at 50 fps (CartPole default max)
+n_sims: 100
+mutation_scale: 0.05
+mutation_share: 1.0
+adaptive_mutation: true
+patience: 0
+
+policy_type: genetic
+
+policy_params:
+  population_size: 20
+  elite_k: 3

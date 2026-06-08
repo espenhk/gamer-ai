@@ -26,7 +26,7 @@ mutation_scale: 0.05         # std-dev of Gaussian noise applied to each perturb
 mutation_share: 1.0          # fraction of weights perturbed per mutation (1.0 = all)
 adaptive_mutation: true      # apply 1/5th success rule to adapt mutation_scale during greedy phase
 patience: 0                  # stop greedy loop if no improvement for this many sims (0 = run all)
-log_stats_every_n_sims: 10   # log reward components + action ratios every N sims (0 = disable)
+log_stats_every_n_sims: 1   # log reward components + action ratios every N sims (0 = disable)
 
 # Policy algorithm for the greedy training phase.
 # SC2-specific policies (correct action encoding for [fn_idx, x, y, queue]):

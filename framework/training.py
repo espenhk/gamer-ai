@@ -496,7 +496,7 @@ def _log_periodic_stats(info: dict, sim: int, best_info: dict | None = None) -> 
             best_ac: dict = (best_info or {}).get("episode_action_counts") or {}
             best_total = sum(best_ac.values()) if best_ac else 0
             if cat_map:
-                _CAT_ORDER = ["move", "attack", "build", "train", "upgrade"]
+                _KNOWN_CATS = ["move", "attack", "build", "train", "upgrade"]
                 cat_groups: dict[str, list[tuple[str, int, float, str]]] = {}
                 for fn_idx, count in ac.items():
                     label = name_map.get(fn_idx, str(fn_idx))
@@ -509,7 +509,8 @@ def _log_periodic_stats(info: dict, sim: int, best_info: dict | None = None) -> 
                         if abs(delta) >= 0.1:
                             cmp_s = f" ({delta:+.1f}pp vs best)"
                     cat_groups.setdefault(cat, []).append((label, count, pct, cmp_s))
-                for cat in _CAT_ORDER + ["other"]:
+                unknown_cats = sorted(c for c in cat_groups if c not in _KNOWN_CATS)
+                for cat in _KNOWN_CATS + unknown_cats:
                     entries = cat_groups.get(cat)
                     if not entries:
                         continue
@@ -863,6 +864,7 @@ def _greedy_loop(
                     live_monitor=live_monitor,
                 )
                 improved = ep.reward > best_reward
+                _prev_best_info = best_info
                 if improved:
                     prev_best = best_reward
                     best_reward = ep.reward
@@ -872,13 +874,13 @@ def _greedy_loop(
                     _try_save_replay(env, weights_file)
                     verdict = f"NEW BEST  {ep.reward:+.1f}  (was {prev_best:+.1f})"
                     logger.info("  >> %s", verdict)
-                    _log_new_best_details(ep.info, best_info)
+                    _log_new_best_details(ep.info, _prev_best_info)
                     best_info = ep.info
                 else:
                     verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
                     logger.debug("  >> %s", verdict)
-                    if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
-                        _log_periodic_stats(ep.info, sim, best_info)
+                if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
+                    _log_periodic_stats(ep.info, sim, _prev_best_info)
                 if self_play_manager is not None:
                     _new_opp = self_play_manager.step(best_policy, improved)
                     if _new_opp is not None:
@@ -1005,6 +1007,7 @@ def _greedy_loop(
                 _discard_candidate_replay(_plus_candidate)
                 _winner_candidate = _save_candidate_replay(env, weights_file) if ep_minus.reward > best_reward else None
 
+            _prev_best_info = best_info_logged
             improved = False
             if best_ep.reward > best_reward:
                 prev_best = best_reward
@@ -1019,7 +1022,7 @@ def _greedy_loop(
                     f"  gradient={ep_plus.reward - ep_minus.reward:+.1f}"
                 )
                 logger.info("  >> %s", verdict)
-                _log_new_best_details(best_ep.info, best_info_logged)
+                _log_new_best_details(best_ep.info, _prev_best_info)
                 best_info_logged = best_ep.info
             else:
                 _discard_candidate_replay(_winner_candidate)
@@ -1027,8 +1030,8 @@ def _greedy_loop(
                     f"no improvement  +ε={ep_plus.reward:+.1f}  -ε={ep_minus.reward:+.1f}  best={best_reward:+.1f}"
                 )
                 logger.debug("  >> %s", verdict)
-                if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(best_ep.info, sim, best_info_logged)
+            if log_stats_every_n_sims > 0 and sim % log_stats_every_n_sims == 0:
+                _log_periodic_stats(best_ep.info, sim, _prev_best_info)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(best_policy, improved)
@@ -1269,6 +1272,7 @@ def _greedy_loop_cmaes(
                         _gen_candidate = _save_candidate_replay(env, weights_file)
                         _gen_candidate_reward = ind_avg
 
+            _prev_best_info = best_info_logged
             improved = policy.update_distribution(rewards)
             gen_best = max(rewards)
             if gen_best > best_reward:
@@ -1280,7 +1284,7 @@ def _greedy_loop_cmaes(
                 _gen_candidate = None
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}  sigma={policy.sigma:.4f}"
                 logger.info("  >> %s", verdict)
-                _log_new_best_details(last_info, best_info_logged)
+                _log_new_best_details(last_info, _prev_best_info)
                 best_info_logged = last_info
             else:
                 _discard_candidate_replay(_gen_candidate)
@@ -1290,8 +1294,8 @@ def _greedy_loop_cmaes(
                     f"  sigma={policy.sigma:.4f}"
                 )
                 logger.debug("  >> %s", verdict)
-                if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(last_info, gen, best_info_logged)
+            if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
+                _log_periodic_stats(last_info, gen, _prev_best_info)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1392,6 +1396,7 @@ def _greedy_loop_q_learning(
 
             improved = ep.reward > best_reward
             cfg = policy.to_cfg()
+            _prev_best_info = best_info_logged
             if improved:
                 prev_best = best_reward
                 best_reward = ep.reward
@@ -1404,7 +1409,7 @@ def _greedy_loop_q_learning(
                     verdict,
                     cfg.get("n_states_visited", "?"),
                 )
-                _log_new_best_details(ep.info, best_info_logged)
+                _log_new_best_details(ep.info, _prev_best_info)
                 best_info_logged = ep.info
             else:
                 verdict = f"no improvement  r={ep.reward:+.1f}  best={best_reward:+.1f}"
@@ -1413,8 +1418,8 @@ def _greedy_loop_q_learning(
                     verdict,
                     cfg.get("n_states_visited", "?"),
                 )
-                if log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(ep.info, episode, best_info_logged)
+            if log_stats_every_n_sims > 0 and episode % log_stats_every_n_sims == 0:
+                _log_periodic_stats(ep.info, episode, _prev_best_info)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)
@@ -1591,6 +1596,7 @@ def _greedy_loop_genetic(
             gen_best = max(rewards)
             if gen_best > best_reward:
                 best_reward = gen_best
+            _prev_best_info = best_info_logged
             if improved:
                 policy.save(weights_file)
                 policy.save_trainer_state(_trainer_state_path(weights_file))
@@ -1598,14 +1604,14 @@ def _greedy_loop_genetic(
                 _gen_candidate = None
                 verdict = f"NEW BEST champion  reward={policy.champion_reward:+.1f}"
                 logger.info("  >> %s", verdict)
-                _log_new_best_details(last_info, best_info_logged)
+                _log_new_best_details(last_info, _prev_best_info)
                 best_info_logged = last_info
             else:
                 _discard_candidate_replay(_gen_candidate)
                 verdict = f"no improvement  gen_best={gen_best:+.1f}  champion={policy.champion_reward:+.1f}"
                 logger.debug("  >> %s", verdict)
-                if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
-                    _log_periodic_stats(last_info, gen, best_info_logged)
+            if log_stats_every_n_sims > 0 and gen % log_stats_every_n_sims == 0:
+                _log_periodic_stats(last_info, gen, _prev_best_info)
 
             if self_play_manager is not None:
                 _new_opp = self_play_manager.step(policy, improved)

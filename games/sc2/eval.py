@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import yaml
 
-from games.sc2.actions import ACTION_CATEGORIES, FUNCTION_IDS
+from games.sc2.actions import ACTION_CATEGORIES, CATEGORY_NAMES, FUNCTION_IDS
 from games.sc2.env import SC2Env
 from games.sc2.reward import SC2RewardConfig
 
@@ -56,9 +56,8 @@ logger = logging.getLogger(__name__)
 
 # Actions grouped by category, alphabetically sorted within each group.
 # Used for consistent display (including zero-count actions) in breakdowns.
-_CAT_ORDER: list[str] = ["move", "attack", "build", "train", "upgrade"]
 _GROUPED_FN_NAMES: list[tuple[str, list[str]]] = [
-    (cat, sorted(FUNCTION_IDS[idx] for idx in ACTION_CATEGORIES[cat] if idx in FUNCTION_IDS)) for cat in _CAT_ORDER
+    (cat, sorted(FUNCTION_IDS[idx] for idx in ACTION_CATEGORIES[cat] if idx in FUNCTION_IDS)) for cat in CATEGORY_NAMES
 ]
 
 

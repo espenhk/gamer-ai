@@ -234,6 +234,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "(sc2_genetic, sc2_cmaes, sc2_lstm, sc2_cnn)."
         ),
     )
+    parser.add_argument(
+        "--log-stats-every",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="log_stats_every",
+        help=(
+            "Override training_params log_stats_every_n_sims — print an action "
+            "and reward breakdown every N episodes/generations.  1 = every episode.  "
+            "0 = disable.  Fires on every Nth episode regardless of whether a new "
+            "best was found."
+        ),
+    )
     return parser
 
 
@@ -314,6 +327,12 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
     if getattr(args, "workers", None) is not None:
         p["n_workers"] = int(args.workers)
         logger.info("Overriding training_params n_workers = %d from --workers", p["n_workers"])
+    if getattr(args, "log_stats_every", None) is not None:
+        p["log_stats_every_n_sims"] = int(args.log_stats_every)
+        logger.info(
+            "Overriding training_params log_stats_every_n_sims = %d from --log-stats-every",
+            p["log_stats_every_n_sims"],
+        )
     if getattr(args, "live_gui", False):
         p["live_gui"] = True
         logger.info("Live GUI telemetry enabled via --live-gui")

@@ -17,9 +17,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.6.2] - 2026-06-08
+
 - **Atari `--render` flag** (#427): pass `--render` to `main.py` to open a human-visible SDL game window while training. Slows Atari to real-time (~60 fps); ignored for all non-Atari games. Not available in grid search.
 - **Atari `--eval` mode**: load a trained champion and watch it play rendered, with no weight updates. Mirrors the SC2 `--eval` pattern. Usage: `python main.py <name> --game atari --eval [--num-episodes N]`. Reports per-episode and aggregate score/steps statistics.
-
 
 ---
 

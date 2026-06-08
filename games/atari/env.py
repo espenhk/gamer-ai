@@ -87,7 +87,6 @@ class AtariEnv(BaseGameEnv):
         self._reward_config = reward_config or AtariRewardConfig()
         self._reward_calc = AtariRewardCalculator(self._reward_config)
         self._max_episode_steps = int(max_episode_steps)
-        self._render_mode = render_mode
 
         # Register the ALE namespace with gymnasium.  Importing ale_py is
         # what triggers its env registration; do it lazily so plain

@@ -99,7 +99,10 @@ def eval_atari(experiment_name: str, args) -> None:
 
 
 def _run_episode(env, policy, ep_idx: int, total: int) -> tuple[float, int]:
-    obs, _ = env.reset()
+    obs, info = env.reset()
+
+    if hasattr(policy, "on_episode_start"):
+        policy.on_episode_start(info=info)
 
     cumulative_reward = 0.0
     steps = 0
@@ -111,6 +114,9 @@ def _run_episode(env, policy, ep_idx: int, total: int) -> tuple[float, int]:
         done = terminated or truncated
         cumulative_reward += reward
         steps += 1
+
+    if hasattr(policy, "on_episode_end"):
+        policy.on_episode_end()
 
     print(f"  Episode {ep_idx}/{total}  score={cumulative_reward:.1f}  steps={steps}")
     return cumulative_reward, steps

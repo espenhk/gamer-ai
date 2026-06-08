@@ -330,8 +330,11 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
         p["live_gui"] = True
         logger.info("Live GUI telemetry enabled via --live-gui")
     if getattr(args, "render", False):
-        p["render_mode"] = "human"
-        logger.info("Human-visible rendering enabled via --render")
+        if adapter.name == "atari":
+            p["render_mode"] = "human"
+            logger.info("Human-visible rendering enabled via --render")
+        else:
+            logger.warning("--render is only supported for Atari; flag ignored for game %r", adapter.name)
 
     # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
     with open(reward_cfg_file) as f:

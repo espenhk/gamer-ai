@@ -970,17 +970,7 @@ def main() -> None:
     parser.add_argument(
         "--game",
         default=None,
-        choices=[
-            "tmnf",
-            "beamng",
-            "assetto",
-            "car_racing",
-            "torcs",
-            "sc2",
-            "rocket_league",
-            "iracing",
-            "atari",
-        ],
+        choices=sorted(GAME_ADAPTERS.keys()),
         help="Override game (default: from YAML 'game:' field, or tmnf)",
     )
     parser.add_argument(

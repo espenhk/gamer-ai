@@ -15,6 +15,7 @@ base_name: "gs_assetto_genetic_v1"
 game: assetto
 
 training_params:
+  speed: 5.0
   in_game_episode_s: 150.0
   n_sims: 30
   policy_type: genetic

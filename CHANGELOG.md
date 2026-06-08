@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.6.8] - 2026-06-08
+
 ### Changed
 
 - Training logs: the periodic stats block (`log_stats_every_n_sims`) now pads

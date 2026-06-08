@@ -7,8 +7,9 @@
 # after min_replay_size transitions are collected; ε decays linearly from 1.0
 # to epsilon_end over epsilon_decay_steps environment steps.
 #
-# At step_mul=1 a 120 s episode yields ~2 688 steps (22.4 ticks/s × 120 s).
-# n_sims=200 gives ~537 000 total steps; set epsilon_decay_steps accordingly.
+# At step_mul=4 a 600 s episode yields ~3 360 steps (22.4 ticks/s × 600 s ÷ 4).
+# n_sims=50 gives ~168 000 total steps; set epsilon_decay_steps to 25–75 % of
+# that budget (~42 000–126 000).
 #
 # Good first sweep: learning_rate × epsilon_decay_steps.
 # learning_rate is the most sensitive knob; epsilon_decay_steps controls how
@@ -59,12 +60,12 @@ training_params:
   max_apm: 300
   agent_race: terran
   #difficulty: medium
-  n_sims: 50                 # 50 episodes; ~12 000 env steps total
+  n_sims: 50                 # 50 episodes; ~168 000 env steps total
   policy_type: sc2_neural_dqn
   obs_spec_preset: rich
   enable_belief: false      # false: obs only; true: obs+192 belief dims + scout reward
   learning_rate: 0.01
-  epsilon_decay_steps: 3000
+  epsilon_decay_steps: [42000, 126000]  # 25 % and 75 % of ~168 000 total steps
   hidden_sizes: [[64, 256, 256, 64]]
   initial_extreme_random_fraction: [0.0, 0.25]  # fraction of initial runs forced to random valid actions (set 0 to disable)
 

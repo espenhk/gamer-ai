@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.6.7] - 2026-06-08
+
 - `grid_search.py` now supports multiple maps / tracks as the outermost search
   axis. Set `map_name` (SC2) or `track` (TMNF/TORCS) to a list in
   `training_params` to run all inner-param combos for each map in sequence,

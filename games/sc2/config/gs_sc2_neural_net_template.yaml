@@ -16,7 +16,7 @@ training_params:
   obs_spec_preset: rich
   enable_belief: true              # tabular state-space explosion; see comment above
   policy_type: sc2_neural_net
-  n_sims: 50
+  n_sims: 500
   max_apm: 300
   agent_race: terran
   economy_weight: 0.5

@@ -55,13 +55,13 @@ game: atari
 training_params:
   map_name: Pong-v5           # swap for Breakout-v5, SpaceInvaders-v5, Asteroids-v5, etc.
   in_game_episode_s: 120.0    # 120 s × 60 fps ≈ 7 200 steps / episode
-  n_sims: 200                 # 200 episodes ≈ 1.44 M env steps total
+  n_sims: 100                 # 100 episodes ≈ 720 000 env steps total
   policy_type: neural_dqn
   adaptive_mutation: false    # not used by DQN; disable to keep logs clean
   patience: 0
 
   # --- Search axes ---
-  learning_rate: [0.0001, 0.0005, 0.001]
+  learning_rate: [0.1, 0.01, 0.001, 0.0001]
   epsilon_decay_steps: [50000, 200000]
 
   policy_params:

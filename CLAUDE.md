@@ -27,6 +27,36 @@ To regenerate the Obsidian vault locally: `/graphify --obsidian`
 
 ---
 
+## Memory management
+
+Grid searches run many experiments back-to-back in the same process, so unbounded
+in-memory accumulation is a hard constraint, not a style preference.  Before adding
+any data structure that grows over time, check that it has a clear upper bound or an
+explicit eviction/trim path.
+
+Rules that apply to every code addition:
+
+- **Replay buffers and ring buffers** must be bounded by a configured `maxlen` /
+  `capacity` and must evict old entries when full.  Never append to an unbounded list
+  across episodes or simulations.
+- **Per-episode or per-step bookkeeping** (reward components, action histories,
+  belief grids, logging buffers) must be cleared at episode reset.  Storing these on
+  `self` is fine; letting them grow across episodes is not.
+- **Caches and dicts keyed on episode or step indices** must be pruned or recreated
+  at episode / experiment boundaries so memory does not grow with run length.
+- **Population arrays** (genetic, CMA-ES, LSTM-ES) are naturally bounded by
+  `population_size`; don't accumulate the full history of all generations.
+- **History lists used for analytics** (reward curves, champion logs) belong in
+  `ExperimentData`, not in policy or env objects that persist across experiments.
+- **Logging and debug buffers** must be off by default or bounded (e.g. a circular
+  buffer of the last N entries).  Never log every step unconditionally.
+
+When reviewing a diff, flag any `list.append`, `dict[key] =`, or `deque` that lacks
+a matching size cap or reset call — those are the usual sources of slow memory leaks
+across a long grid search.
+
+---
+
 Multi-game RL agent framework. A game-agnostic training loop and policy
 set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous
@@ -1180,7 +1210,10 @@ and thresholds `x`/`y` to binary — use `sc2_genetic` instead.
 | `new_action_unlock_bonus` | `0.0` | One-shot bonus per tech-gated fn_idx that appears in `available_fn_ids` for the first time in an episode (issue #360). Tech-gated = has a required-building precondition **or** selection target is a production building that itself requires construction (e.g. `Train_Marine_quick` via Barracks, `Train_Zealot_quick` via Gateway). Basic-worker trains and always-available actions excluded. Recommended range: `1.0–10.0`. Opt-in. |
 | `new_action_usage_bonus` | `0.0` | Per-step bonus when the agent issues a tech-gated fn_idx that has already been unlocked this episode (issue #400). Fires up to `new_action_usage_max_uses` times per fn_idx per episode. Complements `new_action_unlock_bonus`. Recommended range: `0.1–2.0`. Opt-in. |
 | `new_action_usage_max_uses` | `50` | Cap on how many times per fn_idx per episode `new_action_usage_bonus` fires. After this many uses the bonus is silenced for that fn_idx for the rest of the episode. |
-| `build_train_bonus` | `0.0` | Per-step bonus when the agent issues a "build" or "train" category action (issue #416). Covers all construction and unit-production fn_idxs for all three races. Encourages production over idle movement in the early game. Recommended range: `0.2–1.0`. Opt-in. |
+| `build_bonus` | `0.0` | Per-step bonus when the agent issues a "build" (structure) category action (issue #416). Covers all construction fn_idxs for all three races. Encourages building infrastructure over idle movement. Recommended range: `0.2–1.0`. Opt-in. |
+| `build_repeat_penalty` | `0.0` | Per-step penalty when the same build fn_idx is issued on two consecutive steps. Set to `−build_bonus` to break placement-spam loops. Opt-in. |
+| `train_bonus` | `0.0` | Per-step bonus when the agent issues a "train" (unit production) category action. Intended to be `4 × build_bonus` — unit production has more immediate combat impact than placing a structure. Opt-in. |
+| `train_repeat_penalty` | `0.0` | Per-step penalty when the same train fn_idx is issued on two consecutive steps. Set to `−train_bonus` to break production-spam loops. Opt-in. |
 | `supply_block_penalty` | `0.0` | Per-step penalty while supply-blocked (`food_used >= food_cap` and `food_cap < 200`). Production halts when capped — the most common macro failure. Range `-0.05` to `-0.5`. Opt-in. |
 | `supply_growth_bonus` | `0.0` | Bonus per point of `food_cap` increase (build supply structures / expand). Only increases rewarded. Range `0.5–3.0`. Opt-in. |
 | `worker_growth_bonus` | `0.0` | Bonus per point of `food_workers` increase (train workers). Pairs with `idle_worker_penalty`. Range `0.5–3.0`. Opt-in. |

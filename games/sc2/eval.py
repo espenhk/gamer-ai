@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import yaml
 
-from games.sc2.actions import FUNCTION_IDS
+from games.sc2.actions import ACTION_CATEGORIES, CATEGORY_NAMES, FUNCTION_IDS
 from games.sc2.env import SC2Env
 from games.sc2.reward import SC2RewardConfig
 
@@ -54,8 +54,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Ordered list of all action names for consistent display even when count=0.
-_ALL_FN_NAMES: tuple[str, ...] = tuple(FUNCTION_IDS[k] for k in sorted(FUNCTION_IDS))
+# Actions grouped by category, alphabetically sorted within each group.
+# Used for consistent display (including zero-count actions) in breakdowns.
+_GROUPED_FN_NAMES: list[tuple[str, list[str]]] = [
+    (cat, sorted(FUNCTION_IDS[idx] for idx in ACTION_CATEGORIES[cat] if idx in FUNCTION_IDS)) for cat in CATEGORY_NAMES
+]
 
 
 # ---------------------------------------------------------------------------
@@ -309,15 +312,17 @@ def _print_action_breakdown(
     header = f"  Action breakdown ({label}):" if label else "  Action breakdown:"
     print(header)
     bar_width = 30
-    for fn_name in _ALL_FN_NAMES:
-        count = action_counts.get(fn_name, 0)
-        pct = 100.0 * count / max(total_steps, 1)
-        filled = int(round(pct / 100.0 * bar_width))
-        bar = "#" * filled + "-" * (bar_width - filled)
-        print(f"    {fn_name:<28} {count:5d} / {total_steps:5d}  ({pct:5.1f}%)  [{bar}]")
+    for category, fn_names in _GROUPED_FN_NAMES:
+        print(f"  [{category}]")
+        for fn_name in fn_names:
+            count = action_counts.get(fn_name, 0)
+            pct = 100.0 * count / max(total_steps, 1)
+            filled = int(round(pct / 100.0 * bar_width))
+            bar = "#" * filled + "-" * (bar_width - filled)
+            print(f"      {fn_name:<26} {count:5d} / {total_steps:5d}  ({pct:5.1f}%)  [{bar}]")
     if substitution_count > 0:
         sub_pct = 100.0 * substitution_count / max(total_steps, 1)
-        print(f"    {'  (blocked → substituted)':<28} {substitution_count:5d} / {total_steps:5d}  ({sub_pct:5.1f}%)")
+        print(f"      {'(blocked → substituted)':<26} {substitution_count:5d} / {total_steps:5d}  ({sub_pct:5.1f}%)")
 
 
 def _print_aggregate_summary(

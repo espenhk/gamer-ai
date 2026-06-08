@@ -16,8 +16,9 @@
 #   hidden_sizes                                  (capacity axis)
 #
 # At step_mul=1 a 600 s episode yields ~13 440 steps (22.4 ticks/s × 600 s).
-# n_sims=200 gives ~2 688 000 total steps across a run; set epsilon_decay_steps
-# to cover 25–75 % of that budget.
+# n_sims=50 gives ~672 000 total steps; n_sims=200 gives ~2 688 000 total steps.
+# Set epsilon_decay_steps to cover 25–75 % of the budget you actually use
+# (~168 000–504 000 for n_sims=50; ~672 000–2 016 000 for n_sims=200).
 #
 # BC target note
 # --------------
@@ -61,7 +62,7 @@ training_params:
   policy_type: sc2_neural_dqn
   obs_spec_preset: ladder
   enable_belief: true
-  epsilon_decay_steps: 3000
+  epsilon_decay_steps: [168000, 336000]  # 25 % and 50 % of ~672 000 total steps (n_sims=50)
 
   # Search axes — lists trigger a sweep; scalars are fixed across all combos.
   learning_rate: [0.01, 0.05]

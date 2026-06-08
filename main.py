@@ -87,6 +87,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "of 5 steps) and observation values during training."
         ),
     )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help=(
+            "Open a human-visible game window while training (Atari only). "
+            "Ignored for all other games. "
+            "Slows training to roughly real-time (~60 fps); not suitable for grid search."
+        ),
+    )
 
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -103,10 +112,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--eval",
         action="store_true",
         help=(
-            "Evaluation mode (SC2 only).  "
-            "Loads the champion policy from the experiment and runs it against "
-            "AI opponents for evaluation.  Runs multiple episodes and reports "
-            "aggregate statistics: win rate, average score, average game length.  "
+            "Evaluation mode (SC2 and Atari).  "
+            "Loads the champion policy from the experiment and runs it for "
+            "--num-episodes episodes, reporting aggregate statistics.  "
+            "For Atari, opens a human-visible game window automatically.  "
             "No weight updates occur."
         ),
     )
@@ -262,15 +271,18 @@ def main() -> None:
     if args.play and args.game != "sc2":
         raise SystemExit("--play is only supported with --game sc2")
 
-    if args.eval and args.game != "sc2":
-        raise SystemExit("--eval is only supported with --game sc2")
+    if args.eval and args.game not in ("sc2", "atari"):
+        raise SystemExit("--eval is only supported with --game sc2 or --game atari")
 
     if args.play:
         _run_play_sc2(args)
         return
 
     if args.eval:
-        _run_eval_sc2(args)
+        if args.game == "sc2":
+            _run_eval_sc2(args)
+        else:
+            _run_eval_atari(args)
         return
 
     adapter = GAME_ADAPTERS[args.game]()
@@ -317,6 +329,12 @@ def _run_one(adapter, args: argparse.Namespace) -> None:
     if getattr(args, "live_gui", False):
         p["live_gui"] = True
         logger.info("Live GUI telemetry enabled via --live-gui")
+    if getattr(args, "render", False):
+        if adapter.name == "atari":
+            p["render_mode"] = "human"
+            logger.info("Human-visible rendering enabled via --render")
+        else:
+            logger.warning("--render is only supported for Atari; flag ignored for game %r", adapter.name)
 
     # Decorate reward config with game-specific keys (e.g. TMNF centerline_path).
     with open(reward_cfg_file) as f:
@@ -366,6 +384,12 @@ def _run_eval_sc2(args: argparse.Namespace) -> None:
         raise SystemExit(
             f"Cannot import SC2 eval dependencies: {exc}\nInstall pysc2 with:  poetry install --with sc2"
         ) from exc
+
+
+def _run_eval_atari(args: argparse.Namespace) -> None:
+    from games.atari.eval import eval_atari  # noqa: PLC0415
+
+    eval_atari(args.experiment, args)
 
 
 # ======================================================================

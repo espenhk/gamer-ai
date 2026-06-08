@@ -267,6 +267,7 @@ worker mechanics are unit-tested with a dummy env.
 - `track_label` defaults to `Pong-v5`, sanitises slashes (e.g. `ALE/Pong-v5` → `ALE_Pong-v5`)
 - `build_probe` / `build_warmup` / `decorate_reward_cfg` are no-ops
 - `build_game_spec` wires in the 128-dim obs spec, the 18-row `DISCRETE_ACTIONS`, and a callable `make_env_fn` / `save_results_fn`
+- `build_game_spec` threads `render_mode` from `training_params` into `make_env()` (patched to verify the kwarg)
 - `build_game_spec` side-effect: `neural_dqn`, `reinforce`, and `lstm` are registered in `POLICY_REGISTRY` after the call
 
 (SC2 policy/param validation moved to test_policy_registry.py with the

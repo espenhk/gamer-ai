@@ -65,12 +65,14 @@ class AtariAdapter:
         import games.atari.policies  # noqa: F401 — side-effect: registers Atari policy types
 
         map_name = track_override or training_params.get("map_name", "Pong-v5")
+        render_mode = training_params.get("render_mode", None)
 
         def _make_env():
             return make_env(
                 experiment_dir=experiment_dir,
                 map_name=map_name,
                 max_episode_time_s=training_params["in_game_episode_s"],
+                render_mode=render_mode,
             )
 
         return GameSpec(

@@ -106,6 +106,31 @@ class TestAtariGameSpec(unittest.TestCase):
         self.assertTrue(callable(spec.make_env_fn))
         self.assertTrue(callable(spec.save_results_fn))
 
+    def test_build_game_spec_render_mode_forwarded(self):
+        """render_mode from training_params is forwarded to make_env()."""
+        from unittest.mock import MagicMock, patch
+
+        a = GAME_ADAPTERS["atari"]()
+        with patch("games.atari.adapter.make_env") as mock_make_env:
+            mock_make_env.return_value = MagicMock()
+            spec = a.build_game_spec(
+                experiment_name="myrun",
+                experiment_dir="experiments/atari/genetic/Pong-v5/myrun",
+                weights_file="experiments/atari/genetic/Pong-v5/myrun/policy_weights.yaml",
+                reward_cfg_file="experiments/atari/genetic/Pong-v5/myrun/reward_config.yaml",
+                training_params={
+                    "map_name": "Pong-v5",
+                    "in_game_episode_s": 60.0,
+                    "policy_type": "genetic",
+                    "render_mode": "human",
+                },
+                track_override=None,
+            )
+            spec.make_env_fn()
+            mock_make_env.assert_called_once()
+            _, kwargs = mock_make_env.call_args
+            self.assertEqual(kwargs.get("render_mode"), "human")
+
     def test_build_game_spec_registers_atari_policies(self):
         """build_game_spec must trigger the side-effect import of games.atari.policies.
 

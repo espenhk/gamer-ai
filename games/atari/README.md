@@ -38,6 +38,12 @@ No external process required. Gymnasium / ALE manages the emulator lifecycle in-
 python main.py smoke --game atari --no-interrupt
 ```
 
+Add `--render` to open a human-visible game window and watch the agent play in real time (slows training to ~60 fps):
+
+```bash
+python main.py smoke --game atari --render --no-interrupt
+```
+
 By default the integration runs `Pong-v5`. Override with the `map_name` config key or the CLI `--track` flag:
 
 ```bash
@@ -110,6 +116,15 @@ python main.py pong_genetic --game atari --track Pong-v5
 ```
 
 Results saved to `experiments/atari/genetic/Pong-v5/pong_genetic/results/`.
+
+### Watch the champion play (eval mode)
+
+Load the best saved weights and watch the agent play rendered in real time — no weight updates:
+
+```bash
+python main.py pong_genetic --game atari --eval
+python main.py pong_genetic --game atari --eval --num-episodes 5
+```
 
 ### Grid search
 

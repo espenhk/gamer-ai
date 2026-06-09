@@ -14,7 +14,7 @@ import pytest
 if "minerl" not in sys.modules:
     sys.modules["minerl"] = MagicMock()
 
-from games.minerl.env import MineRLEnv, _MINERL_FPS  # noqa: E402
+from games.minerl.env import _MINERL_FPS, MineRLEnv  # noqa: E402
 
 _OBS_DICT = {"compassAngle": 45.0, "inventory": {"dirt": 3, "log": 1}}
 _STEP_RESULT_5 = (_OBS_DICT, 1.0, False, False, {"native_reward": 1.0})

@@ -1,0 +1,30 @@
+# Grid search template: GeneticPolicy on <GAME_TITLE>
+#
+# Copy to games/<name>/config/ and replace <name> with the adapter key.
+#
+# Primary axes:
+#   population_size — individuals evaluated per generation.
+#                     Total episodes = n_sims * population_size.
+#   mutation_scale  — Gaussian noise applied when breeding offspring.
+#                     Too small → offspring cluster near parents (slow spread);
+#                     too large → offspring are effectively random (no heredity).
+#
+# elite_k=3 fixed: keeps the top 3 survivors regardless of population size.
+#
+# Combos: 2 x 3 = 6
+
+base_name: "gs_<name>_genetic_v1"
+game: <name>
+
+training_params:
+  n_sims: 30
+  in_game_episode_s: 60.0
+  policy_type: genetic
+
+  # --- Search axes ---
+  population_size: [10, 20]
+  mutation_scale: [0.01, 0.05, 0.1]
+  mutation_share: 1.0
+  elite_k: 3
+
+reward_params: {}

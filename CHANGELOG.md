@@ -17,6 +17,33 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now
+  correctly gated off all ten registered games (closes #450).
+
+### Added
+
+- **`games/minerl/README.md`** — per-game README with install, headless-Linux, running,
+  obs/action/reward tables, supported envs/policies, and known limitations (closes #440).
+- **`tests/test_minerl_env.py`** — 15 unit tests for `MineRLEnv` via a mocked `minerl`
+  import (reset shape/values/step-count reset, step obs/truncation/action-range,
+  close delegation, time-limit get/set, ImportError guard); closes #439.
+- **Grid-search template in `games/_template/config/gs_genetic.yaml`** — new games that
+  `cp -r games/_template` now come with a ready-made genetic grid sweep; CONTRIBUTING.md
+  new-game table and "what done looks like" section updated to include it (closes #447).
+
+### Changed
+
+- **Docs: game count updated to ten** — CONTRIBUTING.md opening paragraph now lists
+  all ten games; `--game` choices in CLAUDE.md running and grid-search sections are
+  complete (closes #453).
+- **Issue template: removed non-existent `triage` default label** — the `triage`
+  label does not exist in the repo; removed from the template default so new issues
+  are no longer tagged with a phantom label.
+- **CONTRIBUTING.md label table** — removed `framework` (non-existent) and `triage`
+  (non-existent) from the canonical label set; `analytics`, `infrastructure`, and
+  `tooling` are the actual area labels.
 
 ---
 

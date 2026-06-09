@@ -840,12 +840,12 @@ class SC2Client:
         For workers, prefers ``select_idle_worker`` (cheap, no screen-target)
         when PySC2 reports it available; otherwise falls back to
         ``select_point`` on the cached worker position.
-        ``_update_unit_screen_positions`` already chose the worker with the
-        lowest ``order_length`` (issue #477 — prefers a mining SCV over one
-        already constructing a building), so this method just reads the best
-        candidate from the cache.  Issue #346 requires non-idle workers also
-        be selectable; that is preserved because the cache always stores *some*
-        worker even when all are busy.  For non-workers, uses ``select_point``
+        ``_update_unit_screen_positions`` already chose the least-busy worker
+        (lowest ``order_length`` — fewest queued orders) for each worker type,
+        so this method just reads the best candidate from the cache (issue
+        #477).  Issue #346 requires non-idle workers also be selectable; that
+        is preserved because the cache always stores *some* worker even when
+        all are busy.  For non-workers, uses ``select_point``
         on the cached screen location of any unit in ``target_names``.
         """
         is_worker_target = bool(target_names & WORKER_NAMES)
@@ -1332,9 +1332,10 @@ class SC2Client:
         requested target.
 
         For workers (SCVs/Probes/Drones), the candidate with the lowest
-        ``order_length`` is preferred — this selects a mining or idle worker
-        over one already building a structure when ``order_length`` (column 26)
-        is present in the array.  Falls back to first-seen-wins when the column
+        ``order_length`` is preferred — fewer queued orders means less busy,
+        so an idle worker (0) beats a worker with one queued order, which
+        beats one with two, etc. — when ``order_length`` (column 26) is
+        present in the array.  Falls back to first-seen-wins when the column
         is absent (e.g. in older observation formats or unit tests with
         truncated arrays).  Non-worker friendly units keep first-seen-wins.
         Geyser positions are kept in full (every visible geyser is a distinct

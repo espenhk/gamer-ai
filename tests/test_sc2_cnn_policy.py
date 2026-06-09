@@ -8,12 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from games.sc2.cnn_policy import (
-    SC2CNNEvolutionPolicy,
-    SC2CNNModel,
-    _adaptive_avg_pool,
-    _conv2d_valid_relu,
-)
+from framework.cnn_policy import _adaptive_avg_pool, _conv2d_valid_relu
+from games.sc2.cnn_policy import SC2CNNEvolutionPolicy, SC2CNNModel
 from games.sc2.obs_spec import SC2_MINIGAME_OBS_SPEC
 
 # ---------------------------------------------------------------------------

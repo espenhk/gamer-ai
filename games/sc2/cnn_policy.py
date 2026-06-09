@@ -24,17 +24,24 @@ No backprop — purely evolutionary.
 
 Usage with ``policy_type: sc2_cnn`` in training_params.yaml.  Requires
 ``screen_layers`` (non-empty) so that ``SC2Env`` returns dict observations.
+
+The conv math helpers and ES outer loop live in
+:mod:`framework.cnn_policy`; only SC2-specific action heads and race masking
+are defined here.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
 import numpy as np
 
+from framework.cnn_policy import (
+    CNNBackbone,
+    _CNNESBase,
+)
 from framework.obs_spec import ObsSpec
-from framework.policies import BasePolicy, register_policy, trainer_state_path
+from framework.policies import register_policy
 from games.sc2.actions import DISCRETE_ACTIONS, FUNCTION_IDS, fn_ids_for_race
 
 logger = logging.getLogger(__name__)
@@ -53,58 +60,6 @@ _GRID_XY: list[tuple[float, float]] = [
 
 
 # ---------------------------------------------------------------------------
-# Pure-numpy conv2d + adaptive avg pool helpers
-# ---------------------------------------------------------------------------
-
-
-def _conv2d_valid_relu(
-    x: np.ndarray,
-    W: np.ndarray,
-    b: np.ndarray,
-) -> np.ndarray:
-    """Valid 2-D convolution followed by ReLU — pure numpy.
-
-    Parameters
-    ----------
-    x : (C_in, H, W) float32
-    W : (C_out, C_in, k, k) float32
-    b : (C_out,) float32
-
-    Returns
-    -------
-    (C_out, H-k+1, W-k+1) float32
-    """
-    x = x.astype(np.float32)
-    C_in, H, W_in = x.shape
-    C_out, _, k, _ = W.shape
-    H_out = H - k + 1
-    W_out = W_in - k + 1
-    # im2col via stride tricks — avoids Python loops over spatial positions.
-    xc = np.lib.stride_tricks.as_strided(
-        x,
-        shape=(C_in, k, k, H_out, W_out),
-        strides=(x.strides[0], x.strides[1], x.strides[2], x.strides[1], x.strides[2]),
-    ).reshape(C_in * k * k, H_out * W_out)
-    out = (W.reshape(C_out, -1) @ xc + b[:, None]).reshape(C_out, H_out, W_out)
-    np.maximum(out, 0.0, out=out)  # in-place ReLU
-    return out
-
-
-def _adaptive_avg_pool(x: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
-    """Adaptive average pooling from (C, H, W) to (C, out_h, out_w)."""
-    C, H, W = x.shape
-    result = np.empty((C, out_h, out_w), dtype=np.float32)
-    for i in range(out_h):
-        h0 = int(i * H / out_h)
-        h1 = int((i + 1) * H / out_h)
-        for j in range(out_w):
-            w0 = int(j * W / out_w)
-            w1 = int((j + 1) * W / out_w)
-            result[:, i, j] = x[:, h0:h1, w0:w1].mean(axis=(1, 2))
-    return result
-
-
-# ---------------------------------------------------------------------------
 # SC2CNNModel — the individual network evaluated each episode
 # ---------------------------------------------------------------------------
 
@@ -112,9 +67,9 @@ def _adaptive_avg_pool(x: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
 class SC2CNNModel:
     """CNN model that maps dict obs → SC2 action.
 
-    Callable as a policy individual during ES evaluation.  Holds all network
-    weights in plain numpy arrays so ``to_flat()`` / ``with_flat()`` give a
-    flat parameter vector for evolutionary perturbation.
+    Callable as a policy individual during ES evaluation.  Uses
+    :class:`~framework.cnn_policy.CNNBackbone` for feature extraction and
+    adds SC2-specific fn_idx / spatial output heads with race masking.
 
     Parameters
     ----------
@@ -125,6 +80,8 @@ class SC2CNNModel:
         Flat observation spec — used for normalisation.
     seed :
         RNG seed for weight initialisation.
+    race :
+        SC2 race string for the permanent race-action mask.
     """
 
     # Architecture hyperparams (fixed; matching the issue spec).
@@ -144,61 +101,69 @@ class SC2CNNModel:
     ) -> None:
         self._n_channels = n_channels
         self._obs_spec = obs_spec
-        self._obs_dim = obs_spec.dim
-        self._scales = obs_spec.scales
         self._race: str = race
         self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
 
-        self._pool_flat = self._CONV2_OUT * self._POOL_H * self._POOL_W  # 1024
-        fc_in = self._pool_flat + self._obs_dim
+        self._backbone = CNNBackbone(
+            n_channels=n_channels,
+            obs_spec=obs_spec,
+            conv1_out=self._CONV1_OUT,
+            conv2_out=self._CONV2_OUT,
+            pool_h=self._POOL_H,
+            pool_w=self._POOL_W,
+            kernel=self._KERNEL,
+            fc_dim=self._FC_DIM,
+            seed=seed,
+        )
 
         rng = np.random.default_rng(seed)
+        fc_dim = self._FC_DIM
 
         def _he(shape: tuple) -> np.ndarray:
             fan_in = int(np.prod(shape[1:]))
             return rng.standard_normal(shape).astype(np.float32) * np.sqrt(2.0 / fan_in)
 
-        C = n_channels
-        k = self._KERNEL
-        self.W1 = _he((self._CONV1_OUT, C, k, k))
-        self.b1 = np.zeros(self._CONV1_OUT, dtype=np.float32)
-        self.W2 = _he((self._CONV2_OUT, self._CONV1_OUT, k, k))
-        self.b2 = np.zeros(self._CONV2_OUT, dtype=np.float32)
-        self.W3 = _he((self._FC_DIM, fc_in))
-        self.b3 = np.zeros(self._FC_DIM, dtype=np.float32)
-        self.W_fn = _he((_N_FUNCS, self._FC_DIM))
+        self.W_fn = _he((_N_FUNCS, fc_dim))
         self.b_fn = np.zeros(_N_FUNCS, dtype=np.float32)
-        self.W_sp = _he((_N_SPATIAL_CELLS, self._FC_DIM))
+        self.W_sp = _he((_N_SPATIAL_CELLS, fc_dim))
         self.b_sp = np.zeros(_N_SPATIAL_CELLS, dtype=np.float32)
         self._available_fn_ids: set[int] | None = None
 
+    # Pass-through properties so callers (including tests) can access backbone
+    # weights directly — e.g. ``model.W1.fill(0.0)`` for white-box test setup.
+    @property
+    def W1(self) -> np.ndarray:
+        return self._backbone.W1
+
+    @property
+    def b1(self) -> np.ndarray:
+        return self._backbone.b1
+
+    @property
+    def W2(self) -> np.ndarray:
+        return self._backbone.W2
+
+    @property
+    def b2(self) -> np.ndarray:
+        return self._backbone.b2
+
+    @property
+    def W3(self) -> np.ndarray:
+        return self._backbone.W3
+
+    @property
+    def b3(self) -> np.ndarray:
+        return self._backbone.b3
+
     @property
     def flat_dim(self) -> int:
-        C = self._n_channels
-        k = self._KERNEL
-        fc_in = self._pool_flat + self._obs_dim
-        return (
-            self._CONV1_OUT * C * k * k
-            + self._CONV1_OUT
-            + self._CONV2_OUT * self._CONV1_OUT * k * k
-            + self._CONV2_OUT
-            + self._FC_DIM * fc_in
-            + self._FC_DIM
-            + _N_FUNCS * self._FC_DIM
-            + _N_FUNCS
-            + _N_SPATIAL_CELLS * self._FC_DIM
-            + _N_SPATIAL_CELLS
-        )
+        fc_dim = self._FC_DIM
+        return self._backbone.param_dim + _N_FUNCS * fc_dim + _N_FUNCS + _N_SPATIAL_CELLS * fc_dim + _N_SPATIAL_CELLS
 
     def to_flat(self) -> np.ndarray:
         return np.concatenate(
             [
-                self.W1.ravel(),
-                self.b1,
-                self.W2.ravel(),
-                self.b2,
-                self.W3.ravel(),
-                self.b3,
+                self._backbone.to_flat(),
                 self.W_fn.ravel(),
                 self.b_fn,
                 self.W_sp.ravel(),
@@ -213,15 +178,14 @@ class SC2CNNModel:
         obj = object.__new__(SC2CNNModel)
         obj._n_channels = self._n_channels
         obj._obs_spec = self._obs_spec
-        obj._obs_dim = self._obs_dim
-        obj._scales = self._scales
-        obj._pool_flat = self._pool_flat
         obj._race = self._race
         obj._race_fn_ids = self._race_fn_ids
 
-        C, k = self._n_channels, self._KERNEL
-        fc_in = self._pool_flat + self._obs_dim
-        off = 0
+        n_bb = self._backbone.param_dim
+        obj._backbone = self._backbone.with_flat(flat[:n_bb])
+
+        off = n_bb
+        fc_dim = self._FC_DIM
 
         def _take(shape: tuple) -> np.ndarray:
             nonlocal off
@@ -230,15 +194,9 @@ class SC2CNNModel:
             off += n
             return out
 
-        obj.W1 = _take((self._CONV1_OUT, C, k, k))
-        obj.b1 = _take((self._CONV1_OUT,))
-        obj.W2 = _take((self._CONV2_OUT, self._CONV1_OUT, k, k))
-        obj.b2 = _take((self._CONV2_OUT,))
-        obj.W3 = _take((self._FC_DIM, fc_in))
-        obj.b3 = _take((self._FC_DIM,))
-        obj.W_fn = _take((_N_FUNCS, self._FC_DIM))
+        obj.W_fn = _take((_N_FUNCS, fc_dim))
         obj.b_fn = _take((_N_FUNCS,))
-        obj.W_sp = _take((_N_SPATIAL_CELLS, self._FC_DIM))
+        obj.W_sp = _take((_N_SPATIAL_CELLS, fc_dim))
         obj.b_sp = _take((_N_SPATIAL_CELLS,))
         obj._available_fn_ids = set(self._available_fn_ids) if self._available_fn_ids is not None else None
         return obj
@@ -260,15 +218,7 @@ class SC2CNNModel:
         fn_scores : (N_FUNCS,) logits
         sp_scores : (N_SPATIAL_CELLS,) logits
         """
-        x = _conv2d_valid_relu(spatial.astype(np.float32), self.W1, self.b1)
-        x = _conv2d_valid_relu(x, self.W2, self.b2)
-        x = _adaptive_avg_pool(x, self._POOL_H, self._POOL_W)
-        cnn_feat = x.ravel()  # (pool_flat,)
-
-        norm_flat = flat_obs.astype(np.float32) / self._scales
-        combined = np.concatenate([cnn_feat, norm_flat])  # (pool_flat + obs_dim,)
-        h = np.maximum(0.0, self.W3 @ combined + self.b3)
-
+        h = self._backbone.extract(spatial, flat_obs)
         fn_scores = self.W_fn @ h + self.b_fn
         sp_scores = self.W_sp @ h + self.b_sp
         return fn_scores, sp_scores
@@ -327,13 +277,12 @@ class SC2CNNModel:
 
 
 @register_policy
-class SC2CNNEvolutionPolicy(BasePolicy):
+class SC2CNNEvolutionPolicy(_CNNESBase):
     """Isotropic-ES outer optimiser for :class:`SC2CNNModel`.
 
-    Uses the ``_greedy_loop_cmaes`` interface:
-    ``sample_population()`` / ``update_distribution()``.
-    Step size is adapted via the 1/5 success rule (same as
-    :class:`games.sc2.sc2_policies.SC2LSTMEvolutionPolicy`).
+    Inherits the shared ES loop from
+    :class:`~framework.cnn_policy._CNNESBase`; only SC2-specific construction
+    and persistence are overridden here.
 
     Parameters
     ----------
@@ -350,6 +299,8 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         Episodes per individual per generation (averaged for fitness).
     seed :
         RNG seed.
+    race :
+        SC2 agent race string for the permanent race-action mask.
     """
 
     POLICY_TYPE = "sc2_cnn"
@@ -372,28 +323,15 @@ class SC2CNNEvolutionPolicy(BasePolicy):
         seed: int | None = None,
         race: str = "random",
     ) -> None:
-        self._lam = int(population_size)
-        self._sigma = float(initial_sigma)
-        self._eval_episodes = max(1, int(eval_episodes))
         self._obs_spec = obs_spec
-        self._rng = np.random.default_rng(seed)
-
-        self._template = SC2CNNModel(n_channels=n_channels, obs_spec=obs_spec, seed=seed, race=race)
-        self._flat_dim = self._template.flat_dim
-        self._mean = self._template.to_flat().astype(np.float64)
-
-        mu = self._lam // 2
-        self._mu = mu
-        raw_w = np.array(
-            [np.log(mu + 0.5) - np.log(i + 1) for i in range(mu)],
-            dtype=np.float64,
+        template = SC2CNNModel(n_channels=n_channels, obs_spec=obs_spec, seed=seed, race=race)
+        self._init_es(
+            template=template,
+            population_size=population_size,
+            initial_sigma=initial_sigma,
+            eval_episodes=eval_episodes,
+            rng=np.random.default_rng(seed),
         )
-        self._recomb_w = raw_w / raw_w.sum()
-
-        self._pop: list[np.ndarray] = []
-        self._champion: SC2CNNModel | None = None
-        self._champion_reward: float = float("-inf")
-
         logger.info(
             "[SC2CNNEvolutionPolicy] n_channels=%d  obs_dim=%d  flat_dim=%d  pop=%d  sigma=%.4f",
             n_channels,
@@ -402,100 +340,6 @@ class SC2CNNEvolutionPolicy(BasePolicy):
             self._lam,
             self._sigma,
         )
-
-    # ------------------------------------------------------------------
-    # Properties expected by _greedy_loop_cmaes
-    # ------------------------------------------------------------------
-
-    @property
-    def population_size(self) -> int:
-        return self._lam
-
-    @property
-    def champion_reward(self) -> float:
-        return self._champion_reward
-
-    @property
-    def sigma(self) -> float:
-        return self._sigma
-
-    # ------------------------------------------------------------------
-    # ES interface
-    # ------------------------------------------------------------------
-
-    def sample_population(self) -> list[SC2CNNModel]:
-        self._pop = []
-        for _ in range(self._lam):
-            z = self._rng.standard_normal(self._flat_dim)
-            self._pop.append(self._mean + self._sigma * z)
-        return [self._template.with_flat(x.astype(np.float32)) for x in self._pop]
-
-    def update_distribution(self, rewards: list[float]) -> bool:
-        if len(rewards) != self._lam:
-            raise ValueError(f"Expected {self._lam} rewards, got {len(rewards)}")
-        if len(self._pop) != self._lam:
-            raise RuntimeError("update_distribution() called before sample_population().")
-
-        order = np.argsort(rewards)[::-1]
-        prev_best = self._champion_reward
-        improved = False
-
-        best_r = rewards[order[0]]
-        if best_r > self._champion_reward:
-            self._champion_reward = best_r
-            self._champion = self._template.with_flat(np.array(self._pop[order[0]], dtype=np.float32))
-            improved = True
-
-        # Weighted recombination of top-μ.
-        elite_xs = np.stack([self._pop[order[i]] for i in range(self._mu)])
-        self._mean = np.einsum("i,ij->j", self._recomb_w, elite_xs)
-
-        # 1/5 success-rule sigma adaptation.
-        n_success = sum(1 for r in rewards if r > prev_best)
-        success_rate = n_success / self._lam
-        self._sigma = float(
-            np.clip(
-                self._sigma * (1.2 if success_rate > 0.2 else 0.85),
-                1e-8,
-                1e2,
-            )
-        )
-
-        return improved
-
-    # ------------------------------------------------------------------
-    # Policy interface (uses champion for inference)
-    # ------------------------------------------------------------------
-
-    def __call__(self, obs: dict | np.ndarray) -> np.ndarray:
-        if self._champion is None:
-            raise RuntimeError(
-                "SC2CNNEvolutionPolicy: no champion yet — call sample_population() and update_distribution() first."
-            )
-        return self._champion(obs)
-
-    def on_episode_start(self, **kwargs) -> None:
-        if self._champion is not None:
-            self._champion.on_episode_start(**kwargs)
-
-    def on_episode_end(self) -> None:
-        pass
-
-    def update(
-        self,
-        obs: dict | np.ndarray,
-        action: np.ndarray | int,
-        reward: float,
-        next_obs: dict | np.ndarray,
-        done: bool,
-        **kwargs,
-    ) -> None:
-        if self._champion is not None:
-            self._champion.update(obs, action, reward, next_obs, done, **kwargs)
-
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
 
     def to_cfg(self) -> dict:
         return {
@@ -520,45 +364,6 @@ class SC2CNNEvolutionPolicy(BasePolicy):
                 flat_dim=np.int64(self._flat_dim),
             )
 
-    def save_trainer_state(self, path: str) -> None:
-        np.savez(
-            path,
-            mean=self._mean,
-            sigma=np.float64(self._sigma),
-            flat_dim=np.int64(self._flat_dim),
-        )
-
-    def load_trainer_state(self, path: str) -> None:
-        with np.load(path) as data:
-            saved_flat_dim = int(data["flat_dim"])
-            if saved_flat_dim != self._flat_dim:
-                raise ValueError(
-                    f"SC2CNNEvolutionPolicy: trainer state flat_dim mismatch — "
-                    f"saved={saved_flat_dim}, current={self._flat_dim}. "
-                    f"Use --re-initialize to restart from scratch."
-                )
-            self._mean = data["mean"].astype(np.float64)
-            self._sigma = float(data["sigma"])
-        logger.info(
-            "[SC2CNNEvolutionPolicy] trainer state loaded from %s (sigma=%.4f)",
-            path,
-            self._sigma,
-        )
-
-    def load_champion(self, path: str) -> None:
-        """Load champion weights from a .npz file saved by :meth:`save`."""
-        with np.load(path) as data:
-            saved_flat_dim = int(data["flat_dim"])
-            if saved_flat_dim != self._flat_dim:
-                raise ValueError(
-                    f"SC2CNNEvolutionPolicy: champion flat_dim mismatch — "
-                    f"saved={saved_flat_dim}, current={self._flat_dim}. "
-                    f"Use --re-initialize to restart from scratch."
-                )
-            self._champion = self._template.with_flat(data["flat"].astype(np.float32))
-            self._mean = data["flat"].astype(np.float64)
-        logger.info("[SC2CNNEvolutionPolicy] champion loaded from %s", path)
-
     @classmethod
     def _construct_or_resume(
         cls, *, obs_spec, head_names, discrete_actions, weights_file, policy_params, re_initialize
@@ -576,17 +381,5 @@ class SC2CNNEvolutionPolicy(BasePolicy):
             eval_episodes=policy_params.get("eval_episodes", 1),
             race=policy_params.get("_agent_race", "random"),
         )
-        champion_path = weights_file.replace(".yaml", ".npz")
-        if os.path.exists(champion_path) and not re_initialize:
-            try:
-                policy.load_champion(champion_path)
-                ts = trainer_state_path(weights_file)
-                if os.path.exists(ts):
-                    policy.load_trainer_state(ts)
-                    logger.info("[SC2CNNEvolutionPolicy] loaded trainer state from %s", ts)
-            except (ValueError, KeyError) as exc:
-                logger.warning(
-                    "[SC2CNNEvolutionPolicy] could not load saved state — %s; starting from random.",
-                    exc,
-                )
+        policy._load_if_exists(weights_file, re_initialize)
         return policy

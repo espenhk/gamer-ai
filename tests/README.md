@@ -32,6 +32,7 @@
   - [test\_sb3\_policies.py — Stable-Baselines3-backed deep-RL policies](#test_sb3_policiespy--stable-baselines3-backed-deep-rl-policies)
   - [test\_alphazero\_mcts.py — AlphaZero-style model-based MCTS](#test_alphazero_mctspy--alphazero-style-model-based-mcts)
   - [test\_sc2\_legacy\_names\_rejected.py — SC2 bare legacy policy names rejected](#test_sc2_legacy_names_rejectedpy--sc2-bare-legacy-policy-names-rejected)
+  - [test\_cnn\_policy.py — `CNNBackbone`, `CNNModel`, `CNNEvolutionPolicy` (framework)](#test_cnn_policypy--cnnbackbone-cnnmodel-cnnevolutionpolicy-framework)
 - [TMNF policies](#tmnf-policies)
   - [test\_weighted\_linear\_policy.py — linear `WeightedLinearPolicy`](#test_weighted_linear_policypy--linear-weightedlinearpolicy)
   - [test\_neural\_net\_policy.py — pure-numpy MLP policy](#test_neural_net_policypy--pure-numpy-mlp-policy)
@@ -392,6 +393,12 @@ worker mechanics are unit-tested with a dummy env.
 ### test_sc2_legacy_names_rejected.py — SC2 bare legacy policy names rejected
 - `_make_policy(..., game_name="sc2")` rejects TMNF bare-name `cmaes`/`reinforce`/`lstm`/`neural_dqn` with a "not compatible" ValueError
 - Error message includes the expected `sc2_`-prefixed alternative for each rejected type
+
+### test_cnn_policy.py — `CNNBackbone`, `CNNModel`, `CNNEvolutionPolicy` (framework)
+- `_conv2d_valid_relu` / `_adaptive_avg_pool` — output shape and ReLU/uniform-input invariants
+- `CNNBackbone` — `extract()` output shape; `param_dim` matches `to_flat()` length; varies with `n_channels`; `with_flat()` roundtrip and same forward output
+- `CNNModel` — `flat_dim` formula matches `to_flat()` length; varies with `n_outputs`; `forward()` shape; `__call__` returns tanh-squashed values in `(-1, 1)`; `with_flat()` roundtrip and same call output; non-dict obs raises `TypeError`; episode hooks run without error
+- `CNNEvolutionPolicy` — ES loop: `population_size` property; `sample_population()` count and type; individuals callable; `update_distribution()` returns bool; champion set and callable after update; sigma adapts; wrong-count / before-sample errors; champion-before-update raises; trainer-state roundtrip; save/load champion roundtrip; `compatible_with` accepts non-SC2 and rejects `sc2`; `"cnn"` registered in `POLICY_REGISTRY`
 
 ### test_dqn_upgrades.py — Double-DQN / Huber / gradient clipping
 - `DQNPolicy` defaults are upgraded (`double_dqn`/`huber_loss` on, `max_grad_norm=10.0`)

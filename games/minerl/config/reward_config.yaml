@@ -1,0 +1,10 @@
+# Reward configuration for MineRL. See games/minerl/README.md for full documentation.
+
+# native signal
+native_reward_scale: 1.0
+
+# time
+step_penalty: -0.001
+
+# finish
+finish_bonus: 100.0

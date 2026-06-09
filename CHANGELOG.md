@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.2] - 2026-06-09
+
 ### Fixed
 
 - SC2 `_update_unit_screen_positions` was reading columns 8 and 9 from

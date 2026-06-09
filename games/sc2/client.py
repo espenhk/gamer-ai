@@ -418,6 +418,19 @@ class SC2Client:
         # emits a selection this step, the original action is stored here
         # and replayed on the next step().
         self._deferred_action: np.ndarray | None = None
+        # Flags set each step so env.py can update action counts correctly.
+        # last_was_deferred: True when the deferred queue fired (the fn_idx
+        #   was already counted at the request step; env must not count again).
+        # last_was_extreme_random: True when the extreme-random phase replaced
+        #   the policy action (count the sampled fn_idx, not the policy's).
+        # last_extreme_random_sampled_fn_idx: the fn_idx drawn by the extreme-
+        #   random sampler *before* _resolve_action() ran.  When resolve emits
+        #   a select_* and defers the real action, the executed fn_idx is only
+        #   the selector; this stores the intended sampled fn_idx so the env
+        #   can attribute it correctly (issue #467 follow-up).
+        self._last_was_deferred: bool = False
+        self._last_was_extreme_random: bool = False
+        self._last_extreme_random_sampled_fn_idx: int = 0
         # Wall-clock timestamp of the last "current game state" debug dump.
         # Logged every ~10 s when DEBUG logging is enabled so the user can
         # eyeball units / buildings / upgrades / valid action set without
@@ -486,6 +499,8 @@ class SC2Client:
            ``select_*`` and the original action goes into the deferred
            slot for the next step.
         """
+        self._last_was_deferred = False
+        self._last_was_extreme_random = False
         if self._deferred_action is not None:
             # The selector was already emitted last step; send the original
             # action directly without re-resolving.  If the selection still
@@ -496,9 +511,17 @@ class SC2Client:
             # actually execute.
             action = self._deferred_action
             self._deferred_action = None
+            self._last_was_deferred = True
         else:
             if self._is_extreme_random_phase():
                 action = self._sample_extreme_random_action()
+                self._last_was_extreme_random = True
+                # Capture the sampled fn_idx *before* _resolve_action() runs.
+                # If resolve emits a select_* this tick and defers the real
+                # action, _last_fn_idx will be the selector's fn_idx, not the
+                # intended train/build/attack — storing the pre-resolve value
+                # lets env.py attribute the count to the sampled intent.
+                self._last_extreme_random_sampled_fn_idx = int(action[0])
             action, deferred = self._resolve_action(action)
             self._deferred_action = deferred
 
@@ -603,6 +626,37 @@ class SC2Client:
         this returns the substituted fn_idx, not the requested one.
         """
         return self._last_fn_idx
+
+    @property
+    def last_was_deferred(self) -> bool:
+        """True when the deferred-action queue fired on the last step.
+
+        The fn_idx was already counted at the step the policy requested it;
+        ``env.step()`` must not increment the count a second time.
+        """
+        return self._last_was_deferred
+
+    @property
+    def last_was_extreme_random(self) -> bool:
+        """True when the extreme-random phase replaced the policy action.
+
+        The policy was completely bypassed; ``env.step()`` should count the
+        sampled fn_idx (``last_extreme_random_sampled_fn_idx``), not the
+        policy's no_op request or the executed selector fn_idx.
+        """
+        return self._last_was_extreme_random
+
+    @property
+    def last_extreme_random_sampled_fn_idx(self) -> int:
+        """fn_idx drawn by the extreme-random sampler on the last step.
+
+        Only meaningful when ``last_was_extreme_random`` is True.  Captures
+        the sampled intent *before* ``_resolve_action()`` ran, so if resolve
+        emitted a ``select_*`` this tick and deferred the real action,
+        ``env.step()`` can still attribute the count to the sampled fn_idx
+        (e.g. train/build/attack) rather than to the selector or no_op.
+        """
+        return self._last_extreme_random_sampled_fn_idx
 
     # ------------------------------------------------------------------
     # Internal helpers

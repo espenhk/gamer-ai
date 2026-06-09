@@ -405,12 +405,27 @@ class SC2Env(BaseGameEnv):
             self._ep_reward_components[k] = self._ep_reward_components.get(k, 0.0) + float(v)
         info["episode_reward_components"] = dict(self._ep_reward_components)
 
-        # Track per-episode action counts (analytics 2a) using the policy-
-        # requested fn_idx so the chart reflects intent rather than the
-        # intermediate select_* injected by the deferred-action resolver
-        # (issue #383).  Reward shaping and debug metadata still use the
-        # executed fn_idx via info["action_fn_idx"].
-        self._ep_action_counts[_fn_idx_requested] = self._ep_action_counts.get(_fn_idx_requested, 0) + 1
+        # Track per-episode action counts (analytics 2a).
+        #
+        # Three cases (issue #467):
+        # 1. Deferred action fired: fn_idx was already counted at the step
+        #    the policy first requested it — skip to avoid a double count.
+        # 2. Extreme-random override: the policy was bypassed entirely; count
+        #    the sampled fn_idx *before* _resolve_action ran.  When resolve
+        #    emits a select_* and defers the real action, the executed fn_idx
+        #    is only the selector — using the pre-resolve sampled fn_idx
+        #    ensures the intended train/build/attack is attributed here, and
+        #    the deferred replay is correctly skipped by case 1 above.
+        # 3. Normal step: count the policy-requested fn_idx so the chart
+        #    reflects intent rather than intermediate select_* injections
+        #    from the deferred-action resolver (issue #383).
+        if getattr(self._client, "last_was_deferred", False):
+            pass  # already counted when the policy first requested this action
+        elif getattr(self._client, "last_was_extreme_random", False):
+            _sampled_fn_idx = int(getattr(self._client, "last_extreme_random_sampled_fn_idx", _executed_fn_idx))
+            self._ep_action_counts[_sampled_fn_idx] = self._ep_action_counts.get(_sampled_fn_idx, 0) + 1
+        else:
+            self._ep_action_counts[_fn_idx_requested] = self._ep_action_counts.get(_fn_idx_requested, 0) + 1
         # Track 8×8 spatial-target histogram (analytics 2d).
         if len(action) >= 3:
             _xi = min(7, int(float(np.clip(action[1], 0.0, 1.0)) * 8))

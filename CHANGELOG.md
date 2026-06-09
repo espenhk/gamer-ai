@@ -17,10 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.8] - 2026-06-09
+
 ### Added
 - `framework/cnn_policy.py`: game-agnostic CNN feature extractor (`CNNBackbone`), generic model (`CNNModel`), shared isotropic-ES outer loop (`_CNNESBase`), and a registered `cnn` policy (`CNNEvolutionPolicy`, `policy_type: cnn`) for pixel-observation games with Box actions (closes #458).
 - `games/sc2/cnn_policy.SC2CNNModel` now uses `CNNBackbone` internally; `SC2CNNEvolutionPolicy` inherits `_CNNESBase`, removing ~120 lines of ES boilerplate duplication.  Behaviour is unchanged.
-
 
 ---
 

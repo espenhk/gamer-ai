@@ -37,12 +37,23 @@ logger = logging.getLogger(__name__)
 # search.  AlphaZero MCTS is gated off these (fail fast before connecting).
 # These names match the CLI ``--game`` choices in main.py — note that the
 # Assetto Corsa game's name is ``"assetto"`` (not the directory name
-# ``assetto_corsa``); it dispatches via main.py's ``_run_assetto`` path rather
-# than through ``GAME_ADAPTERS``.  The
-# ``test_gated_off_non_cloneable_games`` test iterates this whole set, so any
-# drift between names here and the actual ``game_name`` strings is caught.
+# ``assetto_corsa``).  MineRL uses a JVM subprocess; Atari/ALE does not expose
+# a validated clone path.  The ``test_gated_off_non_cloneable_games`` test
+# iterates this whole set, so any drift between names here and the actual
+# ``game_name`` strings is caught.
 _NON_CLONEABLE_GAMES: frozenset[str] = frozenset(
-    {"tmnf", "sc2", "torcs", "beamng", "car_racing", "rocket_league", "iracing", "assetto"}
+    {
+        "tmnf",
+        "sc2",
+        "torcs",
+        "beamng",
+        "car_racing",
+        "rocket_league",
+        "iracing",
+        "assetto",
+        "atari",
+        "minerl",
+    }
 )
 
 

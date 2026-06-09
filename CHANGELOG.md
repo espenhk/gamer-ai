@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.0] - 2026-06-09
+
 ### Added
 
 - **MineRL game integration scaffold** (`games/minerl/`) — Phase 1 of issue #215.

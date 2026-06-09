@@ -24,6 +24,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Added
 
+- **`games/minerl/README.md`** — per-game README with install, headless-Linux, running,
+  obs/action/reward tables, supported envs/policies, and known limitations (closes #440).
 - **`tests/test_minerl_env.py`** — 15 unit tests for `MineRLEnv` via a mocked `minerl`
   import (reset shape/values/step-count reset, step obs/truncation/action-range,
   close delegation, time-limit get/set, ImportError guard); closes #439.

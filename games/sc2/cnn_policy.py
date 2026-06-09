@@ -129,31 +129,59 @@ class SC2CNNModel:
         self.b_sp = np.zeros(_N_SPATIAL_CELLS, dtype=np.float32)
         self._available_fn_ids: set[int] | None = None
 
-    # Pass-through properties so callers (including tests) can access backbone
-    # weights directly — e.g. ``model.W1.fill(0.0)`` for white-box test setup.
+    # Pass-through properties so callers (including tests and replay_bc.py) can
+    # read and write backbone weights directly without knowing about CNNBackbone.
     @property
     def W1(self) -> np.ndarray:
         return self._backbone.W1
+
+    @W1.setter
+    def W1(self, v: np.ndarray) -> None:
+        self._backbone.W1 = v
 
     @property
     def b1(self) -> np.ndarray:
         return self._backbone.b1
 
+    @b1.setter
+    def b1(self, v: np.ndarray) -> None:
+        self._backbone.b1 = v
+
     @property
     def W2(self) -> np.ndarray:
         return self._backbone.W2
+
+    @W2.setter
+    def W2(self, v: np.ndarray) -> None:
+        self._backbone.W2 = v
 
     @property
     def b2(self) -> np.ndarray:
         return self._backbone.b2
 
+    @b2.setter
+    def b2(self, v: np.ndarray) -> None:
+        self._backbone.b2 = v
+
     @property
     def W3(self) -> np.ndarray:
         return self._backbone.W3
 
+    @W3.setter
+    def W3(self, v: np.ndarray) -> None:
+        self._backbone.W3 = v
+
     @property
     def b3(self) -> np.ndarray:
         return self._backbone.b3
+
+    @b3.setter
+    def b3(self, v: np.ndarray) -> None:
+        self._backbone.b3 = v
+
+    @property
+    def _pool_flat(self) -> int:
+        return self._backbone._pool_flat
 
     @property
     def flat_dim(self) -> int:

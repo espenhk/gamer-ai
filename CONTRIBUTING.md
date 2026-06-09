@@ -3,8 +3,8 @@
 Thanks for thinking about contributing! `gamer-ai` started as a Trackmania
 Nations Forever experiment and has grown into a small multi-game RL
 framework — TMNF, TORCS, StarCraft 2, BeamNG, Assetto Corsa, Gymnasium's
-CarRacing, Rocket League, and iRacing (eight games) all share the same
-training loop today, and the explicit goal is to keep adding games.
+CarRacing, Rocket League, iRacing, Atari, and MineRL (ten games) all share
+the same training loop today, and the explicit goal is to keep adding games.
 
 This document covers:
 
@@ -416,8 +416,7 @@ Issues are triaged with a small canonical label set:
 | `bug` / `enhancement` / `documentation` | Issue type |
 | `good first issue` / `help wanted` | Contribution-friendly backlog items |
 | `game-support` | New `games/<name>/` proposals and game-integration requests |
-| `framework` / `analytics` / `infrastructure` / `tooling` | Area ownership |
-| `triage` | Default label for newly opened issues; remove once assessed |
+| `analytics` / `infrastructure` / `tooling` | Area ownership |
 
 **`documentation` issues are never `good first issue`.** Keep the two
 labels mutually exclusive: docs are the project's authoritative

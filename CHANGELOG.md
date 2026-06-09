@@ -17,6 +17,22 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now
+  correctly gated off all ten registered games (closes #450).
+
+### Changed
+
+- **Docs: game count updated to ten** — CONTRIBUTING.md opening paragraph now lists
+  all ten games; `--game` choices in CLAUDE.md running and grid-search sections are
+  complete (closes #453).
+- **Issue template: removed non-existent `triage` default label** — the `triage`
+  label does not exist in the repo; removed from the template default so new issues
+  are no longer tagged with a phantom label.
+- **CONTRIBUTING.md label table** — removed `framework` (non-existent) and `triage`
+  (non-existent) from the canonical label set; `analytics`, `infrastructure`, and
+  `tooling` are the actual area labels.
 
 ---
 

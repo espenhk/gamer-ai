@@ -141,11 +141,13 @@ _SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
 
 # ---------------------------------------------------------------------------
-# feature_units column indices
+# PySC2 unit-row column indices
 # ---------------------------------------------------------------------------
-# Mirrors pysc2.lib.features.FeatureUnit (IntEnum).  Named constants keep
-# every feature_units access self-documenting and in one place — changing
-# the layout only requires updating this class.
+# Mirrors pysc2.lib.features.FeatureUnit (IntEnum).  Used for feature_units
+# rows AND for single_select / multi_select rows, which share the same
+# leading columns (unit_type at 0, alliance at 1).  Named constants keep
+# every unit-row access self-documenting and in one place — changing the
+# layout only requires updating this class.
 
 
 class _FU:

@@ -24,6 +24,9 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Added
 
+- **`tests/test_minerl_env.py`** — 15 unit tests for `MineRLEnv` via a mocked `minerl`
+  import (reset shape/values/step-count reset, step obs/truncation/action-range,
+  close delegation, time-limit get/set, ImportError guard); closes #439.
 - **Grid-search template in `games/_template/config/gs_genetic.yaml`** — new games that
   `cp -r games/_template` now come with a ready-made genetic grid sweep; CONTRIBUTING.md
   new-game table and "what done looks like" section updated to include it (closes #447).

@@ -14,6 +14,7 @@ import pytest
 if "minerl" not in sys.modules:
     sys.modules["minerl"] = MagicMock()
 
+from games.minerl.actions import N_ACTIONS  # noqa: E402
 from games.minerl.env import _MINERL_FPS, MineRLEnv  # noqa: E402
 
 _OBS_DICT = {"compassAngle": 45.0, "inventory": {"dirt": 3, "log": 1}}
@@ -94,7 +95,7 @@ class TestMineRLEnvStep:
         assert "native_reward" in info
 
     def test_all_action_indices_accepted(self, env):
-        for action_idx in range(9):
+        for action_idx in range(N_ACTIONS):
             env.reset()
             obs, _, _, _, _ = env.step(np.array([float(action_idx)]))
             assert obs.shape == (3,)
@@ -117,7 +118,7 @@ class TestMineRLEnvTimeLimits:
 
 
 class TestMineRLEnvImportError:
-    def test_import_error_without_minerl(self, tmp_path, monkeypatch):
+    def test_import_error_without_minerl(self):
         """Importing env without minerl in sys.modules raises ImportError."""
         import importlib
 

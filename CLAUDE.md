@@ -157,7 +157,7 @@ Master configs and grid-search templates live **per game** under
 # Single experiment (TMNF — default)
 python main.py <experiment_name> [--no-interrupt] [--re-initialize]
 
-# Run on a different game (--game: tmnf | torcs | sc2 | car_racing | beamng | assetto | minerl)
+# Run on a different game (--game: tmnf | torcs | sc2 | car_racing | beamng | assetto | rocket_league | iracing | atari | minerl)
 python main.py <experiment_name> --game torcs
 python main.py <experiment_name> --game sc2
 python main.py <experiment_name> --game car_racing
@@ -990,7 +990,7 @@ Ready-made templates ship per game (e.g.
 `games/sc2/config/grid_search_template.yaml`,
 `games/torcs/config/gs_genetic.yaml`). Pick the target game with `--game`
 (choices: `tmnf`, `beamng`, `car_racing`, `torcs`, `sc2`, `rocket_league`,
-`iracing`, `minerl`).
+`iracing`, `atari`, `assetto`, `minerl`).
 
 Set any param to list to sweep it:
 

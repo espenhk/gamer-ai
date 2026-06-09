@@ -18,6 +18,48 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 - **Bug fix** (`sc2_neural_net` OOM on Windows, issue #456): `SC2NeuralNetPolicy` now packs all weights and biases into a single contiguous `_flat` float32 buffer; `_weights`/`_biases` are views into it.  `mutated()` does a single `_flat.copy()` and adds noise in-place — one allocation of known size per mutation instead of N separate per-layer alloc/free cycles.  A single large numpy allocation uses `VirtualAlloc` on Windows (page-aligned, outside the CRT heap) and is always findable regardless of heap state; N separate mid-to-large allocations fragment the heap until even an 8 MiB contiguous request fails after 100+ long SC2 episodes.  Noise is generated directly in float32 via `rng.standard_normal(dtype=np.float32, out=buf)` into a class-level pre-grown buffer, eliminating the float64 intermediate.  Large `hidden_sizes` like `[1024,2048,2048,1024]` now run stably for the full 500-sim budget.
+### Fixed
+
+- SC2 `_update_unit_screen_positions` was reading columns 8 and 9 from
+  `feature_units` as screen (x, y), but those are `shield_ratio` and
+  `energy_ratio`. The correct columns are 12 (`x`) and 13 (`y`). SCVs and
+  buildings — which have zero shields/energy — were all cached at position
+  (0, 0), causing every injected `select_point` to land in the corner and
+  deferred actions to fail as unavailable in the PySC2 mask. Adds `class _FU`
+  with named column constants so all `feature_units` accesses are
+  self-documenting.
+
+---
+
+## [0.7.1] - 2026-06-09
+
+### Fixed
+
+- **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now
+  correctly gated off all ten registered games (closes #450).
+
+### Added
+
+- **`games/minerl/README.md`** — per-game README with install, headless-Linux, running,
+  obs/action/reward tables, supported envs/policies, and known limitations (closes #440).
+- **`tests/test_minerl_env.py`** — 15 unit tests for `MineRLEnv` via a mocked `minerl`
+  import (reset shape/values/step-count reset, step obs/truncation/action-range,
+  close delegation, time-limit get/set, ImportError guard); closes #439.
+- **Grid-search template in `games/_template/config/gs_genetic.yaml`** — new games that
+  `cp -r games/_template` now come with a ready-made genetic grid sweep; CONTRIBUTING.md
+  new-game table and "what done looks like" section updated to include it (closes #447).
+
+### Changed
+
+- **Docs: game count updated to ten** — CONTRIBUTING.md opening paragraph now lists
+  all ten games; `--game` choices in CLAUDE.md running and grid-search sections are
+  complete (closes #453).
+- **Issue template: removed non-existent `triage` default label** — the `triage`
+  label does not exist in the repo; removed from the template default so new issues
+  are no longer tagged with a phantom label.
+- **CONTRIBUTING.md label table** — removed `framework` (non-existent) and `triage`
+  (non-existent) from the canonical label set; `analytics`, `infrastructure`, and
+  `tooling` are the actual area labels.
 
 ---
 

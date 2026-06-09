@@ -22,6 +22,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now
   correctly gated off all ten registered games (closes #450).
 
+### Added
+
+- **Grid-search template in `games/_template/config/gs_genetic.yaml`** — new games that
+  `cp -r games/_template` now come with a ready-made genetic grid sweep; CONTRIBUTING.md
+  new-game table and "what done looks like" section updated to include it (closes #447).
+
 ### Changed
 
 - **Docs: game count updated to ten** — CONTRIBUTING.md opening paragraph now lists

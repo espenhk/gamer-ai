@@ -32,13 +32,13 @@ ACTION_LABELS: list[str] = [
 #: Per-action overrides applied on top of a no-op base dict.
 #: Keys follow the MineRL action-space naming convention.
 _ACTION_OVERRIDES: list[dict] = [
-    {},                                          # 0: noop
-    {"forward": 1},                              # 1: forward
-    {"forward": 1, "jump": 1},                   # 2: forward+jump
-    {"forward": 1, "attack": 1},                 # 3: forward+attack
-    {"attack": 1},                               # 4: attack
-    {"left": 1, "forward": 1},                   # 5: left+forward
-    {"right": 1, "forward": 1},                  # 6: right+forward
-    {"back": 1},                                 # 7: back
-    {"forward": 1, "sprint": 1},                 # 8: forward+sprint
+    {},  # 0: noop
+    {"forward": 1},  # 1: forward
+    {"forward": 1, "jump": 1},  # 2: forward+jump
+    {"forward": 1, "attack": 1},  # 3: forward+attack
+    {"attack": 1},  # 4: attack
+    {"left": 1, "forward": 1},  # 5: left+forward
+    {"right": 1, "forward": 1},  # 6: right+forward
+    {"back": 1},  # 7: back
+    {"forward": 1, "sprint": 1},  # 8: forward+sprint
 ]

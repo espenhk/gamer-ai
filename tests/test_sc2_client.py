@@ -980,6 +980,24 @@ class TestSC2ClientResolveAndDefer(unittest.TestCase):
         self.assertTrue(self.client.last_was_extreme_random)
         self.assertFalse(self.client.last_was_deferred)
 
+    def test_extreme_random_sampled_fn_idx_captured_before_resolve(self):
+        """last_extreme_random_sampled_fn_idx holds the pre-resolve sampled fn_idx.
+
+        When _resolve_action emits a select_* and defers the real action,
+        last_fn_idx becomes the selector's idx. The sampled fn_idx must still
+        be the one drawn by _sample_extreme_random_action (issue #467 follow-up).
+        """
+        self.client._available_fn_ids = {2}
+        self.client._selected_count = 1.0
+        self.client._selected_unit_types = frozenset({"Marine"})
+        self.client._extreme_random_run_count = 2
+        self.client._episodes_started = 1
+        self.client.step(np.array([0, 0.0, 0.0, 0], dtype=np.float32))
+        self.assertTrue(self.client.last_was_extreme_random)
+        # The sampled fn_idx must equal what _sample_extreme_random_action drew
+        # (fn_idx 2 = Move_screen, the only entry in _available_fn_ids here).
+        self.assertEqual(self.client.last_extreme_random_sampled_fn_idx, 2)
+
     def test_last_was_extreme_random_false_after_phase(self):
         """last_was_extreme_random=False when the phase is over."""
         self.client._available_fn_ids = {2}

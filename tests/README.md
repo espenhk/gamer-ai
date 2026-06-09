@@ -16,6 +16,7 @@
   - [test\_env\_termination.py — `_classify_termination()`](#test_env_terminationpy--_classify_termination)
   - [test\_game\_adapter.py — TMNF/TORCS/SC2/BeamNG/iRacing adapter abstractions](#test_game_adapterpy--tmnftorcssc2beamngiracing-adapter-abstractions)
   - [test\_grid\_search.py — Cartesian-product expansion + naming](#test_grid_searchpy--cartesian-product-expansion--naming)
+  - [test\_iracing\_analytics.py — iRacing-specific analytics plots and report](#test_iracing_analyticspy--iracing-specific-analytics-plots-and-report)
   - [test\_iracing\_controller.py — iRacing action injection controller](#test_iracing_controllerpy--iracing-action-injection-controller)
   - [test\_info\_gain.py — staleness-based intrinsic reward](#test_info_gainpy--staleness-based-intrinsic-reward)
   - [test\_live\_monitor.py — live GUI monitor helpers](#test_live_monitorpy--live-gui-monitor-helpers)
@@ -277,6 +278,14 @@ worker mechanics are unit-tested with a dummy env.
 
 (SC2 policy/param validation moved to test_policy_registry.py with the
 `compatible_with` hook in Phase D — `build_extras` was deleted.)
+
+### test_iracing_analytics.py — iRacing-specific analytics plots and report
+- `plot_lap_time_improvement`: written when at least one sim finishes; returns False when all DNF or sim list empty
+- `plot_greedy_action_dist`: plot written from throttle_counts
+- `plot_termination_reasons`: bar chart written from termination_reason fields
+- `plot_obs_avg_panels`: all panels skipped when obs_averages absent; tire-temp/fuel/RPM/brake-bias panels written when episode_obs_averages populated
+- `_iracing_summary_md`: includes finish rate + best/mean lap time when finishes exist; omits lap stats when all DNF
+- `save_experiment_results`: report contains `## iRacing Metrics`, lap-time and action-dist plot refs, and headline plot file exists on disk
 
 ### test_iracing_controller.py — iRacing action injection controller
 - NullController: implements BaseController, send/reset/close are safe no-ops

@@ -17,7 +17,9 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
+### Added
+- **iRacing analytics** (`games/iracing/analytics.py`): replaces the 62-line stub with game-appropriate plots — lap-time improvement curve (headline metric, inverted y-axis, best-so-far and DNF markers), per-sim accel/brake distribution, termination-reason bar chart, and obs-average panels for tyre temperatures, tyre loads, fuel level, RPM, and brake bias (panels only emit when `episode_obs_averages` is populated by the env). Adds `## iRacing Metrics` section to `results.md` with finish rate, best/mean lap time, and mean accel %. Closes #463.
+- `tests/test_iracing_analytics.py`: 10 unit tests covering all new analytics functions (plot written / skipped cases, summary-table content, end-to-end report output).
 
 ---
 

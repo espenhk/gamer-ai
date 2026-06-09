@@ -5,6 +5,12 @@
 #
 # Designed to test whether extremely large TMNF-style MLPs (multimillion
 # parameters) can learn useful SC2 behaviour under hill-climbing.
+#
+# Memory note: large hidden_sizes are safe because SC2NeuralNetPolicy.mutated()
+# pre-allocates per-shape float32 noise buffers and generates noise directly in
+# float32 (no float64 intermediate).  Before that fix, each mutation created a
+# temporary float64 array (2× the weight matrix size) that repeatedly fragmented
+# the Windows heap until contiguous allocations failed (issue #456).
 
 base_name: "massive_v2"
 game: sc2
@@ -22,7 +28,6 @@ training_params:
   agent_race: terran
   #economy_weight: 0.5
   hidden_sizes:
-    #- [64, 64]
     - [1024, 2048, 2048, 1024]
     - [2048, 4096, 4096, 2048]
 

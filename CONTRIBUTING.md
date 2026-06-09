@@ -3,8 +3,8 @@
 Thanks for thinking about contributing! `gamer-ai` started as a Trackmania
 Nations Forever experiment and has grown into a small multi-game RL
 framework — TMNF, TORCS, StarCraft 2, BeamNG, Assetto Corsa, Gymnasium's
-CarRacing, Rocket League, and iRacing (eight games) all share the same
-training loop today, and the explicit goal is to keep adding games.
+CarRacing, Rocket League, iRacing, Atari, and MineRL (ten games) all share
+the same training loop today, and the explicit goal is to keep adding games.
 
 This document covers:
 
@@ -187,6 +187,7 @@ implementation; copy it as a starting point.
 | `games/<name>/analytics.py` | `save_experiment_results(...)` — at minimum produce a `results.md` and a reward-over-time plot. | — |
 | `games/<name>/config/training_params.yaml` | Master training params copied into each new experiment. | — |
 | `games/<name>/config/reward_config.yaml` | Master reward weights copied into each new experiment. | — |
+| `games/<name>/config/gs_genetic.yaml` | Grid-search template for the `genetic` policy (copy from `games/_template/config/gs_genetic.yaml`). | — |
 | `games/<name>/README.md` | Per-game user-facing README — install, run, obs/action/reward tables. | — |
 
 Then register the adapter in `framework/game_adapter.GAME_ADAPTERS` and
@@ -238,6 +239,8 @@ add `<name>` to the `--game` choices in `main.py`.
 - `python main.py smoke --game <name> --no-interrupt` finishes a short
   run without crashing.
 - `poetry run python -m pytest tests/test_<name>_*.py -v` is green.
+- `python grid_search.py games/<name>/config/gs_genetic.yaml --game <name>`
+  parses the template and launches (at least one combo).
 - Reward-over-time plot under
   `experiments/<name>/smoke/results/` shows non-trivial learning (even a
   flat curve is fine for the smoke run — we're checking the pipe, not
@@ -416,8 +419,7 @@ Issues are triaged with a small canonical label set:
 | `bug` / `enhancement` / `documentation` | Issue type |
 | `good first issue` / `help wanted` | Contribution-friendly backlog items |
 | `game-support` | New `games/<name>/` proposals and game-integration requests |
-| `framework` / `analytics` / `infrastructure` / `tooling` | Area ownership |
-| `triage` | Default label for newly opened issues; remove once assessed |
+| `analytics` / `infrastructure` / `tooling` | Area ownership |
 
 **`documentation` issues are never `good first issue`.** Keep the two
 labels mutually exclusive: docs are the project's authoritative

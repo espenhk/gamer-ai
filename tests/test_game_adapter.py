@@ -32,6 +32,7 @@ class TestGameAdapterRegistry:
             "rocket_league",
             "iracing",
             "atari",
+            "minerl",
         }
 
 

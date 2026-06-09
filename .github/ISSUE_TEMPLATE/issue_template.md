@@ -2,8 +2,7 @@
 name: Issue report / proposal
 about: Use this template for bug reports, feature requests, and new-game proposals.
 title: ""
-labels:
-  - triage
+labels: []
 assignees: ""
 ---
 

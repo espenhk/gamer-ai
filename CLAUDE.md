@@ -62,7 +62,7 @@ set (`framework/`) drive per-game integrations (`games/<game>/`) through a
 common adapter interface (`framework/game_adapter.py`), training autonomous
 agents via hill-climbing / evolutionary / CMA-ES / Q-learning /
 policy-gradient methods. The project began as a Trackmania Nations Forever
-(TMNF) agent and now spans nine games.
+(TMNF) agent and now spans ten games.
 
 **Runtime per game** (select with `--game`; default `tmnf`):
 - TMNF: Windows-only (`pywin32`, `mss` window grab, `tminterface` bind to live game process).
@@ -74,6 +74,7 @@ policy-gradient methods. The project began as a Trackmania Nations Forever
 - Rocket League: Rocket League (commercial, Windows) via the `rlgym` API + Bakkesmod (`--game rocket_league`).
 - iRacing: iRacing (commercial, Windows) telemetry via `pyirsdk`, with optional vJoy live action injection (`--game iracing`).
 - Atari: cross-platform, headless; Atari 2600 via `ale-py` (MIT-licensed ROMs bundled). 128-byte RAM observation, `Discrete(N)` action space. `poetry install --with atari` (`--game atari`).
+- MineRL: cross-platform; Minecraft via `minerl` (requires Java 8 + `pip install minerl`). Phase 1 uses 3-dim vector obs (compass + inventory); no pixel obs yet (`--game minerl`).
 
 Each game ships a `games/<game>/README.md` documenting its install,
 config, observation/action space, reward, and supported policies. This file
@@ -132,7 +133,8 @@ gamer-ai/
 │   ├── assetto_corsa/      # Assetto Corsa via assetto-corsa-rl shared memory
 │   ├── rocket_league/      # Rocket League via rlgym + Bakkesmod
 │   ├── iracing/            # iRacing telemetry via pyirsdk (+ optional vJoy injection)
-│   └── atari/              # Atari 2600 via ale-py (RAM observation, Discrete actions)
+│   ├── atari/              # Atari 2600 via ale-py (RAM observation, Discrete actions)
+│   └── minerl/             # Minecraft via MineRL (Phase 1: vector obs, pip install minerl)
 ├── clients/                # Backward-compat shim → games/tmnf/clients
 ├── rl/                     # Backward-compat shim (legacy; BC now lives in framework/bc.py)
 ├── distributed/            # Coordinator, worker, protocol for distributed grid search
@@ -155,7 +157,7 @@ Master configs and grid-search templates live **per game** under
 # Single experiment (TMNF — default)
 python main.py <experiment_name> [--no-interrupt] [--re-initialize]
 
-# Run on a different game (--game: tmnf | torcs | sc2 | car_racing | beamng | assetto)
+# Run on a different game (--game: tmnf | torcs | sc2 | car_racing | beamng | assetto | rocket_league | iracing | atari | minerl)
 python main.py <experiment_name> --game torcs
 python main.py <experiment_name> --game sc2
 python main.py <experiment_name> --game car_racing
@@ -988,7 +990,7 @@ Ready-made templates ship per game (e.g.
 `games/sc2/config/grid_search_template.yaml`,
 `games/torcs/config/gs_genetic.yaml`). Pick the target game with `--game`
 (choices: `tmnf`, `beamng`, `car_racing`, `torcs`, `sc2`, `rocket_league`,
-`iracing`).
+`iracing`, `atari`, `assetto`, `minerl`).
 
 Set any param to list to sweep it:
 

@@ -2136,4 +2136,4 @@ def train_rl(
         experiment_dir = os.path.dirname(weights_file)
         save_results_fn(data, os.path.join(experiment_dir, "results"))
 
-    return data
+    return data.slim_for_summary()

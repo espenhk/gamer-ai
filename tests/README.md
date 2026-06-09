@@ -79,6 +79,11 @@
   - [test\_framework\_bc.py — `BCAdapter` Protocol + `framework.bc.run` orchestrator (issue #393)](#test_framework_bcpy--bcadapter-protocol--frameworkbcrun-orchestrator-issue-393)
 - [TMNF BC](#tmnf-bc)
   - [test\_tmnf\_bc.py — TMNF BC adapter (SimplePolicy source) + `do_pretrain` removal (issue #395)](#test_tmnf_bcpy--tmnf-bc-adapter-simplepolicy-source--do_pretrain-removal-issue-395)
+- [MineRL](#minerl)
+  - [test\_minerl\_obs\_spec.py — MineRL observation spec (3-dim vector)](#test_minerl_obs_specpy--minerl-observation-spec-3-dim-vector)
+  - [test\_minerl\_adapter.py — MineRL game adapter](#test_minerl_adapterpy--minerl-game-adapter)
+  - [test\_minerl\_reward.py — MineRL reward config and calculator](#test_minerl_rewardpy--minerl-reward-config-and-calculator)
+  - [test\_minerl\_env.py — MineRL env wrapper (mocked minerl)](#test_minerl_envpy--minerl-env-wrapper-mocked-minerl)
 - [Rocket League](#rocket-league)
   - [test\_rocket\_league\_obs\_spec.py — Rocket League observation spec (142-dim)](#test_rocket_league_obs_specpy--rocket-league-observation-spec-142-dim)
   - [test\_rocket\_league\_reward.py — Rocket League reward calc](#test_rocket_league_rewardpy--rocket-league-reward-calc)
@@ -1012,6 +1017,34 @@ episodes.
   `rl/pretrain.py` deleted; legacy `do_pretrain: true` in
   `training_params.yaml` is silently dropped by
   `RunConfig.from_training_params` rather than raising
+
+## MineRL
+
+`games/minerl/` — Phase 1 scaffold for Minecraft RL via MineRL (issue #215).
+
+**Tested.** The 3-dim vector observation spec (compass angle, dirt inventory,
+log inventory); the reward calculator (native reward scaling, step penalty,
+finish bonus, reset clears episode accumulator); the game adapter (registered
+in `GAME_ADAPTERS`, experiment dir layout, track label with slash sanitisation,
+build_game_spec wires the correct obs_spec / head_names / discrete_actions);
+and the `MineRLEnv` wrapper mocked without a real `minerl` install (reset shape,
+obs values, step count, truncation, close delegation, time-limit get/set, and
+ImportError when `minerl` is absent).
+
+**Not tested.** Real episode rollouts against a live MineRL environment;
+MineRL-specific obs dict parsing beyond compass + inventory fields.
+
+### test_minerl_obs_spec.py — MineRL observation spec (3-dim vector)
+- dim=3; names length=3; names unique; `compass_angle`, `inventory_dirt`, `inventory_log` present; compass scale=180.0; inventory scales=64.0; all dims carry descriptions
+
+### test_minerl_adapter.py — MineRL game adapter
+- registered under `minerl` key; `name`/`config_dir` correct; `experiment_dir` embeds game/policy/map/run; track override replaces map_name; `track_label` defaults to `MineRLNavigateDense-v0`; sanitises slashes; `build_probe`/`build_warmup` return None; `decorate_reward_cfg` is a no-op; `build_game_spec` returns correct `game_name`/`head_names`/`obs_spec`/`discrete_actions` shape (9,1)
+
+### test_minerl_reward.py — MineRL reward config and calculator
+- config defaults; `from_yaml` loads fields and ignores unknown keys; `compute` scales native reward, applies step penalty, adds finish bonus on termination only; missing `native_reward` defaults to 0.0; `reset()` clears `_total_native_reward` accumulator
+
+### test_minerl_env.py — MineRL env wrapper (mocked minerl)
+- reset returns float32 array of shape (3,); obs values normalised by scale; reset clears step count; step returns correct obs shape/dtype; step increments step count; truncates at max_episode_steps; all 9 action indices accepted; info contains `native_reward`; close propagates; `get_episode_time_limit()` matches constructor; `set_episode_time_limit()` updates `_max_episode_steps`; ImportError raised when `minerl` is absent
 
 ## Rocket League
 

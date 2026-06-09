@@ -1,0 +1,15 @@
+# MineRL training parameters. See games/minerl/README.md for full documentation.
+
+map_name: MineRLNavigateDense-v0
+in_game_episode_s: 120.0
+n_sims: 100
+mutation_scale: 0.05
+mutation_share: 1.0
+adaptive_mutation: true
+patience: 0
+
+policy_type: genetic
+
+policy_params:
+  population_size: 10
+  elite_k: 3

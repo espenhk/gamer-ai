@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.1] - 2026-06-09
+
 ### Fixed
 
 - **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now

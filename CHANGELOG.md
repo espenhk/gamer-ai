@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.5] - 2026-06-09
+
 - **Bug fix** (SC2 action-frequency log, issue #467): `SC2Client` now exposes `last_was_deferred` and `last_was_extreme_random` flags after each `step()`. `SC2Env` uses these to record the correct fn_idx in the per-episode action-count map: deferred replays are not double-counted, and extreme-random overrides are tallied under the *executed* fn_idx rather than the policy's no_op request. Fixes the logical impossibility where `train_bonus`/`build_bonus` rewards appeared alongside `no_op = 100%` in the action-frequency chart.
 
 ---

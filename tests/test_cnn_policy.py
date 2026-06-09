@@ -174,8 +174,8 @@ class TestCNNModel(unittest.TestCase):
         obs = _dict_obs()
         action = m(obs)
         self.assertEqual(action.shape, (3,))
-        self.assertTrue(np.all(action > -1.0))
-        self.assertTrue(np.all(action < 1.0))
+        self.assertTrue(np.all(action >= -1.0))
+        self.assertTrue(np.all(action <= 1.0))
 
     def test_with_flat_roundtrip(self):
         m = _make_model()

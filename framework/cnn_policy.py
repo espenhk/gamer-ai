@@ -84,6 +84,8 @@ def _conv2d_valid_relu(
 def _adaptive_avg_pool(x: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
     """Adaptive average pooling from (C, H, W) to (C, out_h, out_w)."""
     C, H, W = x.shape
+    if out_h > H or out_w > W:
+        raise ValueError(f"_adaptive_avg_pool: output ({out_h}×{out_w}) must not exceed input spatial dims ({H}×{W}).")
     result = np.empty((C, out_h, out_w), dtype=np.float32)
     for i in range(out_h):
         h0 = int(i * H / out_h)
@@ -199,6 +201,9 @@ class CNNBackbone:
 
     def with_flat(self, flat: np.ndarray) -> "CNNBackbone":
         """Return a new backbone with weights loaded from ``flat``."""
+        flat = np.asarray(flat, dtype=np.float32)
+        if flat.shape[0] != self.param_dim:
+            raise ValueError(f"CNNBackbone.with_flat: expected {self.param_dim} params, got {flat.shape[0]}")
         obj = object.__new__(CNNBackbone)
         obj._n_channels = self._n_channels
         obj._obs_dim = self._obs_dim
@@ -379,6 +384,10 @@ class _CNNESBase(BasePolicy):
         self._eval_episodes: int = max(1, int(eval_episodes))
         self._rng = rng
 
+        if self._lam < 2:
+            raise ValueError(
+                f"population_size must be >= 2 (got {self._lam}); the ES requires at least one elite for recombination."
+            )
         mu = self._lam // 2
         self._mu = mu
         raw_w = np.array(
@@ -579,6 +588,7 @@ class CNNEvolutionPolicy(_CNNESBase):
     LOOP_TYPE = "cmaes"
     VALID_POLICY_PARAMS = frozenset(
         {
+            "n_channels",
             "population_size",
             "initial_sigma",
             "eval_episodes",
@@ -665,11 +675,11 @@ class CNNEvolutionPolicy(_CNNESBase):
     def _construct_or_resume(
         cls, *, obs_spec, head_names, discrete_actions, weights_file, policy_params, re_initialize
     ):
-        n_channels = int(policy_params.get("_n_channels", 0))
+        n_channels = int(policy_params.get("n_channels") or policy_params.get("_n_channels", 0))
         if n_channels == 0:
             raise ValueError(
                 "cnn policy requires at least one spatial layer.  "
-                "Set screen_layers (or equivalent) in training_params.yaml."
+                "Set n_channels in policy_params (or screen_layers for adapter-injected games)."
             )
         n_outputs = int(policy_params.get("n_outputs", len(head_names)))
         backbone_kwargs = {

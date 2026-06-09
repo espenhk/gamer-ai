@@ -18,6 +18,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [Unreleased]
 
 - **Bug fix** (`sc2_neural_net` OOM on Windows, issue #456): `SC2NeuralNetPolicy` now packs all weights and biases into a single contiguous `_flat` float32 buffer; `_weights`/`_biases` are views into it.  `mutated()` does a single `_flat.copy()` and adds noise in-place — one allocation of known size per mutation instead of N separate per-layer alloc/free cycles.  A single large numpy allocation uses `VirtualAlloc` on Windows (page-aligned, outside the CRT heap) and is always findable regardless of heap state; N separate mid-to-large allocations fragment the heap until even an 8 MiB contiguous request fails after 100+ long SC2 episodes.  Noise is generated directly in float32 via `rng.standard_normal(dtype=np.float32, out=buf)` into a class-level pre-grown buffer, eliminating the float64 intermediate.  Large `hidden_sizes` like `[1024,2048,2048,1024]` now run stably for the full 500-sim budget.
+
+---
+
+## [0.7.2] - 2026-06-09
+
 ### Fixed
 
 - SC2 `_update_unit_screen_positions` was reading columns 8 and 9 from

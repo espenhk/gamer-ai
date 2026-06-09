@@ -31,7 +31,13 @@ def _make_data(
             GreedySimResult(
                 sim=i + 1,
                 reward=float(100 - (ft or 200)),
-                improved=(i == 0 or (ft is not None and ft < min(f for f in finish_times[:i] if f))),
+                improved=(
+                    i == 0
+                    or (
+                        ft is not None
+                        and ft < min((f for f in finish_times[:i] if f is not None), default=float("inf"))
+                    )
+                ),
                 throttle_counts=[10, 5, 30],
                 total_steps=45,
                 finish_time_s=ft,

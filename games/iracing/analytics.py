@@ -5,14 +5,14 @@ Entry point called by main.py::
     save_experiment_results(data: ExperimentData, results_dir: str) -> None
 
 iRacing exposes the richest telemetry of the racing games (lap times, tyre
-loads/temps, fuel, RPM, gear, brake bias).  The headline metric is lap-time
+loads/temps, fuel, RPM, brake bias).  The headline metric is lap-time
 improvement, and secondary plots cover throttle/brake distribution and
 termination reasons.
 
-Plots that require per-step obs recording (tyre temp/load traces, RPM/gear
-histogram, fuel curve) use ``GreedySimResult.obs_averages`` when the env
-populates ``episode_obs_averages`` in terminal-step info; they are silently
-skipped when that dict is absent.
+Obs-average panels (tyre temps/loads, fuel, RPM, brake bias) use
+``GreedySimResult.obs_averages`` when the env populates
+``episode_obs_averages`` in terminal-step info; they are silently skipped
+when that dict is absent.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ import numpy as np
 if "matplotlib.pyplot" not in sys.modules:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from framework.analytics import (
@@ -62,20 +61,6 @@ _REASON_ORDER = ["finish", "crash", "timeout"]
 def _save(fig: "Figure", path: str) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-
-
-def _plot_throttle_trace(ax: "Axes", throttle_state: list, title: str) -> None:
-    steps = range(len(throttle_state))
-    accel = [t[0] for t in throttle_state]
-    brake = [t[1] for t in throttle_state]
-    ax.plot(steps, accel, color="#27ae60", linewidth=0.8, alpha=0.85, label="accel")
-    ax.plot(steps, brake, color="#c0392b", linewidth=0.8, alpha=0.85, label="brake")
-    ax.set_ylim(-0.05, 1.1)
-    ax.set_yticks([0, 0.5, 1])
-    ax.set_xlabel("Step")
-    ax.set_ylabel("Value")
-    ax.set_title(title, fontsize=9)
-    ax.legend(fontsize=8, loc="upper right")
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +142,7 @@ def plot_lap_time_improvement(data: ExperimentData, results_dir: str) -> bool:
 
 
 def plot_greedy_action_dist(data: ExperimentData, results_dir: str) -> bool:
-    """Plot per-sim accel/brake/coast percentage over the greedy phase."""
+    """Plot per-sim accel and brake percentage over the greedy phase."""
     sims = data.greedy_sims
     if not sims:
         return False

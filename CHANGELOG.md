@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.9] - 2026-06-09
+
 - **Bug fix + enhancement** (SC2 deferred-action SCV selector, issues #477): `_FU` now exposes all 28 PySC2 `FeatureUnit` columns (adds `energy`, `transport_slots_taken`, `build_progress`, `health_ratio`, `shield_ratio`, `energy_ratio`, `display_type`, `owner`, `facing`, `radius`, `cloak`, `is_selected`, `is_blip`, `is_powered`, `mineral_contents`, `vespene_contents`, `cargo_space_max`, `assigned_harvesters`, `ideal_harvesters`, `order_length`, `tag`). `_update_unit_screen_positions` now picks the worker with the **lowest `order_length`** (fewest queued orders) for the deferred-action cache instead of first-seen-wins — this ensures `_pick_typed_selector` falls back to the least-busy available worker rather than an arbitrary first-seen one when `select_idle_worker` is unavailable.
 
 ---

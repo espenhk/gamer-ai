@@ -18,7 +18,7 @@ Key god nodes (highest betweenness centrality — touch everything):
 | `ExperimentData` | `framework/analytics.py` | Output contract — every run's result flows through this dataclass |
 | `BasePolicy` | `framework/policies.py` | Policy protocol — all algorithms implement this interface |
 | `GreedySimResult` | `framework/analytics.py` | Per-episode result — bridges training loop and analytics |
-| `SC2Client` | `games/sc2/client.py` | SC2-specific god node — high betweenness within the SC2 package; currently confined to `games/sc2/` |
+| `SC2Client` | `games/sc2/client.py` | SC2-specific god node — high betweenness within the SC2 package; currently confined to `games/sc2/` (no imports from `framework/` or other `games/` packages) |
 
 When a task involves any of these nodes, query the graph first to understand the blast
 radius before touching code.

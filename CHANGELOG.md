@@ -22,8 +22,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 - **`SC2NeuralNetPolicy` hill-climbing practicality guard** — `__init__` now emits a
   `WARNING` when any weight matrix exceeds 1 MiB, flagging hidden_sizes that are
   algorithmically impractical for mutate-and-keep search (the OOM itself was closed by
-  the flat-buffer fix in 0.7.3). Template header comment updated to
-  say "BuildMarines minigame".
+  the flat-buffer fix in 0.7.3). Template header comment updated to say "BuildMarines minigame".
 - **Stale CLAUDE.md god-node note** — `SC2Client` row clarified: no runtime imports from
   `framework/` or other `games/` packages (closes #459).
 
@@ -56,13 +55,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 - **`_NON_CLONEABLE_GAMES` missing `atari` and `minerl`** — `alphazero_mcts` is now
   correctly gated off all ten registered games (closes #450).
-- **`gs_sc2_neural_net_template.yaml` OOM crash** — template replaced impractical
-  `[1024, 2048, 2048, 1024]` / `[2048, 4096, 4096, 2048]` hidden_sizes (infeasible for
-  hill-climbing and OOM on Windows at sim ~111) with memory-safe `[64, 64]` / `[128, 128]`
-  / `[256, 128]` defaults; `SC2NeuralNetPolicy.__init__` now emits a `WARNING` when any
-  weight matrix exceeds 1 MiB (closes #456).
-- **Stale CLAUDE.md god-node note** — `SC2Client` row updated to reflect that it is
-  currently confined to `games/sc2/` (closes #459).
 
 ### Added
 

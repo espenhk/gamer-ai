@@ -17,6 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+
+- **MineRL game integration scaffold** (`games/minerl/`) — Phase 1 of issue #215.
+  Adds the `MineRLAdapter`, `MineRLEnv`, obs spec (3-dim vector: compass angle +
+  dirt/log inventory), 9 discrete actions, reward config, and analytics.  Registers
+  `minerl` in `GAME_ADAPTERS`.  Requires `pip install minerl` (Java 8 also needed);
+  all other game integrations are unaffected.  New config keys:
+  `native_reward_scale`, `step_penalty`, `finish_bonus` in
+  `games/minerl/config/reward_config.yaml`.
 
 ---
 

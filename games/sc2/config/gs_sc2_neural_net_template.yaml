@@ -12,7 +12,7 @@
 # temporary float64 array (2× the weight matrix size) that repeatedly fragmented
 # the Windows heap until contiguous allocations failed (issue #456).
 
-base_name: "massive_v2"
+base_name: "massive_v3"
 game: sc2
 
 training_params:
@@ -23,7 +23,7 @@ training_params:
   enable_belief: false
   #enable_belief: true              # tabular state-space explosion; see comment above
   policy_type: sc2_neural_net
-  n_sims: 500
+  n_sims: 200
   max_apm: 300
   agent_race: terran
   #economy_weight: 0.5

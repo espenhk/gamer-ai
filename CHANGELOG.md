@@ -17,6 +17,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+
+- SC2 `_update_unit_screen_positions` was reading columns 8 and 9 from
+  `feature_units` as screen (x, y), but those are `shield_ratio` and
+  `energy_ratio`. The correct columns are 12 (`x`) and 13 (`y`). SCVs and
+  buildings — which have zero shields/energy — were all cached at position
+  (0, 0), causing every injected `select_point` to land in the corner and
+  deferred actions to fail as unavailable in the PySC2 mask. Adds `class _FU`
+  with named column constants so all `feature_units` accesses are
+  self-documenting.
 
 ---
 

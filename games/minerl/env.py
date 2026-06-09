@@ -24,8 +24,8 @@ import numpy as np
 
 # Optional dependency — raises ImportError if minerl is not installed.
 try:
-    import minerl  # noqa: F401
     import gymnasium as gym
+    import minerl  # noqa: F401
 except ImportError as _exc:
     raise ImportError(
         "MineRL requires the 'minerl' package and Java 8+.  Install with:\n"
@@ -36,7 +36,7 @@ except ImportError as _exc:
 from gymnasium import spaces
 
 from framework.base_env import BaseGameEnv
-from games.minerl.actions import N_ACTIONS, _ACTION_OVERRIDES
+from games.minerl.actions import _ACTION_OVERRIDES, N_ACTIONS
 from games.minerl.obs_spec import BASE_OBS_DIM
 from games.minerl.reward import MineRLRewardCalculator, MineRLRewardConfig
 

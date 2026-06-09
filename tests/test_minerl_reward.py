@@ -23,9 +23,7 @@ class TestMineRLRewardConfig(unittest.TestCase):
             "step_penalty": -0.01,
             "finish_bonus": 200.0,
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data, f)
             path = f.name
 
@@ -36,9 +34,7 @@ class TestMineRLRewardConfig(unittest.TestCase):
 
     def test_from_yaml_ignores_unknown_keys(self):
         data = {"native_reward_scale": 0.5, "unknown_key": 99}
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(data, f)
             path = f.name
 

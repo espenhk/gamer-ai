@@ -5,7 +5,9 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: end-of-file-fixer
+        exclude: ^graphify-out/
       - id: trailing-whitespace
+        exclude: ^graphify-out/
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.11

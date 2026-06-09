@@ -2510,6 +2510,161 @@ class TestSC2ClientGeyserDetection(unittest.TestCase):
         self.assertEqual(self.client._geyser_screen_positions, [])
 
 
+# ---------------------------------------------------------------------------
+# _FU column constants (issue #477)
+# ---------------------------------------------------------------------------
+
+
+class TestFUColumns(unittest.TestCase):
+    """All PySC2 FeatureUnit column indices are present on _FU."""
+
+    def setUp(self):
+        from games.sc2.client import _FU
+
+        self._FU = _FU
+
+    def test_original_columns_unchanged(self):
+        self.assertEqual(self._FU.unit_type, 0)
+        self.assertEqual(self._FU.alliance, 1)
+        self.assertEqual(self._FU.health, 2)
+        self.assertEqual(self._FU.shield, 3)
+        self.assertEqual(self._FU.x, 12)
+        self.assertEqual(self._FU.y, 13)
+        self.assertEqual(self._FU.weapon_cooldown, 25)
+
+    def test_new_columns(self):
+        self.assertEqual(self._FU.energy, 4)
+        self.assertEqual(self._FU.transport_slots_taken, 5)
+        self.assertEqual(self._FU.build_progress, 6)
+        self.assertEqual(self._FU.health_ratio, 7)
+        self.assertEqual(self._FU.shield_ratio, 8)
+        self.assertEqual(self._FU.energy_ratio, 9)
+        self.assertEqual(self._FU.display_type, 10)
+        self.assertEqual(self._FU.owner, 11)
+        self.assertEqual(self._FU.facing, 14)
+        self.assertEqual(self._FU.radius, 15)
+        self.assertEqual(self._FU.cloak, 16)
+        self.assertEqual(self._FU.is_selected, 17)
+        self.assertEqual(self._FU.is_blip, 18)
+        self.assertEqual(self._FU.is_powered, 19)
+        self.assertEqual(self._FU.mineral_contents, 20)
+        self.assertEqual(self._FU.vespene_contents, 21)
+        self.assertEqual(self._FU.cargo_space_max, 22)
+        self.assertEqual(self._FU.assigned_harvesters, 23)
+        self.assertEqual(self._FU.ideal_harvesters, 24)
+        self.assertEqual(self._FU.order_length, 26)
+        self.assertEqual(self._FU.tag, 27)
+
+    def test_all_values_unique(self):
+        """No two columns share the same index."""
+        vals = [v for k, v in vars(self._FU).items() if not k.startswith("_")]
+        self.assertEqual(len(vals), len(set(vals)))
+
+    def test_contiguous_coverage(self):
+        """Column indices cover 0..27 with no gaps."""
+        vals = sorted(v for k, v in vars(self._FU).items() if not k.startswith("_"))
+        self.assertEqual(vals, list(range(28)))
+
+
+# ---------------------------------------------------------------------------
+# Worker order_length preference in _update_unit_screen_positions (issue #477)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkerOrderLengthPreference(unittest.TestCase):
+    """``_update_unit_screen_positions`` should cache the worker with the
+    lowest ``order_length`` so that ``_pick_typed_selector`` falls back to a
+    mining/idle SCV rather than one already constructing a building.
+    """
+
+    def setUp(self):
+        self.client = SC2Client(map_name="Simple64")
+        self.client._unit_type_id_to_name = {1: "SCV"}
+
+    def _make_feat_units(self, rows):
+        """Build a 28-column feature_units array from a list of
+        (unit_type, alliance, x, y, order_length) tuples."""
+        arr = np.zeros((len(rows), 28), dtype=np.int32)
+        for i, (ut, al, x, y, ol) in enumerate(rows):
+            arr[i, 0] = ut
+            arr[i, 1] = al
+            arr[i, 12] = x
+            arr[i, 13] = y
+            arr[i, 26] = ol
+        return arr
+
+    def test_prefers_lower_order_length(self):
+        """Two SCVs visible — the one with order_length=1 (mining) beats
+        the one with order_length=2 (building)."""
+        feat_units = self._make_feat_units(
+            [
+                (1, 1, 10, 20, 2),  # SCV building (order_length=2)
+                (1, 1, 30, 40, 1),  # SCV mining  (order_length=1)
+            ]
+        )
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (30, 40))
+
+    def test_idle_worker_wins_over_mining(self):
+        """order_length=0 (idle) should beat order_length=1 (mining)."""
+        feat_units = self._make_feat_units(
+            [
+                (1, 1, 5, 6, 1),  # SCV mining
+                (1, 1, 7, 8, 0),  # SCV idle
+            ]
+        )
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (7, 8))
+
+    def test_single_worker_always_cached(self):
+        feat_units = self._make_feat_units([(1, 1, 15, 25, 3)])
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (15, 25))
+
+    def test_fallback_to_first_seen_without_order_length_column(self):
+        """14-column arrays (no order_length) keep first-seen-wins for workers."""
+        feat_units = np.zeros((2, 14), dtype=np.int32)
+        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 22]  # first SCV
+        feat_units[1] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33, 44]  # second SCV
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        # First-seen-wins when column is absent.
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (11, 22))
+
+    def test_non_worker_units_still_first_seen_wins(self):
+        """Non-worker friendly units are not affected by the order_length logic."""
+        self.client._unit_type_id_to_name = {1: "SCV", 2: "Marine"}
+        feat_units = self._make_feat_units(
+            [
+                (2, 1, 5, 5, 0),  # Marine (first)
+                (2, 1, 9, 9, 0),  # Marine (second, same order_length)
+            ]
+        )
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        self.assertEqual(self.client._screen_xy_by_unit_type.get("Marine"), (5, 5))
+
+    def test_pick_typed_selector_uses_best_worker(self):
+        """_pick_typed_selector returns select_point on the mining SCV (lowest
+        order_length) when select_idle_worker is unavailable."""
+        # No select_idle_worker in available_actions.
+        self.client._available_actions = set()
+        self.client._unit_type_id_to_name = {1: "SCV"}
+        feat_units = self._make_feat_units(
+            [
+                (1, 1, 10, 20, 2),  # SCV building
+                (1, 1, 30, 40, 1),  # SCV mining  ← should be chosen
+            ]
+        )
+        self.client._update_unit_screen_positions({"feature_units": feat_units})
+        from games.sc2.client import WORKER_NAMES
+
+        action = self.client._pick_typed_selector(WORKER_NAMES)
+        self.assertIsNotNone(action)
+        # fn_idx 6 = select_point; coordinates should match the mining SCV.
+        self.assertEqual(int(action[0]), 6)
+        self.assertAlmostEqual(float(action[1]), 30 / 63, places=3)
+        self.assertAlmostEqual(float(action[2]), 40 / 63, places=3)
+
+
 class TestSC2ClientRefinerySnap(unittest.TestCase):
     """``_snap_refinery_to_geyser`` rewrites Build_Refinery/Assimilator/
     Extractor target coordinates onto the nearest visible geyser, and leaves

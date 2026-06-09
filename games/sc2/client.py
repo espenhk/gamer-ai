@@ -155,9 +155,30 @@ class _FU:
     alliance = 1
     health = 2
     shield = 3
+    energy = 4
+    transport_slots_taken = 5
+    build_progress = 6
+    health_ratio = 7
+    shield_ratio = 8
+    energy_ratio = 9
+    display_type = 10
+    owner = 11
     x = 12
     y = 13
+    facing = 14
+    radius = 15
+    cloak = 16
+    is_selected = 17
+    is_blip = 18
+    is_powered = 19
+    mineral_contents = 20
+    vespene_contents = 21
+    cargo_space_max = 22
+    assigned_harvesters = 23
+    ideal_harvesters = 24
     weapon_cooldown = 25
+    order_length = 26
+    tag = 27
 
 
 # ---------------------------------------------------------------------------
@@ -817,11 +838,15 @@ class SC2Client:
         accepted type.
 
         For workers, prefers ``select_idle_worker`` (cheap, no screen-target)
-        when PySC2 reports it available and there's an idle worker; otherwise
-        falls back to ``select_point`` on any cached worker (mining or
-        building — issue #346 specifically requires non-idle workers be
-        selectable).  For non-workers, uses ``select_point`` on the cached
-        screen location of any unit in ``target_names``.
+        when PySC2 reports it available; otherwise falls back to
+        ``select_point`` on the cached worker position.
+        ``_update_unit_screen_positions`` already chose the worker with the
+        lowest ``order_length`` (issue #477 — prefers a mining SCV over one
+        already constructing a building), so this method just reads the best
+        candidate from the cache.  Issue #346 requires non-idle workers also
+        be selectable; that is preserved because the cache always stores *some*
+        worker even when all are busy.  For non-workers, uses ``select_point``
+        on the cached screen location of any unit in ``target_names``.
         """
         is_worker_target = bool(target_names & WORKER_NAMES)
 
@@ -1306,9 +1331,14 @@ class SC2Client:
         snap (issue #402) can pick the nearest geyser to the policy's
         requested target.
 
-        First-seen-wins per friendly unit-type name; ties are resolved
-        arbitrarily.  Geyser positions are kept in full (every visible
-        geyser is a distinct candidate).
+        For workers (SCVs/Probes/Drones), the candidate with the lowest
+        ``order_length`` is preferred — this selects a mining or idle worker
+        over one already building a structure when ``order_length`` (column 26)
+        is present in the array.  Falls back to first-seen-wins when the column
+        is absent (e.g. in older observation formats or unit tests with
+        truncated arrays).  Non-worker friendly units keep first-seen-wins.
+        Geyser positions are kept in full (every visible geyser is a distinct
+        candidate).
         """
         self._screen_xy_by_unit_type = {}
         self._geyser_screen_positions = []
@@ -1319,17 +1349,26 @@ class SC2Client:
             return
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
+        has_order_length = feat_units.shape[1] > _FU.order_length
+        # worker candidates: name -> (x, y, order_length) for lowest-order pick
+        best_worker: dict[str, tuple[int, int, int]] = {}
         for row in feat_units:
             alliance = int(row[_FU.alliance])
             name = self._unit_type_id_to_name.get(int(row[_FU.unit_type]))
             if name is None:
                 continue
             if alliance == 1:
-                if name in self._screen_xy_by_unit_type:
-                    continue
-                self._screen_xy_by_unit_type[name] = (int(row[_FU.x]), int(row[_FU.y]))
+                if name in WORKER_NAMES and has_order_length:
+                    ol = int(row[_FU.order_length])
+                    cur = best_worker.get(name)
+                    if cur is None or ol < cur[2]:
+                        best_worker[name] = (int(row[_FU.x]), int(row[_FU.y]), ol)
+                elif name not in self._screen_xy_by_unit_type:
+                    self._screen_xy_by_unit_type[name] = (int(row[_FU.x]), int(row[_FU.y]))
             elif alliance == 3 and name in GEYSER_NAMES:
                 self._geyser_screen_positions.append((int(row[_FU.x]), int(row[_FU.y])))
+        for name, (x, y, _) in best_worker.items():
+            self._screen_xy_by_unit_type[name] = (x, y)
 
     def _compute_owned_buildings(self, ob: Any) -> frozenset[str]:
         """Return the set of friendly structure/building names visible this step.

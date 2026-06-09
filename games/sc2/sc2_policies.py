@@ -935,18 +935,54 @@ class SC2NeuralNetPolicy(BasePolicy):
             return False, "This policy is SC2-specific; use game='sc2'."
         return True, None
 
-    # Class-level cache of pre-allocated float32 noise buffers keyed by shape.
-    # Shared across all instances; safe because hill-climbing mutations are serial.
-    # Eliminates repeated large alloc/free churn that fragments the Windows heap.
-    _noise_bufs: dict[tuple[int, ...], np.ndarray] = {}
+    # All weights and biases live in a single contiguous float32 flat buffer.
+    # _weights and _biases are views (slices/reshapes) into that buffer.
+    #
+    # Why: mutation calls _flat.copy() — one allocation of known size — then adds
+    # noise in-place.  A single large numpy allocation goes through VirtualAlloc on
+    # Windows (page-aligned, outside the CRT heap), so it is always findable
+    # regardless of heap fragmentation.  With separate per-layer arrays the heap
+    # sees N repeated mid-to-large alloc/free cycles per rejected candidate, which
+    # fragments the address space until even an 8 MiB contiguous request fails after
+    # hundreds of episodes (issue #456).
+    #
+    # _flat_noise is a class-level pre-allocated noise buffer grown to the largest
+    # flat size seen.  Filling it via rng.standard_normal(out=..., dtype=float32)
+    # generates float32 noise without a float64 intermediate.  Both the noise buffer
+    # and the weight buffer are long-lived, so the OS never sees them freed.
+
+    _flat_noise: np.ndarray = np.empty(0, dtype=np.float32)
 
     @classmethod
-    def _noise_buf(cls, shape: tuple[int, ...]) -> np.ndarray:
-        buf = cls._noise_bufs.get(shape)
-        if buf is None:
-            buf = np.empty(shape, dtype=np.float32)
-            cls._noise_bufs[shape] = buf
-        return buf
+    def _ensure_flat_noise(cls, size: int) -> np.ndarray:
+        if cls._flat_noise.size < size:
+            cls._flat_noise = np.empty(size, dtype=np.float32)
+        return cls._flat_noise[:size]
+
+    @staticmethod
+    def _flat_size(layer_dims: list[int]) -> int:
+        return sum(
+            layer_dims[i + 1] * layer_dims[i] + layer_dims[i + 1]
+            for i in range(len(layer_dims) - 1)
+        )
+
+    def _make_views(
+        self, flat: np.ndarray
+    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        """Return (weights, biases) as views into *flat*."""
+        layer_dims = [self._obs_spec.dim] + self._hidden + [self._action_dim]
+        weights: list[np.ndarray] = []
+        biases: list[np.ndarray] = []
+        offset = 0
+        for i in range(len(layer_dims) - 1):
+            rows, cols = layer_dims[i + 1], layer_dims[i]
+            weights.append(flat[offset : offset + rows * cols].reshape(rows, cols))
+            offset += rows * cols
+        for i in range(len(layer_dims) - 1):
+            rows = layer_dims[i + 1]
+            biases.append(flat[offset : offset + rows])
+            offset += rows
+        return weights, biases
 
     def __init__(
         self,
@@ -957,22 +993,21 @@ class SC2NeuralNetPolicy(BasePolicy):
         self._obs_spec = obs_spec
         self._action_dim = 4
         self._hidden = list(hidden_sizes or [16, 16])
-        layer_dims = [obs_spec.dim] + self._hidden + [self._action_dim]
-        rng = np.random.default_rng()
-        self._weights: list[np.ndarray] = []
-        self._biases: list[np.ndarray] = []
-        for i in range(len(layer_dims) - 1):
-            fan_in = layer_dims[i]
-            fan_out = layer_dims[i + 1]
-            w = rng.standard_normal((fan_out, fan_in)).astype(np.float32)
-            w *= np.sqrt(2.0 / fan_in)  # He init
-            b = np.zeros(fan_out, dtype=np.float32)
-            self._weights.append(w)
-            self._biases.append(b)
-
         self._race: str = race
         self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
         self._available_fn_ids: set[int] | None = None
+
+        layer_dims = [obs_spec.dim] + self._hidden + [self._action_dim]
+        self._flat = np.empty(self._flat_size(layer_dims), dtype=np.float32)
+        self._weights, self._biases = self._make_views(self._flat)
+
+        rng = np.random.default_rng()
+        for i, w in enumerate(self._weights):
+            fan_in = layer_dims[i]
+            rng.standard_normal(size=w.shape, dtype=np.float32, out=w)
+            w *= np.float32(np.sqrt(2.0 / fan_in))  # He init, in-place
+        for b in self._biases:
+            b[:] = 0.0
 
     @classmethod
     def from_cfg(cls, cfg: dict, obs_spec: ObsSpec) -> "SC2NeuralNetPolicy":
@@ -980,12 +1015,19 @@ class SC2NeuralNetPolicy(BasePolicy):
         obj._obs_spec = obs_spec
         obj._action_dim = 4
         obj._hidden = cfg.get("hidden_sizes", [16, 16])
-        obj._weights = [np.array(w, dtype=np.float32) for w in cfg["weights"]]
-        obj._biases = [np.array(b, dtype=np.float32) for b in cfg["biases"]]
         race = cfg.get("race", "random")
         obj._race = race
         obj._race_fn_ids = fn_ids_for_race(race)
         obj._available_fn_ids = None
+
+        layer_dims = [obs_spec.dim] + obj._hidden + [obj._action_dim]
+        obj._flat = np.empty(cls._flat_size(layer_dims), dtype=np.float32)
+        obj._weights, obj._biases = obj._make_views(obj._flat)
+
+        for dst, src in zip(obj._weights, cfg["weights"]):
+            dst[:] = np.asarray(src, dtype=np.float32)
+        for dst, src in zip(obj._biases, cfg["biases"]):
+            dst[:] = np.asarray(src, dtype=np.float32)
         return obj
 
     def _project_fn_idx(self, fn_scalar: float) -> int:
@@ -1016,31 +1058,24 @@ class SC2NeuralNetPolicy(BasePolicy):
 
     def mutated(self, scale: float = 0.1, **_) -> "SC2NeuralNetPolicy":
         rng = np.random.default_rng()
+        # One allocation: copy the entire flat parameter vector.
+        # Large numpy arrays use VirtualAlloc on Windows (page-aligned, outside the
+        # CRT heap), so a single allocation of this size is always findable even
+        # after many episodes, unlike N separate per-layer allocations (issue #456).
+        new_flat = self._flat.copy()
+        noise = self._ensure_flat_noise(len(new_flat))
+        rng.standard_normal(size=len(new_flat), dtype=np.float32, out=noise)
+        noise *= np.float32(scale)
+        new_flat += noise
+
         obj = object.__new__(type(self))
         obj._obs_spec = self._obs_spec
         obj._action_dim = self._action_dim
         obj._hidden = list(self._hidden)
         obj._race = self._race
         obj._race_fn_ids = self._race_fn_ids
-        # Generate noise directly in float32 via the pre-allocated class-level buffer.
-        # This avoids the float64 intermediate that rng.normal() would create (doubling
-        # peak temporary memory per large layer) and eliminates the repeated large-array
-        # alloc/free churn that fragments the Windows heap over many episodes (issue #456).
-        scale_f32 = np.float32(scale)
-        new_weights = []
-        for w in self._weights:
-            buf = self._noise_buf(w.shape)
-            rng.standard_normal(size=w.shape, dtype=np.float32, out=buf)
-            buf *= scale_f32
-            new_weights.append(w + buf)
-        obj._weights = new_weights
-        new_biases = []
-        for b in self._biases:
-            buf = self._noise_buf(b.shape)
-            rng.standard_normal(size=b.shape, dtype=np.float32, out=buf)
-            buf *= scale_f32
-            new_biases.append(b + buf)
-        obj._biases = new_biases
+        obj._flat = new_flat
+        obj._weights, obj._biases = obj._make_views(new_flat)
         obj._available_fn_ids = set(self._available_fn_ids) if self._available_fn_ids is not None else None
         return obj
 

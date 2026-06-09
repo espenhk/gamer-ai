@@ -17,7 +17,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-- **Bug fix** (`sc2_neural_net` OOM on Windows, issue #456): `SC2NeuralNetPolicy.mutated()` used `rng.normal(...).astype(np.float32)`, creating a float64 intermediate array twice the size of each weight matrix plus a float32 cast — a 32 MiB churn cycle per mutation for a `(2048, 1024)` layer.  After 110+ long SC2 episodes Windows heap fragmentation made contiguous allocations fail even though total free memory was sufficient.  Fixed by generating noise directly in float32 via `rng.standard_normal(dtype=np.float32)` and pre-allocating per-shape class-level noise buffers (`_noise_bufs`) that are reused across mutations, eliminating the repeated large alloc/free cycles.  Large `hidden_sizes` like `[1024,2048,2048,1024]` now run stably.
+- **Bug fix** (`sc2_neural_net` OOM on Windows, issue #456): `SC2NeuralNetPolicy` now packs all weights and biases into a single contiguous `_flat` float32 buffer; `_weights`/`_biases` are views into it.  `mutated()` does a single `_flat.copy()` and adds noise in-place — one allocation of known size per mutation instead of N separate per-layer alloc/free cycles.  A single large numpy allocation uses `VirtualAlloc` on Windows (page-aligned, outside the CRT heap) and is always findable regardless of heap state; N separate mid-to-large allocations fragment the heap until even an 8 MiB contiguous request fails after 100+ long SC2 episodes.  Noise is generated directly in float32 via `rng.standard_normal(dtype=np.float32, out=buf)` into a class-level pre-grown buffer, eliminating the float64 intermediate.  Large `hidden_sizes` like `[1024,2048,2048,1024]` now run stably for the full 500-sim budget.
 
 ---
 

@@ -418,6 +418,13 @@ class SC2Client:
         # emits a selection this step, the original action is stored here
         # and replayed on the next step().
         self._deferred_action: np.ndarray | None = None
+        # Flags set each step so env.py can update action counts correctly.
+        # last_was_deferred: True when the deferred queue fired (the fn_idx
+        #   was already counted at the request step; env must not count again).
+        # last_was_extreme_random: True when the extreme-random phase replaced
+        #   the policy action (count the executed fn_idx, not the policy's).
+        self._last_was_deferred: bool = False
+        self._last_was_extreme_random: bool = False
         # Wall-clock timestamp of the last "current game state" debug dump.
         # Logged every ~10 s when DEBUG logging is enabled so the user can
         # eyeball units / buildings / upgrades / valid action set without
@@ -486,6 +493,8 @@ class SC2Client:
            ``select_*`` and the original action goes into the deferred
            slot for the next step.
         """
+        self._last_was_deferred = False
+        self._last_was_extreme_random = False
         if self._deferred_action is not None:
             # The selector was already emitted last step; send the original
             # action directly without re-resolving.  If the selection still
@@ -496,9 +505,11 @@ class SC2Client:
             # actually execute.
             action = self._deferred_action
             self._deferred_action = None
+            self._last_was_deferred = True
         else:
             if self._is_extreme_random_phase():
                 action = self._sample_extreme_random_action()
+                self._last_was_extreme_random = True
             action, deferred = self._resolve_action(action)
             self._deferred_action = deferred
 
@@ -603,6 +614,24 @@ class SC2Client:
         this returns the substituted fn_idx, not the requested one.
         """
         return self._last_fn_idx
+
+    @property
+    def last_was_deferred(self) -> bool:
+        """True when the deferred-action queue fired on the last step.
+
+        The fn_idx was already counted at the step the policy requested it;
+        ``env.step()`` must not increment the count a second time.
+        """
+        return self._last_was_deferred
+
+    @property
+    def last_was_extreme_random(self) -> bool:
+        """True when the extreme-random phase replaced the policy action.
+
+        The policy was completely bypassed; ``env.step()`` should count the
+        executed fn_idx (``last_fn_idx``), not the policy's no_op request.
+        """
+        return self._last_was_extreme_random
 
     # ------------------------------------------------------------------
     # Internal helpers

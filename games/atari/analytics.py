@@ -50,28 +50,34 @@ def _save(fig: "Figure", path: str) -> None:
 
 
 def plot_episode_returns(data: ExperimentData, results_dir: str) -> bool:
-    """Plot un-clipped native-score returns with a best-so-far curve."""
+    """Plot per-episode shaped training reward with a best-so-far curve.
+
+    Uses ``GreedySimResult.reward``, which is the shaped reward produced by
+    ``AtariRewardCalculator`` (applies ``native_reward_scale``, ``clip_sign``,
+    and ``step_penalty``).  It reflects training performance, not the raw
+    un-scaled native game score.
+    """
     if not _HAS_MPL or not data.greedy_sims:
         return False
 
     sims = [s.sim for s in data.greedy_sims]
-    returns = [s.reward for s in data.greedy_sims]
+    rewards = [s.reward for s in data.greedy_sims]
     best_so_far: list[float] = []
     running_best = float("-inf")
-    for score in returns:
+    for score in rewards:
         running_best = max(running_best, score)
         best_so_far.append(running_best)
 
     fig, ax = plt.subplots(figsize=(max(8, len(sims) * 0.15), 5))
-    ax.plot(sims, returns, color="#3498db", linewidth=1.2, marker="o", markersize=3, label="episode return")
+    ax.plot(sims, rewards, color="#3498db", linewidth=1.2, marker="o", markersize=3, label="training reward")
     ax.step(sims, best_so_far, where="post", color="#e67e22", linewidth=2.0, label="best so far")
     improved_xs = [s.sim for s in data.greedy_sims if s.improved]
     improved_ys = [s.reward for s in data.greedy_sims if s.improved]
     if improved_xs:
         ax.scatter(improved_xs, improved_ys, color="#27ae60", s=50, marker="^", zorder=4, label="improved")
-    ax.set_title(f"{data.experiment_name} — Atari Episode Return")
+    ax.set_title(f"{data.experiment_name} — Atari Training Reward")
     ax.set_xlabel("Simulation")
-    ax.set_ylabel("Episode return")
+    ax.set_ylabel("Episode reward (shaped)")
     ax.legend(fontsize=9)
     fig.tight_layout()
     _save(fig, os.path.join(results_dir, "atari_episode_returns.png"))
@@ -140,14 +146,14 @@ def _atari_summary_md(data: ExperimentData) -> str:
     if not sims:
         return ""
 
-    returns = [s.reward for s in sims]
+    rewards = [s.reward for s in sims]
     lengths = [s.total_steps for s in sims]
     lines = [
         "## Atari Metrics\n\n",
         "| Metric | Value |\n",
         "|--------|-------|\n",
-        f"| Best episode return | {max(returns):+.1f} |\n",
-        f"| Mean episode return | {float(np.mean(returns)):+.1f} |\n",
+        f"| Best training reward | {max(rewards):+.1f} |\n",
+        f"| Mean training reward | {float(np.mean(rewards)):+.1f} |\n",
         f"| Mean episode length | {float(np.mean(lengths)):.1f} steps |\n",
     ]
 

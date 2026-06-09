@@ -954,14 +954,9 @@ class SC2NeuralNetPolicy(BasePolicy):
 
     @staticmethod
     def _flat_size(layer_dims: list[int]) -> int:
-        return sum(
-            layer_dims[i + 1] * layer_dims[i] + layer_dims[i + 1]
-            for i in range(len(layer_dims) - 1)
-        )
+        return sum(layer_dims[i + 1] * layer_dims[i] + layer_dims[i + 1] for i in range(len(layer_dims) - 1))
 
-    def _make_views(
-        self, flat: np.ndarray
-    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def _make_views(self, flat: np.ndarray) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Return (weights, biases) as views into *flat*."""
         layer_dims = [self._obs_spec.dim] + self._hidden + [self._action_dim]
         weights: list[np.ndarray] = []

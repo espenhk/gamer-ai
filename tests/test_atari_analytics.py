@@ -47,7 +47,7 @@ class TestAtariAnalytics(unittest.TestCase):
             report = Path(tmp, "results.md").read_text(encoding="utf-8")
 
             self.assertIn("## Atari Metrics", report)
-            self.assertIn("Best episode return", report)
+            self.assertIn("Best training reward", report)
             self.assertIn("Mean episode length", report)
             self.assertIn("atari_episode_returns.png", report)
             self.assertIn("atari_episode_lengths.png", report)

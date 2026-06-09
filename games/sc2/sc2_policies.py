@@ -948,13 +948,27 @@ class SC2NeuralNetPolicy(BasePolicy):
         rng = np.random.default_rng()
         self._weights: list[np.ndarray] = []
         self._biases: list[np.ndarray] = []
+        _MAX_LAYER_BYTES = 1 << 20  # 1 MiB — warn when a single weight matrix exceeds this
         for i in range(len(layer_dims) - 1):
             fan_in = layer_dims[i]
-            w = rng.standard_normal((layer_dims[i + 1], fan_in)).astype(np.float32)
+            fan_out = layer_dims[i + 1]
+            w = rng.standard_normal((fan_out, fan_in)).astype(np.float32)
             w *= np.sqrt(2.0 / fan_in)  # He init
-            b = np.zeros(layer_dims[i + 1], dtype=np.float32)
+            b = np.zeros(fan_out, dtype=np.float32)
             self._weights.append(w)
             self._biases.append(b)
+            layer_bytes = w.nbytes
+            if layer_bytes > _MAX_LAYER_BYTES:
+                logging.warning(
+                    "SC2NeuralNetPolicy: layer %d weight matrix is %.1f MiB (%s). "
+                    "sc2_neural_net uses mutate-and-keep hill-climbing — searching "
+                    "%d parameters per layer is infeasible and risks OOM on Windows. "
+                    "Consider hidden_sizes <= [128, 128].",
+                    i,
+                    layer_bytes / (1 << 20),
+                    w.shape,
+                    w.size,
+                )
 
         self._race: str = race
         self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)

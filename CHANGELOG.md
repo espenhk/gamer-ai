@@ -17,6 +17,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+- **Bug fix** (`sc2_neural_net` OOM on Windows, issue #456): `gs_sc2_neural_net_template.yaml` specified `hidden_sizes` of `[1024, 2048, 2048, 1024]` / `[2048, 4096, 4096, 2048]` — with `obs_spec_preset: rich` + `enable_belief: true` (~295 obs dims) the largest layer was 8 MiB per matrix.  After 110+ long SC2 episodes Windows heap fragmentation caused `numpy.ArrayMemoryError` in `SC2NeuralNetPolicy.mutated()`.  Template replaced with tractable sizes (`[64,64]`, `[128,128]`, `[256,128]`).  `SC2NeuralNetPolicy.__init__` now logs a `WARNING` whenever any layer weight matrix exceeds 1 MiB so future misconfigured sweeps are caught at startup.
 
 ---
 

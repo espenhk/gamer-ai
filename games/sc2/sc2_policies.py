@@ -946,18 +946,11 @@ class SC2NeuralNetPolicy(BasePolicy):
     # fragments the address space until even an 8 MiB contiguous request fails after
     # hundreds of episodes (issue #456).
     #
-    # _flat_noise is a class-level pre-allocated noise buffer grown to the largest
-    # flat size seen.  Filling it via rng.standard_normal(out=..., dtype=float32)
-    # generates float32 noise without a float64 intermediate.  Both the noise buffer
-    # and the weight buffer are long-lived, so the OS never sees them freed.
-
-    _flat_noise: np.ndarray = np.empty(0, dtype=np.float32)
-
-    @classmethod
-    def _ensure_flat_noise(cls, size: int) -> np.ndarray:
-        if cls._flat_noise.size < size:
-            cls._flat_noise = np.empty(size, dtype=np.float32)
-        return cls._flat_noise[:size]
+    # _noise is an instance variable (not class-level) allocated alongside _flat.
+    # mutated() writes into it in-place and the new policy object shares the same
+    # buffer via reference — safe because hill-climbing mutations are serial.
+    # When the experiment ends and all policies in the lineage are GC'd the noise
+    # buffer is freed with them; no cross-run residue accumulates in the process.
 
     @staticmethod
     def _flat_size(layer_dims: list[int]) -> int:
@@ -999,6 +992,7 @@ class SC2NeuralNetPolicy(BasePolicy):
 
         layer_dims = [obs_spec.dim] + self._hidden + [self._action_dim]
         self._flat = np.empty(self._flat_size(layer_dims), dtype=np.float32)
+        self._noise = np.empty(self._flat.size, dtype=np.float32)
         self._weights, self._biases = self._make_views(self._flat)
 
         rng = np.random.default_rng()
@@ -1022,6 +1016,7 @@ class SC2NeuralNetPolicy(BasePolicy):
 
         layer_dims = [obs_spec.dim] + obj._hidden + [obj._action_dim]
         obj._flat = np.empty(cls._flat_size(layer_dims), dtype=np.float32)
+        obj._noise = np.empty(obj._flat.size, dtype=np.float32)
         obj._weights, obj._biases = obj._make_views(obj._flat)
 
         for dst, src in zip(obj._weights, cfg["weights"]):
@@ -1058,15 +1053,10 @@ class SC2NeuralNetPolicy(BasePolicy):
 
     def mutated(self, scale: float = 0.1, **_) -> "SC2NeuralNetPolicy":
         rng = np.random.default_rng()
-        # One allocation: copy the entire flat parameter vector.
-        # Large numpy arrays use VirtualAlloc on Windows (page-aligned, outside the
-        # CRT heap), so a single allocation of this size is always findable even
-        # after many episodes, unlike N separate per-layer allocations (issue #456).
         new_flat = self._flat.copy()
-        noise = self._ensure_flat_noise(len(new_flat))
-        rng.standard_normal(size=len(new_flat), dtype=np.float32, out=noise)
-        noise *= np.float32(scale)
-        new_flat += noise
+        rng.standard_normal(size=len(new_flat), dtype=np.float32, out=self._noise)
+        self._noise *= np.float32(scale)
+        new_flat += self._noise
 
         obj = object.__new__(type(self))
         obj._obs_spec = self._obs_spec
@@ -1075,6 +1065,7 @@ class SC2NeuralNetPolicy(BasePolicy):
         obj._race = self._race
         obj._race_fn_ids = self._race_fn_ids
         obj._flat = new_flat
+        obj._noise = self._noise  # share; mutations are serial so one buffer suffices
         obj._weights, obj._biases = obj._make_views(new_flat)
         obj._available_fn_ids = set(self._available_fn_ids) if self._available_fn_ids is not None else None
         return obj

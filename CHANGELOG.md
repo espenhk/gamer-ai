@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.4] - 2026-06-09
+
 ### Fixed
 
 - **`SC2NeuralNetPolicy` hill-climbing practicality guard** — `__init__` now emits a

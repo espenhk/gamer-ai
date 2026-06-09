@@ -1084,6 +1084,10 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = {}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
+            # {} prevents _compute_owned_buildings from rebuilding the lookup via
+            # pysc2 (which would activate the tech-tree filter and block most actions).
+            # This test isolates race-inference, not tech-tree filtering.
+            client._unit_type_id_to_name = {}
             ob = self._minigame_ob(available_actions=np.array([0, 331], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
@@ -1101,6 +1105,10 @@ class TestSC2ClientAvailableFnIds(unittest.TestCase):
             sc2_client_mod._pysc2_id_to_fn_idx = {0: 0, 321: 8, 882: 48}
             client = SC2Client(map_name="MoveToBeacon")
             client._unit_type_id_to_race = {1: "terran"}
+            # {} prevents _compute_owned_buildings from rebuilding the lookup via
+            # pysc2 (which would activate the tech-tree filter and block most actions).
+            # This test isolates race × PySC2 intersection, not tech-tree filtering.
+            client._unit_type_id_to_name = {}
             ob = self._minigame_ob(available_actions=np.array([0, 321, 882], dtype=np.int32))
             ob["feature_units"] = np.array([[1, 1]], dtype=np.int32)  # Terran self unit
             _, info = client._timestep_to_obs_info(_FakeTimeStep(ob))
@@ -2403,20 +2411,20 @@ class TestSC2ClientGeyserDetection(unittest.TestCase):
         }
 
     def test_collects_neutral_geysers(self):
-        # Columns: [unit_type, alliance, ..., x=col8, y=col9].
-        feat_units = np.zeros((3, 10), dtype=np.int32)
-        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 12, 14]  # friendly SCV
-        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 30, 40]  # neutral geyser
-        feat_units[2] = [3, 3, 0, 0, 0, 0, 0, 0, 50, 22]  # neutral rich geyser
+        # Columns: [unit_type, alliance, ..., x=col12, y=col13].
+        feat_units = np.zeros((3, 14), dtype=np.int32)
+        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 14]  # friendly SCV
+        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 40]  # neutral geyser
+        feat_units[2] = [3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 22]  # neutral rich geyser
         self.client._update_unit_screen_positions({"feature_units": feat_units})
         self.assertEqual(sorted(self.client._geyser_screen_positions), [(30, 40), (50, 22)])
         # Friendly cache still picked up the SCV.
         self.assertEqual(self.client._screen_xy_by_unit_type.get("SCV"), (12, 14))
 
     def test_excludes_non_geyser_neutrals(self):
-        feat_units = np.zeros((2, 10), dtype=np.int32)
-        feat_units[0] = [2, 3, 0, 0, 0, 0, 0, 0, 30, 40]  # geyser
-        feat_units[1] = [4, 3, 0, 0, 0, 0, 0, 0, 60, 60]  # mineral field — not a geyser
+        feat_units = np.zeros((2, 14), dtype=np.int32)
+        feat_units[0] = [2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 30, 40]  # geyser
+        feat_units[1] = [4, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 60]  # mineral field — not a geyser
         self.client._update_unit_screen_positions({"feature_units": feat_units})
         self.assertEqual(self.client._geyser_screen_positions, [(30, 40)])
 
@@ -2425,9 +2433,9 @@ class TestSC2ClientGeyserDetection(unittest.TestCase):
         # The neutral-only filter must drop friendly rows so the snap doesn't
         # pick a position that's already occupied by a refinery.
         self.client._unit_type_id_to_name = {1: "Refinery", 2: "VespeneGeyser"}
-        feat_units = np.zeros((2, 10), dtype=np.int32)
-        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 10, 10]  # friendly Refinery
-        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 40, 40]  # neutral geyser
+        feat_units = np.zeros((2, 14), dtype=np.int32)
+        feat_units[0] = [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 10]  # friendly Refinery
+        feat_units[1] = [2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 40, 40]  # neutral geyser
         self.client._update_unit_screen_positions({"feature_units": feat_units})
         self.assertEqual(self.client._geyser_screen_positions, [(40, 40)])
 
@@ -2435,7 +2443,7 @@ class TestSC2ClientGeyserDetection(unittest.TestCase):
         # Stale geysers must not bleed across steps even if feature_units
         # comes back empty (e.g. camera panned away).
         self.client._geyser_screen_positions = [(99, 99)]
-        self.client._update_unit_screen_positions({"feature_units": np.zeros((0, 10), dtype=np.int32)})
+        self.client._update_unit_screen_positions({"feature_units": np.zeros((0, 14), dtype=np.int32)})
         self.assertEqual(self.client._geyser_screen_positions, [])
 
 

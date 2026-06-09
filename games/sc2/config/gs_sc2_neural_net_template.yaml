@@ -1,16 +1,18 @@
-# Grid search template: sc2_neural_net on BuildMarines (Simple64).
+# Grid search template: sc2_neural_net with very large hidden layers.
 #
 # Usage:
 #   python grid_search.py games/sc2/config/gs_sc2_neural_net_template.yaml --game sc2
 #
-# sc2_neural_net uses mutate-and-keep hill-climbing, so hidden_sizes must stay
-# small enough that (a) each weight matrix fits comfortably in memory and (b)
-# the search space is tractable.  Rule of thumb: the largest single weight
-# matrix should be well under 1 MiB (~250 k float32 elements).  For obs_dim ~295
-# (rich + belief) the practical ceiling is around [256, 128]; going larger gives
-# no benefit and risks OOM via heap fragmentation on long Windows runs (issue #456).
+# Designed to test whether extremely large TMNF-style MLPs (multimillion
+# parameters) can learn useful SC2 behaviour under hill-climbing.
+#
+# Memory note: large hidden_sizes are safe because SC2NeuralNetPolicy.mutated()
+# pre-allocates per-shape float32 noise buffers and generates noise directly in
+# float32 (no float64 intermediate).  Before that fix, each mutation created a
+# temporary float64 array (2× the weight matrix size) that repeatedly fragmented
+# the Windows heap until contiguous allocations failed (issue #456).
 
-base_name: "gs_sc2_neural_net_v1"
+base_name: "gs_sc2_neural_net_massive_v1"
 game: sc2
 
 training_params:
@@ -18,17 +20,17 @@ training_params:
   in_game_episode_s: 600.0
   step_mul: 4
   obs_spec_preset: rich
-  enable_belief: true
+  enable_belief: true              # tabular state-space explosion; see comment above
   policy_type: sc2_neural_net
   n_sims: 500
   max_apm: 300
   agent_race: terran
+  economy_weight: 0.5
   move_exploration_bonus: [0.01, 0.1]
   damage_taken_penalty: [-0.1, -0.5]
   hidden_sizes:
-    - [64, 64]
-    - [128, 128]
-    - [256, 128]
+    - [1024, 2048, 2048, 1024]
+    - [2048, 4096, 4096, 2048]
 
 reward_params:
   score_weight: 1.0

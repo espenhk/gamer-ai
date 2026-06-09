@@ -935,6 +935,19 @@ class SC2NeuralNetPolicy(BasePolicy):
             return False, "This policy is SC2-specific; use game='sc2'."
         return True, None
 
+    # Class-level cache of pre-allocated float32 noise buffers keyed by shape.
+    # Shared across all instances; safe because hill-climbing mutations are serial.
+    # Eliminates repeated large alloc/free churn that fragments the Windows heap.
+    _noise_bufs: dict[tuple[int, ...], np.ndarray] = {}
+
+    @classmethod
+    def _noise_buf(cls, shape: tuple[int, ...]) -> np.ndarray:
+        buf = cls._noise_bufs.get(shape)
+        if buf is None:
+            buf = np.empty(shape, dtype=np.float32)
+            cls._noise_bufs[shape] = buf
+        return buf
+
     def __init__(
         self,
         obs_spec: ObsSpec,
@@ -948,7 +961,6 @@ class SC2NeuralNetPolicy(BasePolicy):
         rng = np.random.default_rng()
         self._weights: list[np.ndarray] = []
         self._biases: list[np.ndarray] = []
-        _MAX_LAYER_BYTES = 1 << 20  # 1 MiB — warn when a single weight matrix exceeds this
         for i in range(len(layer_dims) - 1):
             fan_in = layer_dims[i]
             fan_out = layer_dims[i + 1]
@@ -957,18 +969,6 @@ class SC2NeuralNetPolicy(BasePolicy):
             b = np.zeros(fan_out, dtype=np.float32)
             self._weights.append(w)
             self._biases.append(b)
-            layer_bytes = w.nbytes
-            if layer_bytes > _MAX_LAYER_BYTES:
-                logging.warning(
-                    "SC2NeuralNetPolicy: layer %d weight matrix is %.1f MiB (%s). "
-                    "sc2_neural_net uses mutate-and-keep hill-climbing — searching "
-                    "%d parameters per layer is infeasible and risks OOM on Windows. "
-                    "Consider hidden_sizes <= [128, 128].",
-                    i,
-                    layer_bytes / (1 << 20),
-                    w.shape,
-                    w.size,
-                )
 
         self._race: str = race
         self._race_fn_ids: frozenset[int] = fn_ids_for_race(race)
@@ -1022,8 +1022,25 @@ class SC2NeuralNetPolicy(BasePolicy):
         obj._hidden = list(self._hidden)
         obj._race = self._race
         obj._race_fn_ids = self._race_fn_ids
-        obj._weights = [w + rng.normal(0.0, scale, w.shape).astype(np.float32) for w in self._weights]
-        obj._biases = [b + rng.normal(0.0, scale, b.shape).astype(np.float32) for b in self._biases]
+        # Generate noise directly in float32 via the pre-allocated class-level buffer.
+        # This avoids the float64 intermediate that rng.normal() would create (doubling
+        # peak temporary memory per large layer) and eliminates the repeated large-array
+        # alloc/free churn that fragments the Windows heap over many episodes (issue #456).
+        scale_f32 = np.float32(scale)
+        new_weights = []
+        for w in self._weights:
+            buf = self._noise_buf(w.shape)
+            rng.standard_normal(size=w.shape, dtype=np.float32, out=buf)
+            buf *= scale_f32
+            new_weights.append(w + buf)
+        obj._weights = new_weights
+        new_biases = []
+        for b in self._biases:
+            buf = self._noise_buf(b.shape)
+            rng.standard_normal(size=b.shape, dtype=np.float32, out=buf)
+            buf *= scale_f32
+            new_biases.append(b + buf)
+        obj._biases = new_biases
         obj._available_fn_ids = set(self._available_fn_ids) if self._available_fn_ids is not None else None
         return obj
 

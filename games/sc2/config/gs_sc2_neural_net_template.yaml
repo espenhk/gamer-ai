@@ -1,4 +1,4 @@
-# Grid search template: sc2_neural_net with very large hidden layers.
+# Grid search template: sc2_neural_net policy on SC2 (BuildMarines minigame).
 #
 # Usage:
 #   python grid_search.py games/sc2/config/gs_sc2_neural_net_template.yaml --game sc2

@@ -148,5 +148,32 @@ class TestSC2NeuralNetPolicyRaceMask(unittest.TestCase):
         self.assertEqual(p._race, "terran")  # noqa: SLF001
 
 
+class TestSC2NeuralNetPolicyOOMGuard(unittest.TestCase):
+    """SC2NeuralNetPolicy.__init__ must warn when weight matrices are too large."""
+
+    def test_warns_when_largest_matrix_exceeds_1mib(self):
+        # obs_dim=15 (minigame), hidden=[1024, 2048] → layer2 = (2048,1024)
+        # = 2048*1024*4 bytes = 8 MiB > 1 MiB threshold.
+        with self.assertLogs("games.sc2.sc2_policies", level="WARNING") as cm:
+            SC2NeuralNetPolicy(
+                obs_spec=SC2_MINIGAME_OBS_SPEC,
+                hidden_sizes=[1024, 2048],
+            )
+        self.assertTrue(any("MiB" in msg for msg in cm.output))
+
+    def test_no_warning_for_small_hidden_sizes(self):
+        import logging
+
+        with self.assertLogs("games.sc2.sc2_policies", level="WARNING") as cm:
+            logging.getLogger("games.sc2.sc2_policies").warning("sentinel")
+            SC2NeuralNetPolicy(
+                obs_spec=SC2_MINIGAME_OBS_SPEC,
+                hidden_sizes=[64, 64],
+            )
+        # Only the sentinel should appear — no large-matrix warning.
+        self.assertEqual(len(cm.output), 1)
+        self.assertIn("sentinel", cm.output[0])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -17,6 +17,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`SC2NeuralNetPolicy` hill-climbing practicality guard** — `__init__` now emits a
+  `WARNING` when any weight matrix exceeds 1 MiB, flagging hidden_sizes that are
+  algorithmically impractical for mutate-and-keep search (the OOM itself was closed by
+  the flat-buffer fix in 0.7.3). Template header comment updated to say "BuildMarines minigame".
+- **Stale CLAUDE.md god-node note** — `SC2Client` row clarified: no runtime imports from
+  `framework/` or other `games/` packages (closes #459).
 
 ---
 

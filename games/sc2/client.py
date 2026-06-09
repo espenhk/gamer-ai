@@ -141,6 +141,24 @@ _SAVE_REPLAY_TIMEOUT_S: float = 5.0
 
 
 # ---------------------------------------------------------------------------
+# feature_units column indices
+# ---------------------------------------------------------------------------
+# Mirrors pysc2.lib.features.FeatureUnit (IntEnum).  Named constants keep
+# every feature_units access self-documenting and in one place — changing
+# the layout only requires updating this class.
+
+
+class _FU:
+    unit_type = 0
+    alliance = 1
+    health = 2
+    shield = 3
+    x = 12
+    y = 13
+    weapon_cooldown = 25
+
+
+# ---------------------------------------------------------------------------
 # Lazy PySC2 field-name helpers
 # ---------------------------------------------------------------------------
 # PySC2 exposes structured field names via NamedNumpyArray descriptors.
@@ -1166,18 +1184,18 @@ class SC2Client:
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return None
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
             return None
         if self._unit_type_id_to_attack_range_gu is None:
             self._unit_type_id_to_attack_range_gu = self._build_attack_range_lookup()
 
         max_range_gu = 0.0
-        for row, owner in zip(feat_units, feat_units[:, 1]):
+        for row, owner in zip(feat_units, feat_units[:, _FU.alliance]):
             if int(owner) != 1:
                 continue
             max_range_gu = max(
                 max_range_gu,
-                self._unit_type_id_to_attack_range_gu.get(int(row[0]), 0.0),
+                self._unit_type_id_to_attack_range_gu.get(int(row[_FU.unit_type]), 0.0),
             )
         if max_range_gu <= 0.0:
             return None
@@ -1194,19 +1212,17 @@ class SC2Client:
         cause the sum to drop without actual damage — keep ``damage_taken_penalty``
         weights small to account for this noise.
 
-        PySC2 feature_units column layout (0-indexed):
-          0=unit_type, 1=alliance, 2=health, 3=shield
         """
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return 0.0
-        if feat_units.ndim != 2 or feat_units.shape[1] < 4:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.shield + 1:
             return 0.0
-        self_mask = feat_units[:, 1] == 1  # alliance == self
+        self_mask = feat_units[:, _FU.alliance] == 1
         if not self_mask.any():
             return 0.0
-        hp = feat_units[self_mask, 2].astype(np.float32)
-        shields = feat_units[self_mask, 3].astype(np.float32)
+        hp = feat_units[self_mask, _FU.health].astype(np.float32)
+        shields = feat_units[self_mask, _FU.shield].astype(np.float32)
         return float((hp + shields).sum())
 
     def _visible_self_unit_count(self, ob: Any) -> float:
@@ -1214,15 +1230,14 @@ class SC2Client:
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return 0.0
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
             return 0.0
-        return float((feat_units[:, 1] == 1).sum())
+        return float((feat_units[:, _FU.alliance] == 1).sum())
 
     def _update_unit_screen_positions(self, ob: Any) -> None:
         """Cache screen (x, y) per friendly unit-type name from ``feature_units``.
 
-        PySC2 ``feature_units`` column layout (0-indexed):
-          0=unit_type, 1=alliance, …, 8=x, 9=y.
+        Column indices come from :class:`_FU`.
 
         Populates ``self._screen_xy_by_unit_type`` (replaces the
         worker-only cache used before issue #346).  The deferred-action
@@ -1244,21 +1259,21 @@ class SC2Client:
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return
-        if feat_units.ndim != 2 or feat_units.shape[1] < 10:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.y + 1:
             return
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
         for row in feat_units:
-            alliance = int(row[1])
-            name = self._unit_type_id_to_name.get(int(row[0]))
+            alliance = int(row[_FU.alliance])
+            name = self._unit_type_id_to_name.get(int(row[_FU.unit_type]))
             if name is None:
                 continue
             if alliance == 1:
                 if name in self._screen_xy_by_unit_type:
                     continue
-                self._screen_xy_by_unit_type[name] = (int(row[8]), int(row[9]))
+                self._screen_xy_by_unit_type[name] = (int(row[_FU.x]), int(row[_FU.y]))
             elif alliance == 3 and name in GEYSER_NAMES:
-                self._geyser_screen_positions.append((int(row[8]), int(row[9])))
+                self._geyser_screen_positions.append((int(row[_FU.x]), int(row[_FU.y])))
 
     def _compute_owned_buildings(self, ob: Any) -> frozenset[str]:
         """Return the set of friendly structure/building names visible this step.
@@ -1269,15 +1284,15 @@ class SC2Client:
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return frozenset()
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
             return frozenset()
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
         names: set[str] = set()
         for row in feat_units:
-            if int(row[1]) != 1:
+            if int(row[_FU.alliance]) != 1:
                 continue
-            name = self._unit_type_id_to_name.get(int(row[0]))
+            name = self._unit_type_id_to_name.get(int(row[_FU.unit_type]))
             if name is not None and name in STRUCTURE_NAMES:
                 names.add(name)
         return frozenset(names)
@@ -1294,15 +1309,15 @@ class SC2Client:
         feat_units = self._safe_array(ob, "feature_units")
         if feat_units is None or feat_units.size == 0:
             return 0
-        if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+        if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
             return 0
         if self._unit_type_id_to_name is None:
             self._unit_type_id_to_name = self._build_unit_type_lookup()
         count = 0
         for row in feat_units:
-            if int(row[1]) != 1:
+            if int(row[_FU.alliance]) != 1:
                 continue
-            name = self._unit_type_id_to_name.get(int(row[0]))
+            name = self._unit_type_id_to_name.get(int(row[_FU.unit_type]))
             if name is not None and name in TOWNHALL_NAMES:
                 count += 1
         return count
@@ -1338,9 +1353,6 @@ class SC2Client:
         action's target — PySC2 will route the command to the
         compatible units in the selection.
         """
-        if self._unit_type_id_to_name is None:
-            self._unit_type_id_to_name = self._build_unit_type_lookup()
-
         names: set[str] = set()
         for key in ("single_select", "multi_select"):
             arr = self._safe_array(ob, key)
@@ -1352,8 +1364,10 @@ class SC2Client:
                 rows = arr
             else:
                 continue
+            if self._unit_type_id_to_name is None:
+                self._unit_type_id_to_name = self._build_unit_type_lookup()
             for row in rows:
-                name = self._unit_type_id_to_name.get(int(row[0]))
+                name = self._unit_type_id_to_name.get(int(row[_FU.unit_type]))
                 if name is not None:
                     names.add(name)
         return frozenset(names)
@@ -1675,11 +1689,11 @@ class SC2Client:
 
         race_votes: set[str] = set()
         feat_units = self._safe_array(ob, "feature_units")
-        if feat_units is not None and feat_units.size > 0 and feat_units.ndim == 2 and feat_units.shape[1] >= 2:
+        if feat_units is not None and feat_units.size > 0 and feat_units.ndim == 2 and feat_units.shape[1] >= _FU.alliance + 1:
             for row in feat_units:
-                if int(row[1]) != 1:
+                if int(row[_FU.alliance]) != 1:
                     continue
-                race = self._unit_type_id_to_race.get(int(row[0]))
+                race = self._unit_type_id_to_race.get(int(row[_FU.unit_type]))
                 if race is not None:
                     race_votes.add(race)
 
@@ -1696,7 +1710,7 @@ class SC2Client:
             else:
                 continue
             for row in rows:
-                race = self._unit_type_id_to_race.get(int(row[0]))
+                race = self._unit_type_id_to_race.get(int(row[_FU.unit_type]))
                 if race is not None:
                     race_votes.add(race)
 
@@ -2091,20 +2105,14 @@ def _per_unit_type_features(
     feat_units = SC2Client._safe_array(ob, "feature_units")
     if feat_units is None or feat_units.size == 0:
         return out, unit_type_lookup
-    # PySC2's feature_units rows have unit_type at column 0 and owner
-    # (player relative) at column 1 in standard schemas; tolerate
-    # missing columns by short-circuiting on shape.
-    if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+    if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
         return out, unit_type_lookup
     if unit_type_lookup is None:
         unit_type_lookup = SC2Client._build_unit_type_lookup()
-    owners = feat_units[:, 1]
-    # PySC2 owner values: 1 = self, others (4 = enemy) excluded for the
-    # friendly count.
-    for row, owner in zip(feat_units, owners):
+    for row, owner in zip(feat_units, feat_units[:, _FU.alliance]):
         if int(owner) != 1:
             continue
-        unit_id = int(row[0])
+        unit_id = int(row[_FU.unit_type])
         name = unit_type_lookup.get(unit_id)
         if name is None:
             continue
@@ -2177,16 +2185,15 @@ def _enemy_unit_type_features(
     feat_units = SC2Client._safe_array(ob, "feature_units")
     if feat_units is None or feat_units.size == 0:
         return out, unit_type_lookup
-    if feat_units.ndim != 2 or feat_units.shape[1] < 2:
+    if feat_units.ndim != 2 or feat_units.shape[1] < _FU.alliance + 1:
         return out, unit_type_lookup
     if unit_type_lookup is None:
         unit_type_lookup = SC2Client._build_unit_type_lookup()
-    # PySC2 player_relative values: 0=none/background, 1=self, 2=ally, 3=neutral, 4=enemy.
-    # Count only true enemy rows (owner == 4); neutrals, allies and background are excluded.
-    for row, owner in zip(feat_units, feat_units[:, 1]):
+    # PySC2 alliance values: 0=none/background, 1=self, 2=ally, 3=neutral, 4=enemy.
+    for row, owner in zip(feat_units, feat_units[:, _FU.alliance]):
         if int(owner) != 4:
             continue
-        name = unit_type_lookup.get(int(row[0]))
+        name = unit_type_lookup.get(int(row[_FU.unit_type]))
         key = f"enemy_count_{name}"
         if name is not None and key in out:
             out[key] += 1.0
@@ -2270,13 +2277,12 @@ def _weapon_cooldown_features(ob: Any) -> dict[str, float]:
     feat_units = SC2Client._safe_array(ob, "feature_units")
     if feat_units is None or feat_units.size == 0:
         return out
-    # Need at least 26 columns to access weapon_cooldown (index 25).
-    if feat_units.ndim != 2 or feat_units.shape[1] < 26:
+    if feat_units.ndim != 2 or feat_units.shape[1] < _FU.weapon_cooldown + 1:
         return out
-    self_mask = feat_units[:, 1] == 1  # alliance == self
+    self_mask = feat_units[:, _FU.alliance] == 1
     if not self_mask.any():
         return out
-    cooldowns = feat_units[self_mask, 25].astype(np.float32)
+    cooldowns = feat_units[self_mask, _FU.weapon_cooldown].astype(np.float32)
     out["self_weapon_cooldown_mean"] = float(cooldowns.mean())
     return out
 

@@ -98,6 +98,20 @@ class TestAtariEnvBasics(unittest.TestCase):
             self.assertIn("native_reward", info)
             self.assertIn("action_index", info)
 
+    def test_terminal_step_reports_episode_action_counts(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            from games.atari.env import AtariEnv  # noqa: PLC0415
+
+            env = AtariEnv(map_name="Pong-v5", max_episode_steps=10)
+            env.reset(seed=0)
+            env.step(np.array([1.0], dtype=np.float32))
+            env.step(np.array([3.0], dtype=np.float32))
+            _, _, terminated, truncated, info = env.step(np.array([3.0], dtype=np.float32))
+            self.assertTrue(terminated or truncated)
+            self.assertEqual(info["episode_action_counts"], {1: 1, 3: 2})
+            self.assertEqual(info["episode_action_name_map"][3], "action_3")
+
     def test_episode_terminates_at_step_limit_of_fake_env(self):
         fake = _FakeGymEnv(n_actions=6)
         with _patched_env_module(fake):

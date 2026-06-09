@@ -954,14 +954,9 @@ class SC2NeuralNetPolicy(BasePolicy):
 
     @staticmethod
     def _flat_size(layer_dims: list[int]) -> int:
-        return sum(
-            layer_dims[i + 1] * layer_dims[i] + layer_dims[i + 1]
-            for i in range(len(layer_dims) - 1)
-        )
+        return sum(layer_dims[i + 1] * layer_dims[i] + layer_dims[i + 1] for i in range(len(layer_dims) - 1))
 
-    def _make_views(
-        self, flat: np.ndarray
-    ) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def _make_views(self, flat: np.ndarray) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Return (weights, biases) as views into *flat*."""
         layer_dims = [self._obs_spec.dim] + self._hidden + [self._action_dim]
         weights: list[np.ndarray] = []
@@ -1002,6 +997,21 @@ class SC2NeuralNetPolicy(BasePolicy):
             w *= np.float32(np.sqrt(2.0 / fan_in))  # He init, in-place
         for b in self._biases:
             b[:] = 0.0
+
+        _MIB = 1024 * 1024
+        max_bytes = max(w.nbytes for w in self._weights)
+        if max_bytes > _MIB:
+            logger.warning(
+                "SC2NeuralNetPolicy: largest weight matrix is %.1f MiB "
+                "(hidden_sizes=%s, obs_dim=%d). "
+                "Mutate-and-keep hill-climbing cannot make meaningful progress at "
+                "this parameter scale — random Gaussian perturbations on millions "
+                "of weights rarely improve the policy. Reduce hidden_sizes to "
+                "[64, 64] or [128, 128] for effective hill-climbing.",
+                max_bytes / _MIB,
+                self._hidden,
+                obs_spec.dim,
+            )
 
     @classmethod
     def from_cfg(cls, cfg: dict, obs_spec: ObsSpec) -> "SC2NeuralNetPolicy":

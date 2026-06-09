@@ -1689,7 +1689,12 @@ class SC2Client:
 
         race_votes: set[str] = set()
         feat_units = self._safe_array(ob, "feature_units")
-        if feat_units is not None and feat_units.size > 0 and feat_units.ndim == 2 and feat_units.shape[1] >= _FU.alliance + 1:
+        if (
+            feat_units is not None
+            and feat_units.size > 0
+            and feat_units.ndim == 2
+            and feat_units.shape[1] >= _FU.alliance + 1
+        ):
             for row in feat_units:
                 if int(row[_FU.alliance]) != 1:
                     continue

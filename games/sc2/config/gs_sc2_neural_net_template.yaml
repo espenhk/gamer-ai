@@ -6,33 +6,34 @@
 # Designed to test whether extremely large TMNF-style MLPs (multimillion
 # parameters) can learn useful SC2 behaviour under hill-climbing.
 
-base_name: "massive_v2"
+base_name: "gs_sc2_neural_net_massive_v1"
 game: sc2
 
 training_params:
-  map_name: BuildMarines
+  map_name: Simple64
   in_game_episode_s: 600.0
   step_mul: 4
   obs_spec_preset: rich
-  enable_belief: false
-  #enable_belief: true              # tabular state-space explosion; see comment above
+  enable_belief: true              # tabular state-space explosion; see comment above
   policy_type: sc2_neural_net
   n_sims: 500
   max_apm: 300
   agent_race: terran
-  #economy_weight: 0.5
+  economy_weight: 0.5
+  move_exploration_bonus: [0.01, 0.1]
+  #move_exploration_bonus: [0.01]
+  #damage_taken_penalty: [-0.5]   # ablation for damage_taken_penalty
+  #move_exploration_bonus: [0.1]
+  #damage_taken_penalty: [-0.1, -0.5]   # ablation for damage_taken_penalty
+  damage_taken_penalty: [-0.1, -0.5]   # ablation for damage_taken_penalty
   hidden_sizes:
     #- [64, 64]
     - [1024, 2048, 2048, 1024]
     - [2048, 4096, 4096, 2048]
 
 reward_params:
-  score_weight: 1000.0
-  idle_worker_penalty: -0.001
-  army_growth_bonus: 50.0
-  train_bonus: 20.0
-  #score_weight: 1000.0
-  #idle_bonus: -0.5
-  #idle_penalty: -0.5
-  #early_random_action_bonus: 10.0
-  #early_random_action_window_steps: 300
+  score_weight: 1.0
+  idle_bonus: -0.5
+  idle_penalty: -0.5
+  early_random_action_bonus: 10.0
+  early_random_action_window_steps: 300

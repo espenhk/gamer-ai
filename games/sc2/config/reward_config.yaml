@@ -221,14 +221,14 @@ idle_bonus: 0.0
 idle_penalty: 0.0
 
 click_attack_cooldown_steps: 8
-small_selection_bonus: 0.01
+small_selection_bonus: 0.1
 
 supply_block_penalty: -0.1
 supply_growth_bonus: 1.0
 worker_growth_bonus: 1.0
-army_growth_bonus: 2.0
-tech_building_bonus: 10.0
-expansion_bonus: 20.0
+army_growth_bonus: 1.0
+tech_building_bonus: 5.0
+expansion_bonus: 10.0
 scout_bonus: 20.0
 new_action_usage_bonus: 0.1
 

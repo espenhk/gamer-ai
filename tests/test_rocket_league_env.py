@@ -289,5 +289,90 @@ class TestRocketLeagueActions(unittest.TestCase):
         self.assertTrue(np.all(DISCRETE_ACTIONS <= ACTION_HIGH))
 
 
+class TestRocketLeagueObsParsing(unittest.TestCase):
+    """Cover the previously-untested raw-obs parsing and derived features.
+
+    rlgym hands back a raw observation per agent; ``_parse_obs`` /
+    ``_parse_obs_row`` coerce it into our fixed ``BASE_OBS_DIM`` vector
+    (truncating, padding, or stacking multi-agent rows), and
+    ``_compute_vel_towards_ball`` derives the signed approach speed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import sys
+
+        cls._old_modules = {k: sys.modules.get(k) for k in _MODULE_PATCHES}
+        for mod, mock in _MODULE_PATCHES.items():
+            sys.modules[mod] = mock
+
+    @classmethod
+    def tearDownClass(cls):
+        import sys
+
+        for mod, old in cls._old_modules.items():
+            if old is None:
+                sys.modules.pop(mod, None)
+            else:
+                sys.modules[mod] = old
+
+    def setUp(self):
+        from games.rocket_league.obs_spec import BASE_OBS_DIM
+
+        self._dim = BASE_OBS_DIM
+        self.env = _make_env()
+
+    def test_parse_row_truncates_oversized_raw(self):
+        raw = np.arange(self._dim + 20, dtype=np.float32)
+        row = self.env._parse_obs_row(raw)
+        self.assertEqual(row.shape, (self._dim,))
+        np.testing.assert_array_equal(row, np.arange(self._dim, dtype=np.float32))
+
+    def test_parse_row_zero_pads_undersized_raw(self):
+        raw = np.full(10, 3.0, dtype=np.float32)
+        row = self.env._parse_obs_row(raw)
+        self.assertEqual(row.shape, (self._dim,))
+        np.testing.assert_array_equal(row[:10], np.full(10, 3.0, dtype=np.float32))
+        np.testing.assert_array_equal(row[10:], np.zeros(self._dim - 10, dtype=np.float32))
+
+    def test_parse_row_none_returns_zeros(self):
+        row = self.env._parse_obs_row(None)
+        self.assertEqual(row.shape, (self._dim,))
+        self.assertFalse(np.any(row))
+
+    def test_parse_obs_single_agent_returns_1d(self):
+        out = self.env._parse_obs([np.ones(self._dim, dtype=np.float32)])
+        self.assertEqual(out.shape, (self._dim,))
+
+    def test_parse_obs_multi_agent_returns_stacked(self):
+        rows = [np.full(self._dim, float(i), dtype=np.float32) for i in range(3)]
+        out = self.env._parse_obs(rows)
+        self.assertEqual(out.shape, (3, self._dim))
+        self.assertEqual(float(out[2, 0]), 2.0)
+
+    def test_parse_obs_empty_list_returns_zeros(self):
+        out = self.env._parse_obs([])
+        self.assertEqual(out.shape, (self._dim,))
+        self.assertFalse(np.any(out))
+
+    def test_vel_towards_ball_positive_when_approaching(self):
+        obs = np.zeros(self._dim, dtype=np.float32)
+        obs[3:6] = [10.0, 0.0, 0.0]  # car velocity
+        obs[117:120] = [100.0, 0.0, 0.0]  # relative ball position (ahead on +x)
+        self.assertAlmostEqual(self.env._compute_vel_towards_ball(obs), 10.0, places=4)
+
+    def test_vel_towards_ball_negative_when_receding(self):
+        obs = np.zeros(self._dim, dtype=np.float32)
+        obs[3:6] = [-10.0, 0.0, 0.0]
+        obs[117:120] = [100.0, 0.0, 0.0]
+        self.assertAlmostEqual(self.env._compute_vel_towards_ball(obs), -10.0, places=4)
+
+    def test_vel_towards_ball_zero_when_coincident(self):
+        obs = np.zeros(self._dim, dtype=np.float32)
+        obs[3:6] = [10.0, 5.0, 1.0]
+        # rel ball position all-zero → degenerate direction → 0.0, no div-by-zero
+        self.assertEqual(self.env._compute_vel_towards_ball(obs), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

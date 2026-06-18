@@ -17,6 +17,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+- **Tests** (newer-game unit coverage, issue #460): added cross-platform unit
+  tests for parsing/mapping logic in the three thinnest-covered games, all
+  against mocked clients so they run without game binaries.
+  - iRacing: new `tests/test_iracing_obs_spec.py` (21-dim telemetry spec) and
+    `tests/test_iracing_env.py` (mocked `pyirsdk`) exercise the previously
+    untested `IRacingEnv._read_telemetry` channel→obs-slot mapping, plus the
+    reset/step/close lifecycle, action clipping, and finish/crash/timeout
+    termination logic.
+  - Atari: `tests/test_atari_env.py` now covers the `_build_obs` RAM-extraction
+    edge cases (exact-128, oversized truncation, undersized zero-pad, batched
+    `(1, 128)` flatten).
+  - Rocket League: `tests/test_rocket_league_env.py` now covers raw-obs parsing
+    (`_parse_obs` / `_parse_obs_row` truncate/pad/stack) and the
+    `_compute_vel_towards_ball` derived-feature math.
 
 ---
 

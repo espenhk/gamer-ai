@@ -205,6 +205,58 @@ class TestAtariEnvActionMapping(unittest.TestCase):
             self.assertEqual(fake.last_action, 3)
 
 
+class TestAtariRamExtraction(unittest.TestCase):
+    """``_build_obs`` coerces raw ALE RAM into a fixed 128-float32 vector.
+
+    The happy 128-length path is covered by ``test_reset_returns_float32_ram_vector``;
+    these exercise the defensive truncate / pad / flatten branches that fire if a
+    future Gymnasium / ALE release changes the raw RAM shape (e.g. frame-stacking).
+    """
+
+    def _env(self, fake):
+        from games.atari.env import AtariEnv  # noqa: PLC0415
+
+        return AtariEnv(map_name="Pong-v5", max_episode_steps=10)
+
+    def test_exact_length_ram_is_unchanged(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            env = self._env(fake)
+            raw = np.arange(128, dtype=np.uint8)
+            obs = env._build_obs(raw)
+            self.assertEqual(obs.shape, (128,))
+            self.assertEqual(obs.dtype, np.float32)
+            np.testing.assert_array_equal(obs, np.arange(128, dtype=np.float32))
+
+    def test_oversized_ram_is_truncated(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            env = self._env(fake)
+            raw = np.arange(140, dtype=np.uint8)  # 12 too many
+            obs = env._build_obs(raw)
+            self.assertEqual(obs.shape, (128,))
+            np.testing.assert_array_equal(obs, np.arange(128, dtype=np.float32))
+
+    def test_undersized_ram_is_zero_padded(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            env = self._env(fake)
+            raw = np.full(100, 7.0, dtype=np.uint8)
+            obs = env._build_obs(raw)
+            self.assertEqual(obs.shape, (128,))
+            np.testing.assert_array_equal(obs[:100], np.full(100, 7.0, dtype=np.float32))
+            np.testing.assert_array_equal(obs[100:], np.zeros(28, dtype=np.float32))
+
+    def test_batched_2d_ram_is_flattened(self):
+        fake = _FakeGymEnv(n_actions=6)
+        with _patched_env_module(fake):
+            env = self._env(fake)
+            raw = np.arange(128, dtype=np.uint8).reshape(1, 128)  # (1, 128) batched
+            obs = env._build_obs(raw)
+            self.assertEqual(obs.shape, (128,))
+            np.testing.assert_array_equal(obs, np.arange(128, dtype=np.float32))
+
+
 class TestAtariEnvIdResolution(unittest.TestCase):
     def test_bare_name_gets_ale_prefix(self):
         from games.atari.env import _resolve_env_id  # noqa: PLC0415

@@ -59,8 +59,16 @@
 # Scaling up (after picking the winning LR)
 # -----------------------------------------
 # * Raise n_sims to 800-1500 to push the best LR toward a >+15 champion.
-# * Second-pass ablations: dueling: [false, true], hidden_sizes:
-#   [[128, 128], [256, 256]], target_update_freq: [1000, 2000].
+# * Second-pass ablations. grid_search.py only expands list-valued keys at the
+#   TOP LEVEL of training_params / reward_params — it does NOT recurse into the
+#   policy_params block. To sweep a policy hyperparam, PROMOTE it to a top-level
+#   training_params key (next to learning_rate below) and give it a list there;
+#   it is then forwarded into policy_params automatically. A nested list under
+#   policy_params is passed through verbatim and produces no sweep. Examples
+#   (add under training_params, remove the fixed copy from policy_params):
+#       dueling: [false, true]
+#       hidden_sizes: [[128, 128], [256, 256]]
+#       target_update_freq: [1000, 2000]
 # * Swap map_name to Breakout-v5 or Freeway-v5 — the other two games with
 #   famously fast-rising early training curves — to reuse this config.
 

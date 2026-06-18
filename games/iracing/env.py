@@ -203,12 +203,14 @@ class IRacingEnv(BaseGameEnv):
         obs[7] = _get("Throttle")
         obs[8] = _get("Brake")
         obs[9] = _get("SteeringWheelAngle")
-        # Tire loads (LF, RF, LR, RR)
-        obs[10] = _get("LFtempCL")
-        obs[11] = _get("RFtempCL")
-        obs[12] = _get("LRtempCL")
-        obs[13] = _get("RRtempCL")
-        # Tire temps
+        # Tire loads (LF, RF, LR, RR).  iRacing exposes no direct per-corner
+        # tyre-load channel, so we use shock deflection (metres) as the load
+        # proxy: greater suspension compression ⇒ greater vertical load.
+        obs[10] = _get("LFshockDefl")
+        obs[11] = _get("RFshockDefl")
+        obs[12] = _get("LRshockDefl")
+        obs[13] = _get("RRshockDefl")
+        # Tire temps (carcass-left surface temp per corner)
         obs[14] = _get("LFtempCL")
         obs[15] = _get("RFtempCL")
         obs[16] = _get("LRtempCL")

@@ -153,7 +153,7 @@ every telemetry variable without requiring a GUI intermediary.
 | `throttle` | 1.0 | Throttle input [0, 1] |
 | `brake` | 1.0 | Brake input [0, 1] |
 | `steering` | 1.0 | Steering input [-1, 1] |
-| `tire_load_fl`–`tire_load_rr` | 5000.0 | Per-wheel tyre load (N) |
+| `tire_load_fl`–`tire_load_rr` | 0.1 | Per-wheel shock deflection (m), tyre-load proxy (iRacing has no direct load channel) |
 | `tire_temp_fl`–`tire_temp_rr` | 150.0 | Per-wheel tyre surface temp (°C) |
 | `brake_bias` | 1.0 | Brake bias front/rear |
 | `lap_time_s` | 120.0 | Current lap elapsed time |

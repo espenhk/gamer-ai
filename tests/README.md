@@ -18,6 +18,8 @@
   - [test\_grid\_search.py — Cartesian-product expansion + naming](#test_grid_searchpy--cartesian-product-expansion--naming)
   - [test\_iracing\_analytics.py — iRacing-specific analytics plots and report](#test_iracing_analyticspy--iracing-specific-analytics-plots-and-report)
   - [test\_iracing\_controller.py — iRacing action injection controller](#test_iracing_controllerpy--iracing-action-injection-controller)
+  - [test\_iracing\_obs\_spec.py — iRacing observation spec (21-dim telemetry)](#test_iracing_obs_specpy--iracing-observation-spec-21-dim-telemetry)
+  - [test\_iracing\_env.py — iRacing env wrapper (mocked pyirsdk)](#test_iracing_envpy--iracing-env-wrapper-mocked-pyirsdk)
   - [test\_info\_gain.py — staleness-based intrinsic reward](#test_info_gainpy--staleness-based-intrinsic-reward)
   - [test\_live\_monitor.py — live GUI monitor helpers](#test_live_monitorpy--live-gui-monitor-helpers)
   - [test\_obs\_memory.py — frame-stacking observation wrapper](#test_obs_memorypy--frame-stacking-observation-wrapper)
@@ -260,6 +262,7 @@ worker mechanics are unit-tested with a dummy env.
 - episode terminates when the underlying fake env signals `terminated`
 - `n_legal_actions` mirrors the underlying env's `Discrete(N).n`
 - action mapping: continuous `[-1, +1]` → linear scale over `[0, N_legal-1]`; discrete index passthrough in range; out-of-range discrete index clamps to NOOP
+- RAM extraction (`_build_obs`): exact-128 unchanged; oversized raw truncated to 128; undersized raw zero-padded; batched `(1, 128)` flattened — all coerced to float32
 - env-id resolution: bare `Pong-v5` gets the `ALE/` prefix; already-qualified ids pass through
 
 ### test_atari_reward.py — Atari reward calculator
@@ -293,6 +296,19 @@ worker mechanics are unit-tested with a dummy env.
 - axis conversion: bipolar [-1,1]→[1,32768] boundary values (−1→min, 0→mid, 1→max), clamping, half values; unipolar [0,1]→[1,32768] boundary values, clamping
 - make_controller factory: `"telemetry_only"` → NullController, unknown mode raises ValueError, `"live"` without pyvjoy raises ImportError
 - VJoyController (mock-based): send sets all three axes correctly, full-left/full-brake, out-of-range clamping, reset centres steer + zeros pedals, close resets axes
+
+### test_iracing_obs_spec.py — iRacing observation spec (21-dim telemetry)
+- dim is 21; names match dim and are unique; scales are positive float32 of shape (21,)
+- feature order is pinned (speed/lateral/progress lead; lap_time/best_lap_time trail) so `_read_telemetry`'s by-index writes stay aligned
+- four `tire_load_*` + four `tire_temp_*` corner features present
+- every `ObsDim` carries a description; `raw / scales` normalisation maps a full-scale vector to all-ones; `with_extra_dims` appends new features (missing-key → 0.0 migration)
+
+### test_iracing_env.py — iRacing env wrapper (mocked pyirsdk)
+- `_read_telemetry` maps each pyirsdk channel into the correct obs slot (speed, lateral, progress, yaw, rpm, gear, fuel, throttle, brake, steering, brake-bias, lap times); the tyre-load block (10–13) reads per-corner shock deflection and the tyre-temp block (14–17) reads per-corner carcass temp — distinct channels, guarded against re-aliasing; absent channels default to 0.0 with no NaNs
+- lifecycle: reset connects the SDK + resets the controller and returns a 21-dim obs; step returns the 5-tuple with `speed_ms` / `track_progress` / `termination_reason` in info; close shuts down the SDK and controller; episode time limit get/set round-trips
+- action injection: steer/throttle/brake are clipped to their box bounds before being sent to the controller
+- termination: `LapDistPct >= 1.0` → finish; lateral past `crash_threshold_m` → crash; elapsed past the time limit → truncated/timeout (not terminated)
+- pyirsdk and a running iRacing client are mocked via a fake `irsdk.IRSDK`, so it runs on the cross-platform suite
 
 ### test_sc2_map_access_gate.py — Cross-process SC2 map-access serialiser (issue #254)
 - single-process: first call returns 0 wait / second call within gap waits remainder / second call after gap waits 0 / `gap_s=0` short-circuits with no I/O / negative `gap_s` treated as disabled / corrupt or empty timestamp file treated as "no prior access" / future timestamp clamped to now (clock-skew robustness)
@@ -1079,8 +1095,7 @@ tick_skip forwarding incl. `team_size=3`)
 — all exercised against a mocked `rlgym` so no Rocket League install is required.
 
 **Not tested.** The actual RLGym + Bakkesmod + Rocket League binary plumbing;
-real episode rollouts and goal-detection signals from the game process; the
-`vel_towards_ball` computation accuracy against live game data.
+real episode rollouts and goal-detection signals from the game process.
 
 ### test_rocket_league_obs_spec.py — Rocket League observation spec (142-dim)
 - ObsSpec instance; dim matches base; dim=142; names length; scales shape+positive; obs_spec_list match; names unique; first=car_pos_x; boost_amount present; ball/friendly/opponent features present; relative features present; boost pad features present (10)
@@ -1094,6 +1109,9 @@ real episode rollouts and goal-detection signals from the game process; the
 ### test_rocket_league_env.py — Rocket League env wrapper (mocked rlgym)
 - obs/action space shape+bounds; episode time-limit get/set; reset obs+info; step 5-tuple; info keys; boost flag from action[6]; timeout truncation; close delegates to rlgym env
 - tick_skip is forwarded from env/factory into `rlgym.make(..., team_size=3, self_play=False)`
+- multi-agent: reset/step return stacked `(n_agents, dim)` obs; single action is broadcast per agent; per-agent metric lists in info
+- raw-obs parsing (`_parse_obs` / `_parse_obs_row`): oversized raw truncated, undersized zero-padded, `None` → zeros; single-agent list → 1-D, multi-agent list → stacked `(n, dim)`, empty list → zeros
+- `_compute_vel_towards_ball`: positive when approaching, negative when receding, 0.0 (no div-by-zero) when car/ball positions coincide
 - discrete actions shape (≥9, 8-dim); probe count=6, shape; warmup shape; action bounds respected
 
 ## CLI / misc

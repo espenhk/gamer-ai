@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.11] - 2026-06-18
+
 ### Added
 - `games/atari/config/gs_minimal_pong_dqn.yaml`: a minimal "smallest, simplest reliably-trainable RL case" grid-search template — Atari `Pong-v5` (128-byte RAM observation) with the `neural_dqn` policy, sweeping only `learning_rate` (3 combos) at DQN-paper-aligned defaults. Documents the success criterion (climb away from Pong's -21 floor) and how to scale a winning LR to a full champion. Chosen because Atari needs no external game binary and Pong is the canonical fastest-converging Atari game for value-based RL.
 

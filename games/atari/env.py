@@ -134,6 +134,7 @@ class AtariEnv(BaseGameEnv):
         )
 
         self._step_count: int = 0
+        self._episode_action_counts: dict[int, int] = {}
 
     # ------------------------------------------------------------------
     # Properties
@@ -161,6 +162,7 @@ class AtariEnv(BaseGameEnv):
         super().reset(seed=seed)
         raw_obs, info = self._env.reset(seed=seed, options=options)
         self._step_count = 0
+        self._episode_action_counts = {}
         self._reward_calc.reset()
         return self._build_obs(raw_obs), info
 
@@ -171,6 +173,10 @@ class AtariEnv(BaseGameEnv):
 
         info["native_reward"] = float(native_reward)
         info["action_index"] = idx
+        self._episode_action_counts[idx] = self._episode_action_counts.get(idx, 0) + 1
+        if terminated or truncated:
+            info["episode_action_counts"] = dict(self._episode_action_counts)
+            info["episode_action_name_map"] = {i: f"action_{i}" for i in range(self._n_legal_actions)}
         info.setdefault("termination_reason", None)
         if terminated:
             info["termination_reason"] = "finish"

@@ -17,6 +17,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+- **Bug fix** (iRacing tyre-load telemetry, PR #479 review): `IRacingEnv._read_telemetry`
+  was populating the four `tire_load_*` observation slots from the carcass-temp
+  channels (`*tempCL`), the same channels feeding `tire_temp_*` — so the load
+  features duplicated the temp features. iRacing exposes no direct per-corner
+  tyre-load channel, so the load slots now read per-corner shock deflection
+  (`*shockDefl`, metres) as a load proxy; the `tire_load_*` obs-spec scale
+  (0.1) and descriptions are updated to match.
 - **Tests** (newer-game unit coverage, issue #460): added cross-platform unit
   tests for parsing/mapping logic in the three thinnest-covered games, all
   against mocked clients so they run without game binaries.

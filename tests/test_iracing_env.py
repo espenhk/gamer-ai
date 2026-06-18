@@ -82,6 +82,13 @@ _TELEMETRY = {
     "Throttle": 0.9,
     "Brake": 0.1,
     "SteeringWheelAngle": -0.25,
+    # Shock deflection (metres) feeds the tyre-load slots; carcass temps feed
+    # the tyre-temp slots — deliberately distinct values so a regression that
+    # aliases the two blocks onto one channel is caught.
+    "LFshockDefl": 0.011,
+    "RFshockDefl": 0.012,
+    "LRshockDefl": 0.013,
+    "RRshockDefl": 0.014,
     "LFtempCL": 70.0,
     "RFtempCL": 71.0,
     "LRtempCL": 72.0,
@@ -142,15 +149,24 @@ class TestReadTelemetryMapping(_IRacingEnvTestBase):
         self.assertAlmostEqual(self.obs[19], 88.4, places=4)  # lap_time ← LapCurrentLapTime
         self.assertAlmostEqual(self.obs[20], 85.1, places=4)  # best_lap ← LapBestLapTime
 
-    def test_tire_block_reads_per_corner_channels(self):
-        # The four tyre channels (LF/RF/LR/RR) populate both the load slots
-        # (10–13) and the temp slots (14–17) in corner order.  This pins the
-        # current mapping so a reorder is caught by CI.
-        for offset, key in zip((10, 14), ("load", "temp")):
-            self.assertAlmostEqual(self.obs[offset + 0], 70.0, places=4, msg=f"{key} fl")
-            self.assertAlmostEqual(self.obs[offset + 1], 71.0, places=4, msg=f"{key} fr")
-            self.assertAlmostEqual(self.obs[offset + 2], 72.0, places=4, msg=f"{key} rl")
-            self.assertAlmostEqual(self.obs[offset + 3], 73.0, places=4, msg=f"{key} rr")
+    def test_tire_load_block_reads_shock_deflection(self):
+        # Load slots (10–13) come from the per-corner shock-deflection channels.
+        self.assertAlmostEqual(self.obs[10], 0.011, places=4)  # LFshockDefl
+        self.assertAlmostEqual(self.obs[11], 0.012, places=4)  # RFshockDefl
+        self.assertAlmostEqual(self.obs[12], 0.013, places=4)  # LRshockDefl
+        self.assertAlmostEqual(self.obs[13], 0.014, places=4)  # RRshockDefl
+
+    def test_tire_temp_block_reads_carcass_temp(self):
+        # Temp slots (14–17) come from the per-corner carcass-temp channels.
+        self.assertAlmostEqual(self.obs[14], 70.0, places=4)  # LFtempCL
+        self.assertAlmostEqual(self.obs[15], 71.0, places=4)  # RFtempCL
+        self.assertAlmostEqual(self.obs[16], 72.0, places=4)  # LRtempCL
+        self.assertAlmostEqual(self.obs[17], 73.0, places=4)  # RRtempCL
+
+    def test_tire_load_and_temp_blocks_are_distinct(self):
+        # Regression guard for the load/temp aliasing fix (PR #479): the two
+        # blocks must read different telemetry channels, not the same one.
+        self.assertFalse(np.allclose(self.obs[10:14], self.obs[14:18]))
 
     def test_absent_channel_defaults_to_zero(self):
         env, _ = self._make_env()

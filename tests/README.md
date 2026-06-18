@@ -304,7 +304,7 @@ worker mechanics are unit-tested with a dummy env.
 - every `ObsDim` carries a description; `raw / scales` normalisation maps a full-scale vector to all-ones; `with_extra_dims` appends new features (missing-key → 0.0 migration)
 
 ### test_iracing_env.py — iRacing env wrapper (mocked pyirsdk)
-- `_read_telemetry` maps each pyirsdk channel into the correct obs slot (speed, lateral, progress, yaw, rpm, gear, fuel, throttle, brake, steering, brake-bias, lap times); the four tyre corners populate both the load (10–13) and temp (14–17) blocks; absent channels default to 0.0 with no NaNs
+- `_read_telemetry` maps each pyirsdk channel into the correct obs slot (speed, lateral, progress, yaw, rpm, gear, fuel, throttle, brake, steering, brake-bias, lap times); the tyre-load block (10–13) reads per-corner shock deflection and the tyre-temp block (14–17) reads per-corner carcass temp — distinct channels, guarded against re-aliasing; absent channels default to 0.0 with no NaNs
 - lifecycle: reset connects the SDK + resets the controller and returns a 21-dim obs; step returns the 5-tuple with `speed_ms` / `track_progress` / `termination_reason` in info; close shuts down the SDK and controller; episode time limit get/set round-trips
 - action injection: steer/throttle/brake are clipped to their box bounds before being sent to the controller
 - termination: `LapDistPct >= 1.0` → finish; lateral past `crash_threshold_m` → crash; elapsed past the time limit → truncated/timeout (not terminated)

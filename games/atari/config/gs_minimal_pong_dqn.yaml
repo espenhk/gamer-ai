@@ -1,0 +1,111 @@
+# Grid search template: the smallest, simplest RL case in the repo
+# ------------------------------------------------------------------
+# Game:   Atari Pong-v5 (RAM observation)
+# Policy: neural_dqn (pure-numpy Deep Q-Network)
+# Sweep:  learning_rate only (3 combos) — the single most sensitive DQN knob
+#
+# Usage:
+#   python grid_search.py games/atari/config/gs_minimal_pong_dqn.yaml --game atari
+#
+#
+# Why this is the easiest reliably-trainable case
+# ------------------------------------------------
+# * No setup: Atari is the only integration that needs no external game
+#   binary — ale-py ships the (MIT-licensed) ROMs, runs headless, and is
+#   cross-platform. Nothing to install beyond `poetry install --with atari`.
+# * Easiest game: Pong is the canonical fastest-converging Atari game for
+#   value-based RL. Its reward is dense and unambiguous (+1 per point won,
+#   -1 per point lost) and its training curve has a sharply positive early
+#   slope — it is the standard "does my DQN work at all?" smoke test.
+#   (Mnih et al. 2015; CleanRL / Stable-Baselines3 both use Pong as the
+#   reference Atari benchmark.)
+# * Sample-efficient method: from the 128-byte RAM vector, a value method
+#   with replay + a target network extracts far more signal per env step
+#   than evolutionary search (genetic / cmaes / lstm), so it reaches a good
+#   agent in far less wall-clock. RAM-based DQN is a documented setup
+#   (Sygnowski & Michalewski, "Learning from the Memory of Atari 2600",
+#   2016 / deepsense.ai): on Pong it climbs from ~-20 toward positive scores
+#   over training rather than needing pixels + a CNN.
+# * Smallest grid: a single 3-way sweep over learning_rate. Everything else
+#   is fixed at DQN-paper-aligned defaults, so this is the minimal experiment
+#   that still answers a real question (which LR trains fastest from RAM?).
+#
+#
+# What to expect (the success criterion)
+# ---------------------------------------
+# Pong's score floor is -21 (lose every point) and a "solved" agent scores
+# +18 to +21. RAM-based DQN typically shows a clear upward trend within the
+# first few hundred thousand env steps and reaches strongly positive scores
+# given ~1-2M steps. Treat a monotonic climb away from -21 (e.g. into the
+# -15..0 range) as success for this minimal run; raise the budget (see
+# "Scaling up" below) to push a single winning LR all the way to a >+15
+# champion.
+#
+#
+# Budget
+# ------
+# Pong-v5 uses frameskip 4, so an episode is on the order of ~1-3k env steps.
+# n_sims=300 episodes therefore lands roughly in the ~0.5-1M env-step range
+# — enough for the learning trend to be unambiguous on the reward curve.
+# epsilon decays over the first ~150k steps (≈ 25-50% of the run), then the
+# policy mostly exploits. min_replay_size=5000 means the first few episodes
+# are pure random experience collection before any gradient step.
+# Note: neural_dqn is pure numpy (no GPU), so wall-clock is dominated by the
+# env step count — size runs in env steps, not episodes.
+#
+# Combos: 3 (learning_rate sweep) × 1 = 3 runs.
+#
+#
+# Scaling up (after picking the winning LR)
+# -----------------------------------------
+# * Raise n_sims to 800-1500 to push the best LR toward a >+15 champion.
+# * Second-pass ablations. grid_search.py only expands list-valued keys at the
+#   TOP LEVEL of training_params / reward_params — it does NOT recurse into the
+#   policy_params block. To sweep a policy hyperparam, PROMOTE it to a top-level
+#   training_params key (next to learning_rate below) and give it a list there;
+#   it is then forwarded into policy_params automatically. A nested list under
+#   policy_params is passed through verbatim and produces no sweep. Examples
+#   (add under training_params, remove the fixed copy from policy_params):
+#       dueling: [false, true]
+#       hidden_sizes: [[128, 128], [256, 256]]
+#       target_update_freq: [1000, 2000]
+# * Swap map_name to Breakout-v5 or Freeway-v5 — the other two games with
+#   famously fast-rising early training curves — to reuse this config.
+
+base_name: "minimal_pong_dqn"
+game: atari
+
+training_params:
+  map_name: Pong-v5           # canonical easiest-to-train Atari game
+  in_game_episode_s: 180.0    # generous truncation cap; Pong ends naturally at 21 points
+  n_sims: 300                 # episodes; real budget is ~0.5-1M env steps (see Budget)
+  policy_type: neural_dqn
+  adaptive_mutation: false    # not used by DQN; off to keep logs clean
+  patience: 0                 # no early stopping — we want the full learning curve
+
+  # --- The one search axis ---
+  # 2.5e-4 is the DQN-paper value; RAM features are already normalised to
+  # [0, 1], so slightly higher rates often converge faster. This brackets the
+  # sweet spot without an exhaustive sweep.
+  learning_rate: [0.00025, 0.0005, 0.001]
+
+  policy_params:
+    hidden_sizes: [128, 128]  # ample for a 128-input RAM vector
+    replay_buffer_size: 100000
+    batch_size: 32            # DQN-paper value
+    min_replay_size: 5000     # random experience collected before training starts
+    target_update_freq: 1000  # steps between online -> target weight syncs
+    epsilon_start: 1.0
+    epsilon_end: 0.05
+    epsilon_decay_steps: 150000
+    gamma: 0.99
+    double_dqn: true          # online net selects, target net evaluates (van Hasselt 2016)
+    dueling: false            # opt-in; changes weight-file shape
+    huber_loss: true          # smooth-L1; bounds gradient on large TD errors
+    huber_kappa: 1.0
+    max_grad_norm: 10.0
+
+reward_params:
+  native_reward_scale: 1.0
+  clip_sign: true             # DQN-paper convention: per-step reward in {-1, 0, +1}
+  step_penalty: 0.0           # Pong's native +/-1 signal already provides pressure

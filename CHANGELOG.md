@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.7.10] - 2026-06-18
+
 - **Bug fix** (iRacing tyre-load telemetry, PR #479 review): `IRacingEnv._read_telemetry`
   was populating the four `tire_load_*` observation slots from the carcass-temp
   channels (`*tempCL`), the same channels feeding `tire_temp_*` — so the load

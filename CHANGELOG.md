@@ -31,10 +31,14 @@ formatting, internal refactors with no behaviour change — can be skipped.
   snapshot if no checkpoint exists yet) plus the replay buffer, and
   `run_sb3_loop` trains only the remaining steps needed to reach the
   configured `total_timesteps` target rather than restarting the budget
-  from zero. `--re-initialize` still starts fresh. The Azure VM
-  provisioning, hyperparameter tuning, and the actual long-duration TMNF
-  run described in the rest of #483 are follow-up work, gated on #481 and
-  #482 landing first.
+  from zero. `--re-initialize` still starts fresh. Checkpoint, replay-buffer,
+  and best-model writes go through a temp-file + `os.replace` atomic-save
+  helper so a crash mid-write can't corrupt the file a subsequent resume
+  depends on; a resume that completes zero new episodes no longer overwrites
+  the best-reward snapshot with the (possibly worse) checkpoint state it
+  resumed from. The Azure VM provisioning, hyperparameter tuning, and the
+  actual long-duration TMNF run described in the rest of #483 are tracked
+  separately in #489, gated on #481 and #482 landing first.
 
 ---
 

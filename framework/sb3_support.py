@@ -15,12 +15,34 @@ cheap — it is only imported when a ``LOOP_TYPE == "sb3"`` policy actually runs
 from __future__ import annotations
 
 import logging
-from typing import Any
+import os
+from typing import Any, Callable
 
 import gymnasium as gym
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _atomic_save(save_fn: Callable[[str], None], final_path: str) -> None:
+    """Call ``save_fn(tmp_path)`` then atomically replace *final_path*.
+
+    SB3's ``save`` / ``save_replay_buffer`` write directly to the given path;
+    an interruption mid-write would corrupt it and break resume. Writing to a
+    ``.tmp`` sibling first and swapping it in with ``os.replace`` (atomic on
+    POSIX and Windows) means the previous checkpoint stays valid until the new
+    one is fully written. (SB3's ``open_path`` only force-appends its own
+    suffix when the given path has *no* suffix at all, so the ``.tmp``-suffixed
+    path is never mangled.)
+    """
+    tmp_path = f"{final_path}.tmp"
+    try:
+        save_fn(tmp_path)
+        os.replace(tmp_path, final_path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 class DiscretizeActionWrapper(gym.Wrapper):
@@ -54,9 +76,9 @@ def _save_checkpoint(model, *, weights_file: str, off_policy: bool) -> None:
     """
     from framework.sb3_policies import _checkpoint_zip_path, _replay_buffer_path
 
-    model.save(_checkpoint_zip_path(weights_file))
+    _atomic_save(model.save, _checkpoint_zip_path(weights_file))
     if off_policy:
-        model.save_replay_buffer(_replay_buffer_path(weights_file))
+        _atomic_save(model.save_replay_buffer, _replay_buffer_path(weights_file))
 
 
 def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int, checkpoint_freq: int, off_policy: bool):
@@ -79,6 +101,13 @@ def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int, c
             self.early_stop_sim: int | None = None
             self._last_checkpoint_step = 0
 
+        def _on_training_start(self) -> None:
+            # On resume, num_timesteps already reflects steps from prior
+            # invocations; anchor the cadence to that so the first _on_step
+            # doesn't immediately re-checkpoint (num_timesteps - 0 would
+            # already exceed checkpoint_freq).
+            self._last_checkpoint_step = self.num_timesteps
+
         def _on_step(self) -> bool:
             if checkpoint_freq > 0 and self.num_timesteps - self._last_checkpoint_step >= checkpoint_freq:
                 _save_checkpoint(self.model, weights_file=weights_file, off_policy=off_policy)
@@ -96,7 +125,7 @@ def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int, c
                     self.best_reward = reward
                     self.best_sim = sim_idx
                     self.sims_since_improve = 0
-                    self.model.save(best_path)
+                    _atomic_save(self.model.save, best_path)
                 else:
                     self.sims_since_improve += 1
                 greedy_sims.append(
@@ -198,14 +227,21 @@ def run_sb3_loop(
     _save_checkpoint(model, weights_file=weights_file, off_policy=getattr(policy, "OFF_POLICY", False))
 
     # Persist YAML metadata; the callback already saved the best-scoring model
-    # zip.  If no episode ever completed, save the final model so an artifact
-    # exists for inference.
+    # zip whenever an episode improved on it this invocation.
     import yaml
 
     with open(weights_file, "w") as f:
         yaml.dump(policy.to_cfg(), f, default_flow_style=False, sort_keys=False)
+    best_path = _model_zip_path(weights_file)
     if recorder.best_sim is None:
-        model.save(_model_zip_path(weights_file))
+        # No episode completed this invocation (e.g. training was skipped
+        # because the resumed run already hit its target, or the remaining
+        # budget ended mid-episode). Only fall back to writing the current
+        # model as the "best" snapshot if none exists yet — otherwise this
+        # would clobber a genuine champion with the (not necessarily better)
+        # checkpoint state the run resumed from.
+        if not os.path.exists(best_path):
+            _atomic_save(model.save, best_path)
         best_reward = float("-inf") if not greedy_sims else max(s.reward for s in greedy_sims)
     else:
         best_reward = recorder.best_reward

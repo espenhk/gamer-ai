@@ -436,7 +436,7 @@ worker mechanics are unit-tested with a dummy env.
 - `ppo`/`a2c`/`sac`/`td3`/`qr_dqn`/`recurrent_ppo` are registered with `LOOP_TYPE == "sb3"`; all gated off SC2, allowed on racing games
 - unknown `policy_params` rejected; `total_timesteps` resolution (explicit vs `n_sims × steps_per_sim`)
 - end-to-end training on a dummy Gym env (continuous `a2c`/`ppo` and discrete `qr_dqn`): episodes recorded, `*_sb3_model.zip` saved, resume + predict
-- crash-safe resume (issue #483): off-policy (`sac`) run leaves `*_sb3_checkpoint.zip` + `*_sb3_replay_buffer.pkl`; on-policy (`ppo`) checkpoints the model but never writes a replay buffer; resuming loads the checkpoint and continues the cumulative `num_timesteps` count (with a non-empty restored replay buffer) instead of restarting; re-running once the `total_timesteps` target is already reached is a no-op
+- crash-safe resume (issue #483): off-policy (`sac`) run leaves `*_sb3_checkpoint.zip` + `*_sb3_replay_buffer.pkl`; on-policy (`ppo`) checkpoints the model but never writes a replay buffer; resuming loads the checkpoint and continues the cumulative `num_timesteps` count (with a non-empty restored replay buffer) instead of restarting; re-running once the `total_timesteps` target is already reached is a no-op that leaves the best-reward `*_sb3_model.zip` byte-identical (no clobber from the resumed checkpoint state); checkpoint/replay-buffer/best-model writes never leave a `.tmp` sibling behind (atomic save)
 
 ### test_alphazero_mcts.py — AlphaZero-style model-based MCTS
 - `alphazero_mcts` registered with `LOOP_TYPE == "alphazero"`; gated off non-cloneable games, allowed on a cloneable game name

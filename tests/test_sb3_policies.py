@@ -267,3 +267,47 @@ def test_resume_skips_training_once_target_reached(tmp_path):
     # beyond what a fresh `remaining_timesteps == 0` run would produce.
     data2 = train_rl(spec, cfg, no_interrupt=True, re_initialize=False)
     assert data2 is not None
+
+
+def test_resume_with_no_new_episode_does_not_clobber_best_snapshot(tmp_path):
+    """A resume that completes zero new episodes must not overwrite the
+    genuine best-reward *_sb3_model.zip with the (possibly worse) checkpoint
+    state it resumed from."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = 64
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    best_path = os.path.splitext(spec.weights_file)[0] + "_sb3_model.zip"
+    assert os.path.exists(best_path)
+    before = open(best_path, "rb").read()
+
+    # Re-run at the same target: remaining_timesteps == 0, so no episode
+    # completes and recorder.best_sim stays None this invocation.
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=False)
+
+    after = open(best_path, "rb").read()
+    assert before == after, "best-reward snapshot was overwritten despite no new episode completing"
+
+
+def test_checkpoint_save_leaves_no_tmp_file(tmp_path):
+    """Atomic checkpoint writes must not leave a `.tmp` sibling behind."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config(
+        "sac",
+        learning_starts=8,
+        buffer_size=200,
+        batch_size=8,
+        train_freq=1,
+        checkpoint_freq=8,
+    )
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    base = os.path.splitext(spec.weights_file)[0]
+    assert not os.path.exists(base + "_sb3_checkpoint.zip.tmp")
+    assert not os.path.exists(base + "_sb3_replay_buffer.pkl.tmp")
+    assert not os.path.exists(base + "_sb3_model.zip.tmp")

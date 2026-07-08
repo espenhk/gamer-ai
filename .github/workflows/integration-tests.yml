@@ -143,7 +143,7 @@ jobs:
           echo "Downloading PySC2 mini-game maps..."
           MAPS="MoveToBeacon CollectMineralShards FindAndDefeatZerglings DefeatRoaches DefeatZerglingsAndBanelings CollectMineralsAndGas BuildMarines"
           for map in $MAPS; do
-            wget -q "https://github.com/deepmind/pysc2/raw/master/pysc2/maps/mini_games/${map}.SC2Map" -O "$MAPS_DIR/${map}.SC2Map"
+            wget -q "https://github.com/google-deepmind/pysc2/raw/master/pysc2/maps/mini_games/${map}.SC2Map" -O "$MAPS_DIR/${map}.SC2Map"
           done
           echo "Maps installed:"
           ls -la "$MAPS_DIR"

@@ -23,6 +23,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Fixed
 - `framework.analytics._rolling_mean` (PR #487 review): a zero or negative `window` argument previously either raised `ZeroDivisionError` (in `_reward_moving_average_md`) or silently ignored the clamp (in `_rolling_mean`/`plot_reward_moving_average`, since only `0` — not negative values — is falsy in Python). Added a shared `_clamp_window` helper (clamps to `[1, n]`) used consistently by all three, and rewrote `_rolling_mean` from an O(n²) slice-and-sum per element to an O(n) running-sum computation.
+- `.github/workflows/integration-tests.yml`'s `sc2` job: the PySC2 mini-game map downloads pointed at `github.com/deepmind/pysc2`, which was renamed to `google-deepmind/pysc2`; `wget` doesn't follow the org rename on the `/raw/` content path, so every map download 404'd (`exit code 8`). This broke the `sc2` integration job for any PR touching `framework/**` (unrelated to this PR's CarRacing content — surfaced here because `framework/analytics.py` changed). Updated the URL to the current org.
 
 ---
 

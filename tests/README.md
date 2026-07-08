@@ -193,7 +193,8 @@ worker mechanics are unit-tested with a dummy env.
 - `plot_gs_reward_trajectories`: chart written by `save_grid_summary` / referenced in summary.md / no crash with empty sims
 - `save_grid_summary` task-metric plugin: default label is "Best Task Metric" with `.4f` format; custom fn replaces label+value; custom fn drives ranking; explicit `task_metric_fmt` overrides format independently of fn
 - `plot_reward_component_breakdown`: renders to file / skips when no component data / skips when no sims / skips when all-zero / positive-only / negative-only / partial-None sims use zero for missing keys
-- `_reward_moving_average_md` / `plot_reward_moving_average` (issue #482 follow-up): empty-sims → empty string / no-op; rolling mean over a window smaller than history; window larger than history falls back to all sims; solved-threshold met/not-met wording; no threshold line when unset; renders `reward_moving_average.png`
+- `_reward_moving_average_md` / `plot_reward_moving_average` (issue #482 follow-up): empty-sims → empty string / no-op; rolling mean over a window smaller than history; window larger than history falls back to all sims; solved-threshold met/not-met wording; no threshold line when unset; renders `reward_moving_average.png`; zero/negative `window` clamps to 1 instead of raising `ZeroDivisionError` (both the markdown summary and the plot)
+- `_clamp_window` / `_rolling_mean` (issue #482 follow-up, review fix): clamps zero/negative window to 1, clamps an over-large window to the series length, passes through in-range values, `n=0` → `0`; `_rolling_mean` matches the naive windowed-mean computation and handles empty input / zero / negative window without raising
 
 ### test_belief.py — fog-of-war belief encoder
 - initial encode all zero; update sets value+confidence; project decays confidence

@@ -327,9 +327,26 @@ def plot_greedy_rewards(data: ExperimentData, results_dir: str) -> None:
     _save(fig, os.path.join(results_dir, "greedy_rewards.png"))
 
 
+def _clamp_window(window: int, n: int) -> int:
+    """Clamp a rolling-mean window to [1, n] (n > 0); 0 <= window <= n has no invalid case."""
+    if n <= 0:
+        return 0
+    return max(1, min(window, n))
+
+
 def _rolling_mean(values: list, window: int) -> list:
-    w = min(window, len(values)) or 1
-    return [sum(values[max(0, i - w + 1) : i + 1]) / min(i + 1, w) for i in range(len(values))]
+    """O(n) rolling mean; *window* is clamped to [1, len(values)]."""
+    if not values:
+        return []
+    w = _clamp_window(window, len(values))
+    result = []
+    running_sum = 0.0
+    for i, v in enumerate(values):
+        running_sum += v
+        if i >= w:
+            running_sum -= values[i - w]
+        result.append(running_sum / min(i + 1, w))
+    return result
 
 
 def plot_reward_moving_average(
@@ -354,7 +371,7 @@ def plot_reward_moving_average(
 
     xs = [s.sim for s in sims]
     rewards = [s.reward for s in sims]
-    w = min(window, len(rewards))
+    w = _clamp_window(window, len(rewards))
     moving_avg = _rolling_mean(rewards, window)
 
     fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.12), 5))
@@ -684,7 +701,7 @@ def _reward_moving_average_md(
     if not sims:
         return ""
     rewards = [s.reward for s in sims]
-    w = min(window, len(rewards))
+    w = _clamp_window(window, len(rewards))
     final_mean = sum(rewards[-w:]) / w
     lines = [
         "## Reward Moving Average\n\n",

@@ -44,14 +44,30 @@ class DiscretizeActionWrapper(gym.Wrapper):
         return self.env.step(self._actions[idx])
 
 
-def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int):
-    """Build an SB3 callback that records per-episode telemetry + saves the best model."""
+def _save_checkpoint(model, *, weights_file: str, off_policy: bool) -> None:
+    """Persist the latest training state (model + replay buffer) for crash recovery.
+
+    Distinct from the best-reward snapshot: this is overwritten on every
+    checkpoint tick regardless of episode reward, so a resume picks up the
+    actual training state as of the last checkpoint rather than a possibly
+    stale best-episode snapshot.
+    """
+    from framework.sb3_policies import _checkpoint_zip_path, _replay_buffer_path
+
+    model.save(_checkpoint_zip_path(weights_file))
+    if off_policy:
+        model.save_replay_buffer(_replay_buffer_path(weights_file))
+
+
+def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int, checkpoint_freq: int, off_policy: bool):
+    """Build an SB3 callback that records per-episode telemetry, saves the best
+    model, and periodically checkpoints the full training state for resume."""
     from stable_baselines3.common.callbacks import BaseCallback
 
     from framework.analytics import GreedySimResult
     from framework.sb3_policies import _model_zip_path
 
-    zip_path = _model_zip_path(weights_file)
+    best_path = _model_zip_path(weights_file)
 
     class _SimRecorder(BaseCallback):
         def __init__(self) -> None:
@@ -61,8 +77,13 @@ def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int):
             self.sims_since_improve = 0
             self.early_stopped = False
             self.early_stop_sim: int | None = None
+            self._last_checkpoint_step = 0
 
         def _on_step(self) -> bool:
+            if checkpoint_freq > 0 and self.num_timesteps - self._last_checkpoint_step >= checkpoint_freq:
+                _save_checkpoint(self.model, weights_file=weights_file, off_policy=off_policy)
+                self._last_checkpoint_step = self.num_timesteps
+                logger.debug("[sb3] checkpoint saved at %d timesteps", self.num_timesteps)
             for info in self.locals.get("infos", []):
                 ep = info.get("episode") if isinstance(info, dict) else None
                 if ep is None:
@@ -75,7 +96,7 @@ def _make_sim_recorder(greedy_sims: list, *, weights_file: str, patience: int):
                     self.best_reward = reward
                     self.best_sim = sim_idx
                     self.sims_since_improve = 0
-                    self.model.save(zip_path)
+                    self.model.save(best_path)
                 else:
                     self.sims_since_improve += 1
                 greedy_sims.append(
@@ -132,15 +153,49 @@ def run_sb3_loop(
         wrapped = DiscretizeActionWrapper(wrapped, policy._discrete_actions)
     wrapped = Monitor(wrapped)
 
-    total_timesteps = policy.total_timesteps(n_sims)
-    logger.info("[sb3] %s — training for %d timesteps (algo=%s)", policy.POLICY_TYPE, total_timesteps, policy.SB3_ALGO)
-
+    target_timesteps = policy.total_timesteps(n_sims)
     model = policy.build_model(wrapped)
-    greedy_sims: list = []
-    recorder = _make_sim_recorder(greedy_sims, weights_file=weights_file, patience=patience)
+    resumed = bool(getattr(policy, "_resume", False))
+    already_done = int(model.num_timesteps) if resumed else 0
+    remaining_timesteps = max(0, target_timesteps - already_done)
+    if resumed:
+        logger.info(
+            "[sb3] %s — resuming at %d/%d timesteps (%d remaining, algo=%s)",
+            policy.POLICY_TYPE,
+            already_done,
+            target_timesteps,
+            remaining_timesteps,
+            policy.SB3_ALGO,
+        )
+    else:
+        logger.info(
+            "[sb3] %s — training for %d timesteps (algo=%s)", policy.POLICY_TYPE, target_timesteps, policy.SB3_ALGO
+        )
 
-    model.learn(total_timesteps=total_timesteps, callback=recorder, progress_bar=False)
+    greedy_sims: list = []
+    checkpoint_freq = int(policy._params.get("checkpoint_freq", 10_000))
+    recorder = _make_sim_recorder(
+        greedy_sims,
+        weights_file=weights_file,
+        patience=patience,
+        checkpoint_freq=checkpoint_freq,
+        off_policy=getattr(policy, "OFF_POLICY", False),
+    )
+
+    if remaining_timesteps > 0:
+        model.learn(
+            total_timesteps=remaining_timesteps,
+            callback=recorder,
+            progress_bar=False,
+            reset_num_timesteps=not resumed,
+        )
+    else:
+        logger.info("[sb3] already at or past target total_timesteps=%d; skipping training.", target_timesteps)
     policy.set_model(model)
+
+    # Checkpoint the final training state so a subsequent resume picks up
+    # exactly where this run left off, even if it ended cleanly.
+    _save_checkpoint(model, weights_file=weights_file, off_policy=getattr(policy, "OFF_POLICY", False))
 
     # Persist YAML metadata; the callback already saved the best-scoring model
     # zip.  If no episode ever completed, save the final model so an artifact

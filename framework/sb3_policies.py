@@ -40,9 +40,21 @@ logger = logging.getLogger(__name__)
 
 
 def _model_zip_path(weights_file: str) -> str:
-    """Canonical path for an SB3 policy's saved ``.zip`` model."""
+    """Canonical path for an SB3 policy's saved ``.zip`` model (best-reward snapshot)."""
     base, _ = os.path.splitext(os.path.abspath(weights_file))
     return base + "_sb3_model.zip"
+
+
+def _checkpoint_zip_path(weights_file: str) -> str:
+    """Canonical path for the periodic resume checkpoint (latest, not best-reward)."""
+    base, _ = os.path.splitext(os.path.abspath(weights_file))
+    return base + "_sb3_checkpoint.zip"
+
+
+def _replay_buffer_path(weights_file: str) -> str:
+    """Canonical path for an off-policy algo's persisted replay buffer."""
+    base, _ = os.path.splitext(os.path.abspath(weights_file))
+    return base + "_sb3_replay_buffer.pkl"
 
 
 # --------------------------------------------------------------------------- #
@@ -71,10 +83,22 @@ class _SB3Policy(BasePolicy):
     REQUIRES_DISCRETE: ClassVar[bool] = False
     CONTINUOUS_ONLY: ClassVar[bool] = False
     RECURRENT: ClassVar[bool] = False
+    # Off-policy algos (replay buffer) get the buffer persisted/restored alongside
+    # the model checkpoint; on-policy algos (rollout buffer) don't need it.
+    OFF_POLICY: ClassVar[bool] = False
 
     # Hyperparameters every SB3 algo accepts plus run-budget knobs.
     _COMMON_PARAMS: ClassVar[frozenset[str]] = frozenset(
-        {"total_timesteps", "steps_per_sim", "learning_rate", "gamma", "hidden_sizes", "seed", "verbose"}
+        {
+            "total_timesteps",
+            "steps_per_sim",
+            "learning_rate",
+            "gamma",
+            "hidden_sizes",
+            "seed",
+            "verbose",
+            "checkpoint_freq",
+        }
     )
     # Per-algo extra constructor kwargs (subclasses extend).
     _ALGO_PARAMS: ClassVar[frozenset[str]] = frozenset()
@@ -100,6 +124,8 @@ class _SB3Policy(BasePolicy):
         self._weights_file = weights_file
         self._params = dict(policy_params or {})
         self._model: Any = None
+        self._resume: bool = False
+        self._resume_path: str | None = None
         # Recurrent inference state (RecurrentPPO only).
         self._lstm_state: Any = None
         self._episode_start: bool = True
@@ -132,10 +158,21 @@ class _SB3Policy(BasePolicy):
             weights_file=weights_file,
             policy_params=params,
         )
-        zip_path = _model_zip_path(weights_file)
-        obj._resume = bool(os.path.exists(zip_path) and not re_initialize)
+        # Prefer the periodic resume checkpoint (latest training state, correct
+        # cumulative timestep count) over the best-reward snapshot, which may
+        # lag well behind the crash point on a long off-policy run.
+        checkpoint_path = _checkpoint_zip_path(weights_file)
+        best_path = _model_zip_path(weights_file)
+        if os.path.exists(checkpoint_path):
+            resume_path = checkpoint_path
+        elif os.path.exists(best_path):
+            resume_path = best_path
+        else:
+            resume_path = None
+        obj._resume = bool(resume_path and not re_initialize)
+        obj._resume_path = resume_path if obj._resume else None
         if obj._resume:
-            logger.info("[%s] will resume from saved model %s", cls.__name__, zip_path)
+            logger.info("[%s] will resume from saved model %s", cls.__name__, resume_path)
         return obj
 
     # ------------------------------------------------------------------
@@ -178,9 +215,30 @@ class _SB3Policy(BasePolicy):
         algo = self._resolve_algo()
         verbose = int(self._params.get("verbose", 0))
         if getattr(self, "_resume", False):
-            zip_path = _model_zip_path(self._weights_file)
+            zip_path = self._resume_path or _model_zip_path(self._weights_file)
             self._model = algo.load(zip_path, env=env)
-            logger.info("[%s] loaded SB3 model from %s", type(self).__name__, zip_path)
+            logger.info(
+                "[%s] loaded SB3 model from %s (resuming at %d timesteps)",
+                type(self).__name__,
+                zip_path,
+                int(self._model.num_timesteps),
+            )
+            if self.OFF_POLICY:
+                rb_path = _replay_buffer_path(self._weights_file)
+                if os.path.exists(rb_path):
+                    self._model.load_replay_buffer(rb_path)
+                    logger.info(
+                        "[%s] loaded replay buffer from %s (%d transitions)",
+                        type(self).__name__,
+                        rb_path,
+                        self._model.replay_buffer.size(),
+                    )
+                else:
+                    logger.info(
+                        "[%s] no replay buffer found at %s; resuming with an empty buffer.",
+                        type(self).__name__,
+                        rb_path,
+                    )
         else:
             self._model = algo(self.SB3_NET, env, verbose=verbose, **self._build_kwargs())
         return self._model
@@ -271,6 +329,7 @@ class SACPolicy(_SB3Policy):
     POLICY_TYPE = "sac"
     SB3_ALGO = "stable_baselines3:SAC"
     CONTINUOUS_ONLY = True
+    OFF_POLICY = True
     _ALGO_PARAMS = frozenset({"buffer_size", "batch_size", "tau", "train_freq", "learning_starts", "ent_coef"})
 
 
@@ -281,6 +340,7 @@ class TD3Policy(_SB3Policy):
     POLICY_TYPE = "td3"
     SB3_ALGO = "stable_baselines3:TD3"
     CONTINUOUS_ONLY = True
+    OFF_POLICY = True
     _ALGO_PARAMS = frozenset({"buffer_size", "batch_size", "tau", "train_freq", "learning_starts", "policy_delay"})
 
 
@@ -295,6 +355,7 @@ class QRDQNPolicy(_SB3Policy):
     POLICY_TYPE = "qr_dqn"
     SB3_ALGO = "sb3_contrib:QRDQN"
     REQUIRES_DISCRETE = True
+    OFF_POLICY = True
     _ALGO_PARAMS = frozenset(
         {
             "buffer_size",

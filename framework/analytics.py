@@ -327,6 +327,56 @@ def plot_greedy_rewards(data: ExperimentData, results_dir: str) -> None:
     _save(fig, os.path.join(results_dir, "greedy_rewards.png"))
 
 
+def _rolling_mean(values: list, window: int) -> list:
+    w = min(window, len(values)) or 1
+    return [sum(values[max(0, i - w + 1) : i + 1]) / min(i + 1, w) for i in range(len(values))]
+
+
+def plot_reward_moving_average(
+    data: ExperimentData,
+    results_dir: str,
+    window: int = 100,
+    solved_threshold: float | None = None,
+) -> None:
+    """Plot per-episode greedy reward with a rolling-mean overlay.
+
+    Standard Gym "solved" benchmarks (CartPole, LunarLander, CarRacing, ...)
+    are defined as the mean reward over the last *window* consecutive
+    episodes crossing *solved_threshold* — a statistic the raw per-sim
+    scatter and the running-max "best so far" line in ``plot_greedy_rewards``
+    don't surface. Pass *solved_threshold* to draw a reference line.
+    """
+    if not _HAS_MPL:
+        return
+    sims = data.greedy_sims
+    if not sims:
+        return
+
+    xs = [s.sim for s in sims]
+    rewards = [s.reward for s in sims]
+    w = min(window, len(rewards))
+    moving_avg = _rolling_mean(rewards, window)
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.12), 5))
+    ax.scatter(xs, rewards, color="#95a5a6", s=14, alpha=0.5, zorder=2, label="episode reward")
+    ax.plot(xs, moving_avg, color="#2980b9", linewidth=2.0, zorder=3, label=f"rolling mean (window={w})")
+    if solved_threshold is not None:
+        ax.axhline(
+            solved_threshold,
+            color="#27ae60",
+            linestyle="--",
+            linewidth=1.5,
+            zorder=1,
+            label=f"solved threshold ({solved_threshold:g})",
+        )
+    ax.set_title(f"{data.experiment_name} — Reward Moving Average")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Total Episode Reward")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "reward_moving_average.png"))
+
+
 def plot_reward_trajectory(data: ExperimentData, results_dir: str) -> None:
     if not _HAS_MPL:
         return
@@ -621,6 +671,28 @@ def _greedy_table_md(data: ExperimentData) -> str:
         ft = f"{s.finish_time_s:.1f}s" if s.finish_time_s is not None else "—"
         lat = f"{s.mean_abs_lateral_offset:.2f}m" if s.mean_abs_lateral_offset is not None else "—"
         lines.append(f"| {s.sim:4d} | {s.reward:+8.1f} | {prog:8s} | {ft:11s} | {lat:7s} | {reason:12s} | {tag} |\n")
+    return "".join(lines)
+
+
+def _reward_moving_average_md(
+    data: ExperimentData,
+    window: int = 100,
+    solved_threshold: float | None = None,
+) -> str:
+    """Markdown summary of the rolling-mean reward, e.g. for a Gym-style "solved" check."""
+    sims = data.greedy_sims
+    if not sims:
+        return ""
+    rewards = [s.reward for s in sims]
+    w = min(window, len(rewards))
+    final_mean = sum(rewards[-w:]) / w
+    lines = [
+        "## Reward Moving Average\n\n",
+        f"Mean reward over the last {w} episode(s): **{final_mean:+.1f}**\n\n",
+    ]
+    if solved_threshold is not None:
+        status = "solved" if final_mean >= solved_threshold else "not yet solved"
+        lines.append(f"Solved threshold: {solved_threshold:g} → **{status}**\n\n")
     return "".join(lines)
 
 

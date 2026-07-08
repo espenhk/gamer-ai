@@ -106,7 +106,13 @@ Configured in `games/car_racing/config/reward_config.yaml`.
 python main.py my_car_run --game car_racing
 ```
 
-Results are saved to `experiments/car_racing/my_car_run/results/`.
+Results are saved to `experiments/car_racing/my_car_run/results/`. Alongside the
+generic reward/timing plots, `results.md` includes a **Reward Moving Average**
+section — the mean episode reward over a trailing 100-episode window, checked
+against CarRacing-v2's published "solved" benchmark (average reward >= 900 over
+100 consecutive episodes; see `reward_moving_average.png`). This is the metric
+to check after a long SAC/PPO run (e.g. `gs_sac.yaml`) instead of eyeballing the
+raw per-episode scatter.
 
 ### Grid search
 

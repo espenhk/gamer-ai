@@ -19,6 +19,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ### Added
 - `games/car_racing/config/gs_sac.yaml`: a checked-in `sac` grid-search config for CarRacing-v2 (issue #482), giving the game a reproducible SAC preset for validating that the shared training loop converges against CarRacing's published "solved" benchmark (average reward >= 900 over 100 consecutive episodes) before investing more compute in TMNF/SC2 (issue #483).
+- `framework.analytics.plot_reward_moving_average` / `_reward_moving_average_md` (issue #482 follow-up): a rolling-mean-reward plot + markdown summary, with an optional "solved threshold" reference line/verdict, so a Gym-style "average reward over N consecutive episodes" benchmark can be read directly off `results.md` instead of eyeballed from the raw per-episode scatter. Wired into `games/car_racing/analytics.py` against CarRacing-v2's published benchmark (900 reward / 100 episodes).
 
 ---
 

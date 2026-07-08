@@ -23,9 +23,11 @@ from framework.analytics import (
     GreedySimResult,
     _greedy_table_md,
     _gs_stats,
+    _reward_moving_average_md,
     _summary_md,
     _task_metrics_table_md,
     plot_reward_component_breakdown,
+    plot_reward_moving_average,
 )
 
 # ---------------------------------------------------------------------------
@@ -459,6 +461,67 @@ class TestPlotRewardComponentBreakdown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             plot_reward_component_breakdown(data, d)
             self.assertIn("reward_component_breakdown.png", os.listdir(d))
+
+
+# ---------------------------------------------------------------------------
+# plot_reward_moving_average / _reward_moving_average_md (issue #482 follow-up)
+# ---------------------------------------------------------------------------
+
+
+class TestRewardMovingAverageMd(unittest.TestCase):
+    def test_empty_sims_returns_empty_string(self):
+        data = _make_experiment([])
+        self.assertEqual(_reward_moving_average_md(data), "")
+
+    def test_mean_over_window_smaller_than_history(self):
+        # rewards 1..10, window=5 -> mean of last 5 (6..10) = 8.0
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 11)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=5)
+        self.assertIn("last 5 episode(s)", md)
+        self.assertIn("+8.0", md)
+
+    def test_window_larger_than_history_uses_all_sims(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 4)]  # 1, 2, 3
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100)
+        self.assertIn("last 3 episode(s)", md)
+        self.assertIn("+2.0", md)  # mean(1,2,3) = 2.0
+
+    def test_solved_threshold_met(self):
+        sims = [_make_sim(i, reward=950.0) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100, solved_threshold=900.0)
+        self.assertIn("solved threshold: 900", md.lower())
+        self.assertIn("**solved**", md)
+        self.assertNotIn("not yet solved", md)
+
+    def test_solved_threshold_not_met(self):
+        sims = [_make_sim(i, reward=100.0) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100, solved_threshold=900.0)
+        self.assertIn("not yet solved", md)
+
+    def test_no_threshold_line_when_unset(self):
+        sims = [_make_sim(1, reward=5.0)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data)
+        self.assertNotIn("Solved threshold", md)
+
+
+class TestPlotRewardMovingAverage(unittest.TestCase):
+    def test_renders_to_file(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 6)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d)
+            self.assertIn("reward_moving_average.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d)
+            self.assertEqual(os.listdir(d), [])
 
 
 if __name__ == "__main__":

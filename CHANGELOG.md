@@ -17,6 +17,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- `games/car_racing/config/gs_sac.yaml`: a checked-in `sac` grid-search config for CarRacing-v2 (issue #482), giving the game a reproducible SAC preset for validating that the shared training loop converges against CarRacing's published "solved" benchmark (average reward >= 900 over 100 consecutive episodes) before investing more compute in TMNF/SC2 (issue #483).
 
 ---
 

@@ -1,0 +1,42 @@
+# Grid search: SAC on CarRacing-v2 (issue #482)
+#
+# Purpose
+# -------
+# Not a hyperparameter sweep — a single reproducible run that validates the
+# shared training loop actually converges on a known, externally-benchmarked
+# task before investing more compute in TMNF/SC2 (see issue #482). CarRacing
+# needs no external game binary and has a published "solved" threshold:
+# average reward >= 900 over 100 consecutive episodes. Community PPO runs
+# typically reach ~800 by ~400K timesteps without extra tuning; SAC's
+# off-policy sample efficiency should match or beat that within the same
+# step budget.
+#
+# Budget
+# ------
+# total_timesteps: 500_000 gives headroom past the ~400K PPO reference point.
+# buffer_size covers the whole run (no eviction before completion);
+# learning_starts=5_000 is a short warmup given ~1_000 steps/episode.
+#
+# Usage:
+#   python grid_search.py games/car_racing/config/gs_sac.yaml --game car_racing
+
+base_name: "sac_validation"
+game: car_racing
+
+training_params:
+  policy_type: sac
+
+  policy_params:
+    total_timesteps: 500000
+    buffer_size: 200000
+    batch_size: 256
+    learning_starts: 5000
+    train_freq: 1
+    tau: 0.005
+    gamma: 0.99
+
+reward_params:
+  native_reward_scale: 1.0
+  step_penalty: -0.1
+  finish_bonus: 100.0
+  crash_threshold_m: 25.0

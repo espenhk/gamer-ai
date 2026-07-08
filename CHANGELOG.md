@@ -17,6 +17,23 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- `compute_canonical_score()` (`framework/analytics.py`, issue #481): a
+  fixed-weight, `reward_config.yaml`-independent score
+  (`1000 * track_progress + 500 * finished - 2 * mean_lateral_offset_m ** 2`)
+  so TMNF experiments can be compared on a common ruler regardless of reward
+  weights. `RunTrace` gains `track_progress` / `finished` /
+  `mean_lateral_offset_m` / `canonical_score` fields (all optional, default
+  `None`); `GreedySimResult` gains `canonical_score`. Populated automatically
+  in `framework/training._run_episode()` for any game whose env reports
+  `track_progress` in its `info` dict. `games/tmnf/analytics.py` adds
+  `plot_greedy_canonical()` (per-experiment, wired into `save_tmnf_plots()`)
+  and `plot_gs_comparison_canonical_progress()` (cross-experiment, wired into
+  the grid summary); `framework/analytics.py` adds
+  `plot_gs_comparison_canonical()` and a "Best Canonical" column in
+  `save_grid_summary()`. `distributed/protocol.py` (de)serializes the new
+  fields; old `experiment_data.json` files without them still load, with the
+  new fields defaulting to `None`.
 
 ---
 

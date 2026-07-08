@@ -90,6 +90,10 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
             pos_z=t.get("pos_z", []),
             throttle_state=t.get("throttle_state", []),
             total_reward=t.get("total_reward", 0.0),
+            track_progress=t.get("track_progress"),
+            finished=t.get("finished"),
+            mean_lateral_offset_m=t.get("mean_lateral_offset_m"),
+            canonical_score=t.get("canonical_score"),
         )
 
     def _probe(p: dict) -> ProbeResult:
@@ -142,6 +146,7 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
             obs_averages=s.get("obs_averages"),
             xy_hist=s.get("xy_hist"),
             skipped_frames=s.get("skipped_frames"),
+            canonical_score=s.get("canonical_score"),
         )
 
     return ExperimentData(

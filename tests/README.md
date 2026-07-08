@@ -5,6 +5,7 @@
   - [test\_cmaes\_distribution.py — `CMAESDistribution` pure-math unit tests](#test_cmaes_distributionpy--cmaesdistribution-pure-math-unit-tests)
   - [test\_analytics\_no\_matplotlib.py — analytics importable when matplotlib missing](#test_analytics_no_matplotlibpy--analytics-importable-when-matplotlib-missing)
   - [test\_analytics\_task\_metrics.py — `TaskMetrics` dataclass + summary table formatting](#test_analytics_task_metricspy--taskmetrics-dataclass--summary-table-formatting)
+  - [test\_canonical\_score.py — `compute_canonical_score` + canonical-score plumbing (issue #481)](#test_canonical_scorepy--compute_canonical_score--canonical-score-plumbing-issue-481)
   - [test\_belief.py — fog-of-war belief encoder](#test_beliefpy--fog-of-war-belief-encoder)
   - [test\_build\_centerline.py — `tracks/registry.json` builder](#test_build_centerlinepy--tracksregistryjson-builder)
   - [test\_consolidate.py — grid-search result consolidation](#test_consolidatepy--grid-search-result-consolidation)
@@ -26,6 +27,7 @@
   - [test\_parallel\_eval.py — intra-run parallel evaluator (issue #229)](#test_parallel_evalpy--intra-run-parallel-evaluator-issue-229)
   - [test\_reward.py — TMNF reward calculator + curiosity glue](#test_rewardpy--tmnf-reward-calculator--curiosity-glue)
   - [test\_train\_rl\_signature.py — public `train_rl()` API](#test_train_rl_signaturepy--public-train_rl-api)
+  - [test\_tmnf\_canonical\_plots.py — TMNF canonical-score plots (issue #481)](#test_tmnf_canonical_plotspy--tmnf-canonical-score-plots-issue-481)
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
@@ -137,6 +139,9 @@ weights). Reward calculator math (linear components, n_ticks scaling,
 finish-bonus / progress invariants, curiosity glue); curiosity modules (ICM
 and RND, factory dispatch); fog-of-war belief encoder; staleness-based
 info-gain; `TaskMetrics` aggregation and summary-table formatting;
+`compute_canonical_score` and the reward-config-independent canonical-score
+plumbing threaded through `RunTrace`, `GreedySimResult`, grid-summary stats,
+and the TMNF-specific canonical plots (issue #481);
 discretisation, frame-stacking and obs-memory wrappers; centreline geometry
 and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion + local-worker process orchestration;
@@ -191,6 +196,16 @@ worker mechanics are unit-tested with a dummy env.
 - `plot_gs_reward_trajectories`: chart written by `save_grid_summary` / referenced in summary.md / no crash with empty sims
 - `save_grid_summary` task-metric plugin: default label is "Best Task Metric" with `.4f` format; custom fn replaces label+value; custom fn drives ranking; explicit `task_metric_fmt` overrides format independently of fn
 - `plot_reward_component_breakdown`: renders to file / skips when no component data / skips when no sims / skips when all-zero / positive-only / negative-only / partial-None sims use zero for missing keys
+
+### test_canonical_score.py — `compute_canonical_score` + canonical-score plumbing (issue #481)
+- `compute_canonical_score`: full clean lap ≈1500; half-lap crash at 2m offset; `finished` flag adds a flat +500; lateral-offset penalty is quadratic; all-zero inputs → 0
+- `RunTrace` new fields (`track_progress`, `finished`, `mean_lateral_offset_m`, `canonical_score`) default to `None`; stored when set
+- `GreedySimResult.canonical_score` defaults to `None`; `from_dict()` reads it when present and defaults to `None` when absent
+- `_gs_stats()` `best_canonical_score`: `None` on empty sims / no canonical scores; max across sims when present; ignores `None` entries
+- `plot_gs_comparison_canonical`: renders `comparison_canonical.png` when any run is eligible; no-op with no eligible runs or no runs at all
+- `save_grid_summary` wires in the canonical bar chart and "Best Canonical" column when eligible; omits the chart when no run has a canonical score
+- `distributed/protocol.py` round-trip: canonical fields on both `RunTrace` and `GreedySimResult` survive `experiment_to_json`/`experiment_from_dict`; old JSON predating this feature (no canonical keys at all) deserializes with all new fields as `None`
+- `_run_episode()` gating: canonical fields are populated when the env's `info` dict reports `track_progress`; left as `None` (not a fake `0.0`) when it doesn't, so non-racing games (SC2, Atari, ...) don't get spurious canonical-score data
 
 ### test_belief.py — fog-of-war belief encoder
 - initial encode all zero; update sets value+confidence; project decays confidence
@@ -370,6 +385,10 @@ worker mechanics are unit-tested with a dummy env.
 
 ### test_train_rl_signature.py — public `train_rl()` API
 - accepts game+config params; accepts optional specs (probe/warmup); `extras` param removed (Phase D); accepts control flags; no legacy flat params; `GameSpec` requires explicit `game_name` (no empty-default bypass)
+
+### test_tmnf_canonical_plots.py — TMNF canonical-score plots (issue #481)
+- `plot_greedy_canonical`: renders `greedy_canonical.png` when any greedy sim has a canonical score; no-op when none do or when there are no sims; `save_tmnf_plots` calls it
+- `plot_gs_comparison_canonical_progress`: renders `comparison_canonical_progress.png` when any run is eligible; no-op when no run has canonical scores or there are no runs
 
 ### test_new_best_logging.py — `_log_new_best_details` + `_print_episode_summary`
 - `_print_episode_summary`: terminated/finished/truncated one-liner; `r=` and `steps=` present; laps and progress omitted

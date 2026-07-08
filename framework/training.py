@@ -31,6 +31,7 @@ from framework.analytics import (
     GreedySimResult,
     ProbeResult,
     RunTrace,
+    compute_canonical_score,
 )
 from framework.live_monitor import make_live_monitor
 from framework.obs_spec import ObsSpec
@@ -299,11 +300,34 @@ def _run_episode(
                 _print_action_stats(throttle_counts, turning_steps, steps)
             break
 
+    # Canonical score is only meaningful for games that report track_progress
+    # (the racing-style games); leave it None for SC2/Atari/etc. so the
+    # `is not None` no-op guards on the canonical plots/stats stay accurate.
+    track_progress: float | None = None
+    finished: bool | None = None
+    mean_lateral_offset_m: float | None = None
+    canonical_score: float | None = None
+    if "track_progress" in info:
+        track_progress = float(info["track_progress"])
+        finished = bool(info.get("finished", False))
+        # Same quantity as GreedySimResult.mean_abs_lateral_offset, read here
+        # under the RunTrace field name used by compute_canonical_score.
+        mean_lateral_offset_m = info.get("mean_abs_lateral_offset")
+        canonical_score = compute_canonical_score(
+            track_progress,
+            finished,
+            float(mean_lateral_offset_m) if mean_lateral_offset_m is not None else 0.0,
+        )
+
     trace = RunTrace(
         pos_x=pos_x,
         pos_z=pos_z,
         throttle_state=throttle_state,
         total_reward=total_reward,
+        track_progress=track_progress,
+        finished=finished,
+        mean_lateral_offset_m=mean_lateral_offset_m,
+        canonical_score=canonical_score,
     )
     return EpisodeResult(
         reward=total_reward,
@@ -933,6 +957,7 @@ def _greedy_loop(
                         throttle_counts=list(ep.throttle_counts),
                         total_steps=ep.total_steps,
                         trace=ep.trace,
+                        canonical_score=ep.trace.canonical_score if ep.trace else None,
                         weights=candidate.to_cfg(),
                         final_track_progress=ep.info.get("track_progress", 0.0),
                         laps_completed=ep.info.get("laps_completed", 0),
@@ -1088,6 +1113,7 @@ def _greedy_loop(
                     throttle_counts=list(best_ep.throttle_counts),
                     total_steps=best_ep.total_steps,
                     trace=best_ep.trace,
+                    canonical_score=best_ep.trace.canonical_score if best_ep.trace else None,
                     weights=best_cand.to_cfg(),
                     final_track_progress=best_ep.info.get("track_progress", 0.0),
                     laps_completed=best_ep.info.get("laps_completed", 0),
@@ -1337,6 +1363,7 @@ def _greedy_loop_cmaes(
                     throttle_counts=[0, 0, 0],
                     total_steps=total_steps,
                     trace=last_trace,
+                    canonical_score=last_trace.canonical_score if last_trace else None,
                     weights=policy.to_cfg(),
                     final_track_progress=last_info.get("track_progress", 0.0),
                     laps_completed=last_info.get("laps_completed", 0),
@@ -1462,6 +1489,7 @@ def _greedy_loop_q_learning(
                     throttle_counts=list(ep.throttle_counts),
                     total_steps=ep.total_steps,
                     trace=ep.trace,
+                    canonical_score=ep.trace.canonical_score if ep.trace else None,
                     weights=cfg,
                     final_track_progress=ep.info.get("track_progress", 0.0),
                     laps_completed=ep.info.get("laps_completed", 0),
@@ -1675,6 +1703,7 @@ def _greedy_loop_genetic(
                     throttle_counts=[0, 0, 0],
                     total_steps=total_steps,
                     trace=last_trace,
+                    canonical_score=last_trace.canonical_score if last_trace else None,
                     weights=policy.to_cfg(),
                     mutation_scale=policy.mutation_scale,
                     final_track_progress=last_info.get("track_progress", 0.0),

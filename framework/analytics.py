@@ -42,6 +42,27 @@ import yaml
 # ---------------------------------------------------------------------------
 
 
+def compute_canonical_score(
+    track_progress: float,
+    finished: bool,
+    mean_lateral_offset_m: float,
+) -> float:
+    """Fixed-weight, reward-config-independent score for cross-experiment comparability.
+
+    Unlike training reward (a weighted sum of ``reward_config.yaml`` values that
+    changes scale whenever those weights change), this formula's weights are
+    hardcoded and never configurable, so experiments with different reward
+    configs can be ranked on a common ruler.
+
+    ``1000 * track_progress + 500 * finished - 2 * mean_lateral_offset_m ** 2``
+
+    A full clean lap scores ~1500; a half-lap crash at 2m avg offset scores
+    ~492. Progress/finish terms dominate; the offset penalty is meaningful but
+    can't swamp a good drive.
+    """
+    return 1000.0 * track_progress + 500.0 * float(bool(finished)) - 2.0 * mean_lateral_offset_m**2
+
+
 @dataclass
 class RunTrace:
     """Sampled trajectory for one episode.
@@ -56,6 +77,11 @@ class RunTrace:
     pos_z: list  # world Z (horizontal plane; Y is up in most engines)
     throttle_state: list  # per step: (accel_val, brake_val) floats in [0, 1]
     total_reward: float
+    # --- Canonical score inputs (config-independent; None if unavailable) ---
+    track_progress: float | None = None
+    finished: bool | None = None
+    mean_lateral_offset_m: float | None = None
+    canonical_score: float | None = None
 
 
 @dataclass
@@ -112,6 +138,8 @@ class GreedySimResult:
     build_order: list | None = None  # [[game_time_s, unit_name], ...] — unit-build events
     army_count_series: list | None = None  # [[game_time_s, army_count], ...] — sampled per step
     resource_series: list | None = None  # [[game_time_s, minerals+vespene], ...] — sampled per step
+    # --- Canonical score (config-independent; see compute_canonical_score) ---
+    canonical_score: float | None = None
 
     def __post_init__(self):
         if self.action_counts is not None:
@@ -169,6 +197,7 @@ class GreedySimResult:
             build_order=data.get("build_order"),
             army_count_series=data.get("army_count_series"),
             resource_series=data.get("resource_series"),
+            canonical_score=data.get("canonical_score"),
         )
 
 
@@ -725,6 +754,7 @@ def _gs_stats(data: ExperimentData) -> dict:
             "finish_rate": 0.0,
             "best_track_progress": 0.0,
             "best_finish_time_s": None,
+            "best_canonical_score": None,
         }
     best_reward = max(s.reward for s in sims)
     n_improvements = sum(1 for s in sims if s.improved)
@@ -740,6 +770,8 @@ def _gs_stats(data: ExperimentData) -> dict:
     best_track_progress = max(s.final_track_progress for s in sims)
     finish_times = [s.finish_time_s for s in finished_sims if s.finish_time_s is not None]
     best_finish_time_s = min(finish_times) if finish_times else None
+    canonical_scores = [s.canonical_score for s in sims if s.canonical_score is not None]
+    best_canonical_score = max(canonical_scores) if canonical_scores else None
     return {
         "best_reward": best_reward,
         "n_improvements": n_improvements,
@@ -749,6 +781,7 @@ def _gs_stats(data: ExperimentData) -> dict:
         "finish_rate": finish_rate,
         "best_track_progress": best_track_progress,
         "best_finish_time_s": best_finish_time_s,
+        "best_canonical_score": best_canonical_score,
     }
 
 
@@ -769,6 +802,33 @@ def plot_gs_comparison_rewards(runs: list[tuple[str, dict]], summary_dir: str) -
     ax.tick_params(axis="y", labelsize=7)
     fig.tight_layout()
     _save(fig, os.path.join(summary_dir, "comparison_rewards.png"))
+
+
+def plot_gs_comparison_canonical(runs: list[tuple[str, dict]], summary_dir: str) -> None:
+    """Horizontal bar chart ranking experiments by best canonical score.
+
+    Config-independent counterpart to plot_gs_comparison_rewards. No-op when
+    no run in *runs* has a canonical score (e.g. non-TMNF games, or old data).
+    """
+    if not _HAS_MPL:
+        return
+    eligible = [(name, s) for name, s in runs if s.get("best_canonical_score") is not None]
+    if not eligible:
+        return
+    runs_sorted = sorted(eligible, key=lambda x: x[1]["best_canonical_score"])
+    names = [r[0] for r in runs_sorted]
+    scores = [r[1]["best_canonical_score"] for r in runs_sorted]
+    n = len(names)
+    colors = cm.RdYlGn(np.linspace(0.15, 0.85, n))
+    fig, ax = plt.subplots(figsize=(10, max(4, n * 0.45)))
+    bars = ax.barh(names, scores, color=colors, edgecolor="white", linewidth=0.5)
+    for bar, s in zip(bars, scores):
+        ax.text(s, bar.get_y() + bar.get_height() / 2, f"  {s:+.1f}", va="center", fontsize=8)
+    ax.set_xlabel("Best Canonical Score (config-independent)")
+    ax.set_title("Grid Search — Best Canonical Score per Experiment")
+    ax.tick_params(axis="y", labelsize=7)
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_canonical.png"))
 
 
 def plot_gs_reward_trajectories(runs: list[tuple[str, ExperimentData]], summary_dir: str) -> None:
@@ -906,6 +966,7 @@ def save_grid_summary(
     ranked_by_reward = sorted(stats, key=lambda x: -x[1]["best_reward"])
 
     plot_gs_comparison_rewards([(name, s) for name, s in ranked_by_reward], summary_dir)
+    plot_gs_comparison_canonical([(name, s) for name, s in ranked_by_reward], summary_dir)
     plot_gs_comparison_task_metrics(
         [(name, s) for name, s in ranked_by_progress],
         summary_dir,
@@ -950,14 +1011,17 @@ def save_grid_summary(
         "## Rankings by Reward\n\n",
         "![Reward comparison](comparison_rewards.png)\n\n",
         "![Reward trajectories](comparison_reward_trajectories.png)\n\n",
-        "| Rank | Experiment | Best Reward | Improvements | First Improv. Sim | Accel % | Greedy Time |\n",
-        "|------|-----------|-------------|--------------|-------------------|---------|-------------|\n",
+        "| Rank | Experiment | Best Reward | Best Canonical | Improvements | First Improv. Sim | Accel % | Greedy Time |\n",
+        "|------|-----------|-------------|-----------------|--------------|-------------------|---------|-------------|\n",
     ]
     for rank, (name, s) in enumerate(ranked_by_reward, 1):
         fi = str(s["first_improvement_sim"]) if s["first_improvement_sim"] is not None else "—"
         acc = f"{s['accel_pct']:.0f}%" if s["accel_pct"] is not None else "—"
         rt = _fmt_duration(s["greedy_runtime_s"]) if s["greedy_runtime_s"] else "—"
-        lines.append(f"| {rank} | {name} | {s['best_reward']:+.1f} | {s['n_improvements']} | {fi} | {acc} | {rt} |\n")
+        bcs = f"{s['best_canonical_score']:+.1f}" if s["best_canonical_score"] is not None else "—"
+        lines.append(
+            f"| {rank} | {name} | {s['best_reward']:+.1f} | {bcs} | {s['n_improvements']} | {fi} | {acc} | {rt} |\n"
+        )
     lines.append("\n")
 
     runs_by_name = {n: d for n, d in runs}
@@ -989,10 +1053,12 @@ def save_grid_summary(
         fi = str(s["first_improvement_sim"]) if s["first_improvement_sim"] is not None else "—"
         acc = f"{s['accel_pct']:.1f}%" if s["accel_pct"] is not None else "—"
         bft = f"{s['best_finish_time_s']:.1f}s" if s["best_finish_time_s"] is not None else "—"
+        bcs = f"{s['best_canonical_score']:+.1f}" if s["best_canonical_score"] is not None else "—"
         lines += [
             "| Stat | Value |\n|---|---|\n",
             f"| Code version | `{data.code_version or 'unknown'}` |\n",
             f"| {task_metric_label} | {_fmt_task(s['task_metric'])} |\n",
+            f"| Best canonical score | {bcs} |\n",
             f"| Finish rate | {s['finish_rate']:.1%} |\n",
             f"| Best finish time | {bft} |\n",
             f"| Greedy improvements | {s['n_improvements']} |\n",

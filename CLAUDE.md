@@ -270,9 +270,10 @@ the change and delete the rest.
   commit SHA) before marking it resolved. Never mark a thread resolved
   silently — an outdated diff position with no comment leaves the reviewer
   unable to tell whether it was fixed, dismissed, or simply outrun by a
-  later push. If a comment is *not* being acted on, say why in the reply
-  before resolving (or leave it unresolved and explain in a top-level PR
-  comment) rather than resolving it silently.
+  later push. If a comment is *not* being acted on, it must **never** be
+  marked resolved — explain why in a top-level PR comment instead and leave
+  the thread unresolved, so a human decides whether to resolve or push
+  back.
 
 ---
 

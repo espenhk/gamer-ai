@@ -106,7 +106,13 @@ Configured in `games/car_racing/config/reward_config.yaml`.
 python main.py my_car_run --game car_racing
 ```
 
-Results are saved to `experiments/car_racing/my_car_run/results/`.
+Results are saved to `experiments/car_racing/my_car_run/results/`. Alongside the
+generic reward/timing plots, `results.md` includes a **Reward Moving Average**
+section — the mean episode reward over a trailing 100-episode window, checked
+against CarRacing-v2's published "solved" benchmark (average reward >= 900 over
+100 consecutive episodes; see `reward_moving_average.png`). This is the metric
+to check after a long SAC/PPO run (e.g. `gs_sac.yaml`) instead of eyeballing the
+raw per-episode scatter.
 
 ### Grid search
 
@@ -117,6 +123,14 @@ python grid_search.py my_car_grid.yaml --game car_racing
 ```
 
 Model the YAML structure on `games/torcs/config/grid_search_template.yaml`.
+
+A checked-in `sac` config is available for a quick training-loop sanity check
+against CarRacing's published "solved" benchmark (average reward >= 900 over
+100 consecutive episodes):
+
+```bash
+python grid_search.py games/car_racing/config/gs_sac.yaml --game car_racing
+```
 
 ---
 
@@ -136,5 +150,6 @@ All policies in the framework work with CarRacing. Set `policy_type` in `games/c
 | `reinforce` | Monte Carlo policy gradient | Stochastic policy, simpler than DQN |
 | `lstm` | LSTM + isotropic Gaussian ES | Useful when temporal memory matters |
 | `ppo` | On-policy actor-critic, clipped surrogate + GAE (pure numpy) | On-policy gradient baseline; tune `clip_range`, `n_epochs`, `gae_lambda` |
+| `sac` | Stable-Baselines3 Soft Actor-Critic | Off-policy, native continuous `Box` control; see `games/car_racing/config/gs_sac.yaml` for a reproducible starting config, not yet empirically validated against the solved benchmark (issue #482) |
 
 Policy-specific hyperparameters go under `policy_params:` in `training_params.yaml`. See the root `README.md` or `games/tmnf/README.md` for full param reference.

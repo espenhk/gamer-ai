@@ -17,6 +17,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- `games/car_racing/config/gs_sac.yaml`: a checked-in `sac` grid-search config for CarRacing-v2 (issue #482), giving the game a reproducible SAC preset for validating that the shared training loop converges against CarRacing's published "solved" benchmark (average reward >= 900 over 100 consecutive episodes) before investing more compute in TMNF/SC2 (issue #483).
+- `framework.analytics.plot_reward_moving_average` / `_reward_moving_average_md` (issue #482 follow-up): a rolling-mean-reward plot + markdown summary, with an optional "solved threshold" reference line/verdict, so a Gym-style "average reward over N consecutive episodes" benchmark can be read directly off `results.md` instead of eyeballed from the raw per-episode scatter. Wired into `games/car_racing/analytics.py` against CarRacing-v2's published benchmark (900 reward / 100 episodes).
+
+### Fixed
+- `framework.analytics._rolling_mean` (PR #487 review): a zero or negative `window` argument previously either raised `ZeroDivisionError` (in `_reward_moving_average_md`) or silently ignored the clamp (in `_rolling_mean`/`plot_reward_moving_average`, since only `0` — not negative values — is falsy in Python). Added a shared `_clamp_window` helper (clamps to `[1, n]`) used consistently by all three, and rewrote `_rolling_mean` from an O(n²) slice-and-sum per element to an O(n) running-sum computation.
+- `.github/workflows/integration-tests.yml`'s `sc2` job: the PySC2 mini-game map downloads pointed at `github.com/deepmind/pysc2`, which was renamed to `google-deepmind/pysc2`; `wget` doesn't follow the org rename on the `/raw/` content path, so every map download 404'd (`exit code 8`). This broke the `sc2` integration job for any PR touching `framework/**` (unrelated to this PR's CarRacing content — surfaced here because `framework/analytics.py` changed). Updated the URL to the current org.
 
 ---
 

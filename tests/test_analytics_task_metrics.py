@@ -21,11 +21,15 @@ import unittest
 from framework.analytics import (
     ExperimentData,
     GreedySimResult,
+    _clamp_window,
     _greedy_table_md,
     _gs_stats,
+    _reward_moving_average_md,
+    _rolling_mean,
     _summary_md,
     _task_metrics_table_md,
     plot_reward_component_breakdown,
+    plot_reward_moving_average,
 )
 
 # ---------------------------------------------------------------------------
@@ -459,6 +463,133 @@ class TestPlotRewardComponentBreakdown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             plot_reward_component_breakdown(data, d)
             self.assertIn("reward_component_breakdown.png", os.listdir(d))
+
+
+# ---------------------------------------------------------------------------
+# plot_reward_moving_average / _reward_moving_average_md (issue #482 follow-up)
+# ---------------------------------------------------------------------------
+
+
+class TestRewardMovingAverageMd(unittest.TestCase):
+    def test_empty_sims_returns_empty_string(self):
+        data = _make_experiment([])
+        self.assertEqual(_reward_moving_average_md(data), "")
+
+    def test_mean_over_window_smaller_than_history(self):
+        # rewards 1..10, window=5 -> mean of last 5 (6..10) = 8.0
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 11)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=5)
+        self.assertIn("last 5 episode(s)", md)
+        self.assertIn("+8.0", md)
+
+    def test_window_larger_than_history_uses_all_sims(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 4)]  # 1, 2, 3
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100)
+        self.assertIn("last 3 episode(s)", md)
+        self.assertIn("+2.0", md)  # mean(1,2,3) = 2.0
+
+    def test_solved_threshold_met(self):
+        sims = [_make_sim(i, reward=950.0) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100, solved_threshold=900.0)
+        self.assertIn("solved threshold: 900", md.lower())
+        self.assertIn("**solved**", md)
+        self.assertNotIn("not yet solved", md)
+
+    def test_solved_threshold_not_met(self):
+        sims = [_make_sim(i, reward=100.0) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=100, solved_threshold=900.0)
+        self.assertIn("not yet solved", md)
+
+    def test_no_threshold_line_when_unset(self):
+        sims = [_make_sim(1, reward=5.0)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data)
+        self.assertNotIn("Solved threshold", md)
+
+    def test_zero_window_does_not_raise_and_clamps_to_one(self):
+        sims = [_make_sim(1, reward=5.0), _make_sim(2, reward=15.0)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=0)
+        self.assertIn("last 1 episode(s)", md)
+        self.assertIn("+15.0", md)  # mean of just the last episode
+
+    def test_negative_window_does_not_raise_and_clamps_to_one(self):
+        sims = [_make_sim(1, reward=5.0), _make_sim(2, reward=15.0)]
+        data = _make_experiment(sims)
+        md = _reward_moving_average_md(data, window=-10)
+        self.assertIn("last 1 episode(s)", md)
+        self.assertIn("+15.0", md)
+
+
+class TestClampWindow(unittest.TestCase):
+    def test_clamps_zero_to_one(self):
+        self.assertEqual(_clamp_window(0, 5), 1)
+
+    def test_clamps_negative_to_one(self):
+        self.assertEqual(_clamp_window(-10, 5), 1)
+
+    def test_clamps_to_n_when_window_larger(self):
+        self.assertEqual(_clamp_window(100, 5), 5)
+
+    def test_passes_through_when_within_range(self):
+        self.assertEqual(_clamp_window(3, 5), 3)
+
+    def test_zero_n_returns_zero(self):
+        self.assertEqual(_clamp_window(5, 0), 0)
+
+
+class TestRollingMean(unittest.TestCase):
+    def test_empty_values_returns_empty_list(self):
+        self.assertEqual(_rolling_mean([], 10), [])
+
+    def test_zero_window_does_not_raise_and_clamps_to_one(self):
+        # window=0 clamps to 1 -> rolling mean equals the raw series
+        self.assertEqual(_rolling_mean([1.0, 2.0, 3.0], 0), [1.0, 2.0, 3.0])
+
+    def test_negative_window_does_not_raise_and_clamps_to_one(self):
+        self.assertEqual(_rolling_mean([1.0, 2.0, 3.0], -5), [1.0, 2.0, 3.0])
+
+    def test_window_larger_than_series_is_cumulative_mean(self):
+        self.assertEqual(_rolling_mean([1.0, 2.0, 3.0], 100), [1.0, 1.5, 2.0])
+
+    def test_window_smaller_than_series_matches_naive_computation(self):
+        values = [1.0, 2.0, 3.0, 4.0, 5.0]
+        window = 2
+        expected = [sum(values[max(0, i - window + 1) : i + 1]) / min(i + 1, window) for i in range(len(values))]
+        self.assertEqual(_rolling_mean(values, window), expected)
+
+
+class TestPlotRewardMovingAverage(unittest.TestCase):
+    def test_renders_to_file(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 6)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d)
+            self.assertIn("reward_moving_average.png", os.listdir(d))
+
+    def test_skips_when_no_sims(self):
+        data = _make_experiment([])
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_zero_window_does_not_raise(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d, window=0)
+            self.assertIn("reward_moving_average.png", os.listdir(d))
+
+    def test_negative_window_does_not_raise(self):
+        sims = [_make_sim(i, reward=float(i)) for i in range(1, 4)]
+        data = _make_experiment(sims)
+        with tempfile.TemporaryDirectory() as d:
+            plot_reward_moving_average(data, d, window=-5)
+            self.assertIn("reward_moving_average.png", os.listdir(d))
 
 
 if __name__ == "__main__":

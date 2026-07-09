@@ -379,6 +379,26 @@ saved next to `policy_weights.yaml` as `*_sb3_model.zip`.  All SB3 policies are
 gated off SC2 (its multi-head `[fn_idx, x, y, queue]` action encoding is not a
 plain `Box`/`Discrete`) — use the `sc2_`-prefixed policies there.
 
+**Crash-safe resume.** Every `total_timesteps` seen by `total_timesteps()` is
+an absolute target, not a per-invocation budget: re-running
+`python main.py <name> --game <game>` against an experiment that already has a
+saved SB3 checkpoint resumes training toward that same target instead of
+restarting from zero. Every `checkpoint_freq` env steps (default `10_000`,
+tunable via `policy_params.checkpoint_freq`, `0` disables periodic saves —
+a final checkpoint is still written when `learn()` returns), the SB3 loop
+(`framework/sb3_support.py`) writes `*_sb3_checkpoint.zip` — the latest
+training state (model weights + optimizer + cumulative timestep counter) —
+distinct from the best-reward `*_sb3_model.zip` snapshot used for inference.
+Off-policy algorithms (`sac`, `td3`, `qr_dqn`) additionally persist their
+replay buffer to `*_sb3_replay_buffer.pkl` at the same cadence, since losing
+the buffer on a multi-day run would mean re-warming it from scratch. On
+resume, `_SB3Policy.build_model()` loads the checkpoint (falling back to the
+best-reward snapshot if no checkpoint exists yet) and the replay buffer if
+present, and `run_sb3_loop` computes `remaining = target_total_timesteps -
+model.num_timesteps` so training stops at the same absolute target regardless
+of how many times the process crashed and resumed. `--re-initialize` ignores
+both files and starts fresh, as with any other policy.
+
 `alphazero_mcts` is gated off every current game (`compatible_with` returns
 `False` for TMNF/SC2/TORCS/CarRacing/BeamNG/Assetto/Rocket League/iRacing)
 because their envs bind to live processes/sockets and cannot be cloned for tree
@@ -692,6 +712,7 @@ SB3-compatible action spaces (for example, TMNF's `Box` action space).
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `n_steps` | `SB3 default` | Rollout length per update |
 | `batch_size` | `SB3 default` | Minibatch size |
 | `n_epochs` | `SB3 default` | Optimisation passes per rollout |
@@ -722,6 +743,7 @@ Stable-Baselines3 A2C. Lighter-weight than PPO, but usually a weaker default.
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `n_steps` | `SB3 default` | Rollout length before each synchronous update |
 | `gae_lambda` | `SB3 default` | GAE smoothing |
 | `ent_coef` | `SB3 default` | Entropy-bonus coefficient |
@@ -748,6 +770,7 @@ Stable-Baselines3 Soft Actor-Critic for native continuous `Box` action spaces.
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `buffer_size` | `SB3 default` | Replay-buffer capacity |
 | `batch_size` | `SB3 default` | Minibatch size |
 | `tau` | `SB3 default` | Target-network Polyak averaging factor |
@@ -777,6 +800,7 @@ Stable-Baselines3 Twin Delayed DDPG for native continuous `Box` action spaces.
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `buffer_size` | `SB3 default` | Replay-buffer capacity |
 | `batch_size` | `SB3 default` | Minibatch size |
 | `tau` | `SB3 default` | Target-network Polyak averaging factor |
@@ -807,6 +831,7 @@ function over that discrete set.
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `buffer_size` | `SB3 default` | Replay-buffer capacity |
 | `batch_size` | `SB3 default` | Minibatch size |
 | `learning_starts` | `SB3 default` | Warmup steps before updates start |
@@ -840,6 +865,7 @@ gradient-trained counterpart to the ES-trained `lstm`.
 | `hidden_sizes` | `SB3 default` | Hidden layer widths override for `policy_kwargs.net_arch` |
 | `seed` | `null` | RNG seed override |
 | `verbose` | `0` | SB3 logging verbosity |
+| `checkpoint_freq` | `10000` | Env steps between resume checkpoints (model + replay buffer for off-policy algos); `*_sb3_checkpoint.zip` — `0` disables periodic saves (a final checkpoint is still written when training ends) |
 | `n_steps` | `SB3 default` | Rollout length per update |
 | `batch_size` | `SB3 default` | Minibatch size |
 | `n_epochs` | `SB3 default` | Optimisation passes per rollout |

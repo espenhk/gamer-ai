@@ -17,6 +17,28 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- **Crash-safe resume for SB3-backed policies** (issue #483, step 1 of the TMNF
+  long-horizon SAC run): `framework/sb3_support.py` now periodically saves a
+  `*_sb3_checkpoint.zip` (latest training state — model + cumulative timestep
+  counter) distinct from the existing best-reward `*_sb3_model.zip` snapshot,
+  cadence controlled by the new `checkpoint_freq` policy param (default
+  `10000` env steps, `0` disables periodic saves; a final checkpoint is
+  always written when training ends). Off-policy algorithms (`sac`, `td3`,
+  `qr_dqn`) additionally persist their replay buffer to
+  `*_sb3_replay_buffer.pkl` at the same cadence. On resume,
+  `_SB3Policy.build_model()` loads the checkpoint (or the best-reward
+  snapshot if no checkpoint exists yet) plus the replay buffer, and
+  `run_sb3_loop` trains only the remaining steps needed to reach the
+  configured `total_timesteps` target rather than restarting the budget
+  from zero. `--re-initialize` still starts fresh. Checkpoint, replay-buffer,
+  and best-model writes go through a temp-file + `os.replace` atomic-save
+  helper so a crash mid-write can't corrupt the file a subsequent resume
+  depends on; a resume that completes zero new episodes no longer overwrites
+  the best-reward snapshot with the (possibly worse) checkpoint state it
+  resumed from. The Azure VM provisioning, hyperparameter tuning, and the
+  actual long-duration TMNF run described in the rest of #483 are tracked
+  separately in #489, gated on #481 and #482 landing first.
 
 ---
 

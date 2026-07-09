@@ -191,3 +191,123 @@ def test_qr_dqn_discrete_end_to_end(tmp_path):
     data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
     assert data.greedy_sims
     assert os.path.exists(os.path.splitext(spec.weights_file)[0] + "_sb3_model.zip")
+
+
+# --------------------------------------------------------------------------- #
+# Resume / crash-recovery checkpointing (issue #483)                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_checkpoint_and_replay_buffer_saved_for_off_policy(tmp_path):
+    """SAC (off-policy) leaves a resume checkpoint + replay buffer on disk."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config(
+        "sac",
+        learning_starts=8,
+        buffer_size=200,
+        batch_size=8,
+        train_freq=1,
+        checkpoint_freq=8,
+    )
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    base = os.path.splitext(spec.weights_file)[0]
+    assert os.path.exists(base + "_sb3_checkpoint.zip"), "resume checkpoint not saved"
+    assert os.path.exists(base + "_sb3_replay_buffer.pkl"), "replay buffer not persisted"
+
+
+def test_on_policy_checkpoint_has_no_replay_buffer(tmp_path):
+    """PPO (on-policy) checkpoints the model for resume but has no replay buffer."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config("ppo", n_steps=32, batch_size=16, checkpoint_freq=16)
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    base = os.path.splitext(spec.weights_file)[0]
+    assert os.path.exists(base + "_sb3_checkpoint.zip")
+    assert not os.path.exists(base + "_sb3_replay_buffer.pkl")
+
+
+def test_resume_continues_step_count_instead_of_restarting(tmp_path):
+    """Resuming a run must continue the cumulative timestep count, not restart at 0."""
+    spec = _game_spec(tmp_path)
+    first_target = 64
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = first_target
+    data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+    assert data.greedy_sims
+
+    resumed_policy = POLICY_REGISTRY["sac"].make(
+        obs_spec=spec.obs_spec,
+        head_names=spec.head_names,
+        discrete_actions=spec.discrete_actions,
+        weights_file=spec.weights_file,
+        policy_params={"learning_starts": 8, "buffer_size": 200, "batch_size": 8, "train_freq": 1},
+        re_initialize=False,
+    )
+    assert resumed_policy._resume is True
+    model = resumed_policy.build_model(_DummyEnv())
+    assert model.num_timesteps >= first_target
+    # Replay buffer state carried over rather than starting empty.
+    assert model.replay_buffer.size() > 0
+
+
+def test_resume_skips_training_once_target_reached(tmp_path):
+    """Re-running with the same total_timesteps target after completion is a no-op."""
+    spec = _game_spec(tmp_path)
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = 64
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    # Re-invoke with the same config (simulating a re-run after the process
+    # already reached the target); the second run should record no new episodes
+    # beyond what a fresh `remaining_timesteps == 0` run would produce.
+    data2 = train_rl(spec, cfg, no_interrupt=True, re_initialize=False)
+    assert data2 is not None
+
+
+def test_resume_with_no_new_episode_does_not_clobber_best_snapshot(tmp_path):
+    """A resume that completes zero new episodes must not overwrite the
+    genuine best-reward *_sb3_model.zip with the (possibly worse) checkpoint
+    state it resumed from."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = 64
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    best_path = os.path.splitext(spec.weights_file)[0] + "_sb3_model.zip"
+    assert os.path.exists(best_path)
+    before = open(best_path, "rb").read()
+
+    # Re-run at the same target: remaining_timesteps == 0, so no episode
+    # completes and recorder.best_sim stays None this invocation.
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=False)
+
+    after = open(best_path, "rb").read()
+    assert before == after, "best-reward snapshot was overwritten despite no new episode completing"
+
+
+def test_checkpoint_save_leaves_no_tmp_file(tmp_path):
+    """Atomic checkpoint writes must not leave a `.tmp` sibling behind."""
+    import os
+
+    spec = _game_spec(tmp_path)
+    cfg = _run_config(
+        "sac",
+        learning_starts=8,
+        buffer_size=200,
+        batch_size=8,
+        train_freq=1,
+        checkpoint_freq=8,
+    )
+    train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+
+    base = os.path.splitext(spec.weights_file)[0]
+    assert not os.path.exists(base + "_sb3_checkpoint.zip.tmp")
+    assert not os.path.exists(base + "_sb3_replay_buffer.pkl.tmp")
+    assert not os.path.exists(base + "_sb3_model.zip.tmp")

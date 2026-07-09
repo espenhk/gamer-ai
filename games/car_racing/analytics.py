@@ -14,15 +14,22 @@ from framework.analytics import (
     _cold_start_table_md,
     _greedy_table_md,
     _probe_table_md,
+    _reward_moving_average_md,
     _summary_md,
     _timings_md,
     plot_cold_start_rewards,
     plot_greedy_rewards,
     plot_probe_rewards,
+    plot_reward_moving_average,
     plot_reward_trajectory,
 )
 
 logger = logging.getLogger(__name__)
+
+# CarRacing-v2's published "solved" benchmark: average reward >= 900 over
+# 100 consecutive episodes (see games/car_racing/config/gs_sac.yaml, issue #482).
+SOLVED_REWARD_THRESHOLD = 900.0
+SOLVED_WINDOW_EPISODES = 100
 
 
 def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
@@ -49,6 +56,21 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         plot_greedy_rewards(data, results_dir)
         sections.append(_greedy_table_md(data))
         sections.append("\n![Greedy rewards](greedy_rewards.png)\n\n")
+
+        plot_reward_moving_average(
+            data,
+            results_dir,
+            window=SOLVED_WINDOW_EPISODES,
+            solved_threshold=SOLVED_REWARD_THRESHOLD,
+        )
+        sections.append(
+            _reward_moving_average_md(
+                data,
+                window=SOLVED_WINDOW_EPISODES,
+                solved_threshold=SOLVED_REWARD_THRESHOLD,
+            )
+        )
+        sections.append("![Reward moving average](reward_moving_average.png)\n\n")
 
     plot_reward_trajectory(data, results_dir)
     sections.append("## Additional Plots\n\n")

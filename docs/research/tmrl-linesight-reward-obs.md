@@ -40,8 +40,9 @@ files (config constants, quoted verbatim) and maintainer statements
   vertical offset, yaw/pitch/roll, `track_progress`, steer, 4× wheel contact,
   3× angular velocity) + a 3-point lookahead (`LOOKAHEAD_STEPS = [10, 25, 50]`
   centerline-point indices, i.e. **20 m / 50 m / 100 m ahead** at the
-  default 2.0 m point spacing set by `games/tmnf/tools/build_centerline.py
-  --spacing`) + optional `n_lidar_rays` (default 8).
+  default 2.0 m point spacing set by
+  `games/tmnf/tools/build_centerline.py --spacing`) + optional
+  `n_lidar_rays` (default 8).
 - **LIDAR** — `games/tmnf/lidar.py`: `n_rays` (default 16 at the sensor level,
   8 wired in by default via `n_lidar_rays`) cast from `0` to `π` radians
   (front half-plane, left-to-right) off an MSS screenshot processed through

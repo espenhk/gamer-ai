@@ -259,6 +259,42 @@ def plot_greedy_progress(data: ExperimentData, results_dir: str) -> None:
     _save(fig, os.path.join(results_dir, "greedy_progress.png"))
 
 
+def plot_greedy_canonical(data: ExperimentData, results_dir: str) -> None:
+    """Per-experiment canonical score (config-independent) over greedy sims.
+
+    Same structure as plot_greedy_rewards but for compute_canonical_score
+    output. No-op when no greedy sim has a canonical score.
+    """
+    if not _HAS_MPL:
+        return
+    sims = [s for s in data.greedy_sims if s.canonical_score is not None]
+    if not sims:
+        return
+
+    xs = [s.sim for s in sims]
+    scores = [s.canonical_score for s in sims]
+
+    best_so_far = []
+    running_best = float("-inf")
+    for s in scores:
+        running_best = max(running_best, s)
+        best_so_far.append(running_best)
+
+    improvement_xs = [s.sim for s in sims if s.improved]
+    improvement_ys = [s.canonical_score for s in sims if s.improved]
+
+    fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.15), 5))
+    ax.scatter(xs, scores, color="#95a5a6", s=18, alpha=0.7, zorder=2, label="candidate canonical score")
+    ax.step(xs, best_so_far, where="post", color="#8e44ad", linewidth=2.0, zorder=3, label="best so far")
+    ax.scatter(improvement_xs, improvement_ys, color="#27ae60", s=60, zorder=4, marker="^", label="improvement")
+    ax.set_title(f"{data.experiment_name} — Greedy Phase: Canonical Score per Simulation")
+    ax.set_xlabel("Simulation")
+    ax.set_ylabel("Canonical Score (config-independent)")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    _save(fig, os.path.join(results_dir, "greedy_canonical.png"))
+
+
 # ---------------------------------------------------------------------------
 # Weight heatmap and evolution (WLP-specific)
 # ---------------------------------------------------------------------------
@@ -457,6 +493,50 @@ def plot_gs_comparison_progress(
     _save(fig, os.path.join(summary_dir, "comparison_progress.png"))
 
 
+def plot_gs_comparison_canonical_progress(
+    runs: list[tuple[str, ExperimentData]],
+    summary_dir: str,
+) -> None:
+    """Cross-experiment best-so-far canonical score over the greedy sim axis.
+
+    Config-independent counterpart to plot_gs_comparison_progress: runs with
+    different reward_config.yaml weights but equally-good driving should
+    produce similar curves here, unlike raw-reward comparisons. No-op when no
+    run has any canonical scores.
+    """
+    if not _HAS_MPL:
+        return
+    series = []
+    for name, data in runs:
+        sims = [s for s in data.greedy_sims if s.canonical_score is not None]
+        if not sims:
+            continue
+        xs = [s.sim for s in sims]
+        running_best = float("-inf")
+        ys = []
+        for s in sims:
+            running_best = max(running_best, s.canonical_score)
+            ys.append(running_best)
+        series.append((name, xs, ys, running_best))
+    if not series:
+        return
+
+    series.sort(key=lambda x: -x[3])
+    n = len(series)
+    colors = cm.RdYlGn(np.linspace(0.15, 0.85, n))
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    for (name, xs, ys, final_best), color in zip(series, colors):
+        ax.step(xs, ys, where="post", color=color, linewidth=1.4, alpha=0.85, label=f"{name}  ({final_best:+.1f})")
+    ax.axhline(0, color="black", linewidth=0.6, linestyle="--", alpha=0.4)
+    ax.set_title("Grid Search — Best-So-Far Canonical Score per Simulation")
+    ax.set_xlabel("Simulation #")
+    ax.set_ylabel("Canonical Score (config-independent)")
+    ax.legend(fontsize=6, loc="upper left", framealpha=0.7, ncol=max(1, n // 12))
+    fig.tight_layout()
+    _save(fig, os.path.join(summary_dir, "comparison_canonical_progress.png"))
+
+
 # ---------------------------------------------------------------------------
 # Entry point: called by save_experiment_results
 # ---------------------------------------------------------------------------
@@ -473,6 +553,7 @@ def save_tmnf_plots(data: ExperimentData, results_dir: str) -> None:
         plot_greedy_best_run(data, results_dir)
         plot_greedy_action_dist(data, results_dir)
         plot_greedy_progress(data, results_dir)
+        plot_greedy_canonical(data, results_dir)
         plot_weight_evolution(data, results_dir)
         plot_termination_reasons(data, results_dir)
     plot_weight_heatmap(data, results_dir)
@@ -513,6 +594,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     if data.greedy_sims:
         plot_greedy_rewards(data, results_dir)
         plot_greedy_progress(data, results_dir)
+        plot_greedy_canonical(data, results_dir)
         plot_greedy_best_run(data, results_dir)
         plot_weight_evolution(data, results_dir)
         plot_termination_reasons(data, results_dir)
@@ -528,6 +610,8 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         sections.append("![Task metrics](task_metrics.png)\n\n")
         if any(s.reward_components for s in data.greedy_sims):
             sections.append("![Reward components](reward_components.png)\n\n")
+        if any(s.canonical_score is not None for s in data.greedy_sims):
+            sections.append("![Greedy canonical score](greedy_canonical.png)\n\n")
 
     plot_greedy_action_dist(data, results_dir)
     plot_reward_trajectory(data, results_dir)
@@ -561,6 +645,7 @@ def save_grid_summary(
     def _tmnf_extra(r, d):
         plot_gs_comparison_paths(r, d)
         plot_gs_comparison_progress(r, d)
+        plot_gs_comparison_canonical_progress(r, d)
 
     _framework_save_grid_summary(
         runs,

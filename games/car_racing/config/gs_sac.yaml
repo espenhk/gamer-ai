@@ -14,8 +14,10 @@
 # Budget
 # ------
 # total_timesteps: 500_000 gives headroom past the ~400K PPO reference point.
-# buffer_size covers the whole run (no eviction before completion);
-# learning_starts=5_000 is a short warmup given ~1_000 steps/episode.
+# buffer_size=200_000 is smaller than total_timesteps, so the replay buffer
+# does evict older transitions once the run passes 200K steps (a rolling
+# window over the most recent experience, standard SAC practice — not a
+# bug); learning_starts=5_000 is a short warmup given ~1_000 steps/episode.
 #
 # Usage:
 #   python grid_search.py games/car_racing/config/gs_sac.yaml --game car_racing

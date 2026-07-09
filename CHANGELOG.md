@@ -20,6 +20,28 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ### Added
 - `docs/research/tmrl-linesight-reward-obs.md` (issue #485): a source-level comparison of `trackmania-rl/tmrl` and Linesight (`pb4git/trackmania_rl_public`)'s reward-function constants, LIDAR/observation encoding, and action-repeat/frame-skip timing against our TMNF `reward_config.yaml` / `obs_spec.py` / `lidar.py` / `action_window_ticks`, linked from `docs/research/competing-projects.md`. Filed four scoped follow-up issues (#491-#494) for the concrete deltas it surfaced.
 - `CLAUDE.md`'s Pull requests section: a rule that addressed review-comment threads must get a reply (stating what changed, e.g. the commit SHA) before being marked resolved, instead of being left resolved-and-uncommented or resolved-by-being-outdated. Comments that are *not* acted on must never be marked resolved — explain why in a top-level PR comment and leave the thread unresolved for a human to decide.
+- `compute_canonical_score()` (`framework/analytics.py`, issue #481): a
+  fixed-weight, `reward_config.yaml`-independent score
+  (`1000 * track_progress + 500 * finished - 2 * mean_lateral_offset_m ** 2`)
+  so TMNF experiments can be compared on a common ruler regardless of reward
+  weights. `RunTrace` gains `track_progress` / `finished` /
+  `mean_lateral_offset_m` / `canonical_score` fields (all optional, default
+  `None`); `GreedySimResult` gains `canonical_score`. Populated automatically
+  in `framework/training._run_episode()` for any game whose env reports
+  `track_progress` in its `info` dict. `games/tmnf/analytics.py` adds
+  `plot_greedy_canonical()` (per-experiment, wired into `save_tmnf_plots()`)
+  and `plot_gs_comparison_canonical_progress()` (cross-experiment, wired into
+  the grid summary); `framework/analytics.py` adds
+  `plot_gs_comparison_canonical()`, a "Best Canonical" column in
+  `save_grid_summary()`, and embeds the canonical comparison chart in
+  `summary.md`'s Rankings by Reward section whenever any run has a canonical
+  score. `mean_lateral_offset_m` is accumulated generically from per-step
+  `info["lateral_offset"]` in `_run_episode()`, so non-TMNF racing envs
+  (TORCS, BeamNG, iRacing, Assetto Corsa) get a real offset penalty instead of
+  an implicit 0.0; falls back to a pre-aggregated `info["mean_abs_lateral_offset"]`
+  when no per-step samples were seen. `distributed/protocol.py` (de)serializes
+  the new fields; old `experiment_data.json` files without them still load,
+  with the new fields defaulting to `None`.
 
 ---
 

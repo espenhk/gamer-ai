@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.0] - 2026-07-09
+
 ### Added
 - `compute_canonical_score()` (`framework/analytics.py`, issue #481): a
   fixed-weight, `reward_config.yaml`-independent score

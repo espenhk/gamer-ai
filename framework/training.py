@@ -219,6 +219,8 @@ def _run_episode(
     pos_z: list[float] = []
     throttle_state: list = []
     prev_obs = obs
+    lateral_offset_sum = 0.0
+    lateral_offset_steps = 0
 
     policy.on_episode_start(info=reset_info or {})
 
@@ -246,6 +248,10 @@ def _run_episode(
         next_obs, reward, terminated, truncated, info = env.step(action)
         total_reward += reward
         steps += 1
+        lo = info.get("lateral_offset")
+        if lo is not None:
+            lateral_offset_sum += abs(float(lo))
+            lateral_offset_steps += 1
         if live_monitor is not None:
             live_monitor.on_step(next_obs, reward, info, action=action)
 
@@ -310,13 +316,19 @@ def _run_episode(
     if "track_progress" in info:
         track_progress = float(info["track_progress"])
         finished = bool(info.get("finished", False))
-        # Same quantity as GreedySimResult.mean_abs_lateral_offset, read here
-        # under the RunTrace field name used by compute_canonical_score.
-        mean_lateral_offset_m = info.get("mean_abs_lateral_offset")
+        # Prefer the per-step lateral_offset accumulated above (works for any
+        # racing env that reports it); fall back to an env-precomputed
+        # mean_abs_lateral_offset (as TMNF also surfaces on GreedySimResult)
+        # if no per-step samples were collected.
+        if lateral_offset_steps > 0:
+            mean_lateral_offset_m = lateral_offset_sum / lateral_offset_steps
+        else:
+            mabs = info.get("mean_abs_lateral_offset")
+            mean_lateral_offset_m = float(mabs) if mabs is not None else None
         canonical_score = compute_canonical_score(
             track_progress,
             finished,
-            float(mean_lateral_offset_m) if mean_lateral_offset_m is not None else 0.0,
+            mean_lateral_offset_m if mean_lateral_offset_m is not None else 0.0,
         )
 
     trace = RunTrace(

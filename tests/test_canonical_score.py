@@ -247,6 +247,9 @@ class TestSaveGridSummaryCanonical(unittest.TestCase):
                 md = f.read()
             self.assertIn("Best Canonical", md)
             self.assertIn("+1200.0", md)
+            # PR #490 review: the chart file existing isn't enough -- summary.md
+            # must actually embed/link it so it's not easy to miss.
+            self.assertIn("![Canonical score comparison](comparison_canonical.png)", md)
 
     def test_no_canonical_chart_when_ineligible(self):
         from framework.analytics import save_grid_summary
@@ -256,6 +259,9 @@ class TestSaveGridSummaryCanonical(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             save_grid_summary(runs, [], d, "gs_no_canon")
             self.assertNotIn("comparison_canonical.png", os.listdir(d))
+            with open(os.path.join(d, "summary.md"), encoding="utf-8") as f:
+                md = f.read()
+            self.assertNotIn("comparison_canonical.png", md)
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +409,38 @@ class _FakeEnvWithoutProgress:
         return np.zeros(4, dtype=np.float32), 1.0, True, False, info
 
 
+class _FakeEnvWithPerStepOffset:
+    """Multi-step env reporting per-step lateral_offset but no aggregated
+    mean_abs_lateral_offset (TORCS/BeamNG/iRacing/Assetto-like)."""
+
+    def __init__(self, offsets: list) -> None:
+        self._offsets = offsets
+        self._i = 0
+
+    def reset(self, *, seed=None, options=None):
+        self._i = 0
+        return np.zeros(4, dtype=np.float32), {}
+
+    def step(self, action):
+        offset = self._offsets[self._i]
+        self._i += 1
+        done = self._i >= len(self._offsets)
+        info = {"track_progress": self._i / len(self._offsets), "finished": done, "lateral_offset": offset}
+        return np.zeros(4, dtype=np.float32), 1.0, done, False, info
+
+
+class _FakeEnvWithMeanOffsetOnly:
+    """track_progress present, no per-step lateral_offset at all, but a
+    pre-aggregated mean_abs_lateral_offset on the terminal step (fallback path)."""
+
+    def reset(self, *, seed=None, options=None):
+        return np.zeros(4, dtype=np.float32), {}
+
+    def step(self, action):
+        info = {"track_progress": 1.0, "finished": True, "mean_abs_lateral_offset": 3.0}
+        return np.zeros(4, dtype=np.float32), 1.0, True, False, info
+
+
 class TestRunEpisodeCanonicalGating(unittest.TestCase):
     def test_populates_canonical_fields_when_track_progress_present(self):
         env = _FakeEnvWithProgress()
@@ -425,6 +463,26 @@ class TestRunEpisodeCanonicalGating(unittest.TestCase):
         self.assertIsNone(ep.trace.finished)
         self.assertIsNone(ep.trace.mean_lateral_offset_m)
         self.assertIsNone(ep.trace.canonical_score)
+
+    def test_accumulates_mean_lateral_offset_from_per_step_info(self):
+        """Regression test (PR #490 review): non-TMNF racing envs (TORCS,
+        BeamNG, iRacing, Assetto Corsa) report per-step info["lateral_offset"]
+        but never an aggregated mean_abs_lateral_offset. _run_episode must
+        accumulate the per-step values itself rather than silently treating
+        the offset as 0.0 for those games."""
+        offsets = [1.0, 3.0, 2.0]
+        env = _FakeEnvWithPerStepOffset(offsets)
+        obs, reset_info = env.reset()
+        ep = _run_episode(env, _FakePolicy(), obs, reset_info=reset_info)
+        self.assertAlmostEqual(ep.trace.mean_lateral_offset_m, sum(offsets) / len(offsets))
+        expected_canonical = compute_canonical_score(1.0, True, sum(offsets) / len(offsets))
+        self.assertAlmostEqual(ep.trace.canonical_score, expected_canonical)
+
+    def test_falls_back_to_mean_abs_lateral_offset_when_no_per_step_samples(self):
+        env = _FakeEnvWithMeanOffsetOnly()
+        obs, reset_info = env.reset()
+        ep = _run_episode(env, _FakePolicy(), obs, reset_info=reset_info)
+        self.assertAlmostEqual(ep.trace.mean_lateral_offset_m, 3.0)
 
 
 if __name__ == "__main__":

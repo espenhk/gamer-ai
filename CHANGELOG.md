@@ -30,10 +30,16 @@ formatting, internal refactors with no behaviour change — can be skipped.
   `plot_greedy_canonical()` (per-experiment, wired into `save_tmnf_plots()`)
   and `plot_gs_comparison_canonical_progress()` (cross-experiment, wired into
   the grid summary); `framework/analytics.py` adds
-  `plot_gs_comparison_canonical()` and a "Best Canonical" column in
-  `save_grid_summary()`. `distributed/protocol.py` (de)serializes the new
-  fields; old `experiment_data.json` files without them still load, with the
-  new fields defaulting to `None`.
+  `plot_gs_comparison_canonical()`, a "Best Canonical" column in
+  `save_grid_summary()`, and embeds the canonical comparison chart in
+  `summary.md`'s Rankings by Reward section whenever any run has a canonical
+  score. `mean_lateral_offset_m` is accumulated generically from per-step
+  `info["lateral_offset"]` in `_run_episode()`, so non-TMNF racing envs
+  (TORCS, BeamNG, iRacing, Assetto Corsa) get a real offset penalty instead of
+  an implicit 0.0; falls back to a pre-aggregated `info["mean_abs_lateral_offset"]`
+  when no per-step samples were seen. `distributed/protocol.py` (de)serializes
+  the new fields; old `experiment_data.json` files without them still load,
+  with the new fields defaulting to `None`.
 
 ---
 

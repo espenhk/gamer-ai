@@ -206,6 +206,7 @@ worker mechanics are unit-tested with a dummy env.
 - `save_grid_summary` wires in the canonical bar chart and "Best Canonical" column when eligible; omits the chart when no run has a canonical score
 - `distributed/protocol.py` round-trip: canonical fields on both `RunTrace` and `GreedySimResult` survive `experiment_to_json`/`experiment_from_dict`; old JSON predating this feature (no canonical keys at all) deserializes with all new fields as `None`
 - `_run_episode()` gating: canonical fields are populated when the env's `info` dict reports `track_progress`; left as `None` (not a fake `0.0`) when it doesn't, so non-racing games (SC2, Atari, ...) don't get spurious canonical-score data
+- `_run_episode()` lateral-offset accumulation: `mean_lateral_offset_m` is computed generically from per-step `info["lateral_offset"]` (so non-TMNF racing envs like TORCS/BeamNG/iRacing/Assetto get a real offset penalty, not an implicit 0.0); falls back to a pre-aggregated `info["mean_abs_lateral_offset"]` when no per-step samples were seen
 
 ### test_belief.py — fog-of-war belief encoder
 - initial encode all zero; update sets value+confidence; project decays confidence

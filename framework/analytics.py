@@ -1007,10 +1007,15 @@ def save_grid_summary(
         lines.append(f"| {rank} | {name} | {prog} | {fr} | {bft} | {s['best_reward']:+.1f} |\n")
     lines.append("\n")
 
+    has_canonical = any(s.get("best_canonical_score") is not None for _, s in stats)
     lines += [
         "## Rankings by Reward\n\n",
         "![Reward comparison](comparison_rewards.png)\n\n",
         "![Reward trajectories](comparison_reward_trajectories.png)\n\n",
+    ]
+    if has_canonical:
+        lines.append("![Canonical score comparison](comparison_canonical.png)\n\n")
+    lines += [
         "| Rank | Experiment | Best Reward | Best Canonical | Improvements | First Improv. Sim | Accel % | Greedy Time |\n",
         "|------|-----------|-------------|-----------------|--------------|-------------------|---------|-------------|\n",
     ]

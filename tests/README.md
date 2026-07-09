@@ -101,12 +101,13 @@
   - [assetto\_corsa/test\_smoke.py — Assetto Corsa smoke tests (against fake client)](#assetto_corsatest_smokepy--assetto-corsa-smoke-tests-against-fake-client)
 - [Integration tests (`tests/integration/`)](#integration-tests-testsintegration)
   - [integration/test\_car\_racing.py — CarRacing real-env end-to-end tests](#integrationtest_car_racingpy--caracing-real-env-end-to-end-tests)
+  - [integration/test\_convergence\_smoke.py — convergence regression smoke test (issue #484)](#integrationtest_convergence_smokepy--convergence-regression-smoke-test-issue-484)
   - [integration/test\_sc2.py — SC2 real-binary end-to-end tests](#integrationtest_sc2py--sc2-real-binary-end-to-end-tests)
 
 ```bash
 # CarRacing only (requires gymnasium[box2d])
 pip install gymnasium[box2d]
-python -m pytest tests/integration/test_car_racing.py -m integration -v
+python -m pytest tests/integration/test_car_racing.py tests/integration/test_convergence_smoke.py -m integration -v
 
 # SC2 only (requires pysc2 + Blizzard SC2 binary + maps)
 export SC2PATH=~/StarCraftII
@@ -172,10 +173,11 @@ opt-in via `RUN_SC2_TESTS=1`.
 in-process HTTP loopback is exercised); actual matplotlib rendering or PNG
 diff'ing (analytics tests assert files appear, not their contents); the Azure
 Terraform stack under `infrastructure/`; the Windows bootstrap script
-`setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI); long convergence
-behaviour of the actual `train_rl()` loop end-to-end on a real env;
+`setup_and_run.ps1` (PowerShell-only; cannot run on Linux CI);
 the actual PySC2 binary spawn path under `ParallelEvaluator` — only the
-worker mechanics are unit-tested with a dummy env.
+worker mechanics are unit-tested with a dummy env. (Convergence of the actual
+`train_rl()` loop end-to-end on a real env is now covered by
+`integration/test_convergence_smoke.py` — see the CarRacing section.)
 
 ### test_cmaes_distribution.py — `CMAESDistribution` pure-math unit tests
 - Init: n / λ / μ=λ/2 / recombination weights sum=1 and decreasing / σ stored / C=I / ps+pc=0 / gen=0 / μ_eff > 1
@@ -1215,6 +1217,26 @@ against the real CarRacing environment to verify the full stack end-to-end.
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 
+### integration/test_convergence_smoke.py — convergence regression smoke test (issue #484)
+
+**Tested.** That `train_rl()`'s `epsilon_greedy` Q-learning loop actually
+improves against the real CarRacing-v3 env, not just that it runs. 30
+episodes (200 steps, ε decaying 1.0 → 0.05) must produce a best-episode
+reward above `0.0` — a conservative threshold well below CarRacing's
+published "solved" benchmark (900 reward / 100 episodes), chosen with a wide
+empirical margin: learning runs scored in the tens-to-hundreds once ε decays
+enough to exploit, while a "never learns" control (ε pinned at 1.0) topped
+out around -18 across repeated trials. `epsilon_greedy` was chosen over a
+from-scratch continuous-weight search (`hill_climbing` / `genetic` /
+`cmaes`) because CarRacing's `brake` observation feature is self-referential
+— independent random-initialised `accel`/`brake` linear heads tend to lock
+into an "always braking" attractor that small-budget evolutionary search
+cannot reliably escape, whereas Q-learning selects directly from
+`DISCRETE_ACTIONS` (one row is plain "accelerate straight") and reliably
+learns to prefer it. Runs in ~40 s.
+
+- 30-episode ε-greedy run against real Box2D CarRacing physics: best reward across the run exceeds a conservative, empirically-margined threshold
+
 ### integration/test_sc2.py — SC2 real-binary end-to-end tests
 
 **Requires** the Blizzard SC2 headless Linux binary (4.10), PySC2 mini-game
@@ -1253,4 +1275,4 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 
 The suite contains no tests that wait on a game tick, a network packet, or a GPU.
 
-The integration tests in `tests/integration/` are excluded from the fast unit-test run. CarRacing tests run real Box2D physics and take ~2 s; SC2 tests launch the Blizzard headless binary and take ~1–3 minutes for test execution (the CI workflow additionally downloads the ~2 GB binary once during the setup step).
+The integration tests in `tests/integration/` are excluded from the fast unit-test run. CarRacing's env/API tests run real Box2D physics and take ~2 s; the convergence smoke test runs a real 30-episode training loop and takes ~40 s; SC2 tests launch the Blizzard headless binary and take ~1–3 minutes for test execution (the CI workflow additionally downloads the ~2 GB binary once during the setup step).

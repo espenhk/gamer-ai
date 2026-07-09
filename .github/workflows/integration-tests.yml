@@ -44,6 +44,7 @@ jobs:
             car-racing:
               - 'games/car_racing/**'
               - 'tests/integration/test_car_racing.py'
+              - 'tests/integration/test_convergence_smoke.py'
               - 'framework/**'
               - 'main.py'
               - 'grid_search.py'
@@ -97,7 +98,9 @@ jobs:
       - name: Run CarRacing integration tests
         env:
           PYTHONPATH: .
-        run: python -m pytest tests/integration/test_car_racing.py -m integration -v
+        run: |
+          python -m pytest tests/integration/test_car_racing.py \
+            tests/integration/test_convergence_smoke.py -m integration -v
 
   # -----------------------------------------------------------------
   # StarCraft 2 — headless Linux binary + PySC2 mini-game maps

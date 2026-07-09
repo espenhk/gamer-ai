@@ -52,6 +52,7 @@ formatting, internal refactors with no behaviour change — can be skipped.
   when no per-step samples were seen. `distributed/protocol.py` (de)serializes
   the new fields; old `experiment_data.json` files without them still load,
   with the new fields defaulting to `None`.
+- `tests/integration/test_convergence_smoke.py` (issue #484): an automated CI regression test that runs a short (~40 s) `epsilon_greedy` training session against the real CarRacing-v3 Box2D env and asserts the best episode reward crosses a conservative, empirically-margined threshold — closing the gap where no test exercised `train_rl()` actually converging on a real env (the kind of regression CHANGELOG issue #157 showed can ship unnoticed). Wired into the `car-racing` job of `.github/workflows/integration-tests.yml`.
 
 ---
 

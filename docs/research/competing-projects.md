@@ -2,6 +2,11 @@
 
 > Tracking issue: [#329](https://github.com/espenhk/gamer-ai/issues/329).
 > This is a written survey, not code.
+>
+> For a deeper, source-level read of tmrl and Linesight specifically (exact
+> reward-function constants, LIDAR/observation config, action-repeat/frame-skip
+> timing), see
+> [`tmrl-linesight-reward-obs.md`](tmrl-linesight-reward-obs.md) (issue #485).
 
 `gamer-ai` was built largely in isolation. Before investing further — new
 policies ([#327](https://github.com/espenhk/gamer-ai/issues/327),

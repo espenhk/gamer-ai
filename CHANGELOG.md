@@ -17,6 +17,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- `docs/research/tmrl-linesight-reward-obs.md` (issue #485): a source-level comparison of `trackmania-rl/tmrl` and Linesight (`pb4git/trackmania_rl_public`)'s reward-function constants, LIDAR/observation encoding, and action-repeat/frame-skip timing against our TMNF `reward_config.yaml` / `obs_spec.py` / `lidar.py` / `action_window_ticks`, linked from `docs/research/competing-projects.md`. Filed four scoped follow-up issues (#491-#494) for the concrete deltas it surfaced.
 
 ---
 

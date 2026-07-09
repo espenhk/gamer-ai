@@ -23,6 +23,8 @@ formatting, internal refactors with no behaviour change — can be skipped.
 ## [0.9.0] - 2026-07-09
 
 ### Added
+- `docs/research/tmrl-linesight-reward-obs.md` (issue #485): a source-level comparison of `trackmania-rl/tmrl` and Linesight (`pb4git/trackmania_rl_public`)'s reward-function constants, LIDAR/observation encoding, and action-repeat/frame-skip timing against our TMNF `reward_config.yaml` / `obs_spec.py` / `lidar.py` / `action_window_ticks`, linked from `docs/research/competing-projects.md`. Filed four scoped follow-up issues (#491-#494) for the concrete deltas it surfaced.
+- `CLAUDE.md`'s Pull requests section: a rule that addressed review-comment threads must get a reply (stating what changed, e.g. the commit SHA) before being marked resolved, instead of being left resolved-and-uncommented or resolved-by-being-outdated. Comments that are *not* acted on must never be marked resolved — explain why in a top-level PR comment and leave the thread unresolved for a human to decide.
 - `compute_canonical_score()` (`framework/analytics.py`, issue #481): a
   fixed-weight, `reward_config.yaml`-independent score
   (`1000 * track_progress + 500 * finished - 2 * mean_lateral_offset_m ** 2`)

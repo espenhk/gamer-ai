@@ -265,6 +265,15 @@ the change and delete the rest.
 - Record validation commands and complete the template's checklist —
   including the `CHANGELOG.md`, `README.md`, `CLAUDE.md`, and
   `tests/README.md` items where they apply.
+- **Resolving review comments.** When a review comment (Copilot or human) is
+  addressed, reply on that comment's thread stating what changed (e.g. the
+  commit SHA) before marking it resolved. Never mark a thread resolved
+  silently — an outdated diff position with no comment leaves the reviewer
+  unable to tell whether it was fixed, dismissed, or simply outrun by a
+  later push. If a comment is *not* being acted on, it must **never** be
+  marked resolved — explain why in a top-level PR comment instead and leave
+  the thread unresolved, so a human decides whether to resolve or push
+  back.
 
 ---
 

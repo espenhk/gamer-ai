@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.8.0] - 2026-07-09
+
 ### Added
 - **Crash-safe resume for SB3-backed policies** (issue #483, step 1 of the TMNF
   long-horizon SAC run): `framework/sb3_support.py` now periodically saves a

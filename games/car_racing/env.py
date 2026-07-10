@@ -121,17 +121,23 @@ class CarRacingEnv(BaseGameEnv):
         self._step_count += 1
 
         info["native_reward"] = float(native_reward)
+        car = self._env.unwrapped.car
+        vx, vy = car.hull.linearVelocity
+        info["speed_ms"] = float(np.hypot(vx, vy))
         info.setdefault("termination_reason", None)
 
         if terminated:
-            info["termination_reason"] = "finish"
+            # CarRacing-v3 sets terminated=True both on finishing the lap and on
+            # driving out of the playfield; info["lap_finished"] (set by the env
+            # itself alongside `terminated`) is what actually distinguishes the two.
+            info["termination_reason"] = "finish" if info.get("lap_finished", True) else "crash"
         elif truncated:
             info["termination_reason"] = "timeout"
 
         reward = self._reward_calc.compute(
             prev_state=None,
             curr_state=None,
-            finished=terminated,
+            finished=info["termination_reason"] == "finish",
             elapsed_s=self._step_count / 50.0,  # approx 50 steps/s
             info=info,
         )

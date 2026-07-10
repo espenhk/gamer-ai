@@ -28,6 +28,7 @@
   - [test\_reward.py — TMNF reward calculator + curiosity glue](#test_rewardpy--tmnf-reward-calculator--curiosity-glue)
   - [test\_train\_rl\_signature.py — public `train_rl()` API](#test_train_rl_signaturepy--public-train_rl-api)
   - [test\_tmnf\_canonical\_plots.py — TMNF canonical-score plots (issue #481)](#test_tmnf_canonical_plotspy--tmnf-canonical-score-plots-issue-481)
+  - [test\_tmnf\_obs\_spec.py — configurable lookahead observation (issue #493)](#test_tmnf_obs_specpy--configurable-lookahead-observation-issue-493)
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
@@ -262,10 +263,17 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 
 ### test_env_termination.py — `_classify_termination()`
 - finish / crash / hard-crash / timeout / still-running; finish > crash priority; reason key always present
+- no-progress grace-period termination (issue #492): disabled by default; fires after `no_progress_patience_ticks` stagnant ticks; gated by `no_progress_min_ticks`; resets on any progress delta; crash still takes priority over no-progress
+
+### test_tmnf_obs_spec.py — configurable lookahead observation (issue #493)
+- `build_lookahead_steps()`: defaults (both args `None`) reproduce the legacy `[10, 25, 50]` list; either arg switches to an evenly-spaced schedule, defaulting the other to its legacy-equivalent
+- `build_tmnf_obs_spec()` / `build_tmnf_obs_spec_from_steps()`: default matches the legacy 21-dim `TMNF_OBS_SPEC` (names + dim); custom schedule resizes `dim`/`names` correctly; scales stay finite and positive; `from_steps` and the equivalent `n`/`spacing` call agree; empty lookahead list drops to the 15-dim base
+- `StateData` lookahead wiring: default (`lookahead_steps=None`) calls `centerline.project_ahead()` with the legacy steps; a custom step list is passed through unchanged and populates `.lookahead` in order; no centerline still returns the right-length zero-tuple list
 
 ### test_game_adapter.py — TMNF/TORCS/SC2/BeamNG/AssettoCorsa/iRacing adapter abstractions
 - registry: all games registered (including assetto); adapter instantiable
 - TMNF: experiment_dir includes game/policy/track hierarchy, track override, track_label default+override, build_probe/build_warmup, decorate_reward_cfg
+- TMNF: build_game_spec obs_spec.dim is 21 with default (unset) lookahead config, and resizes correctly for custom `n_lookahead_points`/`lookahead_step_spacing` + `n_lidar_rays` (issue #493)
 - TORCS: experiment_dir root/dir includes game/policy/map hierarchy, track_label default+override, build_probe/warmup = None
 - SC2: experiment_dir includes game/policy/map hierarchy, track override, track_label, build_probe/warmup = None
 - BeamNG: experiment_dir / build_probe = None

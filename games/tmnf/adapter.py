@@ -78,10 +78,16 @@ class TMNFAdapter:
         import games.tmnf.policies  # noqa: F401 — side-effect: registers TMNF policy types
         from games.tmnf.actions import DISCRETE_ACTIONS
         from games.tmnf.analytics import save_experiment_results
-        from games.tmnf.obs_spec import TMNF_OBS_SPEC
+        from games.tmnf.obs_spec import build_lookahead_steps, build_tmnf_obs_spec_from_steps
 
         n_lidar_rays = training_params.get("n_lidar_rays", 0)
-        obs_spec = TMNF_OBS_SPEC.with_lidar(n_lidar_rays)
+        # Configurable lookahead schedule (issue #493). Leaving both keys unset
+        # reproduces the legacy 3-point [10, 25, 50] schedule exactly.
+        lookahead_steps = build_lookahead_steps(
+            n_lookahead_points=training_params.get("n_lookahead_points"),
+            lookahead_step_spacing=training_params.get("lookahead_step_spacing"),
+        )
+        obs_spec = build_tmnf_obs_spec_from_steps(lookahead_steps).with_lidar(n_lidar_rays)
         track = self.track_label(training_params, track_override)
 
         def _make_env():
@@ -94,6 +100,7 @@ class TMNFAdapter:
                 n_lidar_rays=n_lidar_rays,
                 decision_offset_pct=training_params.get("decision_offset_pct", 0.75),
                 action_window_ticks=training_params.get("action_window_ticks", 1),
+                lookahead_steps=lookahead_steps,
             )
 
         return GameSpec(

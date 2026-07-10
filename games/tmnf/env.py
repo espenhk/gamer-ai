@@ -15,8 +15,11 @@ Observation space  (BASE_OBS_DIM + n_lidar_rays floats, dtype float32)
     [7]  turning_rate      — current steering angle reported by the game
     [8–11] wheel_N_contact — 1.0 if wheel has ground contact, else 0.0
     [12–14] angular_vel_N  — angular velocity components (rad/s)
-    [15–20] lookahead_N    — (lateral_offset_m, heading_change_rad) × 3 waypoints
-    [21+] lidar_i          — LIDAR wall distances ~[0,1] (only if n_lidar_rays > 0)
+    [15+] lookahead_N      — (lateral_offset_m, heading_change_rad) per lookahead waypoint;
+                             3 waypoints (6 floats) by default, configurable via
+                             lookahead_steps / training_params.yaml's n_lookahead_points +
+                             lookahead_step_spacing (issue #493)
+    [after lookahead] lidar_i — LIDAR wall distances ~[0,1] (only if n_lidar_rays > 0)
 
 Action space
 ------------
@@ -32,6 +35,8 @@ Episode lifecycle
   step()  → set action, wait for next game tick, compute reward
   Terminated when: track_progress ≥ 1.0  (finished)
                or: |lateral_offset| > crash_threshold_m  (crashed)
+               or: track_progress hasn't advanced for no_progress_patience_ticks
+                   consecutive game ticks (opt-in, issue #492; 0 = disabled)
   Truncated  when: elapsed_time > max_episode_time_s
 
 Notes on threading
@@ -64,7 +69,7 @@ from framework.base_env import BaseGameEnv
 from games.tmnf.clients.rl_client import RLClient, StepState
 from games.tmnf.curiosity import make_curiosity
 from games.tmnf.lidar import LidarSensor
-from games.tmnf.obs_spec import BASE_OBS_DIM
+from games.tmnf.obs_spec import LOOKAHEAD_STEPS, build_tmnf_obs_spec_from_steps
 from games.tmnf.reward import RewardCalculator, RewardConfig
 
 _DEFAULT_REWARD_CONFIG = os.path.join(os.path.dirname(__file__), "..", "..", "config", "reward_config.yaml")
@@ -99,6 +104,7 @@ class TMNFEnv(BaseGameEnv):
         auto_respawn_on_finish: bool = True,
         action_window_ticks: int = 1,
         decision_offset_pct: float = 0.75,
+        lookahead_steps: list[int] | None = None,
     ) -> None:
         super().__init__()
 
@@ -115,7 +121,11 @@ class TMNFEnv(BaseGameEnv):
         else:
             self._lidar = None
 
-        obs_dim = BASE_OBS_DIM + n_lidar_rays
+        # Resolve the lookahead schedule once so obs_dim, the observation
+        # space, and the RLClient/StateData wiring all agree (issue #493).
+        self._lookahead_steps = lookahead_steps if lookahead_steps is not None else list(LOOKAHEAD_STEPS)
+        base_obs_dim = build_tmnf_obs_spec_from_steps(self._lookahead_steps).dim
+        obs_dim = base_obs_dim + n_lidar_rays
 
         # Optional curiosity module (issue #24).  Disabled by default.
         cfg = self._reward_config
@@ -156,6 +166,7 @@ class TMNFEnv(BaseGameEnv):
             speed=speed,
             auto_respawn_on_finish=auto_respawn_on_finish,
             action_window_ticks=action_window_ticks,
+            lookahead_steps=self._lookahead_steps,
             decision_offset_pct=decision_offset_pct,
         )
         self._iface = TMInterface()
@@ -191,6 +202,9 @@ class TMNFEnv(BaseGameEnv):
         # Per-episode lateral offset accumulator (for mean |lateral_offset|).
         self._ep_lateral_sum: float = 0.0
         self._ep_lateral_count: int = 0
+        # Grace-period crash termination (issue #492): game ticks since track_progress
+        # last advanced. Only touched when no_progress_patience_ticks > 0.
+        self._ticks_since_progress: int = 0
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -219,6 +233,7 @@ class TMNFEnv(BaseGameEnv):
         self._ep_lateral_count = 0
         self._ep_max_window_ticks = 0
         self._ep_max_overrun_ticks = 0
+        self._ticks_since_progress = 0
 
         obs = self._build_obs(init_step)
         self._prev_obs = obs
@@ -244,6 +259,24 @@ class TMNFEnv(BaseGameEnv):
         overrun = max(0, n - self._action_window_ticks)
         if overrun > self._ep_max_overrun_ticks:
             self._ep_max_overrun_ticks = overrun
+
+        # --- grace-period crash termination (issue #492) ---
+        # Opt-in: only touches prev_state.track_progress when enabled, so the
+        # feature stays a no-op (including for callers stubbing prev_state)
+        # when no_progress_patience_ticks == 0 (default).
+        no_progress = False
+        if self._reward_config.no_progress_patience_ticks > 0:
+            progress_delta = None
+            if data.track_progress is not None and self._prev_state.track_progress is not None:
+                progress_delta = data.track_progress - self._prev_state.track_progress
+            if progress_delta is not None and progress_delta > 0.0:
+                self._ticks_since_progress = 0
+            else:
+                self._ticks_since_progress += n
+            no_progress = (
+                self._ep_total_ticks >= self._reward_config.no_progress_min_ticks
+                and self._ticks_since_progress >= self._reward_config.no_progress_patience_ticks
+            )
 
         accelerating = bool(float(action[1]) >= 0.5)
         lidar_rays = self._lidar.get_distances() if self._lidar is not None else None
@@ -307,16 +340,17 @@ class TMNFEnv(BaseGameEnv):
             }
             return obs, reward, False, False, info
 
-        terminated = finished or crashed
+        terminated = finished or crashed or no_progress
         # step.done signals a hard crash (>50 m off, handled by client safety net)
         truncated = (step.done and not terminated) or time_over
 
         if finished or terminated or truncated:
             logger.debug(
-                "[TMNFEnv] episode end: finished=%s crashed=%s time_over=%s "
+                "[TMNFEnv] episode end: finished=%s crashed=%s no_progress=%s time_over=%s "
                 "terminated=%s truncated=%s progress=%.4f elapsed=%.1fs",
                 finished,
                 crashed,
+                no_progress,
                 time_over,
                 terminated,
                 truncated,
@@ -328,6 +362,8 @@ class TMNFEnv(BaseGameEnv):
             termination_reason: str | None = "finish"
         elif crashed:
             termination_reason = "crash"
+        elif no_progress:
+            termination_reason = "no_progress"
         elif step.done and not terminated:
             termination_reason = "hard_crash"
         elif time_over:
@@ -460,6 +496,7 @@ def make_env(
     n_lidar_rays: int = 0,
     action_window_ticks: int = 1,
     decision_offset_pct: float = 0.75,
+    lookahead_steps: list[int] | None = None,
 ) -> TMNFEnv:
     """
     Factory that wires up a TMNFEnv from an experiment directory.
@@ -468,6 +505,8 @@ def make_env(
     *in_game_episode_s* to a wall-clock episode limit at the given speed.
     The centerline path is read from reward_config.centerline_path so that
     different experiments can target different tracks without touching source code.
+    *lookahead_steps* (issue #493), when given, overrides the legacy 3-point
+    lookahead schedule; see games.tmnf.obs_spec.build_lookahead_steps().
     """
     experiment_dir = Path(experiment_dir)
     reward_config = RewardConfig.from_yaml(str(experiment_dir / "reward_config.yaml"))
@@ -479,4 +518,5 @@ def make_env(
         n_lidar_rays=n_lidar_rays,
         action_window_ticks=action_window_ticks,
         decision_offset_pct=decision_offset_pct,
+        lookahead_steps=lookahead_steps,
     )

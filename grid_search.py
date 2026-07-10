@@ -177,6 +177,8 @@ _ABBREV = {
     "train_repeat_penalty": "trp",
     "airborne_penalty": "ap",
     "crash_threshold_m": "ct",
+    "no_progress_patience_ticks": "nppt",
+    "no_progress_min_ticks": "npmt",
     "off_track_penalty": "otp",
     "lap_time_improvement_bonus": "ltib",
     "lidar_wall_weight": "lww",

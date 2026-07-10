@@ -111,3 +111,77 @@ on first boot, no additional installation time is needed.
 # Dry run to inspect what would be installed:
 .\setup_and_run.ps1 -Game torcs -DryRun
 ```
+
+## Single-VM unattended long-horizon run (issue #489)
+
+Some experiments — the TMNF long-horizon SAC run being the first — are a
+single multi-day training job, not a grid search. Use one `environment/`
+Windows VM directly, **not** the distributed coordinator/worker pool above:
+there is no grid to split across workers, so the coordinator/worker HTTP
+protocol and `--distribute` machinery in `grid_search.py` would only add
+moving parts with nothing to coordinate.
+
+This section documents the intended setup; it is **not** something this
+repo's automation provisions or runs on your behalf — renting the VM hours
+and kicking off the run are deliberate, human-approved actions (real Azure
+spend, a real multi-day job against a live TMNF process).
+
+### 1. Size and provision a single worker VM
+
+In `terraform.tfvars`:
+
+```hcl
+worker_vm_count = 1                 # one experiment, not a grid search
+worker_game     = "tmnf"
+worker_command  = ""                # fill in after step 2 (see step 3)
+```
+
+Deploy with the usual `terraform init` / `plan` / `apply` sequence described
+above. `worker_vm_count = 1` still deploys through the same `environment/`
+module as the coordinator/worker pool — it's the same VM shape, just one of
+them, driven directly rather than via the distributed protocol.
+
+### 2. Materialize the experiment directory with the SAC config
+
+RDP into the VM once and run, from the cloned repo (`C:\tmnf-ai` by
+default):
+
+```powershell
+cd C:\tmnf-ai
+poetry install --with deep_rl   # pulls stable-baselines3 + torch, needed for policy_type: sac
+poetry run python grid_search.py games/tmnf/config/gs_sac_long_horizon.yaml --game tmnf
+```
+
+`gs_sac_long_horizon.yaml` (issues #489, #494) is a single-combo grid-search
+template — see the file's header comment for the full rationale — that pins
+`n_lidar_rays: 16`, `policy_type: sac` with a starting `policy_params`
+budget, `action_window_ticks: 5` (#494's 20 Hz control rate), and
+`checkpoint_freq` sized for a multi-day run. This one-time invocation
+creates `experiments/tmnf/sac/a03_centerline/gs_sac_long_horizon/` with
+those values already written into its `training_params.yaml` /
+`reward_config.yaml`, and starts training.
+
+### 3. Hand off to the crash-restart supervisor
+
+Once the experiment directory exists (from step 2, even if that first run
+later crashes), point the VM at the supervisor instead of a one-shot
+command. Update `terraform.tfvars`:
+
+```hcl
+worker_command = "powershell -File C:\\tmnf-ai\\infrastructure\\environment\\run_supervised.ps1 -Experiment gs_sac_long_horizon"
+```
+
+`terraform apply` and restart the VM (or run the same command directly over
+RDP without waiting for a reboot). `run_supervised.ps1` loops
+`main.py gs_sac_long_horizon --game tmnf --no-interrupt`, restarting it with
+a backoff delay whenever it exits non-zero. Each restart resumes from the
+SB3 checkpoint / replay-buffer files written by the crash-safe resume
+mechanism (issue #488) rather than retraining from scratch — see
+CLAUDE.md's "Crash-safe resume" section. The supervisor stops on its own
+once `main.py` exits cleanly (code 0).
+
+### 4. Monitor
+
+Progress is visible the same way as any other experiment: the `results/`
+analytics output under the experiment directory, plus #481's canonical-score
+tracking once that lands. No separate dashboard is provisioned for this.

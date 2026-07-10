@@ -1,0 +1,62 @@
+# A/B ablation: centerline_weight vs. progress-only shaping (issue #491).
+#
+# NOT YET RUN. This config is ready to execute on a Windows/TMInterface
+# machine but has not been — this repo's automation has no TMNF game binary
+# to train against, so this file documents the intended comparison rather
+# than a completed result. Run it with:
+#
+#   python grid_search.py games/tmnf/config/gs_ablation_centerline.yaml --game tmnf
+#
+# and compare the two resulting experiments' analytics (reward curves, lap
+# completion, finish times — or #481's canonical score once it lands) before
+# finalizing #489's SAC run config. See the "Concrete deltas worth trying"
+# item 1 in docs/research/tmrl-linesight-reward-obs.md for the full context:
+# neither tmrl nor Linesight (the two strongest external TMNF-family RL
+# references) use an explicit lateral-offset/centerline penalty term — both
+# reward progress-along-line (plus a small/zero time cost) and handle
+# off-line driving only indirectly, via the progress signal itself and a
+# bounded failure condition. Our `centerline_weight: -0.083` may be
+# redundant with (or actively fighting) `progress_weight` on corners where
+# cutting off-centerline is the fastest line.
+#
+# Two combos, everything else held fixed for a clean A/B:
+#   centerline_weight: -0.083 (current default)  vs.  0.0 (progress-only)
+# centerline_exp is irrelevant when centerline_weight=0.0 but left at its
+# default (2.0) in both combos so it isn't itself a confound.
+#
+# Policy/budget choices mirror gs_genetic_v1.yaml (this game's other
+# baseline ablation template) so results are comparable across grid searches:
+# same policy_type, n_sims, and lidar config as the current TMNF default.
+#
+# Combos: 2
+
+base_name: "gs_ablation_centerline"
+track: a03_centerline
+
+training_params:
+  speed: 10.0
+  n_sims: 30
+  in_game_episode_s: 90.0
+  n_lidar_rays: 8
+  policy_type: genetic
+
+  policy_params:
+    population_size: 20
+    elite_k: 3
+    mutation_scale: 0.05
+    mutation_share: 1.0
+
+reward_params:
+  progress_weight: 10000.0
+  # --- Search axis ---
+  centerline_weight: [-0.083, 0.0]
+  centerline_exp: 2.0
+  speed_weight: 0.042
+  step_penalty: -0.05
+  finish_bonus: 5000.0
+  finish_time_weight: -5.0
+  par_time_s: 60.0
+  accel_bonus: 0.5
+  airborne_penalty: -0.83
+  lidar_wall_weight: -5.0
+  crash_threshold_m: 25.0

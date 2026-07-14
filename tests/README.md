@@ -1169,6 +1169,14 @@ Assetto Corsa shared-memory client.
 
 ### assetto_corsa/test_smoke.py — Assetto Corsa smoke tests (against fake client)
 - obs spec dimensions match base obs_dim; env reset obs shape; step 5-tuple finite reward; info reflects current step; env terminates on finish; vision features; reward calc finite; 5-episode training loop with linear policy
+- `episode_obs_averages` (issue #464): terminal-step info carries per-episode means (speed, |lateral offset|, RPM, gear, 4× wheel slip); absent on non-terminal steps; accumulators reset between episodes
+
+### assetto_corsa/test_analytics.py — Assetto Corsa analytics plots and report (issue #464)
+- `plot_wheel_slip`: writes `ac_wheel_slip.png` from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without slip keys
+- `plot_rpm_gear`: writes `ac_rpm_gear.png` from per-sim RPM/gear means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `ac_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; skipped without finished sims
+- `save_experiment_results`: report contains the "Assetto Corsa Plots" section + all four AC plots plus reused torcs plots (greedy progress / termination reasons) when data present; AC section omitted entirely when no AC-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
 
 ---
 

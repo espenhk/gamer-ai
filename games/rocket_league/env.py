@@ -244,8 +244,10 @@ class RocketLeagueEnv(BaseGameEnv):
     def _accumulate_episode_stats(self, obs_row: np.ndarray, vel_towards_ball: float, ball_touched: bool) -> None:
         """Accumulate the per-episode sums behind episode_obs_averages.
 
-        Means are taken over the primary agent's obs row; ``ball_touches``
-        counts steps where any agent touched the ball.
+        ``boost_amount`` and ``dist_to_ball`` are taken from the primary
+        agent's obs row; ``vel_towards_ball`` is the per-step mean across all
+        agents (as computed in ``step()``); ``ball_touches`` counts steps
+        where any agent touched the ball.
         """
         samples = {
             "boost_amount": float(obs_row[_BOOST_IDX]),

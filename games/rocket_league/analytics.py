@@ -77,13 +77,14 @@ def plot_match_results(data: ExperimentData, results_dir: str) -> bool:
 
     counts = {"win": 0, "loss": 0, "draw": 0}
     for s in sims:
-        label, _ = _RESULT_LABELS.get(s.termination_reason or "", ("draw", "#95a5a6"))
+        label, _color = _RESULT_LABELS.get(s.termination_reason or "", _RESULT_LABELS["timeout"])
         counts[label] += 1
     total = len(sims)
 
     labels = ["win", "loss", "draw"]
     values = [counts[label] for label in labels]
-    colors = ["#27ae60", "#c0392b", "#95a5a6"]
+    result_colors = {label: color for label, color in _RESULT_LABELS.values()}
+    colors = [result_colors[label] for label in labels]
 
     fig, ax = plt.subplots(figsize=(6, 5))
     bars = ax.bar(labels, values, color=colors, edgecolor="white", linewidth=0.6)

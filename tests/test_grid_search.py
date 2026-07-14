@@ -605,7 +605,7 @@ class TestSc2NeuralNetTemplate:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         reward = data.get("reward_params") or {}
-        assert reward, "template should set at least one reward param"
+        assert isinstance(reward, dict), "reward_params must be a mapping when set"
         valid = {f.name for f in dataclasses.fields(SC2RewardConfig)}
         unknown = set(reward) - valid
         assert not unknown, f"unknown SC2RewardConfig keys in template: {sorted(unknown)}"

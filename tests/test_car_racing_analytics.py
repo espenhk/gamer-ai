@@ -122,8 +122,10 @@ class TestCarRacingSaveExperimentResults(unittest.TestCase):
             report = Path(tmp, "results.md").read_text(encoding="utf-8")
             self.assertNotIn("action_histograms.png", report)
             self.assertNotIn("speed_trace.png", report)
+            self.assertNotIn("greedy_best_run.png", report)
             self.assertFalse(Path(tmp, "action_histograms.png").exists())
             self.assertFalse(Path(tmp, "speed_trace.png").exists())
+            self.assertFalse(Path(tmp, "greedy_best_run.png").exists())
 
 
 class TestPlotActionHistograms(unittest.TestCase):

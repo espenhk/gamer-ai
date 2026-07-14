@@ -113,7 +113,7 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
     os.makedirs(results_dir, exist_ok=True)
 
     sections = [
-        f"# Experiment: {data.experiment_name}\n\n**Game:** CarRacing-v2\n\n",
+        f"# Experiment: {data.experiment_name}\n\n**Game:** CarRacing-v3\n\n",
         _timings_md(data),
         _summary_md(data),
     ]
@@ -130,7 +130,8 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         sections.append(_cold_start_table_md(data))
         sections.append("\n![Cold-start best rewards](cold_start_best_rewards.png)\n\n")
         sections.append("![Cold-start action distribution](cold_start_action_dist.png)\n\n")
-        sections.append("![Cold-start best run](cold_start_best_run.png)\n\n")
+        if os.path.exists(os.path.join(results_dir, "cold_start_best_run.png")):
+            sections.append("![Cold-start best run](cold_start_best_run.png)\n\n")
 
     if data.greedy_sims:
         plot_greedy_rewards(data, results_dir)
@@ -142,7 +143,8 @@ def save_experiment_results(data: ExperimentData, results_dir: str) -> None:
         sections.append(_greedy_table_md(data))
         sections.append("\n![Greedy rewards](greedy_rewards.png)\n\n")
         sections.append("![Greedy action distribution](greedy_action_dist.png)\n\n")
-        sections.append("![Greedy best run](greedy_best_run.png)\n\n")
+        if os.path.exists(os.path.join(results_dir, "greedy_best_run.png")):
+            sections.append("![Greedy best run](greedy_best_run.png)\n\n")
         sections.append("![Termination reasons](termination_reasons.png)\n\n")
         if os.path.exists(os.path.join(results_dir, "action_histograms.png")):
             sections.append("![Action histograms](action_histograms.png)\n\n")

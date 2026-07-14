@@ -53,7 +53,11 @@ except ImportError as _exc:
 from gymnasium import spaces
 
 from framework.base_env import BaseGameEnv
-from games.rocket_league.obs_spec import BASE_OBS_DIM
+from games.rocket_league.obs_spec import BASE_OBS_DIM, OBS_NAMES
+
+# Feature indices used by the per-episode stats accumulator.
+_BOOST_IDX = OBS_NAMES.index("boost_amount")
+_DIST_TO_BALL_IDX = OBS_NAMES.index("dist_to_ball")
 from games.rocket_league.reward import RocketLeagueRewardCalculator, RocketLeagueRewardConfig
 
 logger = logging.getLogger(__name__)
@@ -118,6 +122,11 @@ class RocketLeagueEnv(BaseGameEnv):
         self._elapsed_s: float = 0.0
         self._prev_obs: np.ndarray = np.zeros(BASE_OBS_DIM, dtype=np.float32)
         self._step_count: int = 0
+        # Per-episode running sums for episode_obs_averages (bounded: fixed
+        # key set, scalar sums only; cleared on every reset()).
+        self._ep_obs_sums: dict[str, float] = {}
+        self._ep_obs_steps: int = 0
+        self._ep_ball_touches: int = 0
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -139,6 +148,9 @@ class RocketLeagueEnv(BaseGameEnv):
         self._step_count = 0
         self._prev_obs = obs.copy()
         self._reward_calc.reset()
+        self._ep_obs_sums = {}
+        self._ep_obs_steps = 0
+        self._ep_ball_touches = 0
 
         return obs, {}
 
@@ -217,11 +229,34 @@ class RocketLeagueEnv(BaseGameEnv):
             info=info,
         )
 
+        self._accumulate_episode_stats(obs_rows[0], vel_towards_ball, ball_touched)
+        if (terminated or truncated) and self._ep_obs_steps > 0:
+            averages = {k: v / self._ep_obs_steps for k, v in self._ep_obs_sums.items()}
+            averages["ball_touches"] = float(self._ep_ball_touches)
+            info["episode_obs_averages"] = averages
+
         self._prev_obs = obs.copy()
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
         self._env.close()
+
+    def _accumulate_episode_stats(self, obs_row: np.ndarray, vel_towards_ball: float, ball_touched: bool) -> None:
+        """Accumulate the per-episode sums behind episode_obs_averages.
+
+        Means are taken over the primary agent's obs row; ``ball_touches``
+        counts steps where any agent touched the ball.
+        """
+        samples = {
+            "boost_amount": float(obs_row[_BOOST_IDX]),
+            "dist_to_ball": float(obs_row[_DIST_TO_BALL_IDX]),
+            "vel_towards_ball": float(vel_towards_ball),
+        }
+        for key, val in samples.items():
+            self._ep_obs_sums[key] = self._ep_obs_sums.get(key, 0.0) + val
+        self._ep_obs_steps += 1
+        if ball_touched:
+            self._ep_ball_touches += 1
 
     # ------------------------------------------------------------------
     # BaseGameEnv abstract method

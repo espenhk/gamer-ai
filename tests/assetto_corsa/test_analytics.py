@@ -144,6 +144,19 @@ class TestPlotLapTimeProgression(unittest.TestCase):
             self.assertTrue(plot_lap_time_progression(data, tmp))
             self.assertTrue(Path(tmp, "ac_lap_times.png").exists())
 
+    def test_bad_reward_config_skips_par_line_without_crashing(self):
+        for bad_content in (
+            "par_time_s: not-a-number\n",  # non-numeric value
+            "::: not yaml {{{\n",  # unparseable YAML
+        ):
+            data = _make_data()
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = Path(tmp, "reward_config.yaml")
+                cfg.write_text(bad_content, encoding="utf-8")
+                data.reward_config_file = str(cfg)
+                self.assertTrue(plot_lap_time_progression(data, tmp))
+                self.assertTrue(Path(tmp, "ac_lap_times.png").exists())
+
 
 class TestSaveExperimentResults(unittest.TestCase):
     def test_report_includes_ac_plots_when_data_present(self):

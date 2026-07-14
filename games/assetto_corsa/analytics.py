@@ -201,12 +201,16 @@ def plot_lap_time_progression(data: ExperimentData, results_dir: str) -> bool:
     xs = [sim for sim, _ in finished]
     ys = [t for _, t in finished]
 
+    # Best-effort par line: a missing, malformed, or non-numeric reward config
+    # must never crash results generation — the line is simply skipped.
     par_time = None
     try:
         if data.reward_config_file and os.path.exists(data.reward_config_file):
             with open(data.reward_config_file, encoding="utf-8") as f:
-                par_time = (yaml.safe_load(f) or {}).get("par_time_s")
-    except OSError:
+                loaded = (yaml.safe_load(f) or {}).get("par_time_s")
+            if loaded is not None:
+                par_time = float(loaded)
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
         par_time = None
 
     fig, ax = plt.subplots(figsize=(max(8, len(xs) * 0.3), 4))

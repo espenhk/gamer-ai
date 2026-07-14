@@ -17,8 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
+### Added
+- Game-parity completeness check (issue #452): `tests/test_game_parity.py`
+  asserts every registered game ships a README with a `## Rewards` table,
+  both config masters, ≥1 grid-search template, a non-stub `analytics.py`,
+  and the CONTRIBUTING.md minimum test files. Known gaps live in explicit,
+  issue-linked exemption sets that fail when they go stale.
 
 ---
 

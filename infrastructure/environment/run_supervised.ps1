@@ -82,8 +82,13 @@ try {
 
         Write-Supervisor "main.py exited with code $exitCode (crash) — will resume from the last SB3 checkpoint (issue #488) on restart."
 
-        if ($MaxRestarts -gt 0 -and $attempt -ge $MaxRestarts) {
-            Write-Supervisor "reached MaxRestarts=$MaxRestarts, giving up."
+        # $attempt counts runs (including the initial one), so restarts
+        # performed so far = $attempt - 1. Give up only once that many
+        # restarts have already been spent, so MaxRestarts=1 really allows
+        # one restart (two run attempts total).
+        $restartsSoFar = $attempt - 1
+        if ($MaxRestarts -gt 0 -and $restartsSoFar -ge $MaxRestarts) {
+            Write-Supervisor "reached MaxRestarts=$MaxRestarts restarts, giving up."
             exit $exitCode
         }
 

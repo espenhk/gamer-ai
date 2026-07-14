@@ -1,8 +1,10 @@
 """
 TMNFEnv — Gymnasium environment wrapping TMInterface for RL training.
 
-Observation space  (BASE_OBS_DIM + n_lidar_rays floats, dtype float32)
------------------------------------------------------------------------
+Observation space  (15 + 2*len(lookahead_steps) + n_lidar_rays floats, dtype float32)
+--------------------------------------------------------------------------------------
+  With the default 3-point lookahead the base dim is 21 (= obs_spec.BASE_OBS_DIM, the
+  legacy default); configuring n_lookahead_points / lookahead_step_spacing changes it.
   See games.tmnf.obs_spec.TMNF_OBS_SPEC for the full list with descriptions and scales.
   Summary:
     [0]  speed_ms          — vehicle speed in m/s

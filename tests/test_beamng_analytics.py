@@ -145,6 +145,7 @@ class TestPlotLapTimeProgression(unittest.TestCase):
         for bad_content in (
             "par_time_s: not-a-number\n",  # non-numeric value
             "::: not yaml {{{\n",  # unparseable YAML
+            "- just\n- a\n- list\n",  # valid YAML but not a mapping
         ):
             data = _make_data()
             with tempfile.TemporaryDirectory() as tmp:

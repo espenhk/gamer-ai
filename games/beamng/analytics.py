@@ -205,7 +205,8 @@ def plot_lap_time_progression(data: ExperimentData, results_dir: str) -> bool:
     try:
         if data.reward_config_file and os.path.exists(data.reward_config_file):
             with open(data.reward_config_file, encoding="utf-8") as f:
-                loaded = (yaml.safe_load(f) or {}).get("par_time_s")
+                cfg = yaml.safe_load(f)
+            loaded = cfg.get("par_time_s") if isinstance(cfg, dict) else None
             if loaded is not None:
                 par_time = float(loaded)
     except (OSError, yaml.YAMLError, TypeError, ValueError):

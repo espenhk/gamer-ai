@@ -17,8 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
+### Added
+- BeamNG game-appropriate analytics (issue #462):
+  `games/beamng/analytics.py` now produces airborne-fraction / per-wheel
+  ground-contact, mean-speed, centerline-offset distribution, and
+  lap-time-vs-`par_time_s` plots, plus the shared racing plots (track
+  progress, best-run throttle trace, action distribution, termination
+  reasons) reused from `games/torcs/analytics.py`. The BeamNG env now
+  reports `episode_obs_averages` (speed, |lateral offset|, wheel contacts,
+  airborne indicator) in terminal-step info to feed the new plots.
 
 ---
 

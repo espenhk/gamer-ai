@@ -829,6 +829,18 @@ class TestContinuousGameGridTemplates:
         ("games/assetto_corsa/config/gs_hill_climbing.yaml", "assetto", 6),
     ]
 
+    @staticmethod
+    def _header_combo_count(path):
+        """Parse the '# Combos: N x M = K' line from a template's header."""
+        import re
+
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"#\s*Combos:.*?=\s*(\d+)\s*$", line)
+                if m:
+                    return int(m.group(1))
+        return None
+
     @pytest.mark.parametrize("path,game,n_combos", TEMPLATES)
     def test_template_parses_and_expands(self, path, game, n_combos):
         base_name, loaded_game, _track, training, reward, _dist, _bc = _load_grid_config(path)
@@ -837,6 +849,11 @@ class TestContinuousGameGridTemplates:
         combos, varied_keys = _expand_grid(training, reward)
         assert len(combos) == n_combos
         assert varied_keys, f"{path} should sweep at least one axis"
+        header_count = self._header_combo_count(path)
+        assert header_count is not None, f"{path} is missing a '# Combos: ... = N' header line"
+        assert header_count == len(combos), (
+            f"{path} header documents {header_count} combos but the grid expands to {len(combos)}"
+        )
 
     @pytest.mark.parametrize("path,game,n_combos", TEMPLATES)
     def test_template_reward_keys_are_valid_for_game(self, path, game, n_combos):

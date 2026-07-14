@@ -17,8 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
+### Fixed
+- Failing test on `main`: `test_grid_search.py` no longer pins the
+  `gs_sc2_neural_net_template.yaml` tuning values (the template had
+  intentionally disabled `early_random_action_bonus`); it now validates that
+  every `reward_params` key in the template is a real `SC2RewardConfig` field.
 
 ---
 

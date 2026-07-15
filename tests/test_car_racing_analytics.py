@@ -12,15 +12,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from framework.analytics import ExperimentData, GreedySimResult
+from framework.analytics import ExperimentData, GreedySimResult, RunTrace
 from games.car_racing.analytics import (
     SOLVED_REWARD_THRESHOLD,
     SOLVED_WINDOW_EPISODES,
+    plot_action_histograms,
+    plot_speed_trace,
     save_experiment_results,
 )
 
 
-def _make_data(rewards: list[float]) -> ExperimentData:
+def _make_trace(reward: float, n_steps: int = 20, with_speed: bool = False) -> RunTrace:
+    return RunTrace(
+        pos_x=[],
+        pos_z=[],
+        throttle_state=[(0.8, 0.0, 0.3)] * n_steps,
+        total_reward=reward,
+        speed_trace=[float(i) for i in range(n_steps)] if with_speed else [],
+    )
+
+
+def _make_data(rewards: list[float], with_trace: bool = False, with_speed: bool = False) -> ExperimentData:
     greedy_sims = [
         GreedySimResult(
             sim=i + 1,
@@ -28,6 +40,8 @@ def _make_data(rewards: list[float]) -> ExperimentData:
             improved=(i == 0 or r > max(rewards[:i], default=float("-inf"))),
             throttle_counts=[5, 10, 30],
             total_steps=200,
+            trace=_make_trace(r, with_speed=with_speed) if with_trace else None,
+            termination_reason="finish" if i % 2 == 0 else "crash",
         )
         for i, r in enumerate(rewards)
     ]
@@ -81,6 +95,71 @@ class TestCarRacingSaveExperimentResults(unittest.TestCase):
             save_experiment_results(data, tmp)
             report = Path(tmp, "results.md").read_text(encoding="utf-8")
             self.assertNotIn("Reward Moving Average", report)
+
+    def test_report_includes_action_and_termination_plots(self):
+        data = _make_data([100.0, 200.0, 300.0], with_trace=True, with_speed=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            save_experiment_results(data, tmp)
+            report = Path(tmp, "results.md").read_text(encoding="utf-8")
+            self.assertIn("greedy_action_dist.png", report)
+            self.assertIn("greedy_best_run.png", report)
+            self.assertIn("termination_reasons.png", report)
+            self.assertIn("action_histograms.png", report)
+            self.assertIn("speed_trace.png", report)
+            for fname in (
+                "greedy_action_dist.png",
+                "greedy_best_run.png",
+                "termination_reasons.png",
+                "action_histograms.png",
+                "speed_trace.png",
+            ):
+                self.assertTrue(Path(tmp, fname).exists(), fname)
+
+    def test_report_omits_speed_and_histogram_plots_without_trace_data(self):
+        data = _make_data([100.0, 200.0], with_trace=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            save_experiment_results(data, tmp)
+            report = Path(tmp, "results.md").read_text(encoding="utf-8")
+            self.assertNotIn("action_histograms.png", report)
+            self.assertNotIn("speed_trace.png", report)
+            self.assertNotIn("greedy_best_run.png", report)
+            self.assertFalse(Path(tmp, "action_histograms.png").exists())
+            self.assertFalse(Path(tmp, "speed_trace.png").exists())
+            self.assertFalse(Path(tmp, "greedy_best_run.png").exists())
+
+
+class TestPlotActionHistograms(unittest.TestCase):
+    def test_creates_file_with_trace(self):
+        data = _make_data([10.0, 20.0], with_trace=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_action_histograms(data, tmp)
+            self.assertTrue(Path(tmp, "action_histograms.png").exists())
+
+    def test_no_crash_without_trace(self):
+        data = _make_data([10.0, 20.0], with_trace=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_action_histograms(data, tmp)
+            self.assertFalse(Path(tmp, "action_histograms.png").exists())
+
+    def test_no_crash_with_no_sims(self):
+        data = _make_data([])
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_action_histograms(data, tmp)
+            self.assertFalse(Path(tmp, "action_histograms.png").exists())
+
+
+class TestPlotSpeedTrace(unittest.TestCase):
+    def test_creates_file_with_speed_data(self):
+        data = _make_data([10.0, 20.0], with_trace=True, with_speed=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_speed_trace(data, tmp)
+            self.assertTrue(Path(tmp, "speed_trace.png").exists())
+
+    def test_no_crash_without_speed_data(self):
+        data = _make_data([10.0, 20.0], with_trace=True, with_speed=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_speed_trace(data, tmp)
+            self.assertFalse(Path(tmp, "speed_trace.png").exists())
 
 
 if __name__ == "__main__":

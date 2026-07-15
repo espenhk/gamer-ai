@@ -25,6 +25,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.9.3] - 2026-07-15
+
+### Added
+- CarRacing-appropriate analytics (`games/car_racing/analytics.py`, issue #461): reuses the game-agnostic action-distribution / best-run / termination-reason plots from `games/torcs/analytics.py` (`plot_greedy_action_dist`, `plot_greedy_best_run`, `plot_cold_start_action_dist`, `plot_cold_start_best_run`, `plot_termination_reasons`) and adds two new CarRacing-specific plots: `plot_action_histograms` (gas/brake/steering value histograms over the best greedy run) and `plot_speed_trace` (speed-over-time of the best greedy run). Both new plots are gated on the best sim having a populated `trace` and are silently omitted (no crash, no file) when that data is absent — e.g. for gradient (SB3) policies that don't currently populate a per-episode trace.
+- `RunTrace.throttle_state` entries grew from `(accel, brake)` to `(accel, brake, steer)` (`framework/training.py` / `framework/analytics.py`): steer was already computed per-step for the turning-rate counter, just not persisted. Existing consumers (`games/torcs/analytics.py`, `games/tmnf/analytics.py`) only index `[0]`/`[1]` and are unaffected.
+- `RunTrace.speed_trace` (`framework/analytics.py`): speed_ms sampled at the same cadence as `pos_x`/`pos_z`, populated only for games whose `info` dict reports `speed_ms` (stays empty otherwise, mirroring the existing `track_progress` gating pattern).
+- `games/car_racing/env.py`: populates `info["speed_ms"]` each step from the car's Box2D hull linear-velocity magnitude, feeding the new speed-trace plot.
+
+### Fixed
+- `games/car_racing/env.py`: CarRacing-v3 sets `terminated=True` both on finishing the lap and on driving out of the playfield, distinguished only by its own `info["lap_finished"]`. The env previously reported every `terminated` episode as `termination_reason="finish"` and granted the reward config's `finish_bonus` even on an out-of-bounds crash. Now correctly reports `termination_reason="crash"` and withholds `finish_bonus` in that case, enabling a meaningful crash/off-track-rate plot (`termination_reasons.png`) and fixing a latent reward-shaping bug that rewarded crashing.
+- `games/car_racing/README.md`: corrected the `crash_threshold_m` row, which claimed the episode terminates when `|lateral_offset_m|` exceeds the threshold — CarRacing-v3 exposes no lateral-offset signal, so this was never true. Documented as reserved/unused, with off-track termination now detected via the env's own out-of-bounds check instead.
+
+---
+
 ## [0.9.2] - 2026-07-09
 
 ---

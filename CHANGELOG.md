@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.3] - 2026-07-15
+
 ### Added
 - CarRacing-appropriate analytics (`games/car_racing/analytics.py`, issue #461): reuses the game-agnostic action-distribution / best-run / termination-reason plots from `games/torcs/analytics.py` (`plot_greedy_action_dist`, `plot_greedy_best_run`, `plot_cold_start_action_dist`, `plot_cold_start_best_run`, `plot_termination_reasons`) and adds two new CarRacing-specific plots: `plot_action_histograms` (gas/brake/steering value histograms over the best greedy run) and `plot_speed_trace` (speed-over-time of the best greedy run). Both new plots are gated on the best sim having a populated `trace` and are silently omitted (no crash, no file) when that data is absent — e.g. for gradient (SB3) policies that don't currently populate a per-episode trace.
 - `RunTrace.throttle_state` entries grew from `(accel, brake)` to `(accel, brake, steer)` (`framework/training.py` / `framework/analytics.py`): steer was already computed per-step for the turning-rate counter, just not persisted. Existing consumers (`games/torcs/analytics.py`, `games/tmnf/analytics.py`) only index `[0]`/`[1]` and are unaffected.

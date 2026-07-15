@@ -24,9 +24,8 @@ stale (artifact exists but the game is still listed), so the sets cannot rot.
 
 from __future__ import annotations
 
+import ast
 import glob
-import importlib
-import inspect
 import os
 
 import pytest
@@ -153,12 +152,20 @@ def test_has_grid_search_template(game):
 
 
 def _own_plot_functions(game: str) -> list[str]:
-    module_name = f"games.{_GAME_DIR_OVERRIDES.get(game, game)}.analytics"
-    module = importlib.import_module(module_name)
+    """Top-level plot_* / _plot* functions *defined* in the game's analytics.py.
+
+    Parses the source with ast instead of importing the module, so the check
+    has no side effects (matplotlib backend init, optional game deps) and
+    re-exported framework plots don't count.
+    """
+    path = os.path.join(_game_dir(game), "analytics.py")
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
     return [
-        name
-        for name, fn in inspect.getmembers(module, inspect.isfunction)
-        if fn.__module__ == module.__name__ and (name.startswith("plot_") or name.startswith("_plot"))
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and (node.name.startswith("plot_") or node.name.startswith("_plot"))
     ]
 
 

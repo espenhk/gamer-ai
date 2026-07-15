@@ -147,6 +147,33 @@ class TestCarRacingEnvBasics(unittest.TestCase):
         self.env.close()
         self.env.close()  # second call must not raise
 
+    def test_speed_ms_present_and_finite(self):
+        """info dict from step() contains a finite 'speed_ms' (issue #461)."""
+        self.env.reset(seed=0)
+        _, _, _, _, info = self.env.step(np.array([0.0, 1.0, 0.0], dtype=np.float32))
+        self.assertIn("speed_ms", info)
+        self.assertTrue(math.isfinite(info["speed_ms"]))
+        self.assertGreaterEqual(info["speed_ms"], 0.0)
+
+    def test_out_of_bounds_termination_reports_crash_not_finish(self):
+        """Driving out of the playfield must report termination_reason="crash",
+        not "finish", and must not grant the reward's finish_bonus (issue #461).
+        """
+        env = _make_env(max_episode_steps=2000)
+        try:
+            env.reset(seed=0)
+            car = env._env.unwrapped.car
+            car.hull.position = (3000.0, 3000.0)
+            _, reward, terminated, _truncated, info = env.step(np.array([0.0, 0.0, 0.0], dtype=np.float32))
+            self.assertTrue(terminated)
+            self.assertEqual(info["termination_reason"], "crash")
+            self.assertFalse(info.get("lap_finished", True))
+            # native_reward is -100 on out-of-bounds; finish_bonus (100.0
+            # default) must not be added on top of that.
+            self.assertLess(reward, -50.0)
+        finally:
+            env.close()
+
 
 # ---------------------------------------------------------------------------
 # Full episode with a simple constant policy

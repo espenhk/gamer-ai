@@ -218,6 +218,7 @@ def _run_episode(
     pos_x: list[float] = []
     pos_z: list[float] = []
     throttle_state: list = []
+    speed_trace: list[float] = []
     prev_obs = obs
     lateral_offset_sum = 0.0
     lateral_offset_steps = 0
@@ -292,13 +293,15 @@ def _run_episode(
             else:
                 t = 1
             throttle_counts[t] += 1
-            throttle_state.append((float(action_stats[1]), float(action_stats[2])))
+            throttle_state.append((float(action_stats[1]), float(action_stats[2]), float(action_stats[0])))
             if abs(float(action_stats[0])) > 0.05:
                 turning_steps += 1
 
         if steps % _TRACE_SAMPLE_EVERY == 0:
             pos_x.append(float(info.get("pos_x", 0.0)))
             pos_z.append(float(info.get("pos_z", 0.0)))
+            if "speed_ms" in info:
+                speed_trace.append(float(info["speed_ms"]))
 
         if terminated or truncated:
             _print_episode_summary(info, steps, total_reward, truncated)
@@ -340,6 +343,7 @@ def _run_episode(
         finished=finished,
         mean_lateral_offset_m=mean_lateral_offset_m,
         canonical_score=canonical_score,
+        speed_trace=speed_trace,
     )
     return EpisodeResult(
         reward=total_reward,

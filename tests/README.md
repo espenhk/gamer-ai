@@ -29,6 +29,7 @@
   - [test\_train\_rl\_signature.py — public `train_rl()` API](#test_train_rl_signaturepy--public-train_rl-api)
   - [test\_tmnf\_canonical\_plots.py — TMNF canonical-score plots (issue #481)](#test_tmnf_canonical_plotspy--tmnf-canonical-score-plots-issue-481)
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
+  - [test\_run\_episode\_speed\_steer\_trace.py — RunTrace telemetry: steer in throttle\_state, speed\_trace (issue #461)](#test_run_episode_speed_steer_tracepy--runtrace-telemetry-steer-in-throttle_state-speed_trace-issue-461)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
@@ -57,7 +58,7 @@
   - [test\_torcs\_reward.py — TORCS reward calc](#test_torcs_rewardpy--torcs-reward-calc)
   - [test\_torcs\_analytics.py — TORCS plots/report](#test_torcs_analyticspy--torcs-plotsreport)
 - [CarRacing](#carracing)
-  - [test\_car\_racing\_analytics.py — CarRacing-specific analytics plots and report (issue #482 follow-up)](#test_car_racing_analyticspy--carracing-specific-analytics-plots-and-report-issue-482-follow-up)
+  - [test\_car\_racing\_analytics.py — CarRacing-specific analytics plots and report (issues #482, #461)](#test_car_racing_analyticspy--carracing-specific-analytics-plots-and-report-issues-482-461)
 - [SC2](#sc2)
   - [test\_sc2\_obs\_spec.py — SC2 obs spec](#test_sc2_obs_specpy--sc2-obs-spec)
   - [test\_sc2\_actions.py — discrete action grid + race gating](#test_sc2_actionspy--discrete-action-grid--race-gating)
@@ -145,6 +146,9 @@ info-gain; `TaskMetrics` aggregation and summary-table formatting;
 `compute_canonical_score` and the reward-config-independent canonical-score
 plumbing threaded through `RunTrace`, `GreedySimResult`, grid-summary stats,
 and the TMNF-specific canonical plots (issue #481);
+`RunTrace.throttle_state` 3-tuples (`accel, brake, steer`) and the
+`speed_trace` field sampled from `info["speed_ms"]`, gated absent when a
+game never reports it (issue #461);
 discretisation, frame-stacking and obs-memory wrappers; centreline geometry
 and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion + local-worker process orchestration;
@@ -621,9 +625,14 @@ files are written without crashing).
 
 ## CarRacing
 
-### test_car_racing_analytics.py — CarRacing-specific analytics plots and report (issue #482 follow-up)
+### test_car_racing_analytics.py — CarRacing-specific analytics plots and report (issues #482, #461)
 - `SOLVED_REWARD_THRESHOLD` / `SOLVED_WINDOW_EPISODES` match CarRacing-v2's published "solved" benchmark (900 reward / 100 episodes)
 - `save_experiment_results` includes a "Reward Moving Average" section + `reward_moving_average.png` whenever `greedy_sims` is non-empty; reports "solved" vs "not yet solved" against the threshold; section omitted when there are no greedy sims
+- issue #461: report includes `greedy_action_dist.png` / `greedy_best_run.png` / `termination_reasons.png` (reused from `games/torcs/analytics.py`, which only touch generic `ExperimentData`/`RunTrace` fields) plus the two new CarRacing plots `action_histograms.png` (gas/brake/steer value histograms of the best run) and `speed_trace.png` (best-run speed over time); these and `greedy_best_run.png` are gated on the best sim having a populated `trace`/`speed_trace` and omitted from the report (no crash, no file, no broken link) when that data is absent
+
+### test_run_episode_speed_steer_trace.py — RunTrace telemetry: steer in throttle_state, speed_trace (issue #461)
+- `throttle_state` entries are now `(accel, brake, steer)` 3-tuples (previously `(accel, brake)`) — steer is read from `action_stats[0]`, same source already used for the turning-rate counter
+- `speed_trace` is sampled from `info["speed_ms"]` at the same cadence as `pos_x`/`pos_z` (every `_TRACE_SAMPLE_EVERY` steps); stays empty for games that never report `speed_ms` (mirrors the `track_progress` gating pattern)
 
 ## SC2
 
@@ -1212,8 +1221,14 @@ within the step limit; that total accumulated reward is finite; that multiple
 reset/step cycles leave no leaked state.  Three training-loop tests run 1
 hill-climbing sim, 1 genetic generation (population 2), and 1 ε-greedy episode
 against the real CarRacing environment to verify the full stack end-to-end.
+Issue #461: `info['speed_ms']` (derived from the car's Box2D hull velocity)
+is present and finite; forcing the car out of the playfield reports
+`termination_reason="crash"` (not `"finish"`) and does not grant the reward
+config's `finish_bonus` — CarRacing-v3 sets `terminated=True` on both a real
+lap finish and an out-of-bounds crash, distinguished only by
+`info['lap_finished']`.
 
-- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent
+- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 

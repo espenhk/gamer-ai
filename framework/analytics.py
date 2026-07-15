@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -68,20 +68,23 @@ class RunTrace:
     """Sampled trajectory for one episode.
 
     pos_x / pos_z are world-space coordinates (game units).
-    throttle_state entries are (accel_val, brake_val) float tuples in [0, 1].
+    throttle_state entries are (accel_val, brake_val, steer_val) float tuples
+    — accel/brake in [0, 1], steer in [-1, 1].
+    speed_trace is speed_ms sampled at the same cadence as pos_x/pos_z.
     These are populated from the step info dict and action arrays; for games
     that don't provide them the lists stay empty.
     """
 
     pos_x: list  # world X, sampled every TRACE_SAMPLE_EVERY steps
     pos_z: list  # world Z (horizontal plane; Y is up in most engines)
-    throttle_state: list  # per step: (accel_val, brake_val) floats in [0, 1]
+    throttle_state: list  # per step: (accel_val, brake_val, steer_val)
     total_reward: float
     # --- Canonical score inputs (config-independent; None if unavailable) ---
     track_progress: float | None = None
     finished: bool | None = None
     mean_lateral_offset_m: float | None = None
     canonical_score: float | None = None
+    speed_trace: list = field(default_factory=list)  # speed_ms, sampled every TRACE_SAMPLE_EVERY steps
 
 
 @dataclass

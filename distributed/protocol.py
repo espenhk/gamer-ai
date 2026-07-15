@@ -94,6 +94,7 @@ def experiment_from_dict(d: dict[str, Any]) -> Any:
             finished=t.get("finished"),
             mean_lateral_offset_m=t.get("mean_lateral_offset_m"),
             canonical_score=t.get("canonical_score"),
+            speed_trace=t.get("speed_trace", []),
         )
 
     def _probe(p: dict) -> ProbeResult:

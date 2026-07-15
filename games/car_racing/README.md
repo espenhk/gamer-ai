@@ -94,7 +94,7 @@ Configured in `games/car_racing/config/reward_config.yaml`.
 | `native_reward_scale` | 1.0 | Multiplier applied to the raw per-step reward from Gymnasium's `CarRacing-v2`. The native signal is positive for track tiles driven over and turns negative if the episode ends without completing the track. |
 | `step_penalty` | −0.1 | Flat per-step time cost added on top of the scaled native reward. Encourages faster completion. |
 | `finish_bonus` | 100.0 | One-time reward when all track tiles have been visited. |
-| `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
+| `crash_threshold_m` | 25.0 | Reserved for a future centerline-based crash penalty; not currently applied. CarRacing-v3 has no exposed lateral-offset signal, so off-track termination is instead detected via the env's own out-of-bounds check (see `termination_reason="crash"` in the analytics report). |
 
 ---
 

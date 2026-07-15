@@ -59,11 +59,11 @@ KNOWN_MISSING_GRID_TEMPLATES = {
 }
 
 #: Games whose analytics.py is still the framework-reexport stub.
+#: (car_racing left this set when PR #497 / issue #461 merged.)
 KNOWN_STUB_ANALYTICS = {
     "assetto",  # issue #464 — real analytics in PR #501
     "atari",  # issue #465 — real analytics in PR #471
     "beamng",  # issue #462 — real analytics in PR #502
-    "car_racing",  # issue #461 — real analytics in PR #497
     "minerl",  # issue #449 (umbrella); no per-game issue yet
     "rocket_league",  # issue #466 — real analytics in PR #503
 }

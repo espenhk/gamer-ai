@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.9] - 2026-07-16
+
 ### Added
 - Game-parity completeness check (issue #452): `tests/test_game_parity.py`
   asserts every registered game ships a README with a `## Rewards` table,

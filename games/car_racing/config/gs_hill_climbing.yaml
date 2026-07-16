@@ -1,0 +1,33 @@
+# Grid search: WeightedLinearPolicy (hill_climbing) on CarRacing-v3
+#
+# Primary axes:
+#   mutation_scale  — step size of the hill-climbing search. Too small → stuck
+#                     in flat reward regions; too large → random walk.
+#   mutation_share  — fraction of weights perturbed per mutation. 1.0 mutates
+#                     everything; smaller values make more local moves.
+#
+# CarRacing's adapter has no probe/cold-start phase (build_probe returns
+# None), so cold_restarts / cold_sims are not meaningful axes here.
+#
+# n_sims is held fixed so training budget is constant across combos.
+#
+# Combos: 3 x 2 = 6
+
+base_name: "gs_car_racing_hc_v1"
+game: car_racing
+
+training_params:
+  speed: 1.0
+  n_sims: 50
+  in_game_episode_s: 20.0
+  policy_type: hill_climbing
+
+  # --- Search axes ---
+  mutation_scale: [0.02, 0.05, 0.2]
+  mutation_share: [0.5, 1.0]
+
+reward_params:
+  native_reward_scale: 1.0
+  step_penalty: -0.1
+  finish_bonus: 100.0
+  crash_threshold_m: 25.0

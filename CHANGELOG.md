@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.5] - 2026-07-16
+
 ### Added
 - Ready-made grid-search templates (`gs_genetic.yaml`, `gs_cmaes.yaml`,
   `gs_hill_climbing.yaml`) for car_racing, beamng and iracing, plus

@@ -29,6 +29,27 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ---
 
+## [0.9.5] - 2026-07-16
+
+### Added
+- Ready-made grid-search templates (`gs_genetic.yaml`, `gs_cmaes.yaml`,
+  `gs_hill_climbing.yaml`) for car_racing, beamng and iracing, plus
+  `gs_cmaes.yaml` / `gs_hill_climbing.yaml` for assetto_corsa (issue #446).
+  All templates are covered by parse/expansion/reward-key-validity tests in
+  `tests/test_grid_search.py`.
+
+---
+
+## [0.9.4] - 2026-07-16
+
+### Fixed
+- Failing test on `main`: `test_grid_search.py` no longer pins the
+  `gs_sc2_neural_net_template.yaml` tuning values (the template had
+  intentionally disabled `early_random_action_bonus`); it now validates that
+  every `reward_params` key in the template is a real `SC2RewardConfig` field.
+
+---
+
 ## [0.9.3] - 2026-07-15
 
 ### Added

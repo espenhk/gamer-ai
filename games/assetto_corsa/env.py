@@ -105,6 +105,10 @@ class AssettoCorsaEnv(BaseGameEnv):
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._laps_completed: int = 0
+        # Per-episode running sums for episode_obs_averages (bounded: fixed
+        # key set, scalar sums only; cleared on every reset()).
+        self._ep_obs_sums: dict[str, float] = {}
+        self._ep_obs_steps: int = 0
 
     # ------------------------------------------------------------------
     # Gymnasium interface
@@ -122,6 +126,8 @@ class AssettoCorsaEnv(BaseGameEnv):
         self._elapsed_s = 0.0
         self._episode_start_s = time.monotonic()
         self._laps_completed = 0
+        self._ep_obs_sums = {}
+        self._ep_obs_steps = 0
         obs = self._build_obs(step)
         return obs, {}
 
@@ -161,6 +167,8 @@ class AssettoCorsaEnv(BaseGameEnv):
 
         self._prev_state = step
 
+        self._accumulate_obs_averages(step)
+
         info = self._get_game_info(step)
         info.update(
             {
@@ -170,6 +178,8 @@ class AssettoCorsaEnv(BaseGameEnv):
                 "termination_reason": termination_reason,
             }
         )
+        if (terminated or truncated) and self._ep_obs_steps > 0:
+            info["episode_obs_averages"] = {k: v / self._ep_obs_steps for k, v in self._ep_obs_sums.items()}
         obs = self._build_obs(step)
         return obs, reward, terminated, truncated, info
 
@@ -185,6 +195,23 @@ class AssettoCorsaEnv(BaseGameEnv):
 
     def set_episode_time_limit(self, seconds: float) -> None:
         self._max_episode_time_s = seconds
+
+    def _accumulate_obs_averages(self, step: ACStepState) -> None:
+        """Accumulate the per-episode feature sums behind episode_obs_averages."""
+        wheels = step.wheel_slip
+        samples = {
+            "speed_ms": float(step.speed_ms),
+            "abs_lateral_offset_m": abs(float(step.lateral_offset or 0.0)),
+            "engine_rpm": float(step.engine_rpm),
+            "gear": float(step.gear),
+            "wheel_0_slip": float(wheels[0]),
+            "wheel_1_slip": float(wheels[1]),
+            "wheel_2_slip": float(wheels[2]),
+            "wheel_3_slip": float(wheels[3]),
+        }
+        for key, val in samples.items():
+            self._ep_obs_sums[key] = self._ep_obs_sums.get(key, 0.0) + val
+        self._ep_obs_steps += 1
 
     def _get_game_info(self, state: ACStepState | None = None) -> dict:
         s = state if state is not None else self._prev_state

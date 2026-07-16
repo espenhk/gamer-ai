@@ -1169,6 +1169,13 @@ real episode rollouts and goal-detection signals from the game process.
 - raw-obs parsing (`_parse_obs` / `_parse_obs_row`): oversized raw truncated, undersized zero-padded, `None` → zeros; single-agent list → 1-D, multi-agent list → stacked `(n, dim)`, empty list → zeros
 - `_compute_vel_towards_ball`: positive when approaching, negative when receding, 0.0 (no div-by-zero) when car/ball positions coincide
 - discrete actions shape (≥9, 8-dim); probe count=6, shape; warmup shape; action bounds respected
+- `episode_obs_averages` (issue #466): terminal-step info carries per-episode means (boost, dist_to_ball, vel_towards_ball) plus the `ball_touches` step count; absent on non-terminal steps; accumulators reset between episodes
+
+### test_rocket_league_analytics.py — Rocket League match analytics plots and report (issue #466)
+- `plot_match_results`: writes `rl_match_results.png` (win/loss/draw from `termination_reason` — episodes end on the first goal, so the reason is the result); unknown reasons count as draws; skipped without greedy sims
+- `plot_ball_touches` / `plot_boost_usage`: per-episode touch counts / mean boost from `obs_averages`; skipped without obs_averages
+- `plot_ball_pursuit`: two-panel mean dist_to_ball + vel_towards_ball per episode; skipped without obs_averages or when the pursuit keys are absent
+- `save_experiment_results`: report contains the "Rocket League Plots" section with all four plots when data present; match-results plot still fires without obs_averages (termination_reason is always recorded); section omitted entirely without greedy sims
 
 ## CLI / misc
 

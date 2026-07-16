@@ -374,5 +374,73 @@ class TestRocketLeagueObsParsing(unittest.TestCase):
         self.assertEqual(self.env._compute_vel_towards_ball(obs), 0.0)
 
 
+class TestRocketLeagueEpisodeObsAverages(unittest.TestCase):
+    """episode_obs_averages telemetry for analytics (issue #466)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys
+
+        cls._old_modules = {k: sys.modules.get(k) for k in _MODULE_PATCHES}
+        for mod, mock in _MODULE_PATCHES.items():
+            sys.modules[mod] = mock
+
+    @classmethod
+    def tearDownClass(cls):
+        import sys
+
+        for mod, old in cls._old_modules.items():
+            if old is None:
+                sys.modules.pop(mod, None)
+            else:
+                sys.modules[mod] = old
+
+    def setUp(self):
+        from games.rocket_league.env import _BOOST_IDX, _DIST_TO_BALL_IDX
+        from games.rocket_league.obs_spec import BASE_OBS_DIM
+
+        self._raw_obs = np.zeros(BASE_OBS_DIM, dtype=np.float32)
+        self._raw_obs[_BOOST_IDX] = 0.6
+        self._raw_obs[_DIST_TO_BALL_IDX] = 1500.0
+        _mock_rlgym_env.reset.return_value = self._raw_obs
+        _mock_rlgym_env.step.return_value = (self._raw_obs, 0.0, False, {"ball_touched": True})
+        self.env = _make_env()
+
+    def test_not_present_on_non_terminal_steps(self):
+        self.env.reset()
+        _, _, terminated, truncated, info = self.env.step(np.zeros(8, dtype=np.float32))
+        self.assertFalse(terminated or truncated)
+        self.assertNotIn("episode_obs_averages", info)
+
+    def test_terminal_info_carries_means_and_touch_count(self):
+        self.env.reset()
+        action = np.zeros(8, dtype=np.float32)
+        self.env.step(action)
+        self.env.step(action)
+        _mock_rlgym_env.step.return_value = (
+            self._raw_obs,
+            0.0,
+            True,
+            {"ball_touched": False, "goal_scored": True},
+        )
+        _, _, terminated, _, info = self.env.step(action)
+        self.assertTrue(terminated)
+        avgs = info["episode_obs_averages"]
+        self.assertAlmostEqual(avgs["boost_amount"], 0.6, places=5)
+        self.assertAlmostEqual(avgs["dist_to_ball"], 1500.0, places=3)
+        self.assertIn("vel_towards_ball", avgs)
+        # Two of the three steps touched the ball.
+        self.assertEqual(avgs["ball_touches"], 2.0)
+
+    def test_accumulators_reset_between_episodes(self):
+        self.env.reset()
+        action = np.zeros(8, dtype=np.float32)
+        self.env.step(action)
+        self.env.reset()
+        self.assertEqual(self.env._ep_obs_steps, 0)
+        self.assertEqual(self.env._ep_obs_sums, {})
+        self.assertEqual(self.env._ep_ball_touches, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

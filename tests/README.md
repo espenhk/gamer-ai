@@ -625,6 +625,18 @@ files are written without crashing).
 - plot greedy action dist / progress / termination reasons / cold-start dist
 - weight heatmap no-file safe; weight evolution no-weights; save plots no crash; save full report; empty experiment safe; grid summary; gs comparison progress
 
+## BeamNG
+
+### test_beamng_analytics.py — BeamNG analytics plots and report (issue #462)
+- `plot_airborne`: writes `beamng_airborne.png` (airborne fraction + per-wheel mean contact) from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without airborne/contact keys
+- `plot_mean_speed`: writes `beamng_mean_speed.png` from per-sim speed means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `beamng_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; malformed/non-numeric config skips the par line without crashing; skipped without finished sims
+- `save_experiment_results`: report contains the "BeamNG Plots" section + all four BeamNG plots plus reused torcs plots (greedy progress / termination reasons) when data present; BeamNG section omitted entirely when no game-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
+
+### test_beamng_env.py — `BeamNGEnv` episode_obs_averages telemetry (stubbed beamng_gym, issue #462)
+- terminal-step info carries per-episode means (speed, |lateral offset|, 4× wheel contact, airborne fraction with the ≤1-wheel-grounded definition); absent on non-terminal steps; accumulators reset between episodes; airborne=1.0 when only one wheel is grounded
+
 ## CarRacing
 
 ### test_car_racing_analytics.py — CarRacing-specific analytics plots and report (issues #482, #461)

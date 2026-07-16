@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.6] - 2026-07-16
+
 ### Added
 - Assetto Corsa game-appropriate analytics (issue #464):
   `games/assetto_corsa/analytics.py` now produces wheel-slip (traction), RPM /

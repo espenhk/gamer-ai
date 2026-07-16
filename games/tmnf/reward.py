@@ -59,6 +59,16 @@ class RewardConfig:
         nearest wall distance normalised to [0, 1].  Set to 0.0 when n_lidar_rays=0.
     crash_threshold_m:
         The env ends the episode when |lateral_offset| exceeds this (metres).
+    no_progress_patience_ticks:
+        Opt-in grace-period termination (issue #492): end the episode when
+        track_progress hasn't advanced for this many consecutive game ticks,
+        independent of crash_threshold_m.  ``0`` (default) disables the check,
+        matching pre-#492 behaviour.  Mirrors tmrl's ``FAILURE_COUNTDOWN``.
+    no_progress_min_ticks:
+        Minimum game ticks that must elapse in the episode before
+        no_progress_patience_ticks can end it.  Prevents the check firing
+        during the very start of an episode.  Mirrors tmrl's ``MIN_STEPS``.
+        Only relevant when no_progress_patience_ticks > 0.
     curiosity_type:
         Optional exploration bonus: ``"none"`` (default, disabled),
         ``"icm"`` for the Intrinsic Curiosity Module (Pathak et al. 2017)
@@ -86,6 +96,8 @@ class RewardConfig:
     airborne_penalty: float = -1.0
     lidar_wall_weight: float = 0.0
     crash_threshold_m: float = 25.0
+    no_progress_patience_ticks: int = 0
+    no_progress_min_ticks: int = 0
     track_name: str = "a03"
     centerline_path: str = "tracks/a03_centerline.npy"
 

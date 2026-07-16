@@ -11,6 +11,15 @@ cold_sims: 5            # hill-climb sims per cold-start restart (hill_climbing 
 n_lidar_rays: 8          # LIDAR wall-distance rays appended to observation (0 = disabled)
 patience: 0              # stop greedy loop if no improvement for this many sims (0 = run all)
 
+# Lookahead observation (issue #493). Leaving both unset reproduces the legacy
+# 3-point schedule at centerline indices [10, 25, 50] (uneven spacing).
+# Setting either switches to an evenly-spaced schedule: n_lookahead_points
+# waypoints spaced lookahead_step_spacing centerline indices apart
+# (spacing, 2*spacing, ..., n*spacing). Missing arg defaults to its
+# legacy-equivalent (3 points / spacing 20).
+#n_lookahead_points: 3
+#lookahead_step_spacing: 20
+
 # Action windowing (issue #65) — act only every X game ticks instead of every tick.
 # Counted in game ticks, independent of `speed`.
 #

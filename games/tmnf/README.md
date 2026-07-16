@@ -151,7 +151,7 @@ Training means iteratively improving that program by letting the car drive, meas
 
 ## What the Car Can Sense (Observations)
 
-Every policy receives the same vector of numbers describing the car's current state. There are 21 base features (plus optional LIDAR rays):
+Every policy receives the same vector of numbers describing the car's current state. There are 15 fixed base features + a configurable lookahead block (6 features, i.e. 21 total, by default) plus optional LIDAR rays:
 
 | Feature | What it means |
 |---|---|
@@ -165,10 +165,10 @@ Every policy receives the same vector of numbers describing the car's current st
 | `turning_rate` | The current steering value from TMInterface |
 | `wheel_N_contact` | Whether each of the 4 wheels is touching the ground |
 | `angular_vel_x/y/z` | How fast the car is rotating around each axis |
-| `lookahead_10/25/50_lat` | Lateral offset of the centreline 10, 25, 50 points ahead |
-| `lookahead_10/25/50_yaw` | Heading change of the centreline 10, 25, 50 points ahead |
+| `lookahead_{step}_lat` | Lateral offset of the centreline `step` points ahead (default: 3 points at steps 10, 25, 50) |
+| `lookahead_{step}_yaw` | Heading change of the centreline `step` points ahead (same steps as `_lat`) |
 
-The lookahead features are the car's "windshield view" — they tell it whether a curve is coming up and how sharp it is.
+The lookahead features are the car's "windshield view" — they tell it whether a curve is coming up and how sharp it is. They default to the legacy 3-point schedule (`[10, 25, 50]`, i.e. ~20/50/100 m ahead at the default 2 m centerline point spacing), but are configurable (issue #493) via `training_params.yaml`'s `n_lookahead_points` / `lookahead_step_spacing`, which switch to an evenly-spaced schedule (`spacing, 2*spacing, ..., n*spacing`). External evidence (Linesight's 40-point, ~400 m lookahead — see [`docs/research/tmrl-linesight-reward-obs.md`](../../docs/research/tmrl-linesight-reward-obs.md)) suggests longer/denser schedules may help; sweep both keys in a grid search the same way `n_lidar_rays` is swept. Existing weight files auto-migrate to a changed lookahead schedule via the standard "missing key → 0.0" rule, so switching schedules is not a breaking change — but expect the champion to relearn from a poorer starting point since the affected weights reset to zero.
 
 All features are divided by a scale factor before being fed to the policy, so they all live roughly in the range [−1, 1]. This prevents any single feature from dominating just because it has larger numbers.
 
@@ -220,6 +220,8 @@ Configured in `games/tmnf/config/reward_config.yaml`.
 | `airborne_penalty` | −0.83 | Applied every step when ≤1 wheel is in contact with the ground AND vertical offset ≤ 0 (airborne below the centreline level). Scaled by n_ticks. Pre-divided by ~1.2 for the same reason as `centerline_weight`. |
 | `lidar_wall_weight` | −5.0 | Wall proximity penalty: `lidar_wall_weight × (1 − min_ray)²`. A ray value near 0 means a wall is very close. Set to 0.0 when LIDAR is disabled (`n_lidar_rays: 0`). |
 | `crash_threshold_m` | 25.0 | Episode terminates when `|lateral_offset_m|` exceeds this value. |
+| `no_progress_patience_ticks` | 0 | Opt-in grace-period termination (issue #492): end the episode when `track_progress` hasn't advanced for this many consecutive game ticks, independent of `crash_threshold_m`. `0` disables the check (pre-#492 behaviour). Both tmrl (`FAILURE_COUNTDOWN=10` steps at 20 Hz) and Linesight tolerate brief off-line excursions rather than terminating instantly on a lateral-offset threshold — see [`docs/research/tmrl-linesight-reward-obs.md`](../../docs/research/tmrl-linesight-reward-obs.md). A patience of a few seconds' worth of ticks is a reasonable starting point. |
+| `no_progress_min_ticks` | 0 | Minimum game ticks that must elapse in the episode before `no_progress_patience_ticks` can end it (mirrors tmrl's `MIN_STEPS=70`). Only relevant when `no_progress_patience_ticks > 0`. |
 
 ### Curiosity (intrinsic exploration)
 

@@ -17,6 +17,12 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- `no_progress_patience_ticks` / `no_progress_min_ticks` reward-config keys (`games/tmnf/reward.py`, `games/tmnf/env.py`, issue #492): opt-in grace-period crash termination — end the episode after this many consecutive game ticks with no `track_progress` advance, gated by a minimum-ticks floor, alongside (not instead of) the existing instantaneous `crash_threshold_m` check. Disabled by default (`0`); mirrors tmrl's `FAILURE_COUNTDOWN`/`MIN_STEPS`.
+- Configurable TMNF lookahead observation (`games/tmnf/obs_spec.py`, issue #493): `training_params.yaml`'s `n_lookahead_points` / `lookahead_step_spacing` now control the number and spacing of lookahead waypoints fed to the policy, instead of the hardcoded 3-point `[10, 25, 50]` schedule. Threaded through `StateData`, `RLClient`, `TMNFEnv`, and `TMNFAdapter.build_game_spec()`; existing weight files auto-migrate via the standard "missing key → 0.0" rule. Leaving both keys unset reproduces the legacy schedule exactly.
+- `games/tmnf/config/gs_sac_long_horizon.yaml` (issues #489, #494): ready-to-run single-combo grid-search template for the TMNF long-horizon SAC run — `n_lidar_rays: 16`, `policy_type: sac` with a starting `policy_params` budget, `action_window_ticks: 5` (~20 Hz control rate, matching tmrl/Linesight), and a multi-day-sized `checkpoint_freq`.
+- `games/tmnf/config/gs_ablation_centerline.yaml` (issue #491): A/B grid-search template sweeping `centerline_weight` over `[-0.083, 0.0]` (current default vs. progress-only shaping) with everything else held fixed. Not yet run — no TMNF-capable machine available in this repo's automation; see the file header for the comparison this is meant to answer before finalizing #489's config.
+- `infrastructure/environment/run_supervised.ps1` + a new "Single-VM unattended long-horizon run" section in `infrastructure/README.md` (issue #489): a crash-restart supervisor script for a single non-distributed Azure VM, looping `main.py --no-interrupt` and resuming from the SB3 checkpoint (issue #488) on every crash. Documentation only in this change — no VM was provisioned and no training was run.
 
 ---
 

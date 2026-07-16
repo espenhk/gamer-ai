@@ -947,6 +947,8 @@ are documented in the StarCraft 2 section below.
 | `airborne_penalty` | `-1.0` | Applied when ≤1 wheel contact AND `vertical_offset <= 0` |
 | `lidar_wall_weight` | `-5.0` | Wall proximity: `weight * (1 - min_ray)^2` |
 | `crash_threshold_m` | `25.0` | Terminates episode when `|lateral_offset| > threshold` |
+| `no_progress_patience_ticks` | `0` | Opt-in grace-period termination (issue #492): ends episode after this many consecutive game ticks with no `track_progress` advance (`0` = disabled) |
+| `no_progress_min_ticks` | `0` | Minimum game ticks before `no_progress_patience_ticks` can fire |
 
 ---
 
@@ -960,7 +962,7 @@ reward-side contract is in
 [`docs/framework/reward.md`](docs/framework/reward.md). The TMNF-specific
 spaces below are one concrete instance of that contract.
 
-### Observation (15 + n_lidar_rays floats, float32)
+### Observation (15 base + 2×lookahead-points + n_lidar_rays floats, float32; 21 total by default)
 
 Defined in `obs_spec.py` — single source of truth for feature names, scales, descriptions. The generic `ObsSpec` / `ObsDim` contract (naming, normalisation, auto-migration) is documented in [`docs/framework/obs_spec.md`](docs/framework/obs_spec.md).
 
@@ -976,7 +978,8 @@ Defined in `obs_spec.py` — single source of truth for feature names, scales, d
 | 7 | `turning_rate` | 65536.0 | Raw TMInterface steer value, ±65536 |
 | 8–11 | `wheel_N_contact` | 1.0 | Ground contact per wheel (0 or 1) |
 | 12–14 | `angular_vel_N` | 5.0 | Angular velocity x/y/z (rad/s) |
-| 15+ | `lidar_i` | 1.0 | Wall distance rays ~[0, 1] (if `n_lidar_rays > 0`) |
+| 15+ | `lookahead_{step}_lat` / `lookahead_{step}_yaw` | 5.0 / 3.14 | Lateral offset / heading change at each lookahead waypoint. Default: 3 points at centerline-index steps `[10, 25, 50]` (6 floats). Configurable via `training_params.yaml`'s `n_lookahead_points` / `lookahead_step_spacing` (issue #493) — see `games/tmnf/obs_spec.py::build_lookahead_steps()`. |
+| after lookahead | `lidar_i` | 1.0 | Wall distance rays ~[0, 1] (if `n_lidar_rays > 0`) |
 
 ### Action Space
 
@@ -994,6 +997,7 @@ Policies using the Discrete(25) abstraction ({full brake, half brake, coast, hal
 
 - **Finished:** `track_progress >= 1.0`
 - **Crashed:** `|lateral_offset| > crash_threshold_m`
+- **Crashed (no progress):** `track_progress` unchanged for `no_progress_patience_ticks` consecutive game ticks, after at least `no_progress_min_ticks` ticks have elapsed (opt-in, issue #492; `0` = disabled)
 - **Truncated:** elapsed time exceeded
 
 ### Episode Warmup

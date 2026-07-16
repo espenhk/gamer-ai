@@ -51,17 +51,27 @@ def _make_env(
     crash_threshold_m: float = 10.0,
     max_episode_time_s: float = 60.0,
     auto_respawn_on_finish: bool = False,
+    no_progress_patience_ticks: int = 0,
+    no_progress_min_ticks: int = 0,
+    prev_track_progress: float | None = 0.5,
 ) -> TMNFEnv:
     """Instantiate TMNFEnv bypassing __init__, wiring only what step() needs."""
     env = TMNFEnv.__new__(TMNFEnv)
-    env._reward_config = RewardConfig(crash_threshold_m=crash_threshold_m)
+    env._reward_config = RewardConfig(
+        crash_threshold_m=crash_threshold_m,
+        no_progress_patience_ticks=no_progress_patience_ticks,
+        no_progress_min_ticks=no_progress_min_ticks,
+    )
     # Stub reward computation so MagicMock prev_state fields never reach arithmetic.
     env._reward_calc = MagicMock()
     env._reward_calc.compute.return_value = 0.0
+    env._reward_calc.compute_with_components.return_value = (0.0, {})
     env._max_episode_time_s = max_episode_time_s
     env._auto_respawn_on_finish = auto_respawn_on_finish
     env._lidar = None
     env._prev_state = MagicMock()
+    env._prev_state.track_progress = prev_track_progress
+    env._prev_obs = None
     env._elapsed_s = 0.0
     # Place episode start 1 s in the past so elapsed_s is deterministically > 0.
     env._episode_start_s = time.monotonic() - 1.0
@@ -72,6 +82,10 @@ def _make_env(
     env._ep_max_overrun_ticks = 0
     env._action_window_ticks = 1
     env._total_rl_steps = 0
+    env._ticks_since_progress = 0
+    env._ep_reward_components = {}
+    env._ep_lateral_sum = 0.0
+    env._ep_lateral_count = 0
     env._client = MagicMock()
     env._log_skip_stats = MagicMock()
     return env
@@ -145,6 +159,66 @@ class TestTerminationReason(unittest.TestCase):
         step = _make_step_state(track_progress=0.1)
         _, _, _, _, info = _do_step(env, step)
         self.assertIn("termination_reason", info)
+
+
+class TestNoProgressTermination(unittest.TestCase):
+    """Grace-period crash termination (issue #492)."""
+
+    def test_disabled_by_default(self):
+        # no_progress_patience_ticks=0 (default): never fires, even with
+        # track_progress stuck across many steps.
+        env = _make_env(no_progress_patience_ticks=0, prev_track_progress=0.5)
+        for _ in range(10):
+            _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.5))
+            self.assertFalse(terminated)
+            self.assertIsNone(info["termination_reason"])
+
+    def test_fires_after_patience_ticks(self):
+        env = _make_env(no_progress_patience_ticks=3, no_progress_min_ticks=0, prev_track_progress=0.5)
+        for _ in range(2):
+            _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.5))
+            self.assertFalse(terminated)
+            self.assertIsNone(info["termination_reason"])
+        _, _, terminated, truncated, info = _do_step(env, _make_step_state(track_progress=0.5))
+        self.assertTrue(terminated)
+        self.assertFalse(truncated)
+        self.assertEqual(info["termination_reason"], "no_progress")
+
+    def test_does_not_fire_before_min_ticks(self):
+        # patience=1 would fire on the very first stagnant step, but
+        # min_ticks=5 gates it until enough episode ticks have elapsed.
+        env = _make_env(no_progress_patience_ticks=1, no_progress_min_ticks=5, prev_track_progress=0.5)
+        for _ in range(4):
+            _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.5, ticks_this_step=1))
+            self.assertFalse(terminated)
+            self.assertIsNone(info["termination_reason"])
+        _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.5, ticks_this_step=1))
+        self.assertTrue(terminated)
+        self.assertEqual(info["termination_reason"], "no_progress")
+
+    def test_resets_on_progress_delta(self):
+        env = _make_env(no_progress_patience_ticks=2, no_progress_min_ticks=0, prev_track_progress=0.5)
+        # Stagnant for 1 tick (not enough to fire).
+        _, _, terminated, _, _ = _do_step(env, _make_step_state(track_progress=0.5))
+        self.assertFalse(terminated)
+        # Progress advances — resets the counter.
+        _, _, terminated, _, _ = _do_step(env, _make_step_state(track_progress=0.6))
+        self.assertFalse(terminated)
+        # Stagnant again for only 1 tick since the reset — still shouldn't fire.
+        _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.6))
+        self.assertFalse(terminated)
+        self.assertIsNone(info["termination_reason"])
+
+    def test_crash_takes_priority_over_no_progress(self):
+        env = _make_env(
+            crash_threshold_m=10.0,
+            no_progress_patience_ticks=1,
+            no_progress_min_ticks=0,
+            prev_track_progress=0.5,
+        )
+        _, _, terminated, _, info = _do_step(env, _make_step_state(track_progress=0.5, lateral_offset=15.0))
+        self.assertTrue(terminated)
+        self.assertEqual(info["termination_reason"], "crash")
 
 
 if __name__ == "__main__":

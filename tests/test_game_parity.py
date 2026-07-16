@@ -73,7 +73,6 @@ KNOWN_MISSING_TESTS = {
     ("car_racing", "reward"),
     ("car_racing", "env"),
     ("iracing", "reward"),  # telemetry/env/obs covered (PR #479); reward calc is not
-    ("tmnf", "obs_spec"),  # tests/test_tmnf_obs_spec.py lands with PR #498
 }
 
 #: Per-game aliases for the minimum test files (games that predate the

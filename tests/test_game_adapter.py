@@ -104,6 +104,40 @@ class TestTMNFAdapter:
         root = a.experiment_dir_root({"track": "a03_centerline"}, None)
         assert "a03_centerline" in root
 
+    def test_build_game_spec_default_lookahead(self):
+        a = self._adapter()
+        spec = a.build_game_spec(
+            "myrun",
+            "/tmp/exp",
+            "/tmp/exp/policy_weights.yaml",
+            "/tmp/exp/reward_config.yaml",
+            {"speed": 10.0, "in_game_episode_s": 30.0, "n_lidar_rays": 0},
+            None,
+        )
+        # 15 base dims + 3 legacy lookahead points (6 dims), no LIDAR.
+        assert spec.obs_spec.dim == 21
+
+    def test_build_game_spec_custom_lookahead(self):
+        # issue #493: n_lookahead_points / lookahead_step_spacing resize obs_spec.
+        a = self._adapter()
+        spec = a.build_game_spec(
+            "myrun",
+            "/tmp/exp",
+            "/tmp/exp/policy_weights.yaml",
+            "/tmp/exp/reward_config.yaml",
+            {
+                "speed": 10.0,
+                "in_game_episode_s": 30.0,
+                "n_lidar_rays": 8,
+                "n_lookahead_points": 5,
+                "lookahead_step_spacing": 20,
+            },
+            None,
+        )
+        # 15 base + 5*2 lookahead + 8 lidar
+        assert spec.obs_spec.dim == 15 + 10 + 8
+        assert spec.obs_spec.names[-9] == "lookahead_100_yaw"
+
 
 class TestTorcsAdapter:
     def _adapter(self):

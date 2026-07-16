@@ -141,12 +141,15 @@ class RLClient(PhaseAwareClient):
         auto_respawn_on_finish: bool = False,
         action_window_ticks: int = 1,
         decision_offset_pct: float = 0.75,
+        lookahead_steps: list[int] | None = None,
     ) -> None:
         super().__init__()
         self.speed = speed
         self.centerline = Centerline(centerline_file)
         self._auto_respawn_on_finish = auto_respawn_on_finish
         self._action_window_ticks = max(1, int(action_window_ticks))
+        # Configurable lookahead schedule (issue #493); None = LOOKAHEAD_STEPS default.
+        self._lookahead_steps = lookahead_steps
 
         # --- Action windowing (issue #65) ---------------------------------
         # The window has two phases:
@@ -321,7 +324,12 @@ class RLClient(PhaseAwareClient):
             return
 
         state = iface.get_simulation_state()
-        data = StateData(state, centerline=self.centerline, hint_idx=self._last_centerline_idx)
+        data = StateData(
+            state,
+            centerline=self.centerline,
+            hint_idx=self._last_centerline_idx,
+            lookahead_steps=self._lookahead_steps,
+        )
         self._last_centerline_idx = data._centerline_idx
         speed_ms = data.velocity.magnitude()
 

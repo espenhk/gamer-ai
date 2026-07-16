@@ -23,6 +23,8 @@ lidar_wall_weight: -5.0   # set to 0.0 when not using lidar
 
 # termination
 crash_threshold_m: 25.0
+no_progress_patience_ticks: 0  # grace-period crash (0 = disabled); see games/tmnf/README.md
+no_progress_min_ticks: 0       # min ticks before the patience check can fire
 
 # track
 track_name: a03

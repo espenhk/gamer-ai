@@ -72,7 +72,13 @@ class WheelState:
 
 
 class StateData:
-    def __init__(self, state: Any, centerline: Any | None = None, hint_idx: int | None = None) -> None:
+    def __init__(
+        self,
+        state: Any,
+        centerline: Any | None = None,
+        hint_idx: int | None = None,
+        lookahead_steps: list[int] | None = None,
+    ) -> None:
         dyna = state.dyna.current_state  # type: ignore[attr-defined]
         mobil = state.scene_mobil  # type: ignore[attr-defined]
         wheels = state.simulation_wheels  # type: ignore[attr-defined]
@@ -101,7 +107,8 @@ class StateData:
         self.vertical_offset = None
         self.track_forward = None  # unit np.ndarray of track direction at car position
         self._centerline_idx = None  # nearest centerline point index (for windowed search)
-        self.lookahead: list[tuple[float, float]] = [(0.0, 0.0)] * 3
+        steps = lookahead_steps if lookahead_steps is not None else LOOKAHEAD_STEPS
+        self.lookahead: list[tuple[float, float]] = [(0.0, 0.0)] * len(steps)
         if centerline is not None:
             proj = centerline.project_with_forward(self.position, hint_idx=hint_idx)
             self.track_progress = proj.progress
@@ -109,7 +116,7 @@ class StateData:
             self.vertical_offset = proj.vertical_offset
             self.track_forward = proj.forward
             self._centerline_idx = proj.nearest_idx
-            self.lookahead = [centerline.project_ahead(self.position, self._centerline_idx, s) for s in LOOKAHEAD_STEPS]
+            self.lookahead = [centerline.project_ahead(self.position, self._centerline_idx, s) for s in steps]
 
     def __str__(self) -> str:
         contact_str = " ".join(str(int(w.contact)) for w in self.wheels)

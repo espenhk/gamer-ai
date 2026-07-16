@@ -17,6 +17,15 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+- Assetto Corsa game-appropriate analytics (issue #464):
+  `games/assetto_corsa/analytics.py` now produces wheel-slip (traction), RPM /
+  gear usage, centerline-offset distribution, and lap-time-vs-`par_time_s`
+  plots, plus the shared racing plots (track progress, best-run throttle
+  trace, action distribution, termination reasons) reused from
+  `games/torcs/analytics.py`. The AC env now reports `episode_obs_averages`
+  (speed, |lateral offset|, RPM, gear, per-wheel slip) in terminal-step info
+  to feed the new plots.
 
 ---
 

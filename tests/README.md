@@ -1269,7 +1269,24 @@ config's `finish_bonus` — CarRacing-v3 sets `terminated=True` on both a real
 lap finish and an out-of-bounds crash, distinguished only by
 `info['lap_finished']`.
 
-- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
+Regression coverage: `CarRacingEnv._build_obs()` previously returned a
+constant all-zero vector from both `reset()` and `step()` — the documented
+9-feature vector (speed, angular velocity, 4 wheel angular velocities,
+steer/gas/brake) was never wired up, so every policy trained against this
+env was learning from no state information at all. Continuous-weight and
+gradient policies (`hill_climbing`, SAC, ...) degrade to noise under a
+constant observation; `test_convergence_smoke.py`'s tabular `epsilon_greedy`
+test did not catch it because binning a constant observation collapses the
+Q-table to a single state, so it still "learns" the single best action as a
+stateless bandit and clears the reward threshold regardless. Fixed by
+reading real per-step values off the Box2D `car` object
+(`car.hull.linearVelocity`/`angularVelocity`, `car.wheels[i].omega`) plus the
+last commanded action for steer/gas/brake.
+`test_obs_reflects_car_state_not_constant_zero` guards against this
+regression directly: under full throttle the `speed` feature must be
+nonzero and the `gas` feature must echo the commanded action.
+
+- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; obs reflects real car state (not a constant-zero stub); termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 

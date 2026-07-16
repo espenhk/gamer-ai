@@ -21,6 +21,20 @@ formatting, internal refactors with no behaviour change — can be skipped.
   run): the shipped grid config was missing `n_sims` / `in_game_episode_s`,
   so `grid_search.py` failed with `KeyError: 'n_sims'` before training could
   start. Added the same defaults used by the other `gs_*.yaml` templates.
+- **Fixed a severe bug in `CarRacingEnv`: `reset()`/`step()` always returned
+  a constant all-zero observation vector.** `_build_obs()` was an unwired
+  stub — the documented 9-feature observation (speed, angular velocity, 4
+  wheel angular velocities, steer/gas/brake) was never actually computed, so
+  every CarRacing policy (including the #482 SAC validation run) was
+  training completely blind to the car's state. This explains why a 500K-
+  timestep SAC run showed no learning trend at all (mean reward flat at
+  ~-124 across the entire run). Now reads real per-step values off the
+  Box2D `car` object. Added
+  `test_obs_reflects_car_state_not_constant_zero` (integration) to guard
+  against this regressing silently again — the existing convergence-smoke
+  test didn't catch it because tabular Q-learning over a constant,
+  binned observation degrades to a stateless bandit and can still clear the
+  reward threshold.
 
 ---
 

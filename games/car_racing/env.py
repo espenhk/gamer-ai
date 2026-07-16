@@ -89,6 +89,7 @@ class CarRacingEnv(BaseGameEnv):
 
         self._step_count: int = 0
         self._prev_info: dict = {}
+        self._last_action: np.ndarray = np.zeros(3, dtype=np.float32)
 
     def reset(
         self,
@@ -101,9 +102,10 @@ class CarRacingEnv(BaseGameEnv):
         _raw_obs, info = self._env.reset(seed=seed, options=options)
         self._step_count = 0
         self._prev_info = info
+        self._last_action = np.zeros(3, dtype=np.float32)
         self._reward_calc.reset()
 
-        return np.zeros(BASE_OBS_DIM, dtype=np.float32), info
+        return self._build_obs(), info
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
         # CarRacing-v2 uses [steer, gas, brake] in [-1,1] × [0,1] × [0,1].
@@ -119,6 +121,7 @@ class CarRacingEnv(BaseGameEnv):
         _raw_obs, native_reward, terminated, truncated, info = self._env.step(car_action)
 
         self._step_count += 1
+        self._last_action = car_action
 
         info["native_reward"] = float(native_reward)
         car = self._env.unwrapped.car
@@ -142,14 +145,25 @@ class CarRacingEnv(BaseGameEnv):
             info=info,
         )
 
-        obs = np.zeros(BASE_OBS_DIM, dtype=np.float32)
+        obs = self._build_obs()
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
         self._env.close()
 
-    def _build_obs(self, step: Any) -> np.ndarray:
-        return np.zeros(BASE_OBS_DIM, dtype=np.float32)
+    def _build_obs(self) -> np.ndarray:  # type: ignore[override]
+        # Raw (unnormalised) feature vector — matches games/car_racing/obs_spec.py's
+        # ordering; policies divide by ObsSpec.scales themselves.
+        car = self._env.unwrapped.car
+        vx, vy = car.hull.linearVelocity
+        speed = float(np.hypot(vx, vy))
+        angular_vel = float(car.hull.angularVelocity)
+        wheel_angs = [float(w.omega) for w in car.wheels]
+        steer, gas, brake = (float(v) for v in self._last_action)
+        return np.array(
+            [speed, angular_vel, *wheel_angs, steer, gas, brake],
+            dtype=np.float32,
+        )
 
     def get_episode_time_limit(self) -> float:
         return float(self._max_episode_steps) / 50.0

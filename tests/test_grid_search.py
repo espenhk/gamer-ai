@@ -591,13 +591,24 @@ class TestGridSearchCliFlags:
 
 
 class TestSc2NeuralNetTemplate:
-    def test_template_enables_early_random_action_reward(self):
+    def test_template_reward_params_are_valid_config_keys(self):
+        """Every reward_params key in the template must be a real SC2RewardConfig
+        field, so template tweaks can't silently introduce typo'd keys.  The
+        template's tuning *values* are intentionally not pinned — they change
+        between runs (e.g. early_random_action_bonus was enabled and later
+        disabled again)."""
+        import dataclasses
+
+        from games.sc2.reward import SC2RewardConfig
+
         path = "games/sc2/config/gs_sc2_neural_net_template.yaml"
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         reward = data.get("reward_params") or {}
-        assert reward.get("early_random_action_bonus") == 10.0
-        assert reward.get("early_random_action_window_steps") == 300
+        assert isinstance(reward, dict), "reward_params must be a mapping when set"
+        valid = {f.name for f in dataclasses.fields(SC2RewardConfig)}
+        unknown = set(reward) - valid
+        assert not unknown, f"unknown SC2RewardConfig keys in template: {sorted(unknown)}"
 
 
 class TestLoadGridConfigBcSection:

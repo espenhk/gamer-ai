@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.10] - 2026-07-16
+
 ### Added
 - `no_progress_patience_ticks` / `no_progress_min_ticks` reward-config keys (`games/tmnf/reward.py`, `games/tmnf/env.py`, issue #492): opt-in grace-period crash termination — end the episode after this many consecutive game ticks with no `track_progress` advance, gated by a minimum-ticks floor, alongside (not instead of) the existing instantaneous `crash_threshold_m` check. Disabled by default (`0`); mirrors tmrl's `FAILURE_COUNTDOWN`/`MIN_STEPS`.
 - Configurable TMNF lookahead observation (`games/tmnf/obs_spec.py`, issue #493): `training_params.yaml`'s `n_lookahead_points` / `lookahead_step_spacing` now control the number and spacing of lookahead waypoints fed to the policy, instead of the hardcoded 3-point `[10, 25, 50]` schedule. Threaded through `StateData`, `RLClient`, `TMNFEnv`, and `TMNFAdapter.build_game_spec()`; existing weight files auto-migrate via the standard "missing key → 0.0" rule. Leaving both keys unset reproduces the legacy schedule exactly.

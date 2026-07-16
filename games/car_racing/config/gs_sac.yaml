@@ -26,6 +26,8 @@ base_name: "sac_validation"
 game: car_racing
 
 training_params:
+  n_sims: 100
+  in_game_episode_s: 20.0
   policy_type: sac
 
   policy_params:

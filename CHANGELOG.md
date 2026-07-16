@@ -17,8 +17,10 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
-
-
+- Fixed `games/car_racing/config/gs_sac.yaml` (issue #482 SAC validation
+  run): the shipped grid config was missing `n_sims` / `in_game_episode_s`,
+  so `grid_search.py` failed with `KeyError: 'n_sims'` before training could
+  start. Added the same defaults used by the other `gs_*.yaml` templates.
 
 ---
 

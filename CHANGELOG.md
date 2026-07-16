@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.6] - 2026-07-16
+
 ### Added
 - BeamNG game-appropriate analytics (issue #462):
   `games/beamng/analytics.py` now produces airborne-fraction / per-wheel

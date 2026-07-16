@@ -277,6 +277,10 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
 - docs roster sync (issue #323): every `GAME_ADAPTERS` key appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
 
+### test_game_parity.py — per-game artifact completeness (issue #452)
+- for every `GAME_ADAPTERS` game: README.md exists with a `## Rewards` section containing a `Parameter | Default | Description` table / both config masters (`training_params.yaml`, `reward_config.yaml`) exist / ≥1 `gs_*.yaml` grid-search template / `analytics.py` defines ≥1 own `plot_*` function (not just framework re-exports) / minimum test files (obs_spec / reward / env, with documented per-game path aliases for tmnf and assetto)
+- known gaps are tracked in explicit exemption sets (`KNOWN_MISSING_GRID_TEMPLATES`, `KNOWN_STUB_ANALYTICS`, `KNOWN_MISSING_TESTS`), each entry linking its issue/PR; exempted checks `xfail`, and a stale exemption (artifact now exists but game still listed) FAILS so the sets cannot rot
+
 ### test_atari_obs_spec.py — Atari RAM observation spec
 - 128-dim flat float32 spec; one feature per RAM byte
 - names are unique, ordered as `ram_000`..`ram_127`, each scaled by 255.0

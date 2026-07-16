@@ -1,0 +1,35 @@
+# Grid search: CMAESPolicy on Assetto Corsa ((mu/mu_w, lambda)-CMA-ES)
+#
+# Primary axes:
+#   population_size — lambda in CMA-ES. Drives the total episode budget
+#                     (= n_sims * population_size).
+#   initial_sigma   — starting step size. CSA adapts sigma automatically
+#                     each generation, but the initial value controls how
+#                     far the first samples spread.
+#
+# Combos: 2 x 3 = 6
+
+base_name: "gs_assetto_cmaes_v1"
+game: assetto
+
+training_params:
+  speed: 5.0
+  in_game_episode_s: 150.0
+  n_sims: 30
+  policy_type: cmaes
+
+  # --- Search axes ---
+  population_size: [20, 40]
+  initial_sigma: [0.1, 0.3, 0.5]
+
+reward_params:
+  progress_weight: 1000.0
+  centerline_weight: -0.5
+  centerline_exp: 2.0
+  speed_weight: 0.05
+  step_penalty: -0.05
+  finish_bonus: 500.0
+  finish_time_weight: -1.0
+  par_time_s: 150.0
+  accel_bonus: 0.5
+  crash_threshold_m: 25.0

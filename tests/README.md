@@ -30,6 +30,7 @@
   - [test\_tmnf\_canonical\_plots.py — TMNF canonical-score plots (issue #481)](#test_tmnf_canonical_plotspy--tmnf-canonical-score-plots-issue-481)
   - [test\_tmnf\_obs\_spec.py — configurable lookahead observation (issue #493)](#test_tmnf_obs_specpy--configurable-lookahead-observation-issue-493)
   - [test\_new\_best\_logging.py — `_log_new_best_details` + `_print_episode_summary`](#test_new_best_loggingpy--_log_new_best_details--_print_episode_summary)
+  - [test\_run\_episode\_speed\_steer\_trace.py — RunTrace telemetry: steer in throttle\_state, speed\_trace (issue #461)](#test_run_episode_speed_steer_tracepy--runtrace-telemetry-steer-in-throttle_state-speed_trace-issue-461)
   - [test\_utils.py — math/state-extraction utils](#test_utilspy--mathstate-extraction-utils)
   - [test\_track.py — centreline geometry helpers](#test_trackpy--centreline-geometry-helpers)
   - [test\_version.py — `code_version()` + git revision reporting](#test_versionpy--code_version--git-revision-reporting)
@@ -58,7 +59,7 @@
   - [test\_torcs\_reward.py — TORCS reward calc](#test_torcs_rewardpy--torcs-reward-calc)
   - [test\_torcs\_analytics.py — TORCS plots/report](#test_torcs_analyticspy--torcs-plotsreport)
 - [CarRacing](#carracing)
-  - [test\_car\_racing\_analytics.py — CarRacing-specific analytics plots and report (issue #482 follow-up)](#test_car_racing_analyticspy--carracing-specific-analytics-plots-and-report-issue-482-follow-up)
+  - [test\_car\_racing\_analytics.py — CarRacing-specific analytics plots and report (issues #482, #461)](#test_car_racing_analyticspy--carracing-specific-analytics-plots-and-report-issues-482-461)
 - [SC2](#sc2)
   - [test\_sc2\_obs\_spec.py — SC2 obs spec](#test_sc2_obs_specpy--sc2-obs-spec)
   - [test\_sc2\_actions.py — discrete action grid + race gating](#test_sc2_actionspy--discrete-action-grid--race-gating)
@@ -146,6 +147,9 @@ info-gain; `TaskMetrics` aggregation and summary-table formatting;
 `compute_canonical_score` and the reward-config-independent canonical-score
 plumbing threaded through `RunTrace`, `GreedySimResult`, grid-summary stats,
 and the TMNF-specific canonical plots (issue #481);
+`RunTrace.throttle_state` 3-tuples (`accel, brake, steer`) and the
+`speed_trace` field sampled from `info["speed_ms"]`, gated absent when a
+game never reports it (issue #461);
 discretisation, frame-stacking and obs-memory wrappers; centreline geometry
 and the `tracks/registry.json` builder; grid-search Cartesian expansion +
 naming + nested `policy_params` promotion + local-worker process orchestration;
@@ -281,6 +285,10 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 - iRacing: experiment_dir, track_label default (laguna_seca) + override, build_probe/warmup = None
 - docs roster sync (issue #323): every `GAME_ADAPTERS` key appears in `CLAUDE.md`, so the top-level roster can't silently drift from the registry
 
+### test_game_parity.py — per-game artifact completeness (issue #452)
+- for every `GAME_ADAPTERS` game: README.md exists with a `## Rewards` section containing a `Parameter | Default | Description` table / both config masters (`training_params.yaml`, `reward_config.yaml`) exist / ≥1 `gs_*.yaml` grid-search template / `analytics.py` defines ≥1 own `plot_*` function (not just framework re-exports) / minimum test files (obs_spec / reward / env, with documented per-game path aliases for tmnf and assetto)
+- known gaps are tracked in explicit exemption sets (`KNOWN_MISSING_GRID_TEMPLATES`, `KNOWN_STUB_ANALYTICS`, `KNOWN_MISSING_TESTS`), each entry linking its issue/PR; exempted checks `xfail`, and a stale exemption (artifact now exists but game still listed) FAILS so the sets cannot rot
+
 ### test_atari_obs_spec.py — Atari RAM observation spec
 - 128-dim flat float32 spec; one feature per RAM byte
 - names are unique, ordered as `ram_000`..`ram_127`, each scaled by 255.0
@@ -361,6 +369,8 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 - BC warmstart validation (`_validate_bc_warmstart_combos`): passing compatible target returns `bc_target` string / `sc2_genetic` warmstart accepted by `sc2_cmaes` combo / incompatible target raises `ValueError` mentioning "incompatible" / error lists all failing combos but not passing ones / missing `bc_summary.json` raises / missing `bc_target` field in summary raises
 - BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `policy_weights.npz` (sc2_cnn) / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
 - multi-map axis (`_extract_map_axis`): `map_name` list returns key+values / `track` list returns key+values / scalar `map_name` returns `(None, None)` / no map key returns `(None, None)` / `_MAP_AXIS_KEYS` contains expected keys / after extraction, inner `_expand_grid` does not include the map key in `varied_keys` / two maps × two inner values → 2 independent combo sets of 2 each / both map-axis keys list-valued raises `ValueError` / empty map-axis list raises `ValueError`
+- continuous-game templates (issue #446): each `gs_genetic` / `gs_cmaes` / `gs_hill_climbing` template for car_racing, beamng, iracing and assetto_corsa parses through `_load_grid_config`, expands to the combo count documented in its header, and sweeps ≥1 axis / every `reward_params` key is a valid field of that game's RewardConfig dataclass
+- sc2_neural_net template: every `reward_params` key in `gs_sc2_neural_net_template.yaml` is a valid `SC2RewardConfig` field (tuning values intentionally not pinned — they change between runs)
 
 ### test_info_gain.py — staleness-based intrinsic reward
 - initial staleness all 1; never-observed = max; just-observed near zero; grows linearly
@@ -627,11 +637,28 @@ files are written without crashing).
 - plot greedy action dist / progress / termination reasons / cold-start dist
 - weight heatmap no-file safe; weight evolution no-weights; save plots no crash; save full report; empty experiment safe; grid summary; gs comparison progress
 
+## BeamNG
+
+### test_beamng_analytics.py — BeamNG analytics plots and report (issue #462)
+- `plot_airborne`: writes `beamng_airborne.png` (airborne fraction + per-wheel mean contact) from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without airborne/contact keys
+- `plot_mean_speed`: writes `beamng_mean_speed.png` from per-sim speed means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `beamng_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; malformed/non-numeric config skips the par line without crashing; skipped without finished sims
+- `save_experiment_results`: report contains the "BeamNG Plots" section + all four BeamNG plots plus reused torcs plots (greedy progress / termination reasons) when data present; BeamNG section omitted entirely when no game-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
+
+### test_beamng_env.py — `BeamNGEnv` episode_obs_averages telemetry (stubbed beamng_gym, issue #462)
+- terminal-step info carries per-episode means (speed, |lateral offset|, 4× wheel contact, airborne fraction with the ≤1-wheel-grounded definition); absent on non-terminal steps; accumulators reset between episodes; airborne=1.0 when only one wheel is grounded
+
 ## CarRacing
 
-### test_car_racing_analytics.py — CarRacing-specific analytics plots and report (issue #482 follow-up)
+### test_car_racing_analytics.py — CarRacing-specific analytics plots and report (issues #482, #461)
 - `SOLVED_REWARD_THRESHOLD` / `SOLVED_WINDOW_EPISODES` match CarRacing-v2's published "solved" benchmark (900 reward / 100 episodes)
 - `save_experiment_results` includes a "Reward Moving Average" section + `reward_moving_average.png` whenever `greedy_sims` is non-empty; reports "solved" vs "not yet solved" against the threshold; section omitted when there are no greedy sims
+- issue #461: report includes `greedy_action_dist.png` / `greedy_best_run.png` / `termination_reasons.png` (reused from `games/torcs/analytics.py`, which only touch generic `ExperimentData`/`RunTrace` fields) plus the two new CarRacing plots `action_histograms.png` (gas/brake/steer value histograms of the best run) and `speed_trace.png` (best-run speed over time); these and `greedy_best_run.png` are gated on the best sim having a populated `trace`/`speed_trace` and omitted from the report (no crash, no file, no broken link) when that data is absent
+
+### test_run_episode_speed_steer_trace.py — RunTrace telemetry: steer in throttle_state, speed_trace (issue #461)
+- `throttle_state` entries are now `(accel, brake, steer)` 3-tuples (previously `(accel, brake)`) — steer is read from `action_stats[0]`, same source already used for the turning-rate counter
+- `speed_trace` is sampled from `info["speed_ms"]` at the same cadence as `pos_x`/`pos_z` (every `_TRACE_SAMPLE_EVERY` steps); stays empty for games that never report `speed_ms` (mirrors the `track_progress` gating pattern)
 
 ## SC2
 
@@ -1154,6 +1181,13 @@ real episode rollouts and goal-detection signals from the game process.
 - raw-obs parsing (`_parse_obs` / `_parse_obs_row`): oversized raw truncated, undersized zero-padded, `None` → zeros; single-agent list → 1-D, multi-agent list → stacked `(n, dim)`, empty list → zeros
 - `_compute_vel_towards_ball`: positive when approaching, negative when receding, 0.0 (no div-by-zero) when car/ball positions coincide
 - discrete actions shape (≥9, 8-dim); probe count=6, shape; warmup shape; action bounds respected
+- `episode_obs_averages` (issue #466): terminal-step info carries per-episode means (boost, dist_to_ball, vel_towards_ball) plus the `ball_touches` step count; absent on non-terminal steps; accumulators reset between episodes
+
+### test_rocket_league_analytics.py — Rocket League match analytics plots and report (issue #466)
+- `plot_match_results`: writes `rl_match_results.png` (win/loss/draw from `termination_reason` — episodes end on the first goal, so the reason is the result); unknown reasons count as draws; skipped without greedy sims
+- `plot_ball_touches` / `plot_boost_usage`: per-episode touch counts / mean boost from `obs_averages`; skipped without obs_averages
+- `plot_ball_pursuit`: two-panel mean dist_to_ball + vel_towards_ball per episode; skipped without obs_averages or when the pursuit keys are absent
+- `save_experiment_results`: report contains the "Rocket League Plots" section with all four plots when data present; match-results plot still fires without obs_averages (termination_reason is always recorded); section omitted entirely without greedy sims
 
 ## CLI / misc
 
@@ -1177,6 +1211,14 @@ Assetto Corsa shared-memory client.
 
 ### assetto_corsa/test_smoke.py — Assetto Corsa smoke tests (against fake client)
 - obs spec dimensions match base obs_dim; env reset obs shape; step 5-tuple finite reward; info reflects current step; env terminates on finish; vision features; reward calc finite; 5-episode training loop with linear policy
+- `episode_obs_averages` (issue #464): terminal-step info carries per-episode means (speed, |lateral offset|, RPM, gear, 4× wheel slip); absent on non-terminal steps; accumulators reset between episodes
+
+### assetto_corsa/test_analytics.py — Assetto Corsa analytics plots and report (issue #464)
+- `plot_wheel_slip`: writes `ac_wheel_slip.png` from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without slip keys
+- `plot_rpm_gear`: writes `ac_rpm_gear.png` from per-sim RPM/gear means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `ac_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; skipped without finished sims
+- `save_experiment_results`: report contains the "Assetto Corsa Plots" section + all four AC plots plus reused torcs plots (greedy progress / termination reasons) when data present; AC section omitted entirely when no AC-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
 
 ---
 
@@ -1220,8 +1262,14 @@ within the step limit; that total accumulated reward is finite; that multiple
 reset/step cycles leave no leaked state.  Three training-loop tests run 1
 hill-climbing sim, 1 genetic generation (population 2), and 1 ε-greedy episode
 against the real CarRacing environment to verify the full stack end-to-end.
+Issue #461: `info['speed_ms']` (derived from the car's Box2D hull velocity)
+is present and finite; forcing the car out of the playfield reports
+`termination_reason="crash"` (not `"finish"`) and does not grant the reward
+config's `finish_bonus` — CarRacing-v3 sets `terminated=True` on both a real
+lap finish and an out-of-bounds crash, distinguished only by
+`info['lap_finished']`.
 
-- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent
+- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 

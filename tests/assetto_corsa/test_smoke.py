@@ -193,3 +193,56 @@ def test_five_episode_training_loop_with_linear_policy():
         assert all(math.isfinite(r) for r in rewards)
     finally:
         env.close()
+
+
+def test_episode_obs_averages_in_terminal_info():
+    """Terminal-step info carries per-episode feature means for analytics (issue #464)."""
+    env = AssettoCorsaEnv(env_factory=_factory)
+    try:
+        env.reset()
+        action = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        info = {}
+        for _ in range(20):
+            _, _, terminated, truncated, info = env.step(action)
+            assert "episode_obs_averages" not in info or terminated or truncated
+            if terminated or truncated:
+                break
+        avgs = info.get("episode_obs_averages")
+        assert avgs is not None
+        for key in (
+            "speed_ms",
+            "abs_lateral_offset_m",
+            "engine_rpm",
+            "gear",
+            "wheel_0_slip",
+            "wheel_1_slip",
+            "wheel_2_slip",
+            "wheel_3_slip",
+        ):
+            assert key in avgs, f"missing obs-average key: {key}"
+        assert avgs["engine_rpm"] == pytest.approx(4000.0)
+        assert avgs["gear"] == pytest.approx(3.0)
+        assert avgs["abs_lateral_offset_m"] == pytest.approx(0.5)
+        # Stub speed ramps 20 → 50 m/s over the episode, so the mean is inside.
+        assert 20.0 < avgs["speed_ms"] <= 50.0
+    finally:
+        env.close()
+
+
+def test_episode_obs_averages_reset_between_episodes():
+    """Obs-average accumulators must clear on reset (memory rule in CLAUDE.md)."""
+    env = AssettoCorsaEnv(env_factory=_factory)
+    try:
+        action = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        for _ in range(2):
+            env.reset()
+            assert env._ep_obs_steps == 0
+            assert env._ep_obs_sums == {}
+            info = {}
+            for _ in range(20):
+                _, _, terminated, truncated, info = env.step(action)
+                if terminated or truncated:
+                    break
+            assert info.get("episode_obs_averages", {}).get("engine_rpm") == pytest.approx(4000.0)
+    finally:
+        env.close()

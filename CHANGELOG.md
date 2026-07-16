@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.8] - 2026-07-16
+
 ### Added
 - Rocket League game-appropriate analytics (issue #466):
   `games/rocket_league/analytics.py` now produces match-result breakdown
@@ -25,7 +30,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   plots instead of the generic racing stubs. The env now reports
   `episode_obs_averages` (boost, dist_to_ball, vel_towards_ball means plus a
   `ball_touches` step count) in terminal-step info to feed the new plots.
-
 
 ---
 

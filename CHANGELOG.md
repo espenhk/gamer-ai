@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.4] - 2026-07-16
+
 ### Fixed
 - Failing test on `main`: `test_grid_search.py` no longer pins the
   `gs_sc2_neural_net_template.yaml` tuning values (the template had

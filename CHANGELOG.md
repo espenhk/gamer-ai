@@ -26,6 +26,54 @@ formatting, internal refactors with no behaviour change — can be skipped.
   `episode_obs_averages` (boost, dist_to_ball, vel_towards_ball means plus a
   `ball_touches` step count) in terminal-step info to feed the new plots.
 
+
+---
+
+## [0.9.7] - 2026-07-16
+
+---
+
+## [0.9.6] - 2026-07-16
+
+### Added
+- BeamNG game-appropriate analytics (issue #462):
+  `games/beamng/analytics.py` now produces airborne-fraction / per-wheel
+  ground-contact, mean-speed, centerline-offset distribution, and
+  lap-time-vs-`par_time_s` plots, plus the shared racing plots (track
+  progress, best-run throttle trace, action distribution, termination
+  reasons) reused from `games/torcs/analytics.py`. The BeamNG env now
+  reports `episode_obs_averages` (speed, |lateral offset|, wheel contacts,
+  airborne indicator) in terminal-step info to feed the new plots.
+- Assetto Corsa game-appropriate analytics (issue #464):
+  `games/assetto_corsa/analytics.py` now produces wheel-slip (traction), RPM /
+  gear usage, centerline-offset distribution, and lap-time-vs-`par_time_s`
+  plots, plus the shared racing plots (track progress, best-run throttle
+  trace, action distribution, termination reasons) reused from
+  `games/torcs/analytics.py`. The AC env now reports `episode_obs_averages`
+  (speed, |lateral offset|, RPM, gear, per-wheel slip) in terminal-step info
+  to feed the new plots.
+
+---
+
+## [0.9.5] - 2026-07-16
+
+### Added
+- Ready-made grid-search templates (`gs_genetic.yaml`, `gs_cmaes.yaml`,
+  `gs_hill_climbing.yaml`) for car_racing, beamng and iracing, plus
+  `gs_cmaes.yaml` / `gs_hill_climbing.yaml` for assetto_corsa (issue #446).
+  All templates are covered by parse/expansion/reward-key-validity tests in
+  `tests/test_grid_search.py`.
+
+---
+
+## [0.9.4] - 2026-07-16
+
+### Fixed
+- Failing test on `main`: `test_grid_search.py` no longer pins the
+  `gs_sc2_neural_net_template.yaml` tuning values (the template had
+  intentionally disabled `early_random_action_bonus`); it now validates that
+  every `reward_params` key in the template is a real `SC2RewardConfig` field.
+
 ---
 
 ## [0.9.3] - 2026-07-15

@@ -1,0 +1,29 @@
+# Grid search: CMAESPolicy on CarRacing-v3 ((mu/mu_w, lambda)-CMA-ES)
+#
+# Primary axes:
+#   population_size — lambda in CMA-ES. Drives the total episode budget
+#                     (= n_sims * population_size).
+#   initial_sigma   — starting step size. CSA adapts sigma automatically
+#                     each generation, but the initial value controls how
+#                     far the first samples spread.
+#
+# Combos: 2 x 2 = 4
+
+base_name: "gs_car_racing_cmaes_v1"
+game: car_racing
+
+training_params:
+  speed: 1.0
+  n_sims: 30
+  in_game_episode_s: 20.0
+  policy_type: cmaes
+
+  # --- Search axes ---
+  population_size: [12, 24]
+  initial_sigma: [0.1, 0.3]
+
+reward_params:
+  native_reward_scale: 1.0
+  step_penalty: -0.1
+  finish_bonus: 100.0
+  crash_threshold_m: 25.0

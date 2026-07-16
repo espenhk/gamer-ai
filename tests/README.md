@@ -361,6 +361,8 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 - BC warmstart validation (`_validate_bc_warmstart_combos`): passing compatible target returns `bc_target` string / `sc2_genetic` warmstart accepted by `sc2_cmaes` combo / incompatible target raises `ValueError` mentioning "incompatible" / error lists all failing combos but not passing ones / missing `bc_summary.json` raises / missing `bc_target` field in summary raises
 - BC weight copy (`_copy_bc_weights`): copies `policy_weights.yaml` / copies `policy_weights.npz` (sc2_cnn) / copies `trainer_state.npz` when present / copies `policy_weights_qtable.pkl` when present / silently skips absent optional files / raises `FileNotFoundError` when no weight files at all / never copies `bc_summary.json`
 - multi-map axis (`_extract_map_axis`): `map_name` list returns key+values / `track` list returns key+values / scalar `map_name` returns `(None, None)` / no map key returns `(None, None)` / `_MAP_AXIS_KEYS` contains expected keys / after extraction, inner `_expand_grid` does not include the map key in `varied_keys` / two maps × two inner values → 2 independent combo sets of 2 each / both map-axis keys list-valued raises `ValueError` / empty map-axis list raises `ValueError`
+- continuous-game templates (issue #446): each `gs_genetic` / `gs_cmaes` / `gs_hill_climbing` template for car_racing, beamng, iracing and assetto_corsa parses through `_load_grid_config`, expands to the combo count documented in its header, and sweeps ≥1 axis / every `reward_params` key is a valid field of that game's RewardConfig dataclass
+- sc2_neural_net template: every `reward_params` key in `gs_sc2_neural_net_template.yaml` is a valid `SC2RewardConfig` field (tuning values intentionally not pinned — they change between runs)
 
 ### test_info_gain.py — staleness-based intrinsic reward
 - initial staleness all 1; never-observed = max; just-observed near zero; grows linearly
@@ -626,6 +628,18 @@ files are written without crashing).
 ### test_torcs_analytics.py — TORCS plots/report
 - plot greedy action dist / progress / termination reasons / cold-start dist
 - weight heatmap no-file safe; weight evolution no-weights; save plots no crash; save full report; empty experiment safe; grid summary; gs comparison progress
+
+## BeamNG
+
+### test_beamng_analytics.py — BeamNG analytics plots and report (issue #462)
+- `plot_airborne`: writes `beamng_airborne.png` (airborne fraction + per-wheel mean contact) from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without airborne/contact keys
+- `plot_mean_speed`: writes `beamng_mean_speed.png` from per-sim speed means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `beamng_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; malformed/non-numeric config skips the par line without crashing; skipped without finished sims
+- `save_experiment_results`: report contains the "BeamNG Plots" section + all four BeamNG plots plus reused torcs plots (greedy progress / termination reasons) when data present; BeamNG section omitted entirely when no game-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
+
+### test_beamng_env.py — `BeamNGEnv` episode_obs_averages telemetry (stubbed beamng_gym, issue #462)
+- terminal-step info carries per-episode means (speed, |lateral offset|, 4× wheel contact, airborne fraction with the ≤1-wheel-grounded definition); absent on non-terminal steps; accumulators reset between episodes; airborne=1.0 when only one wheel is grounded
 
 ## CarRacing
 
@@ -1159,6 +1173,13 @@ real episode rollouts and goal-detection signals from the game process.
 - raw-obs parsing (`_parse_obs` / `_parse_obs_row`): oversized raw truncated, undersized zero-padded, `None` → zeros; single-agent list → 1-D, multi-agent list → stacked `(n, dim)`, empty list → zeros
 - `_compute_vel_towards_ball`: positive when approaching, negative when receding, 0.0 (no div-by-zero) when car/ball positions coincide
 - discrete actions shape (≥9, 8-dim); probe count=6, shape; warmup shape; action bounds respected
+- `episode_obs_averages` (issue #466): terminal-step info carries per-episode means (boost, dist_to_ball, vel_towards_ball) plus the `ball_touches` step count; absent on non-terminal steps; accumulators reset between episodes
+
+### test_rocket_league_analytics.py — Rocket League match analytics plots and report (issue #466)
+- `plot_match_results`: writes `rl_match_results.png` (win/loss/draw from `termination_reason` — episodes end on the first goal, so the reason is the result); unknown reasons count as draws; skipped without greedy sims
+- `plot_ball_touches` / `plot_boost_usage`: per-episode touch counts / mean boost from `obs_averages`; skipped without obs_averages
+- `plot_ball_pursuit`: two-panel mean dist_to_ball + vel_towards_ball per episode; skipped without obs_averages or when the pursuit keys are absent
+- `save_experiment_results`: report contains the "Rocket League Plots" section with all four plots when data present; match-results plot still fires without obs_averages (termination_reason is always recorded); section omitted entirely without greedy sims
 
 ## CLI / misc
 
@@ -1182,6 +1203,14 @@ Assetto Corsa shared-memory client.
 
 ### assetto_corsa/test_smoke.py — Assetto Corsa smoke tests (against fake client)
 - obs spec dimensions match base obs_dim; env reset obs shape; step 5-tuple finite reward; info reflects current step; env terminates on finish; vision features; reward calc finite; 5-episode training loop with linear policy
+- `episode_obs_averages` (issue #464): terminal-step info carries per-episode means (speed, |lateral offset|, RPM, gear, 4× wheel slip); absent on non-terminal steps; accumulators reset between episodes
+
+### assetto_corsa/test_analytics.py — Assetto Corsa analytics plots and report (issue #464)
+- `plot_wheel_slip`: writes `ac_wheel_slip.png` from per-sim `obs_averages`; skipped (returns False, no file) without obs_averages or without slip keys
+- `plot_rpm_gear`: writes `ac_rpm_gear.png` from per-sim RPM/gear means; skipped without obs_averages
+- `plot_centerline_distribution`: histogram of per-sim mean |lateral offset|; falls back to the `abs_lateral_offset_m` obs-average key; skipped when neither source exists
+- `plot_lap_time_progression`: writes `ac_lap_times.png` from `finish_time_s` of finished sims (with best-so-far step line); draws the `par_time_s` line when the reward config file exists; skipped without finished sims
+- `save_experiment_results`: report contains the "Assetto Corsa Plots" section + all four AC plots plus reused torcs plots (greedy progress / termination reasons) when data present; AC section omitted entirely when no AC-specific data; `greedy_best_run.png` link gated on file existence (no broken links when sims carry no trace)
 
 ---
 

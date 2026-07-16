@@ -591,13 +591,24 @@ class TestGridSearchCliFlags:
 
 
 class TestSc2NeuralNetTemplate:
-    def test_template_enables_early_random_action_reward(self):
+    def test_template_reward_params_are_valid_config_keys(self):
+        """Every reward_params key in the template must be a real SC2RewardConfig
+        field, so template tweaks can't silently introduce typo'd keys.  The
+        template's tuning *values* are intentionally not pinned — they change
+        between runs (e.g. early_random_action_bonus was enabled and later
+        disabled again)."""
+        import dataclasses
+
+        from games.sc2.reward import SC2RewardConfig
+
         path = "games/sc2/config/gs_sc2_neural_net_template.yaml"
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         reward = data.get("reward_params") or {}
-        assert reward.get("early_random_action_bonus") == 10.0
-        assert reward.get("early_random_action_window_steps") == 300
+        assert isinstance(reward, dict), "reward_params must be a mapping when set"
+        valid = {f.name for f in dataclasses.fields(SC2RewardConfig)}
+        unknown = set(reward) - valid
+        assert not unknown, f"unknown SC2RewardConfig keys in template: {sorted(unknown)}"
 
 
 class TestLoadGridConfigBcSection:
@@ -807,3 +818,69 @@ class TestCopyBcWeights:
             json.dump({"bc_target": "sc2_genetic"}, f)
         _copy_bc_weights(str(src_dir), str(dst_dir))
         assert not (dst_dir / "bc_summary.json").exists()
+
+
+class TestContinuousGameGridTemplates:
+    """The ready-made gs_*.yaml templates for the continuous-action games
+    (issue #446) parse through _load_grid_config and expand to the combo
+    count documented in each file's header comment."""
+
+    TEMPLATES = [
+        ("games/car_racing/config/gs_genetic.yaml", "car_racing", 6),
+        ("games/car_racing/config/gs_cmaes.yaml", "car_racing", 4),
+        ("games/car_racing/config/gs_hill_climbing.yaml", "car_racing", 6),
+        ("games/beamng/config/gs_genetic.yaml", "beamng", 6),
+        ("games/beamng/config/gs_cmaes.yaml", "beamng", 6),
+        ("games/beamng/config/gs_hill_climbing.yaml", "beamng", 6),
+        ("games/iracing/config/gs_genetic.yaml", "iracing", 6),
+        ("games/iracing/config/gs_cmaes.yaml", "iracing", 6),
+        ("games/iracing/config/gs_hill_climbing.yaml", "iracing", 6),
+        ("games/assetto_corsa/config/gs_genetic.yaml", "assetto", 6),
+        ("games/assetto_corsa/config/gs_cmaes.yaml", "assetto", 6),
+        ("games/assetto_corsa/config/gs_hill_climbing.yaml", "assetto", 6),
+    ]
+
+    @staticmethod
+    def _header_combo_count(path):
+        """Parse the '# Combos: N x M = K' line from a template's header."""
+        import re
+
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"#\s*Combos:.*?=\s*(\d+)\s*$", line)
+                if m:
+                    return int(m.group(1))
+        return None
+
+    @pytest.mark.parametrize("path,game,n_combos", TEMPLATES)
+    def test_template_parses_and_expands(self, path, game, n_combos):
+        base_name, loaded_game, _track, training, reward, _dist, _bc = _load_grid_config(path)
+        assert base_name
+        assert loaded_game == game
+        combos, varied_keys = _expand_grid(training, reward)
+        assert len(combos) == n_combos
+        assert varied_keys, f"{path} should sweep at least one axis"
+        header_count = self._header_combo_count(path)
+        assert header_count is not None, f"{path} is missing a '# Combos: ... = N' header line"
+        assert header_count == len(combos), (
+            f"{path} header documents {header_count} combos but the grid expands to {len(combos)}"
+        )
+
+    @pytest.mark.parametrize("path,game,n_combos", TEMPLATES)
+    def test_template_reward_keys_are_valid_for_game(self, path, game, n_combos):
+        """Every reward_params key must be accepted by the game's RewardConfig."""
+        import dataclasses
+
+        config_cls = {
+            "car_racing": ("games.car_racing.reward", "CarRacingRewardConfig"),
+            "beamng": ("games.beamng.reward", "BeamNGRewardConfig"),
+            "iracing": ("games.iracing.reward", "IRacingRewardConfig"),
+            "assetto": ("games.assetto_corsa.reward", "RewardConfig"),
+        }
+        module_name, cls_name = config_cls[game]
+        module = __import__(module_name, fromlist=[cls_name])
+        cls = getattr(module, cls_name)
+        valid = {f.name for f in dataclasses.fields(cls)}
+        _, _, _, _training, reward, _, _ = _load_grid_config(path)
+        unknown = set(reward) - valid
+        assert not unknown, f"unknown reward keys in {path}: {sorted(unknown)}"

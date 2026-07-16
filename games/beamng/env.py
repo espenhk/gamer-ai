@@ -80,6 +80,10 @@ class BeamNGEnv(BaseGameEnv):
         self._elapsed_s: float = 0.0
         self._episode_start_s: float = 0.0
         self._step_count: int = 0
+        # Per-episode running sums for episode_obs_averages (bounded: fixed
+        # key set, scalar sums only; cleared on every reset()).
+        self._ep_obs_sums: dict[str, float] = {}
+        self._ep_obs_steps: int = 0
 
     def reset(
         self,
@@ -97,6 +101,8 @@ class BeamNGEnv(BaseGameEnv):
         self._episode_start_s = time.monotonic()
         self._step_count = 0
         self._reward_calc.reset()
+        self._ep_obs_sums = {}
+        self._ep_obs_steps = 0
 
         return obs, {}
 
@@ -149,10 +155,35 @@ class BeamNGEnv(BaseGameEnv):
 
         self._prev_progress = curr_progress
 
+        self._accumulate_obs_averages(obs)
+        if (terminated or truncated) and self._ep_obs_steps > 0:
+            info["episode_obs_averages"] = {k: v / self._ep_obs_steps for k, v in self._ep_obs_sums.items()}
+
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
         self._env.close()
+
+    def _accumulate_obs_averages(self, obs: np.ndarray) -> None:
+        """Accumulate the per-episode feature sums behind episode_obs_averages.
+
+        Wheel contacts sit at obs[6..9] (see games.beamng.obs_spec); the
+        airborne indicator matches TMNF's definition — at most one wheel
+        touching the ground.
+        """
+        contacts = [float(obs[6]), float(obs[7]), float(obs[8]), float(obs[9])]
+        samples = {
+            "speed_ms": float(obs[0]),
+            "abs_lateral_offset_m": abs(float(obs[1])),
+            "wheel_0_contact": contacts[0],
+            "wheel_1_contact": contacts[1],
+            "wheel_2_contact": contacts[2],
+            "wheel_3_contact": contacts[3],
+            "airborne": 1.0 if sum(contacts) <= 1.0 else 0.0,
+        }
+        for key, val in samples.items():
+            self._ep_obs_sums[key] = self._ep_obs_sums.get(key, 0.0) + val
+        self._ep_obs_steps += 1
 
     def _build_obs(self, step: Any) -> np.ndarray:
         return np.zeros(BASE_OBS_DIM, dtype=np.float32)

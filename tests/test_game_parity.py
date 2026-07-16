@@ -52,27 +52,23 @@ def _game_dir(game: str) -> str:
 # ---------------------------------------------------------------------------
 
 #: Games with no grid-search template yet.
+#: (beamng and iracing left this set when PR #500 / issue #446 merged.)
 KNOWN_MISSING_GRID_TEMPLATES = {
-    "beamng",  # issue #446 — templates added by PR #500
-    "iracing",  # issue #446 — templates added by PR #500
     "minerl",  # newest integration; no template/tracking issue yet
 }
 
 #: Games whose analytics.py is still the framework-reexport stub.
-#: (car_racing left this set when PR #497 / issue #461 merged.)
+#: (car_racing, assetto, beamng and rocket_league left this set as
+#: PRs #497 / #501 / #502 / #503 merged.)
 KNOWN_STUB_ANALYTICS = {
-    "assetto",  # issue #464 — real analytics in PR #501
     "atari",  # issue #465 — real analytics in PR #471
-    "beamng",  # issue #462 — real analytics in PR #502
     "minerl",  # issue #449 (umbrella); no per-game issue yet
-    "rocket_league",  # issue #466 — real analytics in PR #503
 }
 
 #: (game, kind) pairs where the minimum unit-test file is missing.
 KNOWN_MISSING_TESTS = {
-    ("beamng", "obs_spec"),  # no beamng unit tests yet; env test lands in PR #502
+    ("beamng", "obs_spec"),  # no beamng obs-spec/reward unit tests yet
     ("beamng", "reward"),
-    ("beamng", "env"),  # PR #502 adds tests/test_beamng_env.py
     ("car_racing", "obs_spec"),  # covered by tests/integration/test_car_racing.py only
     ("car_racing", "reward"),
     ("car_racing", "env"),

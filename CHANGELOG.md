@@ -48,6 +48,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
   via the `obs_spec` already threaded through `run_sb3_loop`, so this fixes
   every game/SB3-policy combination, not just CarRacing — including the
   TMNF long-horizon SAC run (issue #489) that shares the same code path.
+- **Fixed `--re-initialize` silently discarding an SB3 crash-safe checkpoint
+  on resume.** A `*_sb3_checkpoint.zip` exists specifically to be resumed
+  after an interruption; `_construct_or_resume()` previously honored
+  `--re-initialize` even when one existed, wiping it — a logical
+  contradiction, since re-running the same launch command after a
+  crash/restart (which may still carry `--re-initialize` from the original
+  fresh launch) would silently restart training from zero instead of
+  resuming. `--re-initialize` is now ignored (with a logged warning) when a
+  checkpoint exists; delete the checkpoint/replay-buffer files directly to
+  genuinely discard one. Added
+  `test_re_initialize_is_ignored_when_a_checkpoint_exists`.
 
 ---
 

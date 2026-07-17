@@ -405,8 +405,17 @@ resume, `_SB3Policy.build_model()` loads the checkpoint (falling back to the
 best-reward snapshot if no checkpoint exists yet) and the replay buffer if
 present, and `run_sb3_loop` computes `remaining = target_total_timesteps -
 model.num_timesteps` so training stops at the same absolute target regardless
-of how many times the process crashed and resumed. `--re-initialize` ignores
-both files and starts fresh, as with any other policy.
+of how many times the process crashed and resumed. **`--re-initialize` is
+ignored when a `*_sb3_checkpoint.zip` exists** — a checkpoint exists
+specifically to be resumed after an interruption, so honoring the flag there
+would silently discard in-progress training on the routine relaunch that
+follows any crash/restart (a logical contradiction between "resume this
+checkpoint" and "start fresh"). A warning is logged when this happens. With
+no checkpoint present, `--re-initialize` still discards the best-reward
+`*_sb3_model.zip` and starts fresh, as with any other policy. To genuinely
+discard an existing checkpoint (e.g. after a code change invalidates it),
+delete `*_sb3_checkpoint.zip` / `*_sb3_replay_buffer.pkl` (or the whole
+experiment directory) rather than relying on `--re-initialize`.
 
 `alphazero_mcts` is gated off every current game (`compatible_with` returns
 `False` for TMNF/SC2/TORCS/CarRacing/BeamNG/Assetto/Rocket League/iRacing)

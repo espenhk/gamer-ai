@@ -304,6 +304,38 @@ def test_resume_continues_step_count_instead_of_restarting(tmp_path):
     assert model.replay_buffer.size() > 0
 
 
+def test_re_initialize_is_ignored_when_a_checkpoint_exists(tmp_path):
+    """--re-initialize must not silently discard a crash-safe checkpoint.
+
+    A periodic resume checkpoint exists specifically to be resumed after an
+    interruption; re-running the same launch command (which may still carry
+    --re-initialize from the original fresh launch) must resume from it
+    rather than wipe it — the flag would otherwise contradict the
+    checkpoint's own purpose. Regression test for exactly this incident.
+    """
+    spec = _game_spec(tmp_path)
+    first_target = 64
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = first_target
+    data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+    assert data.greedy_sims
+
+    # Re-running with re_initialize=True again (as if the launch command was
+    # copy-pasted verbatim to resume after a crash) must still resume.
+    resumed_policy = POLICY_REGISTRY["sac"].make(
+        obs_spec=spec.obs_spec,
+        head_names=spec.head_names,
+        discrete_actions=spec.discrete_actions,
+        weights_file=spec.weights_file,
+        policy_params={"learning_starts": 8, "buffer_size": 200, "batch_size": 8, "train_freq": 1},
+        re_initialize=True,
+    )
+    assert resumed_policy._resume is True
+    model = resumed_policy.build_model(_DummyEnv())
+    assert model.num_timesteps >= first_target
+    assert model.replay_buffer.size() > 0
+
+
 def test_resume_skips_training_once_target_reached(tmp_path):
     """Re-running with the same total_timesteps target after completion is a no-op."""
     spec = _game_spec(tmp_path)

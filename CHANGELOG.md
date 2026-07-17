@@ -59,6 +59,17 @@ formatting, internal refactors with no behaviour change — can be skipped.
   checkpoint exists; delete the checkpoint/replay-buffer files directly to
   genuinely discard one. Added
   `test_re_initialize_is_ignored_when_a_checkpoint_exists`.
+- Fixed CarRacing's wheel angular-velocity observation scale
+  (`games/car_racing/obs_spec.py`, `wheel_N_ang`): `100.0` badly
+  undershoots the real range — empirically, full-throttle driving reaches
+  wheel angular velocity ~300, so the "normalised" feature was actually
+  landing around 3x its intended unit scale rather than the ~1x every other
+  feature gets, working against gradient-based policies (SAC) that assume
+  roughly comparable feature magnitudes. Raised to `300.0`. Contributed to
+  (but was not the primary cause of) the #482 SAC validation run's weak
+  learning trend, alongside the too-short 500K-step budget — see the
+  updated `games/car_racing/config/gs_sac.yaml` (now `total_timesteps:
+  5_000_000`, `buffer_size: 1_000_000` to match).
 
 ---
 

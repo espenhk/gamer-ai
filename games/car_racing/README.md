@@ -64,7 +64,7 @@ The underlying `CarRacing-v2` environment uses 96×96×3 pixel observations. Thi
 |---|---|---|
 | `speed` | 100.0 | Vehicle speed |
 | `angular_vel` | 10.0 | Rotational velocity |
-| `wheel_0_ang`–`wheel_3_ang` | 100.0 | Wheel angular velocities |
+| `wheel_0_ang`–`wheel_3_ang` | 300.0 | Wheel angular velocities |
 | `steering` | 1.0 | Current steering input [−1, 1] |
 | `gas` | 1.0 | Current throttle input [0, 1] |
 | `brake` | 1.0 | Current brake input [0, 1] |

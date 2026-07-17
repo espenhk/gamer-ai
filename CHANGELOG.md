@@ -35,6 +35,19 @@ formatting, internal refactors with no behaviour change — can be skipped.
   test didn't catch it because tabular Q-learning over a constant,
   binned observation degrades to a stateless bandit and can still clear the
   reward threshold.
+- **Fixed SB3 policies (`ppo`, `sac`, `td3`, `a2c`, `qr_dqn`,
+  `recurrent_ppo`) training on raw, unnormalised observations.** The
+  numpy-native policies (`WeightedLinearPolicy` and friends) each divide by
+  `ObsSpec.scales` before using an observation; the SB3 loop
+  (`framework/sb3_support.py::run_sb3_loop`) never applied that same
+  convention, so SB3 policies saw features spanning wildly different raw
+  magnitudes (e.g. CarRacing's wheel angular velocity growing into the
+  hundreds alongside a steer/gas/brake triplet in [-1, 1]) — a classic cause
+  of unstable, noisy, non-converging learning that looks like a training bug
+  rather than a scaling one. Added `NormalizeObsWrapper`, applied generically
+  via the `obs_spec` already threaded through `run_sb3_loop`, so this fixes
+  every game/SB3-policy combination, not just CarRacing — including the
+  TMNF long-horizon SAC run (issue #489) that shares the same code path.
 
 ---
 

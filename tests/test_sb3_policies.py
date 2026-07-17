@@ -139,6 +139,55 @@ def test_total_timesteps_resolution(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Observation normalisation                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_normalize_obs_wrapper_divides_by_scales():
+    """NormalizeObsWrapper must divide raw observations by ObsSpec.scales,
+    matching the convention numpy-native policies apply internally
+    (framework/policies.py: ``norm_obs = obs / self._obs_spec.scales``).
+    Regression guard for the SB3 loop training on raw, unnormalised
+    observations spanning wildly different magnitudes."""
+    from framework.sb3_support import NormalizeObsWrapper
+
+    env = _DummyEnv()
+    scales = np.array([1.0, 10.0, 100.0], dtype=np.float32)
+    wrapped = NormalizeObsWrapper(env, scales)
+
+    raw_obs, _ = env.reset()
+    norm_obs, _ = wrapped.reset()
+    np.testing.assert_array_equal(norm_obs, raw_obs / scales)
+
+    action = np.array([0.5, -0.5], dtype=np.float32)
+    raw_obs, *_ = env.step(action)
+    norm_obs, *_ = wrapped.step(action)
+    np.testing.assert_allclose(norm_obs, raw_obs / scales, atol=1e-6)
+
+
+def test_run_sb3_loop_applies_obs_spec_scale(tmp_path):
+    """End-to-end: passing a non-unit-scale obs_spec through train_rl() must
+    actually reach the SB3 model as normalised, not raw, observations."""
+    from framework.obs_spec import ObsDim, ObsSpec
+
+    spec = _game_spec(tmp_path)
+    spec = GameSpec(
+        experiment_name=spec.experiment_name,
+        track=spec.track,
+        make_env_fn=spec.make_env_fn,
+        obs_spec=ObsSpec([ObsDim(f"f{i}", 10.0, "dummy") for i in range(_OBS_DIM)]),
+        head_names=spec.head_names,
+        discrete_actions=spec.discrete_actions,
+        weights_file=spec.weights_file,
+        reward_config_file=spec.reward_config_file,
+        game_name=spec.game_name,
+    )
+    cfg = _run_config("ppo", n_steps=8, batch_size=8)
+    data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+    assert data.greedy_sims, "no episodes recorded"
+
+
+# --------------------------------------------------------------------------- #
 # End-to-end training                                                          #
 # --------------------------------------------------------------------------- #
 

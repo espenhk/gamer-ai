@@ -1276,7 +1276,7 @@ lap finish and an out-of-bounds crash, distinguished only by
 ### integration/test_convergence_smoke.py — convergence regression smoke test (issue #484)
 
 **Tested.** That `train_rl()`'s `epsilon_greedy` Q-learning loop actually
-improves against the real CarRacing-v3 env, not just that it runs. 30
+improves against the real CarRacing-v3 env, not just that it runs. 45
 episodes (200 steps, ε decaying 1.0 → 0.05) must produce a best-episode
 reward above `0.0` — a conservative threshold well below CarRacing's
 published "solved" benchmark (900 reward / 100 episodes), chosen with a wide
@@ -1289,9 +1289,19 @@ from-scratch continuous-weight search (`hill_climbing` / `genetic` /
 into an "always braking" attractor that small-budget evolutionary search
 cannot reliably escape, whereas Q-learning selects directly from
 `DISCRETE_ACTIONS` (one row is plain "accelerate straight") and reliably
-learns to prefer it. Runs in ~40 s.
+learns to prefer it. Since CarRacing's observation gained track-relative
+perception features (lateral offset, heading error, progress, lookahead —
+see `games/car_racing/obs_spec.py`), the test uses a lookahead-free,
+coarser-binned `ObsSpec` (`build_car_racing_obs_spec_from_steps([])`,
+`n_bins=2` — 12 dims, 4096 states) rather than the full production spec: the
+full spec's lookahead dims push the tabular state space
+(`n_bins ** obs_dim`) well past what a few dozen episodes can visit, a known
+limitation of tabular methods at higher dimensionality (see CLAUDE.md's
+policy-selection guidance) rather than a training-loop regression. The
+trimmed spec still includes the core perception features the policy needs
+to learn to follow the track at all. Runs in ~65 s.
 
-- 30-episode ε-greedy run against real Box2D CarRacing physics: best reward across the run exceeds a conservative, empirically-margined threshold
+- 45-episode ε-greedy run (lookahead-free 12-dim ObsSpec, `n_bins=2`) against real Box2D CarRacing physics: best reward across the run exceeds a conservative, empirically-margined threshold
 
 ### integration/test_sc2.py — SC2 real-binary end-to-end tests
 
@@ -1331,4 +1341,4 @@ These tests look heavy because of the names ("training loop", "env reset", "DQN 
 
 The suite contains no tests that wait on a game tick, a network packet, or a GPU.
 
-The integration tests in `tests/integration/` are excluded from the fast unit-test run. CarRacing's env/API tests run real Box2D physics and take ~2 s; the convergence smoke test runs a real 30-episode training loop and takes ~40 s; SC2 tests launch the Blizzard headless binary and take ~1–3 minutes for test execution (the CI workflow additionally downloads the ~2 GB binary once during the setup step).
+The integration tests in `tests/integration/` are excluded from the fast unit-test run. CarRacing's env/API tests run real Box2D physics and take ~2 s; the convergence smoke test runs a real 45-episode training loop and takes ~65 s; SC2 tests launch the Blizzard headless binary and take ~1–3 minutes for test execution (the CI workflow additionally downloads the ~2 GB binary once during the setup step).

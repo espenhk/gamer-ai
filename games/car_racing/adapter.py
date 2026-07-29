@@ -54,7 +54,15 @@ class CarRacingAdapter:
     ) -> GameSpec:
         from games.car_racing.actions import DISCRETE_ACTIONS
         from games.car_racing.analytics import save_experiment_results
-        from games.car_racing.obs_spec import CAR_RACING_OBS_SPEC
+        from games.car_racing.obs_spec import build_car_racing_obs_spec_from_steps, build_lookahead_steps
+
+        # Configurable lookahead schedule (mirrors games/tmnf/adapter.py).
+        # Leaving both keys unset reproduces the legacy 3-point schedule exactly.
+        lookahead_steps = build_lookahead_steps(
+            n_lookahead_points=training_params.get("n_lookahead_points"),
+            lookahead_step_spacing=training_params.get("lookahead_step_spacing"),
+        )
+        obs_spec = build_car_racing_obs_spec_from_steps(lookahead_steps)
 
         def _make_env():
             from games.car_racing.env import make_env
@@ -62,13 +70,14 @@ class CarRacingAdapter:
             return make_env(
                 experiment_dir=experiment_dir,
                 max_episode_time_s=training_params["in_game_episode_s"],
+                lookahead_steps=lookahead_steps,
             )
 
         return GameSpec(
             experiment_name=experiment_name,
             track=self.track_label(training_params, track_override),
             make_env_fn=_make_env,
-            obs_spec=CAR_RACING_OBS_SPEC,
+            obs_spec=obs_spec,
             head_names=["steer", "accel", "brake"],
             discrete_actions=DISCRETE_ACTIONS,
             weights_file=weights_file,

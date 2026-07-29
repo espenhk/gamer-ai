@@ -58,7 +58,9 @@ No external process is required. Gymnasium manages the environment lifecycle int
 
 ## Observation space
 
-The underlying `CarRacing-v2` environment uses 96×96×3 pixel observations. This integration extracts a compact 9-feature vector instead:
+The underlying `CarRacing-v3` environment uses 96×96×3 pixel observations. This integration extracts a compact feature vector instead — car-physics features plus track-relative perception features mirroring TMNF's `obs_spec.py` (see `games/tmnf/README.md`), so the agent can anticipate upcoming curves instead of only reacting to its own physics state. The perception features are derived at runtime from `env.unwrapped.track`, the list of `(alpha, beta, x, y)` centreline checkpoints `CarRacing-v3` already builds internally.
+
+Defined in `games/car_racing/obs_spec.py`. 12 base features + 2×lookahead-points; 18 total by default (3 lookahead waypoints).
 
 | Feature | Scale | Description |
 |---|---|---|
@@ -68,6 +70,10 @@ The underlying `CarRacing-v2` environment uses 96×96×3 pixel observations. Thi
 | `steering` | 1.0 | Current steering input [−1, 1] |
 | `gas` | 1.0 | Current throttle input [0, 1] |
 | `brake` | 1.0 | Current brake input [0, 1] |
+| `lateral_offset_m` | 5.0 | Signed distance from track centreline (neg=left, pos=right) |
+| `yaw_error_rad` | π | Track heading minus car heading, [−π, π] |
+| `track_progress` | 1.0 | Fraction of the lap's centreline checkpoints passed, [0, 1] |
+| `lookahead_{step}_lat` / `lookahead_{step}_yaw` | 5.0 / π | Lateral offset / heading change at each lookahead checkpoint. Default: 3 points at checkpoint-index steps `[5, 15, 30]`. Configurable via `training_params.yaml`'s `n_lookahead_points` / `lookahead_step_spacing` (mirrors TMNF's issue #493 pattern) — see `games/car_racing/obs_spec.py::build_lookahead_steps()`. |
 
 ---
 

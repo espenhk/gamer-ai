@@ -14,3 +14,6 @@ policy_type: genetic
 policy_params:
   population_size: 20
   elite_k: 3
+
+# n_lookahead_points: 3      # override the number of lookahead waypoints in the observation
+# lookahead_step_spacing: 10 # track-checkpoint-index spacing between lookahead waypoints

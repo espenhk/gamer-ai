@@ -1376,11 +1376,10 @@ Game- and tooling-specific deps live in Poetry groups:
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
 | `atari` *(optional)* | `ale-py` (MIT-licensed Atari 2600 ROMs bundled) | Atari — `poetry install --with atari` |
 | `deep_rl` *(optional)* | `stable-baselines3`, `sb3-contrib` (pulls `torch`) | Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`) — `poetry install --with deep_rl`. Cross-platform. |
+| `car_racing` *(optional)* | `gymnasium[box2d]` (`box2d`, `swig`, `pygame`) | CarRacing — `poetry install --with car_racing`. Cross-platform; add `deep_rl` too for SAC/PPO/etc. (`--with car_racing,deep_rl`). |
 
-CarRacing needs `gymnasium[box2d]` (install separately, e.g.
-`poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install
-beamng-gym`). Both are pulled in outside the Poetry groups — see the
-respective `games/<game>/README.md`.
+BeamNG needs `beamng-gym` (`pip install beamng-gym`), pulled in outside the
+Poetry groups — see `games/beamng/README.md`.
 
 `tminterface`, `pygbx`, and `gym_torcs` are not on PyPI — install from
 source before `poetry install`. Optional groups (`sc2`, `assetto_corsa`,

@@ -107,8 +107,8 @@
   - [integration/test\_sc2.py — SC2 real-binary end-to-end tests](#integrationtest_sc2py--sc2-real-binary-end-to-end-tests)
 
 ```bash
-# CarRacing only (requires gymnasium[box2d])
-pip install gymnasium[box2d]
+# CarRacing only (requires gymnasium[box2d] — poetry install --with car_racing)
+poetry install --with car_racing
 python -m pytest tests/integration/test_car_racing.py tests/integration/test_convergence_smoke.py -m integration -v
 
 # SC2 only (requires pysc2 + Blizzard SC2 binary + maps)
@@ -1246,8 +1246,9 @@ that changed in the PR:
 - A manual ``workflow_dispatch`` run always executes **all** suites regardless
   of path changes.
 
-**Requires** `gymnasium[box2d]` (`pip install gymnasium[box2d]`).  The tests
-are skipped gracefully with `pytest.mark.skipif` when the extra is absent.
+**Requires** `gymnasium[box2d]` (`poetry install --with car_racing`).  The
+tests are skipped gracefully with `pytest.mark.skipif` when the extra is
+absent.
 
 CarRacing is the only game in this repository that can run headless on a CPU-only
 GitHub runner without an external binary or display server: it uses the

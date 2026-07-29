@@ -25,19 +25,13 @@ Gymnasium `CarRacing-v2` integration for the tmnf-ai reinforcement learning fram
 
 ### Python dependencies
 
-Install the `gymnasium[box2d]` extras (provides `box2d-py` and `pygame`):
-
 ```bash
-pip install "gymnasium[box2d]"
-# or, if adding to the project:
-poetry add "gymnasium[box2d]"
+poetry install --with car_racing
 ```
 
-Then install the rest of the project dependencies:
-
-```bash
-poetry install
-```
+This pulls in the `car_racing` optional group (`gymnasium[box2d]` — `box2d`,
+`swig`, and `pygame`). Add `deep_rl` too if you want the SAC/PPO/etc.
+policies (`poetry install --with car_racing,deep_rl`).
 
 ---
 

@@ -70,6 +70,13 @@ formatting, internal refactors with no behaviour change — can be skipped.
   learning trend, alongside the too-short 500K-step budget — see the
   updated `games/car_racing/config/gs_sac.yaml` (now `total_timesteps:
   5_000_000`, `buffer_size: 1_000_000` to match).
+- Added a `car_racing` Poetry group (`gymnasium[box2d]` — `box2d`, `swig`,
+  `pygame`) so the CarRacing extras are installed the same way as every
+  other game's deps, instead of the bare `pip install "gymnasium[box2d]"` /
+  `poetry add "gymnasium[box2d]"` previously documented outside any group.
+  `poetry install --with car_racing` (add `deep_rl` too for SAC/PPO/etc.).
+  Updated `pyproject.toml`, `poetry.lock`, `games/car_racing/README.md`,
+  `CLAUDE.md`, and `tests/README.md` accordingly.
 
 ---
 

@@ -21,11 +21,25 @@ random-initialised ``accel``/``brake`` linear heads tend to lock into an
 "always braking" attractor that small-budget evolutionary search cannot
 reliably escape, whereas discrete Q-learning selects directly from
 ``DISCRETE_ACTIONS`` (one of which is plain "accelerate straight") and
-reliably learns to prefer it within a few dozen episodes. Empirically, 30
-episodes of ε-greedy Q-learning score in the tens-to-hundreds once it starts
-exploiting, while a "never learns" control (ε permanently pinned at 1.0, i.e.
-pure random action selection) tops out around -18. The threshold below
-(``0.0``) sits with a wide margin on both sides of that split.
+reliably learns to prefer it within a few dozen episodes.
+
+CarRacing's observation now includes track-relative perception features
+(lateral offset, heading error, progress — see games/car_racing/obs_spec.py)
+in addition to car-physics features. That is real signal ``epsilon_greedy``
+needs to converge at all (a policy that cannot see the track cannot learn to
+follow it), but the *full* production observation also carries a lookahead
+schedule that pushes the tabular state space (``n_bins ** obs_dim``) well
+past what a few dozen episodes can visit — a known limitation of tabular
+methods at higher dimensionality (see the policy-selection guidance in
+CLAUDE.md). This test therefore builds a lookahead-free, coarser-binned
+ObsSpec (``build_car_racing_obs_spec_from_steps([])``, ``n_bins=2`` — 12
+dims, 4096 states) that still includes the core track-perception features,
+keeping the table tractable while still exercising real perception signal.
+Empirically this reliably scores in the tens-to-hundreds within 45 episodes
+once epsilon decays enough to exploit, while a "never learns" control (ε
+permanently pinned at 1.0, i.e. pure random action selection) tops out
+around -18. The threshold below (``0.0``) sits with a wide margin on both
+sides of that split.
 
 Marked ``integration`` (like the rest of ``tests/integration/``) so it is
 excluded from the fast unit-test suite and only runs where
@@ -61,7 +75,7 @@ _skip_no_box2d = pytest.mark.skipif(
 # exploit; a never-learns control (epsilon permanently 1.0) tops out around
 # -18. See module docstring for the full margin analysis.
 _BEST_REWARD_THRESHOLD = 0.0
-_N_EPISODES = 30
+_N_EPISODES = 45
 _MAX_EPISODE_STEPS = 200
 
 
@@ -74,19 +88,25 @@ class TestCarRacingConvergenceSmoke(unittest.TestCase):
         from framework.training import _greedy_loop_q_learning
         from games.car_racing.actions import DISCRETE_ACTIONS
         from games.car_racing.env import CarRacingEnv
-        from games.car_racing.obs_spec import CAR_RACING_OBS_SPEC
+        from games.car_racing.obs_spec import build_car_racing_obs_spec_from_steps
 
-        env = CarRacingEnv(max_episode_steps=_MAX_EPISODE_STEPS)
+        # Lookahead-free ObsSpec (12 dims: car-physics + lateral_offset_m /
+        # yaw_error_rad / track_progress) so n_bins=2 keeps the tabular state
+        # space (4096 states) visitable within _N_EPISODES. See module
+        # docstring for why the full production ObsSpec isn't tractable here.
+        obs_spec = build_car_racing_obs_spec_from_steps([])
+
+        env = CarRacingEnv(max_episode_steps=_MAX_EPISODE_STEPS, lookahead_steps=[])
         t0 = time.time()
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 weights_file = f"{tmpdir}/policy_weights.yaml"
                 policy = EpsilonGreedyPolicy(
-                    obs_spec=CAR_RACING_OBS_SPEC,
+                    obs_spec=obs_spec,
                     discrete_actions=DISCRETE_ACTIONS,
-                    n_bins=3,
+                    n_bins=2,
                     epsilon=1.0,
-                    epsilon_decay=0.85,
+                    epsilon_decay=0.88,
                     epsilon_min=0.05,
                     alpha=0.3,
                     gamma=0.95,

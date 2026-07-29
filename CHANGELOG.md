@@ -17,6 +17,18 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+### Added
+
+- CarRacing observation vector now includes track-relative perception
+  features (`lateral_offset_m`, `yaw_error_rad`, `track_progress`, and a
+  configurable lookahead schedule of upcoming curvature), mirroring TMNF's
+  `obs_spec.py` pattern. Previously the compact feature vector only
+  described the car's own physics state, with no signal about where the
+  track goes — this builds on the `CarRacingEnv._build_obs()` all-zero fix
+  from `v0.9.14` below, extending the now-real physics observation with
+  actual track perception so the agent can anticipate turns, not just react.
+  New config keys `n_lookahead_points` / `lookahead_step_spacing` in
+  `games/car_racing/config/training_params.yaml` (both optional).
 
 ---
 

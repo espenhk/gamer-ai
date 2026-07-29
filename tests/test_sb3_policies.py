@@ -151,31 +151,51 @@ def test_normalize_obs_wrapper_divides_by_scales():
     observations spanning wildly different magnitudes."""
     from framework.sb3_support import NormalizeObsWrapper
 
-    env = _DummyEnv()
     scales = np.array([1.0, 10.0, 100.0], dtype=np.float32)
-    wrapped = NormalizeObsWrapper(env, scales)
+    # Separate env instances (both deterministic: _DummyEnv.reset() always
+    # zeros the state) so raw_obs and norm_obs correspond to the same
+    # transition, rather than advancing one shared env twice.
+    raw_env = _DummyEnv()
+    wrapped = NormalizeObsWrapper(_DummyEnv(), scales)
 
-    raw_obs, _ = env.reset()
+    raw_obs, _ = raw_env.reset()
     norm_obs, _ = wrapped.reset()
     np.testing.assert_array_equal(norm_obs, raw_obs / scales)
 
     action = np.array([0.5, -0.5], dtype=np.float32)
-    raw_obs, *_ = env.step(action)
+    raw_obs, *_ = raw_env.step(action)
     norm_obs, *_ = wrapped.step(action)
     np.testing.assert_allclose(norm_obs, raw_obs / scales, atol=1e-6)
 
 
-def test_run_sb3_loop_applies_obs_spec_scale(tmp_path):
+def test_run_sb3_loop_applies_obs_spec_scale(tmp_path, monkeypatch):
     """End-to-end: passing a non-unit-scale obs_spec through train_rl() must
     actually reach the SB3 model as normalised, not raw, observations."""
+    import framework.sb3_support as sb3_support
     from framework.obs_spec import ObsDim, ObsSpec
+
+    scale = 10.0
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+    _RealNormalizeObsWrapper = sb3_support.NormalizeObsWrapper
+
+    class _SpyNormalizeObsWrapper(_RealNormalizeObsWrapper):
+        def observation(self, observation):
+            raw = np.asarray(observation, dtype=np.float32).copy()
+            norm = super().observation(observation)
+            seen.append((raw, np.asarray(norm, dtype=np.float32).copy()))
+            return norm
+
+    # run_sb3_loop references NormalizeObsWrapper as a module-level name
+    # inside framework.sb3_support, so patching the module attribute is
+    # enough to intercept every observation it wraps.
+    monkeypatch.setattr(sb3_support, "NormalizeObsWrapper", _SpyNormalizeObsWrapper)
 
     spec = _game_spec(tmp_path)
     spec = GameSpec(
         experiment_name=spec.experiment_name,
         track=spec.track,
         make_env_fn=spec.make_env_fn,
-        obs_spec=ObsSpec([ObsDim(f"f{i}", 10.0, "dummy") for i in range(_OBS_DIM)]),
+        obs_spec=ObsSpec([ObsDim(f"f{i}", scale, "dummy") for i in range(_OBS_DIM)]),
         head_names=spec.head_names,
         discrete_actions=spec.discrete_actions,
         weights_file=spec.weights_file,
@@ -185,6 +205,10 @@ def test_run_sb3_loop_applies_obs_spec_scale(tmp_path):
     cfg = _run_config("ppo", n_steps=8, batch_size=8)
     data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
     assert data.greedy_sims, "no episodes recorded"
+
+    assert seen, "NormalizeObsWrapper.observation() was never called during training"
+    for raw, norm in seen:
+        np.testing.assert_allclose(norm, raw / scale, atol=1e-6)
 
 
 # --------------------------------------------------------------------------- #

@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.14] - 2026-07-29
+
 - Fixed `games/car_racing/config/gs_sac.yaml` (issue #482 SAC validation
   run): the shipped grid config was missing `n_sims` / `in_game_episode_s`,
   so `grid_search.py` failed with `KeyError: 'n_sims'` before training could
@@ -77,7 +82,6 @@ formatting, internal refactors with no behaviour change — can be skipped.
   `poetry install --with car_racing` (add `deep_rl` too for SAC/PPO/etc.).
   Updated `pyproject.toml`, `poetry.lock`, `games/car_racing/README.md`,
   `CLAUDE.md`, and `tests/README.md` accordingly.
-
 
 ---
 

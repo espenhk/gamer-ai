@@ -228,7 +228,7 @@ class CarRacingEnv(BaseGameEnv):
 
         lateral_offset = float(np.dot(car_pos - track_point, track_right))
         yaw_error = _wrap_to_pi(track_beta - car_angle)
-        track_progress = nearest_idx / n
+        track_progress = nearest_idx / (n - 1) if n > 1 else 0.0
 
         lookahead: list[tuple[float, float]] = []
         for step in self._lookahead_steps:

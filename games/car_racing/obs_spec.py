@@ -62,7 +62,7 @@ def build_lookahead_steps(
 # ---------------------------------------------------------------------------
 
 _BASE_DIMS: list[ObsDim] = [
-    ObsDim("speed", 100.0, "Vehicle speed (normalised)"),
+    ObsDim("speed", 100.0, "Vehicle speed (raw Box2D hull velocity magnitude; policies normalise via ObsSpec.scales)"),
     ObsDim("angular_vel", 10.0, "Angular velocity of the car body"),
     ObsDim("wheel_0_ang", 300.0, "Front-left wheel angular velocity"),
     ObsDim("wheel_1_ang", 300.0, "Front-right wheel angular velocity"),

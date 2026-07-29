@@ -237,6 +237,19 @@ hook.** Fix the underlying issue instead.
 
 ---
 
+## Testing policy
+
+**Do not run the test suite (`pytest`, `poetry run pytest`, etc.) while
+writing or reviewing code.** CI runs the full suite automatically on PR
+creation (and on every push to an open PR) — running it locally too is
+duplicated work, not extra safety. Pre-commit's lint/format checks above are
+unaffected by this and should still run as normal. If a specific test's
+behavior needs to be inspected while debugging a CI failure, that's fine —
+but don't run the suite (or a broad slice of it) as a routine step of making
+a change.
+
+---
+
 ## Changelog
 
 `CHANGELOG.md` is the project's running log of user- and

@@ -45,6 +45,28 @@ def _atomic_save(save_fn: Callable[[str], None], final_path: str) -> None:
         raise
 
 
+class NormalizeObsWrapper(gym.ObservationWrapper):
+    """Divide raw observations by ``ObsSpec.scales`` before they reach SB3.
+
+    The numpy-native policies (``WeightedLinearPolicy`` and friends) each
+    divide by ``obs_spec.scales`` internally before using an observation —
+    see ``framework/policies.py``. SB3 policies bypassed that convention
+    entirely, training directly on raw env output. For games whose raw
+    features span wildly different magnitudes (e.g. CarRacing's wheel
+    angular velocity growing into the hundreds alongside a steer/gas/brake
+    triplet in [-1, 1]), that starves the actor/critic networks of a usable
+    gradient signal and shows up as a flat or noisy, non-converging reward
+    curve that looks like a training bug rather than a scaling one.
+    """
+
+    def __init__(self, env: gym.Env, scales: np.ndarray) -> None:
+        super().__init__(env)
+        self._scales = np.asarray(scales, dtype=np.float32)
+
+    def observation(self, observation: np.ndarray) -> np.ndarray:
+        return np.asarray(observation, dtype=np.float32) / self._scales
+
+
 class DiscretizeActionWrapper(gym.Wrapper):
     """Expose a ``Discrete(n)`` action space over a fixed table of actions.
 
@@ -155,6 +177,7 @@ def run_sb3_loop(
     n_sims: int,
     weights_file: str,
     training_params: dict,
+    obs_spec: Any = None,
     patience: int = 0,
     warmup_action: Any = None,
     warmup_steps: int = 0,
@@ -176,6 +199,8 @@ def run_sb3_loop(
         logger.info("[sb3] warmup (action forcing) is not applied under the SB3 loop; ignoring.")
 
     wrapped = env
+    if obs_spec is not None:
+        wrapped = NormalizeObsWrapper(wrapped, obs_spec.scales)
     if getattr(policy, "REQUIRES_DISCRETE", False):
         if policy._discrete_actions is None:
             raise ValueError(f"policy_type={policy.POLICY_TYPE!r} needs a discrete action table but none was provided.")

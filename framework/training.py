@@ -2121,6 +2121,7 @@ def train_rl(
                 n_sims=n_sims,
                 weights_file=weights_file,
                 training_params=training_params,
+                obs_spec=obs_spec,
                 patience=patience,
                 log_stats_every_n_sims=log_stats_every_n_sims,
                 **kw,

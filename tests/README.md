@@ -107,8 +107,8 @@
   - [integration/test\_sc2.py — SC2 real-binary end-to-end tests](#integrationtest_sc2py--sc2-real-binary-end-to-end-tests)
 
 ```bash
-# CarRacing only (requires gymnasium[box2d])
-pip install gymnasium[box2d]
+# CarRacing only (requires gymnasium[box2d] — poetry install --with car_racing)
+poetry install --with car_racing
 python -m pytest tests/integration/test_car_racing.py tests/integration/test_convergence_smoke.py -m integration -v
 
 # SC2 only (requires pysc2 + Blizzard SC2 binary + maps)
@@ -479,8 +479,10 @@ worker mechanics are unit-tested with a dummy env. (Convergence of the actual
 - Skipped unless `stable-baselines3` / `sb3-contrib` are installed (`poetry install --with deep_rl`)
 - `ppo`/`a2c`/`sac`/`td3`/`qr_dqn`/`recurrent_ppo` are registered with `LOOP_TYPE == "sb3"`; all gated off SC2, allowed on racing games
 - unknown `policy_params` rejected; `total_timesteps` resolution (explicit vs `n_sims × steps_per_sim`)
+- `NormalizeObsWrapper` (regression coverage for the SB3 loop training on raw, unnormalised observations — see `framework/sb3_support.py`): divides raw observations by `ObsSpec.scales`, matching the convention numpy-native policies apply internally; an end-to-end `train_rl()` run through a non-unit-scale `ObsSpec` completes without shape/wiring errors
 - end-to-end training on a dummy Gym env (continuous `a2c`/`ppo` and discrete `qr_dqn`): episodes recorded, `*_sb3_model.zip` saved, resume + predict
 - crash-safe resume (issue #483): off-policy (`sac`) run leaves `*_sb3_checkpoint.zip` + `*_sb3_replay_buffer.pkl`; on-policy (`ppo`) checkpoints the model but never writes a replay buffer; resuming loads the checkpoint and continues the cumulative `num_timesteps` count (with a non-empty restored replay buffer) instead of restarting; re-running once the `total_timesteps` target is already reached is a no-op that leaves the best-reward `*_sb3_model.zip` byte-identical (no clobber from the resumed checkpoint state); checkpoint/replay-buffer/best-model writes never leave a `.tmp` sibling behind (atomic save)
+- `--re-initialize` is ignored (with a resume instead) when a crash-safe checkpoint already exists — a checkpoint's whole purpose is being resumed after an interruption, so honoring the flag there would silently discard in-progress training on the routine relaunch that follows a crash/restart; `test_re_initialize_is_ignored_when_a_checkpoint_exists` re-runs `re_initialize=True` against an experiment dir that already has a checkpoint and asserts it still resumes (continues the cumulative timestep count, non-empty replay buffer) rather than restarting
 
 ### test_alphazero_mcts.py — AlphaZero-style model-based MCTS
 - `alphazero_mcts` registered with `LOOP_TYPE == "alphazero"`; gated off non-cloneable games, allowed on a cloneable game name
@@ -1244,8 +1246,9 @@ that changed in the PR:
 - A manual ``workflow_dispatch`` run always executes **all** suites regardless
   of path changes.
 
-**Requires** `gymnasium[box2d]` (`pip install gymnasium[box2d]`).  The tests
-are skipped gracefully with `pytest.mark.skipif` when the extra is absent.
+**Requires** `gymnasium[box2d]` (`poetry install --with car_racing`).  The
+tests are skipped gracefully with `pytest.mark.skipif` when the extra is
+absent.
 
 CarRacing is the only game in this repository that can run headless on a CPU-only
 GitHub runner without an external binary or display server: it uses the
@@ -1269,7 +1272,24 @@ config's `finish_bonus` — CarRacing-v3 sets `terminated=True` on both a real
 lap finish and an out-of-bounds crash, distinguished only by
 `info['lap_finished']`.
 
-- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
+Regression coverage: `CarRacingEnv._build_obs()` previously returned a
+constant all-zero vector from both `reset()` and `step()` — the documented
+9-feature vector (speed, angular velocity, 4 wheel angular velocities,
+steer/gas/brake) was never wired up, so every policy trained against this
+env was learning from no state information at all. Continuous-weight and
+gradient policies (`hill_climbing`, SAC, ...) degrade to noise under a
+constant observation; `test_convergence_smoke.py`'s tabular `epsilon_greedy`
+test did not catch it because binning a constant observation collapses the
+Q-table to a single state, so it still "learns" the single best action as a
+stateless bandit and clears the reward threshold regardless. Fixed by
+reading real per-step values off the Box2D `car` object
+(`car.hull.linearVelocity`/`angularVelocity`, `car.wheels[i].omega`) plus the
+last commanded action for steer/gas/brake.
+`test_obs_reflects_car_state_not_constant_zero` guards against this
+regression directly: under full throttle the `speed` feature must be
+nonzero and the `gas` feature must echo the commanded action.
+
+- basics: reset obs shape; seed repeatability; step 5-tuple; reward finite; obs shape consistent; obs reflects real car state (not a constant-zero stub); termination reason set; native_reward present; close idempotent; speed_ms present and finite; out-of-bounds termination reports crash (not finish) and doesn't grant finish_bonus
 - full episode: terminates within step limit; total reward finite; multiple resets safe
 - training loop: hill_climbing 1 sim; genetic 1 generation (pop=2); epsilon_greedy 1 episode
 

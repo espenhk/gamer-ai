@@ -139,6 +139,79 @@ def test_total_timesteps_resolution(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Observation normalisation                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_normalize_obs_wrapper_divides_by_scales():
+    """NormalizeObsWrapper must divide raw observations by ObsSpec.scales,
+    matching the convention numpy-native policies apply internally
+    (framework/policies.py: ``norm_obs = obs / self._obs_spec.scales``).
+    Regression guard for the SB3 loop training on raw, unnormalised
+    observations spanning wildly different magnitudes."""
+    from framework.sb3_support import NormalizeObsWrapper
+
+    scales = np.array([1.0, 10.0, 100.0], dtype=np.float32)
+    # Separate env instances (both deterministic: _DummyEnv.reset() always
+    # zeros the state) so raw_obs and norm_obs correspond to the same
+    # transition, rather than advancing one shared env twice.
+    raw_env = _DummyEnv()
+    wrapped = NormalizeObsWrapper(_DummyEnv(), scales)
+
+    raw_obs, _ = raw_env.reset()
+    norm_obs, _ = wrapped.reset()
+    np.testing.assert_array_equal(norm_obs, raw_obs / scales)
+
+    action = np.array([0.5, -0.5], dtype=np.float32)
+    raw_obs, *_ = raw_env.step(action)
+    norm_obs, *_ = wrapped.step(action)
+    np.testing.assert_allclose(norm_obs, raw_obs / scales, atol=1e-6)
+
+
+def test_run_sb3_loop_applies_obs_spec_scale(tmp_path, monkeypatch):
+    """End-to-end: passing a non-unit-scale obs_spec through train_rl() must
+    actually reach the SB3 model as normalised, not raw, observations."""
+    import framework.sb3_support as sb3_support
+    from framework.obs_spec import ObsDim, ObsSpec
+
+    scale = 10.0
+    seen: list[tuple[np.ndarray, np.ndarray]] = []
+    _RealNormalizeObsWrapper = sb3_support.NormalizeObsWrapper
+
+    class _SpyNormalizeObsWrapper(_RealNormalizeObsWrapper):
+        def observation(self, observation):
+            raw = np.asarray(observation, dtype=np.float32).copy()
+            norm = super().observation(observation)
+            seen.append((raw, np.asarray(norm, dtype=np.float32).copy()))
+            return norm
+
+    # run_sb3_loop references NormalizeObsWrapper as a module-level name
+    # inside framework.sb3_support, so patching the module attribute is
+    # enough to intercept every observation it wraps.
+    monkeypatch.setattr(sb3_support, "NormalizeObsWrapper", _SpyNormalizeObsWrapper)
+
+    spec = _game_spec(tmp_path)
+    spec = GameSpec(
+        experiment_name=spec.experiment_name,
+        track=spec.track,
+        make_env_fn=spec.make_env_fn,
+        obs_spec=ObsSpec([ObsDim(f"f{i}", scale, "dummy") for i in range(_OBS_DIM)]),
+        head_names=spec.head_names,
+        discrete_actions=spec.discrete_actions,
+        weights_file=spec.weights_file,
+        reward_config_file=spec.reward_config_file,
+        game_name=spec.game_name,
+    )
+    cfg = _run_config("ppo", n_steps=8, batch_size=8)
+    data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+    assert data.greedy_sims, "no episodes recorded"
+
+    assert seen, "NormalizeObsWrapper.observation() was never called during training"
+    for raw, norm in seen:
+        np.testing.assert_allclose(norm, raw / scale, atol=1e-6)
+
+
+# --------------------------------------------------------------------------- #
 # End-to-end training                                                          #
 # --------------------------------------------------------------------------- #
 
@@ -252,6 +325,38 @@ def test_resume_continues_step_count_instead_of_restarting(tmp_path):
     model = resumed_policy.build_model(_DummyEnv())
     assert model.num_timesteps >= first_target
     # Replay buffer state carried over rather than starting empty.
+    assert model.replay_buffer.size() > 0
+
+
+def test_re_initialize_is_ignored_when_a_checkpoint_exists(tmp_path):
+    """--re-initialize must not silently discard a crash-safe checkpoint.
+
+    A periodic resume checkpoint exists specifically to be resumed after an
+    interruption; re-running the same launch command (which may still carry
+    --re-initialize from the original fresh launch) must resume from it
+    rather than wipe it — the flag would otherwise contradict the
+    checkpoint's own purpose. Regression test for exactly this incident.
+    """
+    spec = _game_spec(tmp_path)
+    first_target = 64
+    cfg = _run_config("sac", learning_starts=8, buffer_size=200, batch_size=8, train_freq=1)
+    cfg.policy_params["total_timesteps"] = first_target
+    data = train_rl(spec, cfg, no_interrupt=True, re_initialize=True)
+    assert data.greedy_sims
+
+    # Re-running with re_initialize=True again (as if the launch command was
+    # copy-pasted verbatim to resume after a crash) must still resume.
+    resumed_policy = POLICY_REGISTRY["sac"].make(
+        obs_spec=spec.obs_spec,
+        head_names=spec.head_names,
+        discrete_actions=spec.discrete_actions,
+        weights_file=spec.weights_file,
+        policy_params={"learning_starts": 8, "buffer_size": 200, "batch_size": 8, "train_freq": 1},
+        re_initialize=True,
+    )
+    assert resumed_policy._resume is True
+    model = resumed_policy.build_model(_DummyEnv())
+    assert model.num_timesteps >= first_target
     assert model.replay_buffer.size() > 0
 
 

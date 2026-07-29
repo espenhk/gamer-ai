@@ -70,6 +70,17 @@ optional = true
 stable-baselines3 = ">=2.0"
 sb3-contrib = ">=2.0"
 
+[tool.poetry.group.car_racing]
+# Optional, cross-platform. Pulls in gymnasium's box2d extra (box2d, the
+# swig build tool it needs, and pygame) for the CarRacing-v3 integration.
+# Kept optional so non-CarRacing setups don't build the Box2D C++ wheel.
+# Install with: poetry install --with car_racing
+# (add deep_rl too for the SAC/PPO/etc. policies: --with car_racing,deep_rl)
+optional = true
+
+[tool.poetry.group.car_racing.dependencies]
+gymnasium = { version = ">=0.29", extras = ["box2d"] }
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

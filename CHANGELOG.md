@@ -24,12 +24,76 @@ formatting, internal refactors with no behaviour change — can be skipped.
   configurable lookahead schedule of upcoming curvature), mirroring TMNF's
   `obs_spec.py` pattern. Previously the compact feature vector only
   described the car's own physics state, with no signal about where the
-  track goes, and `CarRacingEnv._build_obs()` always returned zeros —
-  both are now fixed so the agent can perceive and anticipate turns.
+  track goes — this builds on the `CarRacingEnv._build_obs()` all-zero fix
+  from `v0.9.14` below, extending the now-real physics observation with
+  actual track perception so the agent can anticipate turns, not just react.
   New config keys `n_lookahead_points` / `lookahead_step_spacing` in
   `games/car_racing/config/training_params.yaml` (both optional).
 
+---
 
+## [0.9.14] - 2026-07-29
+
+- Fixed `games/car_racing/config/gs_sac.yaml` (issue #482 SAC validation
+  run): the shipped grid config was missing `n_sims` / `in_game_episode_s`,
+  so `grid_search.py` failed with `KeyError: 'n_sims'` before training could
+  start. Added the same defaults used by the other `gs_*.yaml` templates.
+- **Fixed a severe bug in `CarRacingEnv`: `reset()`/`step()` always returned
+  a constant all-zero observation vector.** `_build_obs()` was an unwired
+  stub — the documented 9-feature observation (speed, angular velocity, 4
+  wheel angular velocities, steer/gas/brake) was never actually computed, so
+  every CarRacing policy (including the #482 SAC validation run) was
+  training completely blind to the car's state. This explains why a 500K-
+  timestep SAC run showed no learning trend at all (mean reward flat at
+  ~-124 across the entire run). Now reads real per-step values off the
+  Box2D `car` object. Added
+  `test_obs_reflects_car_state_not_constant_zero` (integration) to guard
+  against this regressing silently again — the existing convergence-smoke
+  test didn't catch it because tabular Q-learning over a constant,
+  binned observation degrades to a stateless bandit and can still clear the
+  reward threshold.
+- **Fixed SB3 policies (`ppo`, `sac`, `td3`, `a2c`, `qr_dqn`,
+  `recurrent_ppo`) training on raw, unnormalised observations.** The
+  numpy-native policies (`WeightedLinearPolicy` and friends) each divide by
+  `ObsSpec.scales` before using an observation; the SB3 loop
+  (`framework/sb3_support.py::run_sb3_loop`) never applied that same
+  convention, so SB3 policies saw features spanning wildly different raw
+  magnitudes (e.g. CarRacing's wheel angular velocity growing into the
+  hundreds alongside a steer/gas/brake triplet in [-1, 1]) — a classic cause
+  of unstable, noisy, non-converging learning that looks like a training bug
+  rather than a scaling one. Added `NormalizeObsWrapper`, applied generically
+  via the `obs_spec` already threaded through `run_sb3_loop`, so this fixes
+  every game/SB3-policy combination, not just CarRacing — including the
+  TMNF long-horizon SAC run (issue #489) that shares the same code path.
+- **Fixed `--re-initialize` silently discarding an SB3 crash-safe checkpoint
+  on resume.** A `*_sb3_checkpoint.zip` exists specifically to be resumed
+  after an interruption; `_construct_or_resume()` previously honored
+  `--re-initialize` even when one existed, wiping it — a logical
+  contradiction, since re-running the same launch command after a
+  crash/restart (which may still carry `--re-initialize` from the original
+  fresh launch) would silently restart training from zero instead of
+  resuming. `--re-initialize` is now ignored (with a logged warning) when a
+  checkpoint exists; delete the checkpoint/replay-buffer files directly to
+  genuinely discard one. Added
+  `test_re_initialize_is_ignored_when_a_checkpoint_exists`.
+- Fixed CarRacing's wheel angular-velocity observation scale
+  (`games/car_racing/obs_spec.py`, `wheel_N_ang`): `100.0` badly
+  undershoots the real range — empirically, full-throttle driving reaches
+  wheel angular velocity ~300, so the "normalised" feature was actually
+  landing around 3x its intended unit scale rather than the ~1x every other
+  feature gets, working against gradient-based policies (SAC) that assume
+  roughly comparable feature magnitudes. Raised to `300.0`. Contributed to
+  (but was not the primary cause of) the #482 SAC validation run's weak
+  learning trend, alongside the too-short 500K-step budget — see the
+  updated `games/car_racing/config/gs_sac.yaml` (now `total_timesteps:
+  5_000_000`, `buffer_size: 1_000_000` to match).
+- Added a `car_racing` Poetry group (`gymnasium[box2d]` — `box2d`, `swig`,
+  `pygame`) so the CarRacing extras are installed the same way as every
+  other game's deps, instead of the bare `pip install "gymnasium[box2d]"` /
+  `poetry add "gymnasium[box2d]"` previously documented outside any group.
+  `poetry install --with car_racing` (add `deep_rl` too for SAC/PPO/etc.).
+  Updated `pyproject.toml`, `poetry.lock`, `games/car_racing/README.md`,
+  `CLAUDE.md`, and `tests/README.md` accordingly.
 
 ---
 

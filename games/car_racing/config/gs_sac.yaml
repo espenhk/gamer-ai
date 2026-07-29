@@ -6,18 +6,26 @@
 # shared training loop actually converges on a known, externally-benchmarked
 # task before investing more compute in TMNF/SC2 (see issue #482). CarRacing
 # needs no external game binary and has a published "solved" threshold:
-# average reward >= 900 over 100 consecutive episodes. Community PPO runs
-# typically reach ~800 by ~400K timesteps without extra tuning; SAC's
-# off-policy sample efficiency should match or beat that within the same
-# step budget.
+# average reward >= 900 over 100 consecutive episodes.
 #
 # Budget
 # ------
-# total_timesteps: 500_000 gives headroom past the ~400K PPO reference point.
-# buffer_size=200_000 is smaller than total_timesteps, so the replay buffer
-# does evict older transitions once the run passes 200K steps (a rolling
-# window over the most recent experience, standard SAC practice — not a
-# bug); learning_starts=5_000 is a short warmup given ~1_000 steps/episode.
+# A first pass at total_timesteps=500_000 (buffer_size=200_000) trained
+# cleanly once two real wiring bugs were fixed (CarRacingEnv returning an
+# all-zero observation; SB3 policies never normalising raw observations by
+# ObsSpec.scales — see CHANGELOG) but only reached mean reward ~-116 over
+# its last 50 episodes: a genuine, if modest, improving trend, well short of
+# "solved". The "~800 by ~400K" figure this file used to cite is for
+# community PPO runs on CarRacing's *default pixel observation* with a CNN
+# policy — not a fair comparison against SAC over this integration's compact
+# 9-feature vector, so it was dropped as misleading. 500 episodes is a short
+# horizon for continuous-control SAC from scratch; total_timesteps=5_000_000
+# (5_000 episodes) is a more realistic budget. buffer_size is raised to
+# 1_000_000 to match (200_000 would only retain the most recent 4% of a 5M
+# run — SB3-zoo-style continuous-control configs commonly use ~1e6);
+# checkpoint_freq is raised to 50_000 to keep checkpoint I/O overhead down
+# over the longer run. learning_starts=5_000 is still a short warmup given
+# ~1_000 steps/episode.
 #
 # Usage:
 #   python grid_search.py games/car_racing/config/gs_sac.yaml --game car_racing
@@ -26,16 +34,19 @@ base_name: "sac_validation"
 game: car_racing
 
 training_params:
+  n_sims: 5000
+  in_game_episode_s: 20.0
   policy_type: sac
 
   policy_params:
-    total_timesteps: 500000
-    buffer_size: 200000
+    total_timesteps: 5000000
+    buffer_size: 1000000
     batch_size: 256
     learning_starts: 5000
     train_freq: 1
     tau: 0.005
     gamma: 0.99
+    checkpoint_freq: 50000
 
 reward_params:
   native_reward_scale: 1.0

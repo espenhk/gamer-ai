@@ -163,12 +163,34 @@ class _SB3Policy(BasePolicy):
         # lag well behind the crash point on a long off-policy run.
         checkpoint_path = _checkpoint_zip_path(weights_file)
         best_path = _model_zip_path(weights_file)
-        if os.path.exists(checkpoint_path):
+        has_checkpoint = os.path.exists(checkpoint_path)
+        if has_checkpoint:
             resume_path = checkpoint_path
         elif os.path.exists(best_path):
             resume_path = best_path
         else:
             resume_path = None
+
+        # A crash-safe checkpoint exists specifically to be resumed after an
+        # interruption — that's its entire purpose, distinct from the
+        # best-reward "champion" snapshot every other policy's re_initialize
+        # discards on purpose. Honouring re_initialize here would silently
+        # throw away in-progress training on the routine relaunch that
+        # follows any crash/restart (issue: --re-initialize logically
+        # contradicts resuming a checkpoint that exists precisely to be
+        # resumed). If you genuinely want to discard it, delete the
+        # `*_sb3_checkpoint.zip` / `*_sb3_replay_buffer.pkl` files (or the
+        # whole experiment directory) rather than relying on this flag.
+        if re_initialize and has_checkpoint:
+            logger.warning(
+                "[%s] --re-initialize requested but a crash-safe checkpoint exists at %s; "
+                "resuming from it instead. Delete the checkpoint (and replay buffer) files "
+                "manually if you actually want to discard this run's progress.",
+                cls.__name__,
+                checkpoint_path,
+            )
+            re_initialize = False
+
         obj._resume = bool(resume_path and not re_initialize)
         obj._resume_path = resume_path if obj._resume else None
         if obj._resume:

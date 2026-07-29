@@ -222,6 +222,10 @@ backend.conf
 # big data files
 experiment_data.json
 
+# Per-experiment results (see CLAUDE.md — experiments/ is documented as
+# git-ignored, but the entry was missing from this file).
+experiments/
+
 # graphify knowledge graph — keep durable outputs, ignore generated/temp files
 graphify-out/obsidian/
 graphify-out/cache/

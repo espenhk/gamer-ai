@@ -118,6 +118,25 @@ class TestCarRacingEnvBasics(unittest.TestCase):
             if terminated or truncated:
                 break
 
+    def test_obs_reflects_car_state_not_constant_zero(self):
+        """obs must track real car state (speed, wheel spin, controls), not a
+        stub all-zero vector — a full-throttle run must show a rising speed
+        feature and non-zero wheel angular velocities within a few steps."""
+        from games.car_racing.obs_spec import OBS_NAMES
+
+        self.env.reset(seed=0)
+        action = np.array([0.0, 1.0, 0.0], dtype=np.float32)  # straight, full gas
+        obs = None
+        for _ in range(20):
+            obs, _, terminated, truncated, _ = self.env.step(action)
+            if terminated or truncated:
+                break
+        speed_idx = OBS_NAMES.index("speed")
+        gas_idx = OBS_NAMES.index("gas")
+        self.assertGreater(obs[speed_idx], 0.0, "speed feature stayed zero under full throttle")
+        self.assertEqual(obs[gas_idx], 1.0, "gas feature does not reflect the commanded action")
+        self.assertTrue(np.any(obs != 0.0), "obs vector is all-zero — observation wiring is a stub")
+
     def test_info_has_termination_reason_after_truncation(self):
         """Episode truncated by step limit sets info['termination_reason']."""
         env = _make_env(max_episode_steps=3)

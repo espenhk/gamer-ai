@@ -25,19 +25,13 @@ Gymnasium `CarRacing-v2` integration for the tmnf-ai reinforcement learning fram
 
 ### Python dependencies
 
-Install the `gymnasium[box2d]` extras (provides `box2d-py` and `pygame`):
-
 ```bash
-pip install "gymnasium[box2d]"
-# or, if adding to the project:
-poetry add "gymnasium[box2d]"
+poetry install --with car_racing
 ```
 
-Then install the rest of the project dependencies:
-
-```bash
-poetry install
-```
+This pulls in the `car_racing` optional group (`gymnasium[box2d]` — `box2d`,
+`swig`, and `pygame`). Add `deep_rl` too if you want the SAC/PPO/etc.
+policies (`poetry install --with car_racing,deep_rl`).
 
 ---
 
@@ -66,7 +60,7 @@ Defined in `games/car_racing/obs_spec.py`. 12 base features + 2×lookahead-point
 |---|---|---|
 | `speed` | 100.0 | Vehicle speed |
 | `angular_vel` | 10.0 | Rotational velocity |
-| `wheel_0_ang`–`wheel_3_ang` | 100.0 | Wheel angular velocities |
+| `wheel_0_ang`–`wheel_3_ang` | 300.0 | Wheel angular velocities |
 | `steering` | 1.0 | Current steering input [−1, 1] |
 | `gas` | 1.0 | Current throttle input [0, 1] |
 | `brake` | 1.0 | Current brake input [0, 1] |

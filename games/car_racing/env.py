@@ -111,7 +111,7 @@ class CarRacingEnv(BaseGameEnv):
 
         self._step_count: int = 0
         self._prev_info: dict = {}
-        self._last_action: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._last_action: np.ndarray = np.zeros(3, dtype=np.float32)
         # Cached centreline, resolved on reset() from env.unwrapped.track:
         # (alpha, beta, x, y) per checkpoint -> track_beta (heading) / track_xy (position).
         self._track_beta: np.ndarray | None = None
@@ -128,7 +128,7 @@ class CarRacingEnv(BaseGameEnv):
         _raw_obs, info = self._env.reset(seed=seed, options=options)
         self._step_count = 0
         self._prev_info = info
-        self._last_action = (0.0, 0.0, 0.0)
+        self._last_action = np.zeros(3, dtype=np.float32)
         self._reward_calc.reset()
 
         track = np.array(self._env.unwrapped.track, dtype=np.float64)
@@ -148,11 +148,10 @@ class CarRacingEnv(BaseGameEnv):
             dtype=np.float32,
         )
 
-        self._last_action = (float(action[0]), float(action[1]), float(action[2]))
-
         _raw_obs, native_reward, terminated, truncated, info = self._env.step(car_action)
 
         self._step_count += 1
+        self._last_action = car_action
 
         info["native_reward"] = float(native_reward)
         car = self._env.unwrapped.car
@@ -183,12 +182,14 @@ class CarRacingEnv(BaseGameEnv):
         self._env.close()
 
     def _build_obs(self) -> np.ndarray:
+        # Raw (unnormalised) feature vector — matches games/car_racing/obs_spec.py's
+        # ordering; policies divide by ObsSpec.scales themselves.
         car = self._env.unwrapped.car
         vx, vy = car.hull.linearVelocity
         speed = float(np.hypot(vx, vy))
         angular_vel = float(car.hull.angularVelocity)
         wheel_ang = [float(w.omega) for w in car.wheels]
-        steer, gas, brake = self._last_action
+        steer, gas, brake = (float(v) for v in self._last_action)
 
         car_x, car_y = car.hull.position
         car_pos = np.array([car_x, car_y], dtype=np.float64)

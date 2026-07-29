@@ -237,6 +237,19 @@ hook.** Fix the underlying issue instead.
 
 ---
 
+## Testing policy
+
+**Do not run the test suite (`pytest`, `poetry run pytest`, etc.) while
+writing or reviewing code.** CI runs the full suite automatically on PR
+creation (and on every push to an open PR) — running it locally too is
+duplicated work, not extra safety. Pre-commit's lint/format checks above are
+unaffected by this and should still run as normal. If a specific test's
+behavior needs to be inspected while debugging a CI failure, that's fine —
+but don't run the suite (or a broad slice of it) as a routine step of making
+a change.
+
+---
+
 ## Changelog
 
 `CHANGELOG.md` is the project's running log of user- and
@@ -405,8 +418,17 @@ resume, `_SB3Policy.build_model()` loads the checkpoint (falling back to the
 best-reward snapshot if no checkpoint exists yet) and the replay buffer if
 present, and `run_sb3_loop` computes `remaining = target_total_timesteps -
 model.num_timesteps` so training stops at the same absolute target regardless
-of how many times the process crashed and resumed. `--re-initialize` ignores
-both files and starts fresh, as with any other policy.
+of how many times the process crashed and resumed. **`--re-initialize` is
+ignored when a `*_sb3_checkpoint.zip` exists** — a checkpoint exists
+specifically to be resumed after an interruption, so honoring the flag there
+would silently discard in-progress training on the routine relaunch that
+follows any crash/restart (a logical contradiction between "resume this
+checkpoint" and "start fresh"). A warning is logged when this happens. With
+no checkpoint present, `--re-initialize` still discards the best-reward
+`*_sb3_model.zip` and starts fresh, as with any other policy. To genuinely
+discard an existing checkpoint (e.g. after a code change invalidates it),
+delete `*_sb3_checkpoint.zip` / `*_sb3_replay_buffer.pkl` (or the whole
+experiment directory) rather than relying on `--re-initialize`.
 
 `alphazero_mcts` is gated off every current game (`compatible_with` returns
 `False` for TMNF/SC2/TORCS/CarRacing/BeamNG/Assetto/Rocket League/iRacing)
@@ -1367,11 +1389,10 @@ Game- and tooling-specific deps live in Poetry groups:
 | `assetto_corsa` *(optional)* | `assetto-corsa-rl` | Assetto Corsa — `poetry install --with assetto_corsa` |
 | `atari` *(optional)* | `ale-py` (MIT-licensed Atari 2600 ROMs bundled) | Atari — `poetry install --with atari` |
 | `deep_rl` *(optional)* | `stable-baselines3`, `sb3-contrib` (pulls `torch`) | Gradient deep-RL policies (`ppo`, `a2c`, `sac`, `td3`, `qr_dqn`, `recurrent_ppo`) — `poetry install --with deep_rl`. Cross-platform. |
+| `car_racing` *(optional)* | `gymnasium[box2d]` (`box2d`, `swig`, `pygame`) | CarRacing — `poetry install --with car_racing`. Cross-platform; add `deep_rl` too for SAC/PPO/etc. (`--with car_racing,deep_rl`). |
 
-CarRacing needs `gymnasium[box2d]` (install separately, e.g.
-`poetry add "gymnasium[box2d]"`); BeamNG needs `beamng-gym` (`pip install
-beamng-gym`). Both are pulled in outside the Poetry groups — see the
-respective `games/<game>/README.md`.
+BeamNG needs `beamng-gym` (`pip install beamng-gym`), pulled in outside the
+Poetry groups — see `games/beamng/README.md`.
 
 `tminterface`, `pygbx`, and `gym_torcs` are not on PyPI — install from
 source before `poetry install`. Optional groups (`sc2`, `assetto_corsa`,

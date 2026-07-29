@@ -17,6 +17,11 @@ formatting, internal refactors with no behaviour change — can be skipped.
 
 ## [Unreleased]
 
+
+---
+
+## [0.9.15] - 2026-07-29
+
 ### Added
 
 - CarRacing observation vector now includes track-relative perception
